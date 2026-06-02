@@ -232,4 +232,26 @@ const handleSeeOriginal = () => {
 [dir='rtl'] .letter-render [dir='ltr'] {
   direction: inherit;
 }
+
+// Force a light, readable canvas for rendered HTML emails.
+// Most marketing/transactional emails (Gmail security alerts, Google account
+// notices, newsletters, etc.) hardcode dark-on-light styles. In Chatwoot's
+// dark theme those collapse to dark-on-dark and become unreadable.
+// Wrapping the rendered .letter content in a white background + dark default
+// text restores the email's intended light context regardless of app theme.
+.letter-render {
+  background-color: #ffffff;
+  color: #1f2937; // tailwind slate-800 — readable default for unstyled spans
+  padding: 12px 14px;
+  border-radius: 6px;
+  // Don't let the email override its own outer container.
+  // Inner elements with their own colors (links, etc.) still win.
+  a {
+    color: #2563eb; // blue-600 fallback for links lacking explicit color
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+}
 </style>

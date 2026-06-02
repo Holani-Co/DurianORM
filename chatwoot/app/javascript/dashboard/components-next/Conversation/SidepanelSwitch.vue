@@ -56,23 +56,17 @@ useKeyboardEvents(keyboardEvents);
 </script>
 
 <template>
+  <!--
+    The Contact toggle that used to live here has moved into the
+    ConversationHeader as ToggleContactPanelButton (top-right).
+    We only render this floating switcher now when there's still
+    something to show on it (the Copilot button, when CAPTAIN is enabled).
+  -->
   <ButtonGroup
+    v-if="showCopilotTab"
     class="flex flex-col justify-center items-center absolute top-36 xl:top-24 ltr:right-2 rtl:left-2 bg-n-solid-2/90 backdrop-blur-lg border border-n-weak/50 rounded-full gap-1.5 p-1.5 shadow-sm transition-shadow duration-200 hover:shadow !z-20"
   >
     <Button
-      v-tooltip.top="$t('CONVERSATION.SIDEBAR.CONTACT')"
-      ghost
-      slate
-      sm
-      class="!rounded-full transition-all duration-[250ms] ease-out active:!scale-95 active:!brightness-105 active:duration-75"
-      :class="{
-        'bg-n-alpha-2 active:shadow-sm': isContactSidebarOpen,
-      }"
-      icon="i-ph-user-bold"
-      @click="handleConversationSidebarToggle"
-    />
-    <Button
-      v-if="showCopilotTab"
       v-tooltip.bottom="$t('CONVERSATION.SIDEBAR.COPILOT')"
       ghost
       slate

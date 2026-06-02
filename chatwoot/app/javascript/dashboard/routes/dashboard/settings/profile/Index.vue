@@ -167,9 +167,25 @@ export default {
 
       await this.dispatchUpdate(payload, successMessage, errorMessage);
     },
-    updateProfilePicture({ file, url }) {
+    async updateProfilePicture({ file, url }) {
+      // Show the just-picked image immediately as a local preview
       this.avatarFile = file;
       this.avatarUrl = url;
+
+      // Auto-save so the new avatar persists and shows up everywhere
+      // (sidebar, top-right menu, conversations) without needing the user
+      // to click the "Update User Details" save button.
+      await this.dispatchUpdate(
+        { avatar: file },
+        this.$t('PROFILE_SETTINGS.AVATAR_UPDATE_SUCCESS') ||
+          this.$t('PROFILE_SETTINGS.UPDATE_SUCCESS'),
+        this.$t('PROFILE_SETTINGS.AVATAR_UPDATE_FAILED') ||
+          this.$t('RESET_PASSWORD.API.ERROR_MESSAGE')
+      );
+      // After the server returns the saved user, re-sync the displayed URL
+      // to the server's avatar_url (replaces the temporary blob URL).
+      this.avatarUrl = this.currentUser.avatar_url || this.avatarUrl;
+      this.avatarFile = '';
     },
     async deleteProfilePicture() {
       try {

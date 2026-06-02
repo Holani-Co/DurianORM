@@ -871,6 +871,26 @@ const menuItems = computed(() => {
         class="absolute top-0 h-full w-px ltr:right-0 rtl:left-0 bg-transparent group-hover:bg-n-brand transition-colors"
         :class="{ 'bg-n-brand': isResizing }"
       />
+      <!-- Always-visible collapse / expand toggle anchored to the edge -->
+      <button
+        type="button"
+        v-tooltip.right="
+          isEffectivelyCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+        "
+        class="hidden md:flex absolute top-1/2 -translate-y-1/2 ltr:-right-3 rtl:-left-3 z-50 w-7 h-7 items-center justify-center rounded-full bg-n-solid-2 border border-n-weak shadow text-n-slate-11 hover:text-n-slate-12 hover:bg-n-alpha-2 transition-colors cursor-pointer"
+        :aria-label="
+          isEffectivelyCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+        "
+        @mousedown.stop
+        @click.stop="onResizeHandleDoubleClick"
+      >
+        <span
+          :class="[
+            'i-lucide-chevron-left text-base transition-transform',
+            { 'rotate-180': isEffectivelyCollapsed },
+          ]"
+        />
+      </button>
     </div>
   </aside>
 </template>
