@@ -65,3 +65,74 @@ REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEA
 REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
 REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
 REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "4"))
+
+
+# ── Spam-classifier safeguards ────────────────────────────────────────────
+# Defaults are conservative — the system biases toward NEVER losing a real
+# customer (false-positives cost more than false-negatives).
+
+def _csv(name: str, default: str = "") -> set[str]:
+    raw = os.environ.get(name, default).strip()
+    if not raw:
+        return set()
+    return {p.strip().lower() for p in raw.split(",") if p.strip()}
+
+
+# Inbox NAMES (lowercase, comma-separated) that bypass the classifier
+# entirely. Sensitive inboxes where a mis-classification would cost real
+# money (legal, complaints, escalations, abuse reports).
+NEVER_SPAM_INBOXES = _csv(
+    "NEVER_SPAM_INBOXES",
+    "legal-notices,complaints,abuse-reports,escalations",
+)
+
+# Minimum classifier confidence (1-10) required to AUTO-SNOOZE a spam
+# conversation. Below this, the message gets the "spam" label but stays in
+# the open queue so an agent can verify. Default 8 = high bar.
+SPAM_CONFIDENCE_THRESHOLD = int(os.environ.get("SPAM_CONFIDENCE_THRESHOLD", "8"))
+
+# Prior NON-spam conversations a sender needs for the LOW-confidence-spam
+# tiebreaker to downgrade their message to 'promotional' instead of
+# leaving it labeled spam. NOT a bypass — high-confidence spam from a
+# known sender still gets snoozed (compromised-account scenario).
+WHITELIST_MIN_PRIOR_CONVERSATIONS = int(
+    os.environ.get("WHITELIST_MIN_PRIOR_CONVERSATIONS", "1")
+)
+
+# Existing conversation ID to drop the spam-review digest into. Leave 0 to
+# disable digest delivery (you can still hit /spam-digest manually).
+SPAM_DIGEST_INBOX_ID = int(os.environ.get("SPAM_DIGEST_INBOX_ID", "0") or 0)
+
+
+# ── Priority-based SLA / auto-escalation ──────────────────────────────────
+# When an agent flags a conversation 'urgent' or 'high', the bridge listens
+# on Chatwoot's `conversation_updated` webhook and creates a Zoho Desk
+# ticket with a dueDate computed from PRIORITY_SLA_HOURS.
+
+def _parse_sla_map(raw: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for pair in (raw or "").split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        k, _, v = pair.partition(":")
+        try:
+            out[k.strip().lower()] = int(v.strip())
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+_DEFAULT_SLA = {"urgent": 1, "high": 4, "medium": 12, "low": 24}
+PRIORITY_SLA_HOURS = {**_DEFAULT_SLA, **_parse_sla_map(os.environ.get("PRIORITY_SLA_HOURS", ""))}
+
+# Priority levels that auto-escalate to Zoho on conversation_updated.
+PRIORITY_ESCALATION_LEVELS = _csv("PRIORITY_ESCALATION_LEVELS", "urgent,high")
+
+
+# ── Per-team Zoho-escalation rules (Option D) ─────────────────────────────
+# Defines WHICH team-routed conversations should auto-create a Zoho Desk
+# ticket. The keyword lists are tuned for IComics/Kisnemanga's escalation
+# criteria. Edit the dicts in main.py if you want to override per team.
+# (Kept in code for clarity — only a dev should tune these.)
+HIGH_PRIORITY_LEVELS = {"high", "urgent"}
