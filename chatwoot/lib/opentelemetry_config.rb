@@ -35,15 +35,23 @@ module OpentelemetryConfig
       @initialized = true
     end
 
+    # Prefer the ENV value (deployment source of truth) and fall back to the
+    # DB-configured value (super-admin UI). ENV takes precedence because
+    # ConfigLoader seeds installation_config.yml defaults (e.g. a US
+    # LANGFUSE_BASE_URL) into the DB, which would otherwise override the
+    # operator's .env and cause host/credential mismatches.
+    def config_value(name)
+      ENV.fetch(name, nil).presence || InstallationConfig.find_by(name: name)&.value.presence
+    end
+
     def langfuse_provider?
-      otel_provider = InstallationConfig.find_by(name: 'OTEL_PROVIDER')&.value
-      otel_provider == 'langfuse'
+      config_value('OTEL_PROVIDER') == 'langfuse'
     end
 
     def langfuse_credentials_present?
-      endpoint = InstallationConfig.find_by(name: 'LANGFUSE_BASE_URL')&.value
-      public_key = InstallationConfig.find_by(name: 'LANGFUSE_PUBLIC_KEY')&.value
-      secret_key = InstallationConfig.find_by(name: 'LANGFUSE_SECRET_KEY')&.value
+      endpoint = config_value('LANGFUSE_BASE_URL')
+      public_key = config_value('LANGFUSE_PUBLIC_KEY')
+      secret_key = config_value('LANGFUSE_SECRET_KEY')
 
       if endpoint.blank? || public_key.blank? || secret_key.blank?
         Rails.logger.error 'OpenTelemetry disabled (LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY is missing)'
@@ -55,9 +63,9 @@ module OpentelemetryConfig
 
     def langfuse_credentials
       {
-        endpoint: InstallationConfig.find_by(name: 'LANGFUSE_BASE_URL')&.value,
-        public_key: InstallationConfig.find_by(name: 'LANGFUSE_PUBLIC_KEY')&.value,
-        secret_key: InstallationConfig.find_by(name: 'LANGFUSE_SECRET_KEY')&.value
+        endpoint: config_value('LANGFUSE_BASE_URL'),
+        public_key: config_value('LANGFUSE_PUBLIC_KEY'),
+        secret_key: config_value('LANGFUSE_SECRET_KEY')
       }
     end
 

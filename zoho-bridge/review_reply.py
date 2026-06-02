@@ -7,9 +7,8 @@
 # The decision combines a hard star gate with the model's own judgement,
 # mirroring the Instagram-comment bot's HANDOFF convention.
 
-import httpx
-
 import config
+from llm_client import client
 
 SYSTEM_PROMPT = """\
 You are the brand voice of Durian, an Indian premium furniture retailer,
@@ -47,25 +46,22 @@ async def draft(stars: int, comment: str, reviewer: str, location_title: str):
     )
 
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.OPENAI_API_KEY}",
-                    "Content-Type":  "application/json",
-                },
-                json={
-                    "model":       config.OPENAI_MODEL,
-                    "temperature": 0.4,
-                    "max_tokens":  160,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": user_msg},
-                    ],
-                },
-            )
-            r.raise_for_status()
-            text = r.json()["choices"][0]["message"]["content"].strip()
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0.4,
+            max_tokens=160,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            name="review-reply",
+            metadata={
+                "stars": stars,
+                "location": location_title,
+                "langfuse_tags": ["review_reply"],
+            },
+        )
+        text = r.choices[0].message.content.strip()
     except Exception as e:
         print(f"[review_reply] ERROR ({type(e).__name__}): {e} — handing off")
         return ("", "handoff")

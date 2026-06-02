@@ -10,7 +10,10 @@
 #   # Assign to each inbox you want covered:
 #   InboxAgentBot.find_or_create_by!(inbox: Inbox.find(<id>)).update!(agent_bot: bot, active: true)
 #
+# rubocop:disable Metrics/ClassLength
 class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
+  include Integrations::LlmInstrumentation
+
   pattr_initialize [:event_name!, :hook!, :event_data!]
 
   MENU_OPTIONS = [
@@ -99,22 +102,59 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     end
 
     model = Llm::Config.configured_model
+    result = generate_ai_response(credential, model, user_content)
 
-    Llm::Config.with_api_key(credential[:api_key]) do |ctx|
-      chat = ctx.chat(model: model)
-      chat.with_instructions(system_prompt)
-      replay_history(chat)
-      response = chat.ask(user_content)
-      content = response.content.to_s.strip
-      # Escalate if the AI signals it can't help
-      return :handoff if should_escalate?(content)
+    content = result[:message].to_s.strip
+    # Escalate if the AI signals it can't help
+    return :handoff if should_escalate?(content)
 
-      { content: content }
-    end
+    { content: content }
   rescue StandardError => e
     Rails.logger.error("DmBot AI error: #{e.message}")
     send_failure_message(event_data[:message])
     :handoff
+  end
+
+  # Runs the LLM turn inside a Langfuse generation span. Returns a hash shaped
+  # like the other LLM services ({ message:, usage: }) so the shared
+  # instrumentation helpers capture the completion content and token usage.
+  def generate_ai_response(credential, model, user_content)
+    instrument_llm_call(ai_instrumentation_params(model, user_content)) do
+      Llm::Config.with_api_key(credential[:api_key]) do |ctx|
+        chat = ctx.chat(model: model)
+        chat.with_instructions(system_prompt)
+        replay_history(chat)
+        response = chat.ask(user_content)
+        {
+          message: response.content,
+          usage: {
+            'prompt_tokens' => response.input_tokens,
+            'completion_tokens' => response.output_tokens,
+            'total_tokens' => (response.input_tokens || 0) + (response.output_tokens || 0)
+          }
+        }
+      end
+    end
+  end
+
+  def ai_instrumentation_params(model, user_content)
+    conversation = event_data[:message].conversation
+    {
+      span_name: 'llm.dm_bot_reply',
+      account_id: conversation.account_id,
+      conversation_id: conversation.display_id,
+      feature_name: 'dm_bot',
+      model: model,
+      messages: [
+        { role: 'system', content: system_prompt },
+        { role: 'user', content: user_content }
+      ],
+      temperature: nil,
+      metadata: {
+        channel_type: conversation.inbox&.channel_type,
+        is_comment: comment_conversation?
+      }.compact
+    }
   end
 
   # Replay prior turns so the LLM has conversation context (last 10 messages).
@@ -237,3 +277,4 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     { api_key: key }
   end
 end
+# rubocop:enable Metrics/ClassLength

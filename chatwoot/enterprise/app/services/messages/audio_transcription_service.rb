@@ -75,23 +75,25 @@ class Messages::AudioTranscriptionService< Llm::LegacyBaseOpenAiService
     transcribed_text = nil
 
     File.open(temp_file_path, 'rb') do |file|
-      # temperature: 0.0 minimises Whisper's hallucinations on silence /
-      # near-silent audio; non-zero values trigger spiraling repeats like
-      # "Oh, dear. Oh, dear. Oh, dear." — well-documented Whisper behaviour.
-      response = @client.audio.transcribe(
-        parameters: {
-          model: WHISPER_MODEL,
-          file: file,
-          temperature: 0.0
-        }
-      )
-      transcribed_text = response['text']
+      transcribed_text = instrument_audio_transcription(instrumentation_params(temp_file_path)) do
+        request_transcription(file)
+      end
     end
 
     update_transcription(transcribed_text)
     transcribed_text
   ensure
     FileUtils.rm_f(temp_file_path) if temp_file_path.present?
+  end
+
+  def request_transcription(file)
+    # temperature: 0.0 minimises Whisper's hallucinations on silence /
+    # near-silent audio; non-zero values trigger spiraling repeats like
+    # "Oh, dear. Oh, dear. Oh, dear." — well-documented Whisper behaviour.
+    response = @client.audio.transcribe(
+      parameters: { model: WHISPER_MODEL, file: file, temperature: 0.0 }
+    )
+    response['text']
   end
 
   def instrumentation_params(file_path)

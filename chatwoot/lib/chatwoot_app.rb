@@ -48,8 +48,8 @@ module ChatwootApp
   end
 
   def self.otel_enabled?
-    otel_provider = InstallationConfig.find_by(name: 'OTEL_PROVIDER')&.value
-    secret_key = InstallationConfig.find_by(name: 'LANGFUSE_SECRET_KEY')&.value
+    otel_provider = ENV.fetch('OTEL_PROVIDER', nil).presence || InstallationConfig.find_by(name: 'OTEL_PROVIDER')&.value
+    secret_key = ENV.fetch('LANGFUSE_SECRET_KEY', nil).presence || InstallationConfig.find_by(name: 'LANGFUSE_SECRET_KEY')&.value
 
     otel_provider.present? && secret_key.present? && otel_provider == 'langfuse'
   end

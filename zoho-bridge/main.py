@@ -12,6 +12,7 @@ import hmac
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from langfuse import get_client
 
 import config
 import chatwoot
@@ -28,6 +29,13 @@ app = FastAPI()
 async def _start_reviews_poller():
     # Boot-safe: run_forever() no-ops if Google isn't configured yet.
     asyncio.create_task(reviews_poller.run_forever())
+
+
+@app.on_event("shutdown")
+async def _flush_langfuse():
+    # Langfuse batches trace exports in the background; flush on shutdown so
+    # in-flight generations aren't lost when the worker exits.
+    get_client().flush()
 
 
 # ── Webhook signature (optional) ──────────────────────────────────────────

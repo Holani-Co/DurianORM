@@ -1,9 +1,8 @@
 # OpenAI-backed team classifier. One LLM call → one team name.
 # Falls back to 'support' on any error so a model hiccup never blocks routing.
 
-import httpx
-
 import config
+from llm_client import client
 
 VALID_TEAMS = {"legal", "marketing", "hr", "support"}
 
@@ -30,28 +29,24 @@ async def classify(message_content: str, inbox_name: str = "") -> str:
     user_msg = f"[Inbox: {inbox_name}]\n{message_content}" if inbox_name else message_content
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.OPENAI_API_KEY}",
-                    "Content-Type":  "application/json",
-                },
-                json={
-                    "model":       config.OPENAI_MODEL,
-                    "temperature": 0,
-                    "max_tokens":  5,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": user_msg},
-                    ],
-                },
-            )
-            r.raise_for_status()
-            raw = r.json()["choices"][0]["message"]["content"].strip().lower()
-            # Strip trailing punctuation just in case
-            raw = raw.rstrip(".!?,;:")
-            return raw if raw in VALID_TEAMS else "support"
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=5,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            name="team-classification",
+            metadata={
+                "inbox": inbox_name or "unknown",
+                "langfuse_tags": ["classifier"],
+            },
+        )
+        raw = r.choices[0].message.content.strip().lower()
+        # Strip trailing punctuation just in case
+        raw = raw.rstrip(".!?,;:")
+        return raw if raw in VALID_TEAMS else "support"
     except Exception as e:
         print(f"[classifier] ERROR ({type(e).__name__}): {e} — falling back to 'support'")
         return "support"
