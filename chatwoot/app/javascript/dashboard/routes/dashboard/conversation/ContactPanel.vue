@@ -24,6 +24,7 @@ import ShopifyOrdersList from 'dashboard/components/widgets/conversation/Shopify
 import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader.vue';
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
+import ZohoTicketPanel from './ZohoTicketPanel.vue';
 
 const props = defineProps({
   conversationId: {
@@ -138,6 +139,19 @@ onMounted(() => {
       @close="closeContactPanel"
     />
     <ContactInfo :contact="contact" :channel-type="channelType" />
+    <!-- Zoho Desk ticket panel: populated by the zoho-bridge sidecar when it
+         creates a ticket (manual bot handoff or auto-routed Legal). The bridge
+         writes additional_attributes.zoho_ticket on the conversation. -->
+    <div class="px-2 pt-2">
+      <AccordionItem
+        :title="'Zoho Desk'"
+        :is-open="isContactSidebarItemOpen('is_zoho_ticket_open')"
+        compact
+        @toggle="value => toggleSidebarUIState('is_zoho_ticket_open', value)"
+      >
+        <ZohoTicketPanel :ticket="conversationAdditionalAttributes.zoho_ticket" />
+      </AccordionItem>
+    </div>
     <div class="px-2 pb-8 list-group">
       <Draggable
         :list="conversationSidebarItems"

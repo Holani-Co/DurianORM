@@ -48,16 +48,67 @@ def _verify_signature(signature: Optional[str], timestamp: Optional[str], body: 
 # ── Handler: bot handoff → Zoho ticket ────────────────────────────────────
 async def handle_status_changed(data: dict) -> dict:
     conv       = data.get("conversation") or data
+    conv_id    = conv.get("id") or data.get("id")
     new_status = (conv.get("status") or data.get("status") or "").lower()
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
     try:
         ticket = await zoho.create_ticket(data)
+        await _surface_ticket_in_chatwoot(conv_id, ticket, source="manual_handoff")
         return {"created": True, "ticket_id": ticket.get("id"),
                 "ticket_number": ticket.get("ticketNumber")}
     except Exception as e:
         print(f"[handoff] ERROR creating Zoho ticket: {e}")
         return {"created": False, "error": str(e)}
+
+
+# ── Helper: visible bubble + sidebar pane data after ticket creation ──────
+async def _surface_ticket_in_chatwoot(conv_id, ticket: dict, source: str) -> None:
+    """After a Zoho ticket is created, do two things in Chatwoot:
+      1. Post a private note ('🎫 Zoho Desk ticket #X created') so agents see a
+         bubble inline in the conversation.
+      2. Merge the ticket metadata into conversation.additional_attributes so
+         the Chatwoot dashboard's sidebar can render a 'Zoho Ticket' panel.
+    Both are best-effort and never raise (a ticket was created either way).
+    """
+    if not conv_id:
+        return
+    ticket_id     = ticket.get("id")
+    ticket_number = ticket.get("ticketNumber") or ticket.get("ticket_number")
+    web_url       = ticket.get("webUrl") or (
+        f"{config.ZOHO_DESK_URL}/agent/tickets/details/{ticket_id}"
+        if ticket_id else None
+    )
+
+    label_source = {
+        "manual_handoff":  "manual handoff",
+        "auto_legal":      "auto-routed (Legal)",
+    }.get(source, source or "")
+    label_source = f" ({label_source})" if label_source else ""
+
+    note = "🎫 **Zoho Desk ticket created**"
+    if ticket_number:
+        note += f" — [#{ticket_number}]({web_url})" if web_url else f" — #{ticket_number}"
+    elif ticket_id:
+        note += f" — [{ticket_id}]({web_url})" if web_url else f" — {ticket_id}"
+    note += label_source
+
+    try:
+        await chatwoot.post_private_note(conv_id, note)
+    except Exception as e:
+        print(f"[zoho] post_private_note failed for conv {conv_id}: {e}")
+
+    try:
+        await chatwoot.merge_additional_attributes(conv_id, {
+            "zoho_ticket": {
+                "id":         ticket_id,
+                "number":     ticket_number,
+                "url":        web_url,
+                "source":     source,
+            }
+        })
+    except Exception as e:
+        print(f"[zoho] merge_additional_attributes failed for conv {conv_id}: {e}")
 
 
 # ── Handler: first incoming message → classify + assign team ──────────────
@@ -113,6 +164,7 @@ async def handle_message_created(data: dict) -> dict:
             ticket = await zoho.create_ticket(data)
             zoho_ticket = ticket.get("id")
             print(f"[zoho] legal ticket created: {zoho_ticket}")
+            await _surface_ticket_in_chatwoot(conv_id, ticket, source="auto_legal")
         except Exception as e:
             print(f"[zoho] ERROR creating legal ticket for conv {conv_id}: {e}")
 

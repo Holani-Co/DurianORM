@@ -132,3 +132,47 @@ async def toggle_status(conversation_id: int, status: str) -> dict:
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot toggle_status failed [{r.status_code}]: {r.text}")
         return r.json()
+
+
+# ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk
+#    tickets visible in the Chatwoot dashboard after creation) ────────────
+async def post_private_note(conversation_id: int, content: str) -> dict:
+    """Add a private (agent-only) note to the conversation.
+    Used to surface Zoho ticket creation as a visible bubble in the chat thread."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"),
+            headers=_headers(),
+            json={"content": content, "message_type": "outgoing", "private": True},
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot post_private_note failed [{r.status_code}]: {r.text}"
+            )
+        return r.json()
+
+
+async def merge_additional_attributes(conversation_id: int, attrs: dict) -> dict:
+    """Merge keys into the conversation's `additional_attributes` JSONB column.
+    Used by the bridge to store Zoho ticket metadata so the Chatwoot dashboard
+    can render a 'Zoho Ticket' panel in the sidebar."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        # Chatwoot's PATCH /conversations/:id replaces additional_attributes,
+        # so we read-modify-write: fetch current, merge, send back.
+        r = await client.get(_conv_url(conversation_id), headers=_headers())
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot get conversation failed [{r.status_code}]: {r.text}"
+            )
+        current = (r.json() or {}).get("additional_attributes") or {}
+        merged = {**current, **attrs}
+        r2 = await client.patch(
+            _conv_url(conversation_id),
+            headers=_headers(),
+            json={"additional_attributes": merged},
+        )
+        if r2.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot patch additional_attributes failed [{r2.status_code}]: {r2.text}"
+            )
+        return r2.json()
