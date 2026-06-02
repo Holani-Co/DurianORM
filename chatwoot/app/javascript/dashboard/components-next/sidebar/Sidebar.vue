@@ -144,7 +144,11 @@ const onResizeEnd = () => {
   }
 };
 
-const onResizeHandleDoubleClick = () => {
+// Toggle the sidebar between collapsed and expanded. Safe to call from any
+// gesture (single click on the chevron button, double-click on the resize
+// handle, keyboard shortcut, etc.) — no debounce, no double-click-specific
+// logic. Named generically so call sites read clearly.
+const toggleCollapsed = () => {
   if (isCollapsed.value) snapToExpanded();
   else snapToCollapsed();
 };
@@ -865,7 +869,7 @@ const menuItems = computed(() => {
       class="hidden md:block absolute top-0 h-full w-1 cursor-col-resize z-40 ltr:right-0 rtl:left-0 group"
       @mousedown="onResizeStart"
       @touchstart="onResizeStart"
-      @dblclick="onResizeHandleDoubleClick"
+      @dblclick="toggleCollapsed"
     >
       <div
         class="absolute top-0 h-full w-px ltr:right-0 rtl:left-0 bg-transparent group-hover:bg-n-brand transition-colors"
@@ -882,7 +886,7 @@ const menuItems = computed(() => {
           isEffectivelyCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
         "
         @mousedown.stop
-        @click.stop="onResizeHandleDoubleClick"
+        @click.stop="toggleCollapsed"
       >
         <span
           :class="[

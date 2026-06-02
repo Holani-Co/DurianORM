@@ -175,12 +175,16 @@ export default {
       // Auto-save so the new avatar persists and shows up everywhere
       // (sidebar, top-right menu, conversations) without needing the user
       // to click the "Update User Details" save button.
+      //
+      // Note: vue-i18n's $t() returns the key string itself when the key is
+      // missing, which is always truthy — so the previous `|| fallback` idiom
+      // didn't actually fall back. Reuse the existing PROFILE_SETTINGS keys
+      // here; if we want avatar-specific strings later, add them to the i18n
+      // files first.
       await this.dispatchUpdate(
         { avatar: file },
-        this.$t('PROFILE_SETTINGS.AVATAR_UPDATE_SUCCESS') ||
-          this.$t('PROFILE_SETTINGS.UPDATE_SUCCESS'),
-        this.$t('PROFILE_SETTINGS.AVATAR_UPDATE_FAILED') ||
-          this.$t('RESET_PASSWORD.API.ERROR_MESSAGE')
+        this.$t('PROFILE_SETTINGS.UPDATE_SUCCESS'),
+        this.$t('RESET_PASSWORD.API.ERROR_MESSAGE')
       );
       // After the server returns the saved user, re-sync the displayed URL
       // to the server's avatar_url (replaces the temporary blob URL).

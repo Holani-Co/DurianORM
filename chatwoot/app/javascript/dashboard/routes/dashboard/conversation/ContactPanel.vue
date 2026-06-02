@@ -25,6 +25,7 @@ import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
+import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 
 const props = defineProps({
   conversationId: {
@@ -87,6 +88,12 @@ const currentConversationMetaData = computed(() =>
 const conversationAdditionalAttributes = computed(
   () => currentConversationMetaData.value.additional_attributes || {}
 );
+// custom_attributes is the writable, user-facing JSON store on a conversation
+// (additional_attributes is system-only: browser, referer, etc.). The zoho
+// bridge writes the Zoho ticket card here so the sidebar panel can render it.
+const conversationCustomAttributes = computed(
+  () => currentChat.value?.custom_attributes || {}
+);
 
 const channelType = computed(() => currentChat.value.meta?.channel);
 
@@ -141,15 +148,35 @@ onMounted(() => {
     <ContactInfo :contact="contact" :channel-type="channelType" />
     <!-- Zoho Desk ticket panel: populated by the zoho-bridge sidecar when it
          creates a ticket (manual bot handoff or auto-routed Legal). The bridge
-         writes additional_attributes.zoho_ticket on the conversation. -->
+         writes custom_attributes.zoho_ticket on the conversation. -->
     <div class="px-2 pt-2">
       <AccordionItem
-        :title="'Zoho Desk'"
+        title="Zoho Desk"
         :is-open="isContactSidebarItemOpen('is_zoho_ticket_open')"
         compact
         @toggle="value => toggleSidebarUIState('is_zoho_ticket_open', value)"
       >
-        <ZohoTicketPanel :ticket="conversationAdditionalAttributes.zoho_ticket" />
+        <ZohoTicketPanel :ticket="conversationCustomAttributes.zoho_ticket" />
+      </AccordionItem>
+    </div>
+    <!-- Related Tickets panel: hints from Zoho's search of past tickets that
+         match this conversation's subject. Helps agents spot duplicate /
+         already-reported issues at a glance. -->
+    <div
+      v-if="(conversationCustomAttributes.related_tickets || []).length"
+      class="px-2 pt-2"
+    >
+      <AccordionItem
+        title="Related Tickets"
+        :is-open="isContactSidebarItemOpen('is_related_tickets_open')"
+        compact
+        @toggle="
+          value => toggleSidebarUIState('is_related_tickets_open', value)
+        "
+      >
+        <RelatedTicketsPanel
+          :tickets="conversationCustomAttributes.related_tickets"
+        />
       </AccordionItem>
     </div>
     <div class="px-2 pb-8 list-group">

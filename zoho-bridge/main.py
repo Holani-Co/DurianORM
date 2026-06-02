@@ -63,7 +63,9 @@ async def handle_status_changed(data: dict) -> dict:
 
 
 # ── Helper: visible bubble + sidebar pane data after ticket creation ──────
-async def _surface_ticket_in_chatwoot(conv_id, ticket: dict, source: str) -> None:
+async def _surface_ticket_in_chatwoot(
+    conv_id: Optional[int], ticket: dict, source: str
+) -> None:
     """After a Zoho ticket is created, do two things in Chatwoot:
       1. Post a private note ('🎫 Zoho Desk ticket #X created') so agents see a
          bubble inline in the conversation.

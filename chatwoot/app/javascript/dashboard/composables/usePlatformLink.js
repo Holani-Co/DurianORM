@@ -43,6 +43,13 @@ export const usePlatformLink = () => {
     () => currentChat.value?.additional_attributes?.type || null
   );
 
+  // Phone numbers used in wa.me and sms: links MUST include a country code
+  // (E.164-style, without the leading +). Chatwoot stores `contact.phone_number`
+  // as the agent typed it on contact creation — there's no enforcement of
+  // country-code presence, so a locally-formatted number like "(555) 123-4567"
+  // here would yield a malformed wa.me/5551234567 link. Upstream callers
+  // should validate phone shape; this composable just normalises whitespace
+  // and punctuation. Returns digits only.
   const stripPhone = phone => (phone || '').replace(/[^\d]/g, '');
 
   const platform = computed(() => {
