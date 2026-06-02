@@ -233,22 +233,45 @@ const handleSeeOriginal = () => {
   direction: inherit;
 }
 
-// Force a light, readable canvas for rendered HTML emails.
-// Most marketing/transactional emails (Gmail security alerts, Google account
-// notices, newsletters, etc.) hardcode dark-on-light styles. In Chatwoot's
-// dark theme those collapse to dark-on-dark and become unreadable.
-// Wrapping the rendered .letter content in a white background + dark default
-// text restores the email's intended light context regardless of app theme.
+// Render HTML email content with its intended light-mode contrast.
+//
+// Why: emails (Gmail security alerts, newsletters, password-reset notices,
+// etc.) are universally authored against a white canvas. In Chatwoot's dark
+// theme the email's own dark-text styles collapse to dark-on-dark and become
+// unreadable (e.g. screenshot in PR description).
+//
+// How:
+//   * `color-scheme: light` tells the browser to render this subtree's UA
+//     defaults (form controls, scrollbar, link visited state, etc.) as if
+//     it were a light theme — the W3C-recommended way to opt one region
+//     out of dark mode. Ref: https://web.dev/articles/color-scheme
+//   * The explicit bg + text colour pair give unstyled spans a known
+//     contrast — `color-scheme` alone doesn't paint the background.
+//   * `:where(...)` keeps the link colour at specificity 0, so any email
+//     that sets its own link colour (inline or via class) still wins.
+//   * Theme tokens (`@apply rounded-md`) keep design consistency where
+//     possible, but the bg/text colours are intentionally raw hex — they
+//     must stay light regardless of the app's active theme.
+//
+// Considered alternatives:
+//   * Rendering inside a sandboxed <iframe srcdoc=...>: perfect isolation
+//     but complicates resize, click-through, in-content search, and the
+//     vue-letter sanitiser already neuters scripts/styles for us.
+//   * Theme-aware background (e.g. `n-slate-1` in dark, transparent in
+//     light): emails would still render in the app's theme — same bug,
+//     just less severe in dark mode.
 .letter-render {
+  color-scheme: light;
   background-color: #ffffff;
-  color: #1f2937; // tailwind slate-800 — readable default for unstyled spans
-  padding: 12px 14px;
-  border-radius: 6px;
-  // Don't let the email override its own outer container.
-  // Inner elements with their own colors (links, etc.) still win.
-  a {
-    color: #2563eb; // blue-600 fallback for links lacking explicit color
+  color: #1f2937; // slate-800 — readable default for unstyled text
+  @apply rounded-md;
+  padding: 0.75rem 0.875rem;
+
+  // Default blue for links the email didn't style itself.
+  a:where(:not([style*='color'])) {
+    color: #2563eb; // blue-600
   }
+
   img {
     max-width: 100%;
     height: auto;
