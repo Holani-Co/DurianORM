@@ -132,3 +132,57 @@ async def toggle_status(conversation_id: int, status: str) -> dict:
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot toggle_status failed [{r.status_code}]: {r.text}")
         return r.json()
+
+
+# ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk
+#    tickets visible in the Chatwoot dashboard after creation) ────────────
+async def post_private_note(conversation_id: int, content: str) -> dict:
+    """Add a private (agent-only) note to the conversation.
+    Used to surface Zoho ticket creation as a visible bubble in the chat thread."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"),
+            headers=_headers(),
+            json={"content": content, "message_type": "outgoing", "private": True},
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot post_private_note failed [{r.status_code}]: {r.text}"
+            )
+        return r.json()
+
+
+async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
+    """Merge keys into the conversation's `custom_attributes` JSONB column via
+    Chatwoot's dedicated endpoint. (Note: `additional_attributes` is system-
+    only — browser/referer/etc. — and silently ignores writes from the API,
+    which is why we use `custom_attributes` for our Zoho ticket metadata.)
+
+    Read-modify-write so we don't clobber other custom_attributes set on the
+    conversation.
+
+    Concurrency caveat: this is NOT atomic. Two concurrent ticket creations
+    on the same conversation could race and the later one wins, dropping
+    the earlier one's keys. Safe under the current single-process bridge
+    architecture (FastAPI handles webhooks serially per event), but if the
+    bridge is ever scaled out to multiple workers / replicas this would
+    need a lock (Redis SETNX or DB-level optimistic update). Same caveat
+    applies to merge_additional_attributes if/when that's resurrected."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(_conv_url(conversation_id), headers=_headers())
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot get conversation failed [{r.status_code}]: {r.text}"
+            )
+        current = (r.json() or {}).get("custom_attributes") or {}
+        merged = {**current, **attrs}
+        r2 = await client.post(
+            _conv_url(conversation_id, "/custom_attributes"),
+            headers=_headers(),
+            json={"custom_attributes": merged},
+        )
+        if r2.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot post custom_attributes failed [{r2.status_code}]: {r2.text}"
+            )
+        return r2.json()

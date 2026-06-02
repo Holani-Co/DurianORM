@@ -6,6 +6,8 @@ import { useElementSize } from '@vueuse/core';
 import BackButton from '../BackButton.vue';
 import InboxName from '../InboxName.vue';
 import MoreActions from './MoreActions.vue';
+import OpenInPlatformButton from './OpenInPlatformButton.vue';
+import ToggleContactPanelButton from './ToggleContactPanelButton.vue';
 import Avatar from 'next/avatar/Avatar.vue';
 import SLACardLabel from './components/SLACardLabel.vue';
 import wootConstants from 'dashboard/constants/globals';
@@ -172,6 +174,8 @@ const copyConversationId = async () => {
         :parent-width="width"
         class="hidden md:flex"
       />
+      <OpenInPlatformButton />
+      <ToggleContactPanelButton />
       <MoreActions :conversation-id="currentChat.id" />
     </div>
   </div>
