@@ -6,6 +6,7 @@
 # Each handler is self-contained; add more by writing a function and wiring
 # it in the dispatcher at the bottom.
 
+import asyncio
 import hashlib
 import hmac
 from typing import Optional
@@ -16,8 +17,17 @@ import config
 import chatwoot
 import classifier
 import zoho
+import google_reviews as gr
+import reviews_poller
+import reviews_state
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+async def _start_reviews_poller():
+    # Boot-safe: run_forever() no-ops if Google isn't configured yet.
+    asyncio.create_task(reviews_poller.run_forever())
 
 
 # ── Webhook signature (optional) ──────────────────────────────────────────
@@ -54,6 +64,10 @@ async def handle_status_changed(data: dict) -> dict:
 async def handle_message_created(data: dict) -> dict:
     msg_type = data.get("message_type")
     print(f"[msg] message_type={msg_type!r}")
+
+    # Outgoing on the reviews inbox = an agent's public reply → post to Google.
+    if msg_type in (1, "outgoing"):
+        return await handle_review_reply(data)
 
     # Only act on incoming messages (message_type: 0 in Chatwoot)
     if msg_type not in (0, "incoming"):
@@ -103,6 +117,38 @@ async def handle_message_created(data: dict) -> dict:
             print(f"[zoho] ERROR creating legal ticket for conv {conv_id}: {e}")
 
     return {"classified": team_key, "assigned_team_id": team_id, "zoho_ticket_id": zoho_ticket}
+
+
+# ── Handler: agent reply on a review → post to Google ──────────────────────
+async def handle_review_reply(data: dict) -> dict:
+    # Only reviews inbox; skip private notes and our own auto-replies.
+    inbox_id = (data.get("inbox") or {}).get("id")
+    if not config.REVIEWS_INBOX_ID or inbox_id != config.REVIEWS_INBOX_ID:
+        return {"ignored": True, "reason": "not_reviews_inbox"}
+    if data.get("private"):
+        return {"ignored": True, "reason": "private_note"}
+    if (data.get("content_attributes") or {}).get("source") == reviews_poller.AUTO_MARKER["source"]:
+        return {"ignored": True, "reason": "auto_reply_already_posted"}
+
+    conv = data.get("conversation") or {}
+    conv_id = conv.get("id")
+    content = (data.get("content") or "").strip()
+    if not conv_id or not content:
+        return {"ignored": True, "reason": "no_conv_or_content"}
+
+    # Prefer the stored mapping; fall back to the conversation's custom attribute.
+    reply_path = reviews_state.reply_path_for_conversation(conv_id) \
+        or (conv.get("custom_attributes") or {}).get("review_path")
+    if not reply_path:
+        return {"ignored": True, "reason": "no_review_path"}
+
+    try:
+        await gr.post_reply(reply_path, content)
+        print(f"[reviews] posted human reply for conv {conv_id}")
+        return {"posted": True, "conversation_id": conv_id}
+    except Exception as e:
+        print(f"[reviews] ERROR posting human reply for conv {conv_id}: {e}")
+        return {"posted": False, "error": str(e)}
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────

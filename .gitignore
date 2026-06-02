@@ -1,3 +1,8 @@
 .env
 __pycache__/
 chatwoot/.git.bak
+.DS_Store
+dump.rdb
+zoho-bridge/reviews_state.db
+zoho-bridge/reviews_state.db-journal
+docs/

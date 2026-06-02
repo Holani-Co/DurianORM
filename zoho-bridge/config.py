@@ -40,3 +40,28 @@ TEAM_IDS = {
     "hr":        int(_required("TEAM_ID_HR")),
     "support":   int(_required("TEAM_ID_SUPPORT")),
 }
+
+
+# ── Google Reviews (OPTIONAL) ──────────────────────────────────────────────
+# All optional so the service still boots before GBP API access is granted.
+# Set GOOGLE_REVIEWS_ENABLED=true once you have credentials + the inbox.
+def _bool(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes")
+
+
+GOOGLE_REVIEWS_ENABLED = _bool("GOOGLE_REVIEWS_ENABLED")
+GOOGLE_CLIENT_ID       = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET   = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REFRESH_TOKEN   = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+GOOGLE_TOKEN_URL       = os.environ.get("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+# Optional: pin a single GBP account id (e.g. "accounts/123"); blank = auto-discover all.
+GBP_ACCOUNT_ID         = os.environ.get("GBP_ACCOUNT_ID", "")
+
+# Chatwoot API-channel inbox that holds reviews (create it once — see setup guide).
+REVIEWS_INBOX_ID       = int(os.environ.get("REVIEWS_INBOX_ID", "0") or 0)
+# Team to route handed-off (negative) reviews to. Defaults to the support team.
+REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEAM_IDS.get("support", 0)
+
+REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
+REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
+REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "4"))

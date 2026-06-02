@@ -1,1 +1,0 @@
-give me solutionns/do the work while burning less token since i'm low on usage left.
