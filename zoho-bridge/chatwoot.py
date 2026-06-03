@@ -122,16 +122,109 @@ async def create_message(conversation_id: int, content: str,
         return r.json()
 
 
-async def toggle_status(conversation_id: int, status: str) -> dict:
-    """status ∈ {open, resolved, pending}."""
+async def toggle_status(conversation_id: int, status: str,
+                        snoozed_until: str | None = None) -> dict:
+    """status ∈ {open, resolved, pending, snoozed}.
+
+    When status='snoozed', Chatwoot moves the conversation to the Snoozed
+    tab (separate from Resolved — so spam doesn't pollute Resolved-tab
+    reports). `snoozed_until` controls auto-reopen:
+      None  → snooze until the customer next replies (best for spam)
+      ISO ts → snooze until that timestamp
+    """
+    payload: dict = {"status": status}
+    if status == "snoozed":
+        payload["snoozed_until"] = snoozed_until
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
             _conv_url(conversation_id, "/toggle_status"),
-            headers=_headers(), json={"status": status},
+            headers=_headers(), json=payload,
         )
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot toggle_status failed [{r.status_code}]: {r.text}")
         return r.json()
+
+
+async def get_contact_conversations(contact_id: int) -> list[dict]:
+    """Return the list of conversations belonging to a contact. Used by the
+    spam classifier as a tiebreaker for low-confidence verdicts — a contact
+    with prior non-spam conversations is more likely to be a real customer.
+
+    Returns empty list on any failure (best-effort: better to over-classify
+    than to crash the webhook)."""
+    if not contact_id:
+        return []
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            _acct_url(f"/contacts/{contact_id}/conversations"),
+            headers=_headers(),
+        )
+        if r.status_code >= 300:
+            print(
+                f"[chatwoot] get_contact_conversations({contact_id}) non-200 "
+                f"[{r.status_code}]: {r.text[:200]}"
+            )
+            return []
+        body = r.json()
+        if isinstance(body, list):
+            return body
+        return body.get("payload") or body.get("data") or []
+
+
+async def search_snoozed_spam_since(since_iso: str = "") -> list[dict]:
+    """Return SNOOZED conversations carrying a 'spam' label, used by the
+    /spam-digest endpoint to build the daily review summary.
+
+    `since_iso` is applied as a CLIENT-SIDE filter on each conversation's
+    `last_activity_at`. Chatwoot's GET /conversations does not document a
+    server-side `updated_within` filter, and earlier review feedback flagged
+    that passing it as a query param was a silent no-op. We post-filter
+    here so the digest stays bounded by time even on long-lived accounts.
+    """
+    since_ts: float = 0.0
+    if since_iso:
+        try:
+            # Accept both `2026-06-03T07:00:00Z` and `+00:00` shapes.
+            from datetime import datetime as _dt
+            since_ts = _dt.fromisoformat(
+                since_iso.replace("Z", "+00:00")
+            ).timestamp()
+        except (ValueError, TypeError):
+            since_ts = 0.0
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            _acct_url("/conversations"),
+            headers=_headers(),
+            params={"status": "snoozed", "labels": "spam"},
+        )
+        if r.status_code >= 300:
+            print(
+                f"[chatwoot] search_snoozed_spam non-200 [{r.status_code}]: "
+                f"{r.text[:200]}"
+            )
+            return []
+        body = r.json()
+        payload = body.get("data") or body
+        if isinstance(payload, dict):
+            payload = payload.get("payload") or []
+
+        out = []
+        for c in payload:
+            labels = {(l or "").lower() for l in (c.get("labels") or [])}
+            if "spam" not in labels:
+                continue
+            if since_ts:
+                # last_activity_at is a unix epoch number in Chatwoot
+                last_ts = c.get("last_activity_at") or 0
+                try:
+                    last_ts = float(last_ts)
+                except (TypeError, ValueError):
+                    last_ts = 0
+                if last_ts < since_ts:
+                    continue
+            out.append(c)
+        return out
 
 
 # ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk
@@ -154,20 +247,9 @@ async def post_private_note(conversation_id: int, content: str) -> dict:
 
 async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
     """Merge keys into the conversation's `custom_attributes` JSONB column via
-    Chatwoot's dedicated endpoint. (Note: `additional_attributes` is system-
-    only — browser/referer/etc. — and silently ignores writes from the API,
-    which is why we use `custom_attributes` for our Zoho ticket metadata.)
-
-    Read-modify-write so we don't clobber other custom_attributes set on the
-    conversation.
-
-    Concurrency caveat: this is NOT atomic. Two concurrent ticket creations
-    on the same conversation could race and the later one wins, dropping
-    the earlier one's keys. Safe under the current single-process bridge
-    architecture (FastAPI handles webhooks serially per event), but if the
-    bridge is ever scaled out to multiple workers / replicas this would
-    need a lock (Redis SETNX or DB-level optimistic update). Same caveat
-    applies to merge_additional_attributes if/when that's resurrected."""
+    Chatwoot's dedicated endpoint. Read-modify-write — concurrency caveat:
+    not atomic. Safe under the current single-bridge architecture (FastAPI
+    handles webhooks serially per event); revisit if scaled out."""
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(_conv_url(conversation_id), headers=_headers())
         if r.status_code >= 300:
@@ -186,3 +268,5 @@ async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
                 f"Chatwoot post custom_attributes failed [{r2.status_code}]: {r2.text}"
             )
         return r2.json()
+
+

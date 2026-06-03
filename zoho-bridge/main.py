@@ -1,17 +1,26 @@
-# Chatwoot webhook receiver. Two responsibilities, two handlers:
+# Chatwoot webhook receiver. Handlers (one per event type):
 #
-#   1. message_created (first incoming)         → classify + assign team
-#   2. conversation_status_changed (→ "open")   → create Zoho Desk ticket
+#   1. message_created (first incoming)         → spam pipeline + classify
+#                                                 + team-route + Option-D
+#                                                 Zoho escalation
+#   2. conversation_status_changed (→ "open")   → manual bot handoff →
+#                                                 Zoho ticket
+#   3. conversation_updated                     → priority flagged high /
+#                                                 urgent → Zoho ticket with
+#                                                 SLA dueDate
+#   4. message_created (outgoing on reviews)    → post agent reply back to
+#                                                 Google Business Profile
 #
-# Each handler is self-contained; add more by writing a function and wiring
-# it in the dispatcher at the bottom.
+# Each handler is self-contained; add more by writing a function and
+# wiring it in the dispatcher at the bottom.
 
 import asyncio
 import hashlib
 import hmac
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from langfuse import get_client
 
 import config
@@ -25,6 +34,12 @@ import reviews_state
 app = FastAPI()
 
 
+def _now_iso() -> str:
+    """UTC timestamp in ISO 8601, suitable for logging and persisting on
+    Chatwoot custom_attributes."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 @app.on_event("startup")
 async def _start_reviews_poller():
     # Boot-safe: run_forever() no-ops if Google isn't configured yet.
@@ -36,6 +51,67 @@ async def _flush_langfuse():
     # Langfuse batches trace exports in the background; flush on shutdown so
     # in-flight generations aren't lost when the worker exits.
     get_client().flush()
+
+
+# ── Option-D Zoho-Desk escalation decision ────────────────────────────────
+# Decides whether an auto-classified, team-routed message ALSO creates a
+# Zoho Desk ticket. Three signals (in priority order):
+#
+#   1. UNIVERSAL HIGH-PRIORITY OVERRIDE — any conversation flagged high/urgent
+#      always escalates, regardless of team or content.
+#   2. LEGAL TEAM ALWAYS — anything classified to the legal team escalates
+#      (compliance / audit trail).
+#   3. CLASSIFIER ESCALATION_SIGNAL — the AI classifier returns a structured
+#      escalation_signal field (legal_or_compliance / hr_sensitive /
+#      financial_dispute / brand_or_contract / none) and an audit-trail
+#      escalation_reason. This REPLACED a hand-maintained per-team keyword
+#      regex list after review feedback ("manual regex matching? can we use
+#      AI?"). Since we already pay for the classifier call, adding two JSON
+#      fields to that response was free and far more accurate than keyword
+#      matching — see classifier.EMAIL_TYPE_SYSTEM_PROMPT for the rubric.
+#   4. MANUAL HANDOFF — bot transitions pending → open. Handled separately
+#      in handle_status_changed() (always escalates).
+
+# Map classifier escalation_signal → human-friendly reason suffix on the
+# private-note label. Keeps the routing logic decoupled from the prose.
+_ESCALATION_SIGNAL_LABELS = {
+    "legal_or_compliance": "legal/compliance signal",
+    "hr_sensitive":        "HR-sensitive signal",
+    "financial_dispute":   "financial-dispute signal",
+    "brand_or_contract":   "brand/contract signal",
+}
+
+
+def _should_create_zoho_ticket(
+    team_key: str,
+    priority: Optional[str],
+    escalation_signal: str = "none",
+    escalation_reason: str = "",
+) -> tuple[bool, str]:
+    """Return (should_escalate, reason). The reason flows into the private-
+    note label so agents see WHY a ticket was raised.
+
+    Pure function: no I/O, no LLM call. Decisions are based on data already
+    in scope (team routing + agent-set priority + classifier output)."""
+    # 1. Universal high-priority override — bypasses team / signal rules.
+    if priority and priority.lower() in config.PRIORITY_ESCALATION_LEVELS:
+        return True, f"high_priority({priority})"
+
+    # 2. Legal team always escalates (compliance + audit trail).
+    if (team_key or "").lower() == "legal":
+        return True, "team_legal"
+
+    # 3. Classifier-detected escalation signal.
+    sig = (escalation_signal or "none").lower()
+    if sig != "none":
+        label = _ESCALATION_SIGNAL_LABELS.get(sig, sig)
+        # Quote the model's reason verbatim (truncated) — that's the audit
+        # trail compliance will eventually ask for.
+        reason_snippet = (escalation_reason or "").strip().replace('"', "'")[:120]
+        suffix = f": \"{reason_snippet}\"" if reason_snippet else ""
+        return True, f"signal_{sig}({label}{suffix})"
+
+    return False, f"no_escalation_for_team({team_key!r})"
 
 
 # ── Webhook signature (optional) ──────────────────────────────────────────
@@ -70,32 +146,124 @@ async def handle_status_changed(data: dict) -> dict:
         return {"created": False, "error": str(e)}
 
 
+# ── Handler: agent flags conversation high / urgent → create Zoho ticket ──
+# Fires from Chatwoot's `conversation_updated` webhook. That event triggers
+# on ANY field change (assignee, labels, attributes, priority...), so we
+# filter aggressively here.
+async def handle_conversation_updated(data: dict) -> dict:
+    conv     = data.get("conversation") or data
+    conv_id  = conv.get("id") or data.get("id")
+    priority = (conv.get("priority") or "").lower()
+
+    if priority not in config.PRIORITY_ESCALATION_LEVELS:
+        return {"ignored": True, "reason": f"priority_not_critical({priority!r})"}
+
+    # Idempotency: don't re-create a ticket for the same conversation.
+    custom_attrs = conv.get("custom_attributes") or {}
+    if custom_attrs.get("zoho_ticket"):
+        return {"ignored": True, "reason": "ticket_already_exists"}
+
+    print(f"[priority] conv {conv_id} flagged {priority.upper()} — escalating to Zoho")
+
+    sla_hours = config.PRIORITY_SLA_HOURS.get(priority, 24)
+    now    = datetime.now(timezone.utc)
+    due_at = now + timedelta(hours=sla_hours)
+
+    # NOTE: zoho.create_ticket signature is in this repo — no need to
+    # backwards-compat-shim it. Pre-review there was an `except TypeError`
+    # fallback to the no-kwargs path, but that quietly swallowed any
+    # TypeError raised INSIDE create_ticket (e.g., a None field arithmetic
+    # bug), dropping the SLA entirely. Removed.
+    try:
+        ticket = await zoho.create_ticket(data, priority=priority, due_at=due_at)
+    except Exception as e:
+        print(f"[priority] ERROR creating Zoho ticket for conv {conv_id}: {e}")
+        return {"created": False, "error": str(e)}
+
+    sla_meta = {
+        "level":   priority,
+        "hours":   sla_hours,
+        "set_at":  now.isoformat(timespec="seconds"),
+        "due_at":  due_at.isoformat(timespec="seconds"),
+    }
+    await _surface_ticket_in_chatwoot(
+        conv_id, ticket, source=f"priority_{priority}", sla=sla_meta,
+    )
+    return {
+        "created":       True,
+        "ticket_id":     ticket.get("id"),
+        "ticket_number": ticket.get("ticketNumber"),
+        "priority":      priority,
+        "sla":           sla_meta,
+    }
+
+
 # ── Helper: visible bubble + sidebar pane data after ticket creation ──────
 async def _surface_ticket_in_chatwoot(
-    conv_id: Optional[int], ticket: dict, source: str
+    conv_id: Optional[int],
+    ticket: dict,
+    source: str,
+    sla: Optional[dict] = None,
 ) -> None:
-    """After a Zoho ticket is created, do two things in Chatwoot:
-      1. Post a private note ('🎫 Zoho Desk ticket #X created') so agents see a
-         bubble inline in the conversation.
-      2. Merge the ticket metadata into conversation.additional_attributes so
-         the Chatwoot dashboard's sidebar can render a 'Zoho Ticket' panel.
-    Both are best-effort and never raise (a ticket was created either way).
+    """After a Zoho ticket is created, do three things in Chatwoot:
+      1. Search Zoho for past tickets matching the new subject → surfaced as
+         'possibly related' to help spot duplicates.
+      2. Post a private note ('🎫 Zoho Desk ticket #X created' + related list
+         + optional SLA deadline) so agents see a bubble inline.
+      3. Merge ticket metadata + related-ticket list + optional SLA into
+         conversation.custom_attributes for the sidebar panels.
+    All steps are best-effort and never raise — a ticket exists in Zoho
+    either way.
     """
     if not conv_id:
         return
     ticket_id     = ticket.get("id")
     ticket_number = ticket.get("ticketNumber") or ticket.get("ticket_number")
+    subject       = ticket.get("subject") or ""
     web_url       = ticket.get("webUrl") or (
         f"{config.ZOHO_DESK_URL}/agent/tickets/details/{ticket_id}"
         if ticket_id else None
     )
 
-    label_source = {
-        "manual_handoff":  "manual handoff",
-        "auto_legal":      "auto-routed (Legal)",
-    }.get(source, source or "")
-    label_source = f" ({label_source})" if label_source else ""
+    # Render the escalation source as a human-readable suffix on the note.
+    # `source` shapes (set by callers):
+    #   "manual_handoff"                            (handle_status_changed)
+    #   "priority_<level>"                          (handle_conversation_updated)
+    #   "auto_high_priority(<level>)"               (Option-D priority)
+    #   "auto_team_legal"                           (Option-D legal-team always)
+    #   "auto_signal_<sig>(<label>: \"<reason>\")"  (Option-D classifier signal)
+    raw = source or ""
+    if raw == "manual_handoff":
+        label_source = " (manual handoff)"
+    elif raw.startswith("auto_high_priority"):
+        label_source = " (high-priority escalation)"
+    elif raw == "auto_team_legal":
+        label_source = " (auto-routed: Legal)"
+    elif raw.startswith("auto_signal_"):
+        # The classifier already produced a human-friendly summary inside
+        # the parens — surface it verbatim so the agent sees WHY the AI
+        # escalated, not just an opaque enum.
+        if "(" in raw and raw.endswith(")"):
+            inner = raw[raw.index("(") + 1: -1]
+        else:
+            inner = raw[len("auto_signal_"):]
+        label_source = f" (AI escalation: {inner})"
+    elif raw.startswith("priority_"):
+        level = raw.split("_", 1)[1] if "_" in raw else raw
+        label_source = f" (🚨 priority escalation: {level.upper()})"
+    else:
+        label_source = f" ({raw})" if raw else ""
 
+    # 1. Hunt for related tickets (best-effort)
+    related = await zoho.search_tickets(subject, exclude_id=ticket_id, limit=3)
+    if related:
+        print(f"[zoho] found {len(related)} related tickets for conv {conv_id}: "
+              + ", ".join(f"#{r.get('number') or r.get('id')}" for r in related))
+    else:
+        print(f"[zoho] no related tickets found for conv {conv_id} "
+              f"(subject={subject[:60]!r})")
+
+    # 2. Compose the private note
     note = "🎫 **Zoho Desk ticket created**"
     if ticket_number:
         note += f" — [#{ticket_number}]({web_url})" if web_url else f" — #{ticket_number}"
@@ -103,34 +271,57 @@ async def _surface_ticket_in_chatwoot(
         note += f" — [{ticket_id}]({web_url})" if web_url else f" — {ticket_id}"
     note += label_source
 
+    if related:
+        bullets = "\n".join(
+            f"• [#{r.get('number') or r.get('id')}]({r.get('url')}) — "
+            f"{(r.get('subject') or '')[:80]}"
+            for r in related
+        )
+        note += f"\n\n_Possibly related tickets:_\n{bullets}"
+
+    if sla and sla.get("due_at"):
+        try:
+            due_dt    = datetime.fromisoformat(sla["due_at"])
+            due_local = due_dt.astimezone().strftime("%b %d, %H:%M %Z")
+        except (ValueError, TypeError):
+            due_local = sla["due_at"]
+        note += (
+            f"\n\n⏱ **Needs reply by {due_local}** "
+            f"(SLA: {sla.get('hours')}h for {sla.get('level','').upper()})"
+        )
+
     try:
         await chatwoot.post_private_note(conv_id, note)
     except Exception as e:
         print(f"[zoho] post_private_note failed for conv {conv_id}: {e}")
 
+    # 3. Persist structured data on the conversation
+    payload_attrs = {
+        "zoho_ticket": {
+            "id":         ticket_id,
+            "number":     ticket_number,
+            "url":        web_url,
+            "source":     source,
+        },
+        "related_tickets": related,
+    }
+    if sla:
+        payload_attrs["priority_sla"] = sla
     try:
-        await chatwoot.merge_additional_attributes(conv_id, {
-            "zoho_ticket": {
-                "id":         ticket_id,
-                "number":     ticket_number,
-                "url":        web_url,
-                "source":     source,
-            }
-        })
+        await chatwoot.merge_custom_attributes(conv_id, payload_attrs)
     except Exception as e:
-        print(f"[zoho] merge_additional_attributes failed for conv {conv_id}: {e}")
+        print(f"[zoho] merge_custom_attributes failed for conv {conv_id}: {e}")
 
 
-# ── Handler: first incoming message → classify + assign team ──────────────
+# ── Handler: first incoming message → spam pipeline + classify + assign ───
 async def handle_message_created(data: dict) -> dict:
     msg_type = data.get("message_type")
     print(f"[msg] message_type={msg_type!r}")
 
-    # Outgoing on the reviews inbox = an agent's public reply → post to Google.
+    # Outgoing on the reviews inbox = agent's public reply → post to Google.
     if msg_type in (1, "outgoing"):
         return await handle_review_reply(data)
 
-    # Only act on incoming messages (message_type: 0 in Chatwoot)
     if msg_type not in (0, "incoming"):
         print(f"[msg] ignoring — not incoming")
         return {"ignored": True, "reason": "not_incoming"}
@@ -139,17 +330,157 @@ async def handle_message_created(data: dict) -> dict:
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
 
-    # Idempotency: if a team is already set, skip.
+    # Idempotency: already-classified conversations skip both classifiers.
+    existing_attrs   = conv.get("custom_attributes") or {}
+    existing_category = existing_attrs.get("email_category")
+    if existing_category:
+        print(f"[msg] ignoring — email_category already set: {existing_category}")
+        return {"ignored": True, "reason": "already_classified"}
+
+    # Idempotency: team already set means we already handled this conversation.
     team_meta = (conv.get("meta") or {}).get("team")
     if team_meta:
         print(f"[msg] ignoring — team already set: {team_meta}")
         return {"ignored": True, "reason": "team_already_set"}
 
-    content    = data.get("content") or ""
-    inbox_name = (data.get("inbox") or {}).get("name", "")
+    content      = data.get("content") or ""
+    inbox        = data.get("inbox") or {}
+    inbox_name   = inbox.get("name", "")
+    sender       = (conv.get("meta") or {}).get("sender") or {}
+    sender_email = sender.get("email") or ""
+    contact_id   = sender.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
 
+    # Real email Subject (when this is an email-channel conversation) lives
+    # on conversation.additional_attributes.mail_subject. For chat/IG/FB
+    # channels there is no subject so we fall back to a snippet of the
+    # message body — never the inbox name (review: the inbox name as
+    # "subject" pollutes the prompt with constant noise per inbox).
+    additional = conv.get("additional_attributes") or {}
+    real_subject = (
+        additional.get("mail_subject")
+        or additional.get("subject")
+        or content[:80]
+    )
+
+    # ── Email-type classification pipeline ────────────────────────────────
+    # Layers (earliest-exit wins on inbox bypass; otherwise classifier runs):
+    #   * NEVER_SPAM_INBOXES — operator-controlled per-inbox bypass
+    #   * Classifier runs ALWAYS otherwise (no free pass for known senders).
+    #     Classifier output is now a dict containing label, confidence,
+    #     escalation_signal and escalation_reason — see classifier.py.
+    #   * Sender history acts as TIEBREAKER for low-confidence spam:
+    #       contact has prior non-spam convo + classifier says spam@conf<8
+    #       → downgrade to 'promotional' instead of leaving as spam
+    #   * Spam: auto-SNOOZED (not resolved) so it lives in its own tab and
+    #     doesn't pollute Resolved-tab reports. Customer reply auto-reopens.
+
+    email_category: str = "legitimate"
+    classifier_conf: int = 0
+    escalation_signal: str = "none"
+    escalation_reason_text: str = ""
+    bypass_reason: Optional[str] = None
+    sender_history_count: int = 0
+
+    if inbox_name and inbox_name.lower() in config.NEVER_SPAM_INBOXES:
+        bypass_reason = f"never_spam_inbox({inbox_name!r})"
+        print(f"[spam] bypass: {bypass_reason} — treating as legitimate")
+
+    # Sender history lookup (used as tiebreaker even when classifier runs).
+    if bypass_reason is None and contact_id:
+        try:
+            prior = await chatwoot.get_contact_conversations(contact_id)
+            for c in prior:
+                if c.get("id") == conv_id:
+                    continue
+                labels = {(l or "").lower() for l in (c.get("labels") or [])}
+                if "spam" not in labels:
+                    sender_history_count += 1
+        except Exception as e:
+            print(f"[spam] sender-history lookup failed for contact {contact_id}: {e}")
+
+    if bypass_reason is None:
+        result = await classifier.classify_email_type(
+            content, sender_email=sender_email, subject=real_subject
+        )
+        email_category         = result["label"]
+        classifier_conf        = result["confidence"]
+        escalation_signal      = result["escalation_signal"]
+        escalation_reason_text = result["escalation_reason"]
+        print(f"[spam] classifier verdict for conv {conv_id}: "
+              f"category={email_category!r} confidence={classifier_conf} "
+              f"signal={escalation_signal!r} "
+              f"(sender_prior_non_spam={sender_history_count})")
+
+        # Tiebreaker: low-confidence spam from a known sender → promotional.
+        if (
+            email_category == "spam"
+            and classifier_conf < config.SPAM_CONFIDENCE_THRESHOLD
+            and sender_history_count >= config.WHITELIST_MIN_PRIOR_CONVERSATIONS
+        ):
+            print(f"[spam] downgrading low-confidence spam → promotional "
+                  f"(known sender with {sender_history_count} prior non-spam)")
+            email_category = "promotional"
+
+    # Apply category label ONLY for non-legitimate categories. "legitimate"
+    # is the common case and labelling every real customer conversation
+    # would pollute the sidebar's Labels group (the sidebar filters
+    # CLASSIFIER_MANAGED_LABELS = ['spam','promotional','automated'] OUT of
+    # the generic group — 'legitimate' is intentionally not in that list).
+    if email_category != "legitimate":
+        try:
+            await chatwoot.add_label(conv_id, email_category)
+        except Exception as e:
+            print(f"[spam] add_label({email_category}) failed: {e}")
+
+    # Persist full classification context (audit trail / digest / overrides)
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "email_category": email_category,
+            "email_classifier": {
+                "confidence":           classifier_conf,
+                "bypass_reason":        bypass_reason,
+                "sender_history_count": sender_history_count,
+                "escalation_signal":    escalation_signal,
+                "escalation_reason":    escalation_reason_text,
+                "classified_at":        _now_iso(),
+            },
+        })
+    except Exception as e:
+        print(f"[spam] merge_custom_attributes failed: {e}")
+
+    # Confidence-aware actions
+    if email_category == "spam":
+        if classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD:
+            try:
+                # Snooze (not resolve) so it lands in the Snoozed tab, not
+                # Resolved. snoozed_until=None → reopens on customer reply.
+                await chatwoot.toggle_status(conv_id, "snoozed", snoozed_until=None)
+                print(f"[spam] conv {conv_id} auto-snoozed (confidence "
+                      f"{classifier_conf} ≥ {config.SPAM_CONFIDENCE_THRESHOLD})")
+            except Exception as e:
+                print(f"[spam] auto-snooze failed: {e}")
+        else:
+            print(f"[spam] conv {conv_id} labelled 'spam' but kept OPEN "
+                  f"(confidence {classifier_conf} < "
+                  f"{config.SPAM_CONFIDENCE_THRESHOLD}) — needs human review")
+        return {
+            "classified_email_type": "spam",
+            "confidence":            classifier_conf,
+            "auto_snoozed":          classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD,
+        }
+
+    if email_category in ("promotional", "automated"):
+        print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
+        return {"classified_email_type": email_category, "auto_handled": True}
+
+    # email_category == "legitimate" → second LLM call to pick a team.
+    # NOTE: this is the team-routing classifier and is INTENTIONALLY a
+    # separate call from classify_email_type for now — it has a different
+    # response shape (single word) and was already in production before
+    # the email-type classifier was added. Worth folding into one prompt
+    # later if cost matters; today it's ~$0.0001/msg with gpt-4o-mini.
     print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} content={content[:60]!r}")
     team_key = await classifier.classify(content, inbox_name)
     team_id  = config.TEAM_IDS.get(team_key)
@@ -167,23 +498,41 @@ async def handle_message_created(data: dict) -> dict:
               f"to conv {conv_id}: {e}")
         return {"classified": team_key, "assigned": False, "error": str(e)}
 
-    # Legal emails → also create Zoho Desk ticket immediately
+    # Option-D Zoho-escalation decision. Inputs are now ALL data-driven:
+    # team-routing result, agent-set priority, and the classifier's
+    # structured escalation_signal/reason — no keyword regex in sight.
+    priority = conv.get("priority")
+    should_escalate, escalation_label = _should_create_zoho_ticket(
+        team_key, priority,
+        escalation_signal=escalation_signal,
+        escalation_reason=escalation_reason_text,
+    )
+    print(f"[zoho] escalation check for conv {conv_id}: "
+          f"escalate={should_escalate} reason={escalation_label}")
+
     zoho_ticket = None
-    if team_key == "legal":
+    if should_escalate:
         try:
             ticket = await zoho.create_ticket(data)
             zoho_ticket = ticket.get("id")
-            print(f"[zoho] legal ticket created: {zoho_ticket}")
-            await _surface_ticket_in_chatwoot(conv_id, ticket, source="auto_legal")
+            print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
+            await _surface_ticket_in_chatwoot(
+                conv_id, ticket, source=f"auto_{escalation_label}"
+            )
         except Exception as e:
-            print(f"[zoho] ERROR creating legal ticket for conv {conv_id}: {e}")
+            print(f"[zoho] ERROR creating ticket for conv {conv_id} "
+                  f"(team={team_key}, reason={escalation_label}): {e}")
 
-    return {"classified": team_key, "assigned_team_id": team_id, "zoho_ticket_id": zoho_ticket}
+    return {
+        "classified":         team_key,
+        "assigned_team_id":   team_id,
+        "zoho_ticket_id":     zoho_ticket,
+        "escalation_reason":  escalation_label if should_escalate else None,
+    }
 
 
-# ── Handler: agent reply on a review → post to Google ──────────────────────
+# ── Handler: agent reply on a review → post to Google ─────────────────────
 async def handle_review_reply(data: dict) -> dict:
-    # Only reviews inbox; skip private notes and our own auto-replies.
     inbox_id = (data.get("inbox") or {}).get("id")
     if not config.REVIEWS_INBOX_ID or inbox_id != config.REVIEWS_INBOX_ID:
         return {"ignored": True, "reason": "not_reviews_inbox"}
@@ -198,7 +547,6 @@ async def handle_review_reply(data: dict) -> dict:
     if not conv_id or not content:
         return {"ignored": True, "reason": "no_conv_or_content"}
 
-    # Prefer the stored mapping; fall back to the conversation's custom attribute.
     reply_path = reviews_state.reply_path_for_conversation(conv_id) \
         or (conv.get("custom_attributes") or {}).get("review_path")
     if not reply_path:
@@ -216,6 +564,7 @@ async def handle_review_reply(data: dict) -> dict:
 # ── Dispatcher ────────────────────────────────────────────────────────────
 HANDLERS = {
     "conversation_status_changed": handle_status_changed,
+    "conversation_updated":        handle_conversation_updated,
     "message_created":             handle_message_created,
 }
 
@@ -241,3 +590,89 @@ async def chatwoot_webhook(
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+# ── Spam-review digest endpoint ───────────────────────────────────────────
+# Hit this daily (manually, via Task Scheduler / cron, or a CI cron). Pulls
+# every conversation currently SNOOZED + labelled "spam" and either returns
+# the list as JSON or posts a human-readable digest into the conversation
+# identified by SPAM_DIGEST_INBOX_ID (if configured).
+#
+# AUTH: requires X-Bridge-Token to match config.BRIDGE_OPS_TOKEN.
+# The Chatwoot webhook route is HMAC-verified (per-payload signature) but
+# whoever schedules this endpoint doesn't have a webhook payload to sign,
+# so a shared-secret header is the right primitive. Fail-CLOSED when no
+# token is configured — pre-review this endpoint was silently unauthed
+# and `?post=true` could be used to inject a private note into any
+# conversation by an unauthenticated caller.
+@app.get("/spam-digest")
+async def spam_digest(
+    post: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    x_bridge_token: Optional[str] = Header(None),
+):
+    if not config.BRIDGE_OPS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="BRIDGE_OPS_TOKEN not configured — /spam-digest disabled",
+        )
+    if not x_bridge_token or not hmac.compare_digest(
+        x_bridge_token, config.BRIDGE_OPS_TOKEN
+    ):
+        raise HTTPException(status_code=401, detail="bad or missing X-Bridge-Token")
+
+    try:
+        candidates = await chatwoot.search_snoozed_spam_since()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    rows = []
+    for c in candidates[:limit]:
+        meta = (c.get("meta") or {}).get("sender") or {}
+        attrs = c.get("custom_attributes") or {}
+        classifier_meta = attrs.get("email_classifier") or {}
+        rows.append({
+            "id":            c.get("id"),
+            "contact_name":  meta.get("name"),
+            "contact_email": meta.get("email"),
+            "status":        c.get("status"),
+            "updated_at":    c.get("updated_at"),
+            "confidence":    classifier_meta.get("confidence"),
+            "bypass_reason": classifier_meta.get("bypass_reason"),
+            "url": (
+                f"{config.CHATWOOT_BASE_URL}/app/accounts/"
+                f"{config.CHATWOOT_ACCOUNT_ID}/conversations/{c.get('id')}"
+            ),
+        })
+
+    posted = False
+    if post and rows and config.SPAM_DIGEST_INBOX_ID:
+        body_lines = [
+            f"📋 **Spam-review digest** — {_now_iso()}",
+            f"{len(rows)} conversation(s) auto-snoozed as spam.",
+            "",
+        ]
+        for i, r in enumerate(rows, 1):
+            line = (
+                f"{i}. [#{r['id']}]({r['url']}) — "
+                f"{r['contact_name'] or 'Unknown'} "
+                f"<{r['contact_email'] or 'no-email'}>"
+            )
+            if r["confidence"]:
+                line += f" — confidence {r['confidence']}/10"
+            body_lines.append(line)
+        body_lines.append("")
+        body_lines.append(
+            "_Click any conversation link to review. If it's actually a real "
+            "customer, reopen the conversation and remove the 'spam' label — "
+            "the bridge will respect your override via the idempotency check._"
+        )
+        try:
+            await chatwoot.post_private_note(
+                config.SPAM_DIGEST_INBOX_ID, "\n".join(body_lines)
+            )
+            posted = True
+        except Exception as e:
+            print(f"[spam-digest] post failed: {e}")
+
+    return {"ok": True, "count": len(rows), "posted": posted, "rows": rows}

@@ -1,9 +1,21 @@
-# Zoho Desk client: OAuth token cache + ticket creation.
+# Zoho Desk client: OAuth token cache + ticket creation + related-ticket search.
 
+import re
 import time
+from datetime import datetime, timezone  # noqa: F401 — used in type annotation strings
+from typing import Optional
+
 import httpx
 
 import config
+
+
+def _zoho_iso(dt: datetime) -> str:
+    """Format a datetime in the shape Zoho Desk accepts for date-time fields
+    (dueDate, etc.). Zoho expects `YYYY-MM-DDTHH:MM:SS.SSSZ` — explicit
+    milliseconds + the literal 'Z' suffix. Python's default `isoformat()`
+    emits `+00:00` which Zoho rejects with a 422 INVALID_DATA on /dueDate."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 _token_cache = {"value": None, "expires_at": 0.0}
 
@@ -48,8 +60,26 @@ def _build_ticket_body(payload: dict) -> dict:
         for m in messages if m.get("content")
     ) or "(no text messages)"
 
-    first_msg = next((m.get("content", "") for m in messages if m.get("content")), "")
-    subject   = f"[{inbox}] {first_msg[:60] or 'New conversation'}"
+    # Prefer the trigger-message's content (top-level on the webhook payload)
+    # when it's an INCOMING customer message — the conv.messages array may not
+    # yet include it (timing / cache) and early entries are usually bot
+    # template prompts that make a useless subject.
+    trigger_content = (payload.get("content") or "").strip()
+    is_trigger_incoming = payload.get("message_type") in (0, "incoming")
+
+    if trigger_content and is_trigger_incoming:
+        first_msg = trigger_content
+    else:
+        first_msg = next(
+            (m.get("content", "") for m in messages
+             if m.get("content") and m.get("message_type") in (0, "incoming")),
+            ""
+        )
+        if not first_msg:
+            first_msg = next(
+                (m.get("content", "") for m in messages if m.get("content")), ""
+            )
+    subject = f"[{inbox}] {first_msg[:60] or 'New conversation'}"
 
     # Include Chatwoot team in description for context (e.g., "Legal" → Zoho agent
     # knows what kind of ticket this is even before routing inside Zoho)
@@ -74,8 +104,30 @@ def _build_ticket_body(payload: dict) -> dict:
     }
 
 
-async def create_ticket(payload: dict) -> dict:
+async def create_ticket(payload: dict, priority: str | None = None,
+                        due_at: "datetime | None" = None) -> dict:
+    """Create a Zoho Desk ticket from a Chatwoot webhook payload.
+
+    Optional kwargs (used by the priority-escalation handler):
+      priority: Chatwoot priority level ("urgent" / "high" / "medium" / "low").
+                Mapped to Zoho enum: urgent → "Highest", others by name.
+                Also prefixes the subject so it stands out in Zoho's list view.
+      due_at:   datetime → Zoho's `dueDate`. Adds an SLA-style deadline.
+    """
     body = _build_ticket_body(payload)
+
+    if priority:
+        pmap = {"urgent": "Highest", "high": "High",
+                "medium": "Medium",  "low":  "Low"}
+        body["priority"] = pmap.get(priority.lower(), body.get("priority") or "Medium")
+        if not body.get("subject", "").startswith(f"[{priority.upper()}]"):
+            body["subject"] = f"[{priority.upper()}] {body['subject']}"
+
+    if due_at is not None:
+        try:
+            body["dueDate"] = _zoho_iso(due_at)
+        except Exception:
+            pass
 
     async def _post(client, token):
         return await client.post(
@@ -97,3 +149,97 @@ async def create_ticket(payload: dict) -> dict:
         if r.status_code >= 300:
             raise RuntimeError(f"Zoho ticket create failed [{r.status_code}]: {r.text}")
         return r.json()
+
+
+# ── Related-ticket search ─────────────────────────────────────────────────
+# Used right after creating a ticket to surface "possibly related" past
+# tickets in Chatwoot's sidebar — a duplicate-detection hint for the agent.
+
+_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at",
+    "for", "with", "by", "from", "as", "is", "are", "was", "were", "be",
+    "been", "being", "have", "has", "had", "do", "does", "did", "will",
+    "would", "should", "could", "may", "might", "can", "i", "you", "your",
+    "yours", "we", "our", "us", "they", "them", "their", "this", "that",
+    "these", "those", "it", "its", "any", "some", "all", "no", "not",
+    "very", "please", "thanks", "thank", "hi", "hello", "hey",
+}
+
+
+def _clean_search_query(raw: str) -> str:
+    """Strip our '[Inbox] ' prefix, drop punctuation/stop-words, keep top
+    keywords. Zoho's tickets/search rejects bare punctuation (an apostrophe
+    in 'you're' returned 422 in early testing).
+
+    Stays REGEX (not AI) intentionally — this is deterministic text
+    normalization for a search query. Replacing it with an LLM call would
+    add latency and non-determinism for zero accuracy gain."""
+    s = raw or ""
+    s = re.sub(r"^\s*\[[^\]]{0,40}\]\s*", "", s)
+    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s).lower()
+    words = [w for w in s.split() if len(w) >= 3 and w not in _STOPWORDS]
+    return " ".join(words[:6])
+
+
+async def search_tickets(query: str, exclude_id: Optional[str] = None,
+                         limit: int = 3) -> list[dict]:
+    """Search Zoho Desk tickets by free-text query against the SUBJECT field.
+    Returns top matches (Zoho ranks by relevance), excluding exclude_id so a
+    freshly-created ticket doesn't match itself.
+
+    Best-effort: returns [] on any failure (network, no-results, 4xx)."""
+    q = _clean_search_query(query)
+    if not q:
+        return []
+
+    async def _get(client, token):
+        # Zoho Desk's /tickets/search takes field-name params directly
+        # (?subject=keyword), NOT a searchStr wrapper.
+        return await client.get(
+            f"{config.ZOHO_DESK_URL}/api/v1/tickets/search",
+            headers={
+                "Authorization": f"Zoho-oauthtoken {token}",
+                "orgId":         config.ZOHO_ORG_ID,
+            },
+            params={
+                "subject":      q,
+                "limit":        str(limit + 1),
+                "departmentId": config.ZOHO_DEPARTMENT_ID,
+            },
+        )
+
+    try:
+        token = await get_access_token()
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await _get(client, token)
+            if r.status_code == 401:
+                _token_cache["value"] = None
+                r = await _get(client, await get_access_token())
+            if r.status_code == 204:
+                return []
+            if r.status_code >= 300:
+                print(f"[zoho] search_tickets non-200 [{r.status_code}]; "
+                      f"query={q!r} body={r.text[:500]!r}")
+                return []
+            results = (r.json() or {}).get("data") or []
+    except Exception as e:
+        print(f"[zoho] search_tickets exception: {type(e).__name__}: {e}")
+        return []
+
+    if exclude_id is not None:
+        results = [t for t in results if str(t.get("id")) != str(exclude_id)]
+
+    out = []
+    for t in results[:limit]:
+        tid = t.get("id")
+        out.append({
+            "id":         tid,
+            "number":     t.get("ticketNumber"),
+            "subject":    t.get("subject") or "",
+            "status":     t.get("status"),
+            "url":        t.get("webUrl") or (
+                f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
+            ),
+            "created_at": t.get("createdTime"),
+        })
+    return out

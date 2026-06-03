@@ -40,6 +40,7 @@ import LocationBubble from './bubbles/Location.vue';
 import CSATBubble from './bubbles/CSAT.vue';
 import FormBubble from './bubbles/Form.vue';
 import VoiceCallBubble from './bubbles/VoiceCall.vue';
+import MultiAttachmentBubble from './bubbles/MultiAttachment.vue';
 
 import MessageError from './MessageError.vue';
 import ContextMenu from 'dashboard/modules/conversations/components/MessageContextMenu.vue';
@@ -283,6 +284,22 @@ const shouldShowAvatar = computed(() => {
   return true;
 });
 
+// Map a single attachment's fileType → bubble component. Hoisted outside
+// the computed below so it isn't rebuilt on every re-evaluation. Returns
+// null when we don't have a dedicated bubble — caller decides the fallback
+// (FileBubble for "has a URL" cases, TextBubble for truly nothing).
+const bubbleForFileType = fileType => {
+  if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
+  if (fileType === ATTACHMENT_TYPES.AUDIO) return AudioBubble;
+  if (fileType === ATTACHMENT_TYPES.VIDEO) return VideoBubble;
+  if (fileType === ATTACHMENT_TYPES.IG_REEL) return VideoBubble;
+  if (fileType === ATTACHMENT_TYPES.FILE) return FileBubble;
+  if (fileType === ATTACHMENT_TYPES.EMBED) return EmbedBubble;
+  if (fileType === ATTACHMENT_TYPES.LOCATION) return LocationBubble;
+  if (fileType === ATTACHMENT_TYPES.CONTACT) return ContactBubble;
+  return null;
+};
+
 const componentToRender = computed(() => {
   if (props.isEmailInbox && !props.private) {
     const emailInboxTypes = [MESSAGE_TYPES.INCOMING, MESSAGE_TYPES.OUTGOING];
@@ -325,20 +342,23 @@ const componentToRender = computed(() => {
     return InstagramStoryBubble;
   }
 
-  if (Array.isArray(props.attachments) && props.attachments.length === 1) {
-    const fileType = props.attachments[0].fileType;
-
-    if (!props.content) {
-      if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
-      if (fileType === ATTACHMENT_TYPES.FILE) return FileBubble;
-      if (fileType === ATTACHMENT_TYPES.AUDIO) return AudioBubble;
-      if (fileType === ATTACHMENT_TYPES.VIDEO) return VideoBubble;
-      if (fileType === ATTACHMENT_TYPES.IG_REEL) return VideoBubble;
-      if (fileType === ATTACHMENT_TYPES.EMBED) return EmbedBubble;
-      if (fileType === ATTACHMENT_TYPES.LOCATION) return LocationBubble;
+  if (Array.isArray(props.attachments) && props.attachments.length > 0) {
+    // Multiple attachments — Gmail with 3 inline images, FB carousel posts,
+    // IG message-with-multiple-media. Pre-fix this branch fell through to
+    // TextBubble which only renders tiny download chips, hiding the actual
+    // media. MultiAttachment stacks proper previews.
+    if (props.attachments.length > 1) {
+      return MultiAttachmentBubble;
     }
-    // Attachment content is the name of the contact
-    if (fileType === ATTACHMENT_TYPES.CONTACT) return ContactBubble;
+
+    const fileType = props.attachments[0].fileType;
+    const bubble = bubbleForFileType(fileType);
+    if (bubble) return bubble;
+
+    // Unknown fileType (future IG share variants, etc.) but the file is real
+    // — surface it as a download link via FileBubble rather than silently
+    // dropping to TextBubble where the attachment becomes invisible.
+    if (props.attachments[0].dataUrl) return FileBubble;
   }
 
   return TextBubble;
