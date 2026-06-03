@@ -20,7 +20,7 @@ import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from langfuse import get_client
 
 import config
@@ -53,73 +53,65 @@ async def _flush_langfuse():
     get_client().flush()
 
 
-# ── Option-D Zoho-Desk escalation rules ───────────────────────────────────
+# ── Option-D Zoho-Desk escalation decision ────────────────────────────────
 # Decides whether an auto-classified, team-routed message ALSO creates a
-# Zoho Desk ticket. Three combined signals:
+# Zoho Desk ticket. Three signals (in priority order):
 #
-#   1. UNIVERSAL OVERRIDE — any conversation flagged high/urgent priority
-#      always escalates (regardless of team). Handled at the priority-aware
-#      check inside _should_create_zoho_ticket below.
-#   2. PER-TEAM RULE — each team has its own escalation criteria.
-#   3. MANUAL HANDOFF — bot transitions pending → open. Handled separately
+#   1. UNIVERSAL HIGH-PRIORITY OVERRIDE — any conversation flagged high/urgent
+#      always escalates, regardless of team or content.
+#   2. LEGAL TEAM ALWAYS — anything classified to the legal team escalates
+#      (compliance / audit trail).
+#   3. CLASSIFIER ESCALATION_SIGNAL — the AI classifier returns a structured
+#      escalation_signal field (legal_or_compliance / hr_sensitive /
+#      financial_dispute / brand_or_contract / none) and an audit-trail
+#      escalation_reason. This REPLACED a hand-maintained per-team keyword
+#      regex list after review feedback ("manual regex matching? can we use
+#      AI?"). Since we already pay for the classifier call, adding two JSON
+#      fields to that response was free and far more accurate than keyword
+#      matching — see classifier.EMAIL_TYPE_SYSTEM_PROMPT for the rubric.
+#   4. MANUAL HANDOFF — bot transitions pending → open. Handled separately
 #      in handle_status_changed() (always escalates).
 
-ZOHO_ESCALATION_RULES = {
-    "legal": {
-        "mode": "always",       # compliance / audit trail
-    },
-    "hr": {
-        "mode": "keywords",
-        "keywords": [
-            "contract", "agreement", "resignation", "termination",
-            "lawsuit", "harassment", "discrimination", "complaint",
-            "exit interview", "non-compete", "severance",
-        ],
-    },
-    "marketing": {
-        "mode": "keywords",
-        "keywords": [
-            "sponsorship", "paid collab", "paid collaboration", "brand deal",
-            "partnership agreement", "licensing", "endorsement contract",
-            "campaign brief", "affiliate contract", "media buy",
-        ],
-    },
-    "support": {
-        "mode": "keywords",
-        "keywords": [
-            "refund", "chargeback", "lawsuit", "legal action",
-            "bbb", "better business bureau", "attorney general",
-            "consumer protection", "fraud", "stolen", "unauthorized charge",
-        ],
-    },
+# Map classifier escalation_signal → human-friendly reason suffix on the
+# private-note label. Keeps the routing logic decoupled from the prose.
+_ESCALATION_SIGNAL_LABELS = {
+    "legal_or_compliance": "legal/compliance signal",
+    "hr_sensitive":        "HR-sensitive signal",
+    "financial_dispute":   "financial-dispute signal",
+    "brand_or_contract":   "brand/contract signal",
 }
 
 
-def _should_create_zoho_ticket(team_key: str, content: str,
-                               priority: Optional[str]) -> tuple[bool, str]:
+def _should_create_zoho_ticket(
+    team_key: str,
+    priority: Optional[str],
+    escalation_signal: str = "none",
+    escalation_reason: str = "",
+) -> tuple[bool, str]:
     """Return (should_escalate, reason). The reason flows into the private-
-    note label so agents see WHY a ticket was raised."""
-    # 1. Universal high-priority override — bypasses team rules.
-    if priority and priority.lower() in config.HIGH_PRIORITY_LEVELS:
+    note label so agents see WHY a ticket was raised.
+
+    Pure function: no I/O, no LLM call. Decisions are based on data already
+    in scope (team routing + agent-set priority + classifier output)."""
+    # 1. Universal high-priority override — bypasses team / signal rules.
+    if priority and priority.lower() in config.PRIORITY_ESCALATION_LEVELS:
         return True, f"high_priority({priority})"
 
-    # 2. Per-team rule
-    rule = ZOHO_ESCALATION_RULES.get(team_key or "")
-    if not rule:
-        return False, f"no_rule_for_team({team_key!r})"
+    # 2. Legal team always escalates (compliance + audit trail).
+    if (team_key or "").lower() == "legal":
+        return True, "team_legal"
 
-    if rule["mode"] == "always":
-        return True, f"team_{team_key}"
+    # 3. Classifier-detected escalation signal.
+    sig = (escalation_signal or "none").lower()
+    if sig != "none":
+        label = _ESCALATION_SIGNAL_LABELS.get(sig, sig)
+        # Quote the model's reason verbatim (truncated) — that's the audit
+        # trail compliance will eventually ask for.
+        reason_snippet = (escalation_reason or "").strip().replace('"', "'")[:120]
+        suffix = f": \"{reason_snippet}\"" if reason_snippet else ""
+        return True, f"signal_{sig}({label}{suffix})"
 
-    if rule["mode"] == "keywords":
-        text = (content or "").lower()
-        for kw in rule.get("keywords", []):
-            if kw.lower() in text:
-                return True, f"team_{team_key}_keyword({kw!r})"
-        return False, f"team_{team_key}_no_keyword_match"
-
-    # Unknown rule mode — fail safe (don't escalate by accident)
-    return False, f"unknown_rule_mode({rule.get('mode')!r})"
+    return False, f"no_escalation_for_team({team_key!r})"
 
 
 # ── Webhook signature (optional) ──────────────────────────────────────────
@@ -177,11 +169,13 @@ async def handle_conversation_updated(data: dict) -> dict:
     now    = datetime.now(timezone.utc)
     due_at = now + timedelta(hours=sla_hours)
 
+    # NOTE: zoho.create_ticket signature is in this repo — no need to
+    # backwards-compat-shim it. Pre-review there was an `except TypeError`
+    # fallback to the no-kwargs path, but that quietly swallowed any
+    # TypeError raised INSIDE create_ticket (e.g., a None field arithmetic
+    # bug), dropping the SLA entirely. Removed.
     try:
         ticket = await zoho.create_ticket(data, priority=priority, due_at=due_at)
-    except TypeError:
-        # Older zoho.create_ticket signatures don't accept priority/due_at.
-        ticket = await zoho.create_ticket(data)
     except Exception as e:
         print(f"[priority] ERROR creating Zoho ticket for conv {conv_id}: {e}")
         return {"created": False, "error": str(e)}
@@ -232,21 +226,28 @@ async def _surface_ticket_in_chatwoot(
     )
 
     # Render the escalation source as a human-readable suffix on the note.
+    # `source` shapes (set by callers):
+    #   "manual_handoff"                            (handle_status_changed)
+    #   "priority_<level>"                          (handle_conversation_updated)
+    #   "auto_high_priority(<level>)"               (Option-D priority)
+    #   "auto_team_legal"                           (Option-D legal-team always)
+    #   "auto_signal_<sig>(<label>: \"<reason>\")"  (Option-D classifier signal)
     raw = source or ""
     if raw == "manual_handoff":
         label_source = " (manual handoff)"
     elif raw.startswith("auto_high_priority"):
         label_source = " (high-priority escalation)"
-    elif raw.startswith("auto_team_"):
-        body = raw[len("auto_team_"):]  # e.g. "hr_keyword('contract')" or "legal"
-        team = body.split("_")[0]
-        if "keyword(" in body:
-            kw = body.split("keyword(", 1)[1].rstrip(")").strip("'\"")
-            label_source = f" (auto-routed: {team.capitalize()}, keyword: \"{kw}\")"
+    elif raw == "auto_team_legal":
+        label_source = " (auto-routed: Legal)"
+    elif raw.startswith("auto_signal_"):
+        # The classifier already produced a human-friendly summary inside
+        # the parens — surface it verbatim so the agent sees WHY the AI
+        # escalated, not just an opaque enum.
+        if "(" in raw and raw.endswith(")"):
+            inner = raw[raw.index("(") + 1: -1]
         else:
-            label_source = f" (auto-routed: {team.capitalize()})"
-    elif raw == "auto_legal":
-        label_source = " (auto-routed: Legal)"  # backwards compat
+            inner = raw[len("auto_signal_"):]
+        label_source = f" (AI escalation: {inner})"
     elif raw.startswith("priority_"):
         level = raw.split("_", 1)[1] if "_" in raw else raw
         label_source = f" (🚨 priority escalation: {level.upper()})"
@@ -351,10 +352,24 @@ async def handle_message_created(data: dict) -> dict:
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
 
+    # Real email Subject (when this is an email-channel conversation) lives
+    # on conversation.additional_attributes.mail_subject. For chat/IG/FB
+    # channels there is no subject so we fall back to a snippet of the
+    # message body — never the inbox name (review: the inbox name as
+    # "subject" pollutes the prompt with constant noise per inbox).
+    additional = conv.get("additional_attributes") or {}
+    real_subject = (
+        additional.get("mail_subject")
+        or additional.get("subject")
+        or content[:80]
+    )
+
     # ── Email-type classification pipeline ────────────────────────────────
     # Layers (earliest-exit wins on inbox bypass; otherwise classifier runs):
     #   * NEVER_SPAM_INBOXES — operator-controlled per-inbox bypass
-    #   * Classifier runs ALWAYS otherwise (no free pass for known senders)
+    #   * Classifier runs ALWAYS otherwise (no free pass for known senders).
+    #     Classifier output is now a dict containing label, confidence,
+    #     escalation_signal and escalation_reason — see classifier.py.
     #   * Sender history acts as TIEBREAKER for low-confidence spam:
     #       contact has prior non-spam convo + classifier says spam@conf<8
     #       → downgrade to 'promotional' instead of leaving as spam
@@ -363,6 +378,8 @@ async def handle_message_created(data: dict) -> dict:
 
     email_category: str = "legitimate"
     classifier_conf: int = 0
+    escalation_signal: str = "none"
+    escalation_reason_text: str = ""
     bypass_reason: Optional[str] = None
     sender_history_count: int = 0
 
@@ -384,11 +401,16 @@ async def handle_message_created(data: dict) -> dict:
             print(f"[spam] sender-history lookup failed for contact {contact_id}: {e}")
 
     if bypass_reason is None:
-        email_category, classifier_conf = await classifier.classify_email_type(
-            content, sender_email=sender_email, subject=inbox_name
+        result = await classifier.classify_email_type(
+            content, sender_email=sender_email, subject=real_subject
         )
+        email_category         = result["label"]
+        classifier_conf        = result["confidence"]
+        escalation_signal      = result["escalation_signal"]
+        escalation_reason_text = result["escalation_reason"]
         print(f"[spam] classifier verdict for conv {conv_id}: "
               f"category={email_category!r} confidence={classifier_conf} "
+              f"signal={escalation_signal!r} "
               f"(sender_prior_non_spam={sender_history_count})")
 
         # Tiebreaker: low-confidence spam from a known sender → promotional.
@@ -401,11 +423,16 @@ async def handle_message_created(data: dict) -> dict:
                   f"(known sender with {sender_history_count} prior non-spam)")
             email_category = "promotional"
 
-    # Apply category label (independent of confidence)
-    try:
-        await chatwoot.add_label(conv_id, email_category)
-    except Exception as e:
-        print(f"[spam] add_label({email_category}) failed: {e}")
+    # Apply category label ONLY for non-legitimate categories. "legitimate"
+    # is the common case and labelling every real customer conversation
+    # would pollute the sidebar's Labels group (the sidebar filters
+    # CLASSIFIER_MANAGED_LABELS = ['spam','promotional','automated'] OUT of
+    # the generic group — 'legitimate' is intentionally not in that list).
+    if email_category != "legitimate":
+        try:
+            await chatwoot.add_label(conv_id, email_category)
+        except Exception as e:
+            print(f"[spam] add_label({email_category}) failed: {e}")
 
     # Persist full classification context (audit trail / digest / overrides)
     try:
@@ -415,6 +442,8 @@ async def handle_message_created(data: dict) -> dict:
                 "confidence":           classifier_conf,
                 "bypass_reason":        bypass_reason,
                 "sender_history_count": sender_history_count,
+                "escalation_signal":    escalation_signal,
+                "escalation_reason":    escalation_reason_text,
                 "classified_at":        _now_iso(),
             },
         })
@@ -446,7 +475,12 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
 
-    # email_category == "legitimate" → fall through to team routing
+    # email_category == "legitimate" → second LLM call to pick a team.
+    # NOTE: this is the team-routing classifier and is INTENTIONALLY a
+    # separate call from classify_email_type for now — it has a different
+    # response shape (single word) and was already in production before
+    # the email-type classifier was added. Worth folding into one prompt
+    # later if cost matters; today it's ~$0.0001/msg with gpt-4o-mini.
     print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} content={content[:60]!r}")
     team_key = await classifier.classify(content, inbox_name)
     team_id  = config.TEAM_IDS.get(team_key)
@@ -464,13 +498,17 @@ async def handle_message_created(data: dict) -> dict:
               f"to conv {conv_id}: {e}")
         return {"classified": team_key, "assigned": False, "error": str(e)}
 
-    # Option-D Zoho-escalation decision
+    # Option-D Zoho-escalation decision. Inputs are now ALL data-driven:
+    # team-routing result, agent-set priority, and the classifier's
+    # structured escalation_signal/reason — no keyword regex in sight.
     priority = conv.get("priority")
-    should_escalate, escalation_reason = _should_create_zoho_ticket(
-        team_key, content, priority
+    should_escalate, escalation_label = _should_create_zoho_ticket(
+        team_key, priority,
+        escalation_signal=escalation_signal,
+        escalation_reason=escalation_reason_text,
     )
     print(f"[zoho] escalation check for conv {conv_id}: "
-          f"escalate={should_escalate} reason={escalation_reason}")
+          f"escalate={should_escalate} reason={escalation_label}")
 
     zoho_ticket = None
     if should_escalate:
@@ -479,17 +517,17 @@ async def handle_message_created(data: dict) -> dict:
             zoho_ticket = ticket.get("id")
             print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
             await _surface_ticket_in_chatwoot(
-                conv_id, ticket, source=f"auto_{escalation_reason}"
+                conv_id, ticket, source=f"auto_{escalation_label}"
             )
         except Exception as e:
             print(f"[zoho] ERROR creating ticket for conv {conv_id} "
-                  f"(team={team_key}, reason={escalation_reason}): {e}")
+                  f"(team={team_key}, reason={escalation_label}): {e}")
 
     return {
         "classified":         team_key,
         "assigned_team_id":   team_id,
         "zoho_ticket_id":     zoho_ticket,
-        "escalation_reason":  escalation_reason if should_escalate else None,
+        "escalation_reason":  escalation_label if should_escalate else None,
     }
 
 
@@ -559,8 +597,30 @@ async def health():
 # every conversation currently SNOOZED + labelled "spam" and either returns
 # the list as JSON or posts a human-readable digest into the conversation
 # identified by SPAM_DIGEST_INBOX_ID (if configured).
+#
+# AUTH: requires X-Bridge-Token to match config.BRIDGE_OPS_TOKEN.
+# The Chatwoot webhook route is HMAC-verified (per-payload signature) but
+# whoever schedules this endpoint doesn't have a webhook payload to sign,
+# so a shared-secret header is the right primitive. Fail-CLOSED when no
+# token is configured — pre-review this endpoint was silently unauthed
+# and `?post=true` could be used to inject a private note into any
+# conversation by an unauthenticated caller.
 @app.get("/spam-digest")
-async def spam_digest(post: bool = False, limit: int = 50):
+async def spam_digest(
+    post: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    x_bridge_token: Optional[str] = Header(None),
+):
+    if not config.BRIDGE_OPS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="BRIDGE_OPS_TOKEN not configured — /spam-digest disabled",
+        )
+    if not x_bridge_token or not hmac.compare_digest(
+        x_bridge_token, config.BRIDGE_OPS_TOKEN
+    ):
+        raise HTTPException(status_code=401, detail="bad or missing X-Bridge-Token")
+
     try:
         candidates = await chatwoot.search_snoozed_spam_since()
     except Exception as e:

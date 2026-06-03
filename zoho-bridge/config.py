@@ -103,6 +103,14 @@ WHITELIST_MIN_PRIOR_CONVERSATIONS = int(
 # disable digest delivery (you can still hit /spam-digest manually).
 SPAM_DIGEST_INBOX_ID = int(os.environ.get("SPAM_DIGEST_INBOX_ID", "0") or 0)
 
+# Shared secret protecting the /spam-digest endpoint. The webhook route is
+# already HMAC-verified via CHATWOOT_WEBHOOK_SECRET; this is a SEPARATE
+# token for ops/cron endpoints we expose, since whoever schedules the
+# digest doesn't have the webhook signing payload to sign with.
+# When unset, /spam-digest refuses to run (fail-closed) rather than being
+# silently open as it was pre-review.
+BRIDGE_OPS_TOKEN = os.environ.get("BRIDGE_OPS_TOKEN", "")
+
 
 # ── Priority-based SLA / auto-escalation ──────────────────────────────────
 # When an agent flags a conversation 'urgent' or 'high', the bridge listens
@@ -126,13 +134,8 @@ def _parse_sla_map(raw: str) -> dict[str, int]:
 _DEFAULT_SLA = {"urgent": 1, "high": 4, "medium": 12, "low": 24}
 PRIORITY_SLA_HOURS = {**_DEFAULT_SLA, **_parse_sla_map(os.environ.get("PRIORITY_SLA_HOURS", ""))}
 
-# Priority levels that auto-escalate to Zoho on conversation_updated.
+# Priority levels that auto-escalate to Zoho. SINGLE source of truth — used
+# by both the conversation_updated handler and the message_created Option-D
+# decision (pre-review there were two separate sets, HIGH_PRIORITY_LEVELS
+# and PRIORITY_ESCALATION_LEVELS, that could drift apart silently).
 PRIORITY_ESCALATION_LEVELS = _csv("PRIORITY_ESCALATION_LEVELS", "urgent,high")
-
-
-# ── Per-team Zoho-escalation rules (Option D) ─────────────────────────────
-# Defines WHICH team-routed conversations should auto-create a Zoho Desk
-# ticket. The keyword lists are tuned for IComics/Kisnemanga's escalation
-# criteria. Edit the dicts in main.py if you want to override per team.
-# (Kept in code for clarity — only a dev should tune these.)
-HIGH_PRIORITY_LEVELS = {"high", "urgent"}

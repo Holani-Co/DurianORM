@@ -173,15 +173,30 @@ async def get_contact_conversations(contact_id: int) -> list[dict]:
 
 async def search_snoozed_spam_since(since_iso: str = "") -> list[dict]:
     """Return SNOOZED conversations carrying a 'spam' label, used by the
-    /spam-digest endpoint to build the daily review summary."""
+    /spam-digest endpoint to build the daily review summary.
+
+    `since_iso` is applied as a CLIENT-SIDE filter on each conversation's
+    `last_activity_at`. Chatwoot's GET /conversations does not document a
+    server-side `updated_within` filter, and earlier review feedback flagged
+    that passing it as a query param was a silent no-op. We post-filter
+    here so the digest stays bounded by time even on long-lived accounts.
+    """
+    since_ts: float = 0.0
+    if since_iso:
+        try:
+            # Accept both `2026-06-03T07:00:00Z` and `+00:00` shapes.
+            from datetime import datetime as _dt
+            since_ts = _dt.fromisoformat(
+                since_iso.replace("Z", "+00:00")
+            ).timestamp()
+        except (ValueError, TypeError):
+            since_ts = 0.0
+
     async with httpx.AsyncClient(timeout=15) as client:
-        params = {"status": "snoozed", "labels": "spam"}
-        if since_iso:
-            params["updated_within"] = since_iso
         r = await client.get(
             _acct_url("/conversations"),
             headers=_headers(),
-            params=params,
+            params={"status": "snoozed", "labels": "spam"},
         )
         if r.status_code >= 300:
             print(
@@ -193,10 +208,23 @@ async def search_snoozed_spam_since(since_iso: str = "") -> list[dict]:
         payload = body.get("data") or body
         if isinstance(payload, dict):
             payload = payload.get("payload") or []
-        return [
-            c for c in payload
-            if "spam" in {(l or "").lower() for l in (c.get("labels") or [])}
-        ]
+
+        out = []
+        for c in payload:
+            labels = {(l or "").lower() for l in (c.get("labels") or [])}
+            if "spam" not in labels:
+                continue
+            if since_ts:
+                # last_activity_at is a unix epoch number in Chatwoot
+                last_ts = c.get("last_activity_at") or 0
+                try:
+                    last_ts = float(last_ts)
+                except (TypeError, ValueError):
+                    last_ts = 0
+                if last_ts < since_ts:
+                    continue
+            out.append(c)
+        return out
 
 
 # ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk

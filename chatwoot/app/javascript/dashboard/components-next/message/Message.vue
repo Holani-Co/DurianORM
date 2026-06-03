@@ -284,6 +284,22 @@ const shouldShowAvatar = computed(() => {
   return true;
 });
 
+// Map a single attachment's fileType → bubble component. Hoisted outside
+// the computed below so it isn't rebuilt on every re-evaluation. Returns
+// null when we don't have a dedicated bubble — caller decides the fallback
+// (FileBubble for "has a URL" cases, TextBubble for truly nothing).
+const bubbleForFileType = fileType => {
+  if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
+  if (fileType === ATTACHMENT_TYPES.AUDIO) return AudioBubble;
+  if (fileType === ATTACHMENT_TYPES.VIDEO) return VideoBubble;
+  if (fileType === ATTACHMENT_TYPES.IG_REEL) return VideoBubble;
+  if (fileType === ATTACHMENT_TYPES.FILE) return FileBubble;
+  if (fileType === ATTACHMENT_TYPES.EMBED) return EmbedBubble;
+  if (fileType === ATTACHMENT_TYPES.LOCATION) return LocationBubble;
+  if (fileType === ATTACHMENT_TYPES.CONTACT) return ContactBubble;
+  return null;
+};
+
 const componentToRender = computed(() => {
   if (props.isEmailInbox && !props.private) {
     const emailInboxTypes = [MESSAGE_TYPES.INCOMING, MESSAGE_TYPES.OUTGOING];
@@ -325,23 +341,6 @@ const componentToRender = computed(() => {
   if (instagramSharedTypes.includes(props.contentAttributes.imageType)) {
     return InstagramStoryBubble;
   }
-
-  // Map a single attachment's fileType → bubble component. Used both for the
-  // single-attachment fast path below AND inside MultiAttachment for per-item
-  // rendering. Returns null when we don't have a dedicated bubble — caller
-  // decides the fallback (FileBubble for "has a URL" cases, TextBubble for
-  // truly nothing).
-  const bubbleForFileType = fileType => {
-    if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
-    if (fileType === ATTACHMENT_TYPES.AUDIO) return AudioBubble;
-    if (fileType === ATTACHMENT_TYPES.VIDEO) return VideoBubble;
-    if (fileType === ATTACHMENT_TYPES.IG_REEL) return VideoBubble;
-    if (fileType === ATTACHMENT_TYPES.FILE) return FileBubble;
-    if (fileType === ATTACHMENT_TYPES.EMBED) return EmbedBubble;
-    if (fileType === ATTACHMENT_TYPES.LOCATION) return LocationBubble;
-    if (fileType === ATTACHMENT_TYPES.CONTACT) return ContactBubble;
-    return null;
-  };
 
   if (Array.isArray(props.attachments) && props.attachments.length > 0) {
     // Multiple attachments — Gmail with 3 inline images, FB carousel posts,

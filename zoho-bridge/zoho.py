@@ -1,7 +1,9 @@
 # Zoho Desk client: OAuth token cache + ticket creation + related-ticket search.
 
+import re
 import time
 from datetime import datetime, timezone  # noqa: F401 — used in type annotation strings
+from typing import Optional
 
 import httpx
 
@@ -152,7 +154,6 @@ async def create_ticket(payload: dict, priority: str | None = None,
 # ── Related-ticket search ─────────────────────────────────────────────────
 # Used right after creating a ticket to surface "possibly related" past
 # tickets in Chatwoot's sidebar — a duplicate-detection hint for the agent.
-import re as _re
 
 _STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at",
@@ -168,15 +169,19 @@ _STOPWORDS = {
 def _clean_search_query(raw: str) -> str:
     """Strip our '[Inbox] ' prefix, drop punctuation/stop-words, keep top
     keywords. Zoho's tickets/search rejects bare punctuation (an apostrophe
-    in 'you're' returned 422 in early testing)."""
+    in 'you're' returned 422 in early testing).
+
+    Stays REGEX (not AI) intentionally — this is deterministic text
+    normalization for a search query. Replacing it with an LLM call would
+    add latency and non-determinism for zero accuracy gain."""
     s = raw or ""
-    s = _re.sub(r"^\s*\[[^\]]{0,40}\]\s*", "", s)
-    s = _re.sub(r"[^A-Za-z0-9 ]+", " ", s).lower()
+    s = re.sub(r"^\s*\[[^\]]{0,40}\]\s*", "", s)
+    s = re.sub(r"[^A-Za-z0-9 ]+", " ", s).lower()
     words = [w for w in s.split() if len(w) >= 3 and w not in _STOPWORDS]
     return " ".join(words[:6])
 
 
-async def search_tickets(query: str, exclude_id: str = None,
+async def search_tickets(query: str, exclude_id: Optional[str] = None,
                          limit: int = 3) -> list[dict]:
     """Search Zoho Desk tickets by free-text query against the SUBJECT field.
     Returns top matches (Zoho ranks by relevance), excluding exclude_id so a

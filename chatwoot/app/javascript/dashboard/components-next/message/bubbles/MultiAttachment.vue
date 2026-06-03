@@ -81,9 +81,12 @@ const imageGridClass = computed(() => {
           v-for="att in attachments.filter(isImage)"
           :key="att.id || att.dataUrl"
           type="button"
-          class="overflow-hidden rounded-lg skip-context-menu focus:outline-none"
+          class="overflow-hidden rounded-lg skip-context-menu focus:outline-none aspect-square"
           @click.stop="openGallery(att)"
         >
+          <!-- aspect-square on the parent gives the grid cell a defined
+               height; without it `h-full` resolves against an undefined
+               parent height and the image collapses to ~0px. -->
           <img
             :src="att.thumbUrl || att.dataUrl"
             :alt="filenameFor(att)"
