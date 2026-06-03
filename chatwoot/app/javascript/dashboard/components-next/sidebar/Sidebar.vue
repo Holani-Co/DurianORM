@@ -36,6 +36,12 @@ const emit = defineEmits([
   'closeMobileSidebar',
 ]);
 
+// Labels managed by the zoho-bridge spam classifier. Surfaced under the
+// "Spam Bin" sidebar group; excluded from the generic "Labels" group so
+// they don't appear twice. Keep in sync with classifier.py's EMAIL_TYPE_VALID
+// (minus 'legitimate', which doesn't get a label).
+const CLASSIFIER_MANAGED_LABELS = ['spam', 'promotional', 'automated'];
+
 const { accountScopedRoute, isOnChatwootCloud } = useAccount();
 const store = useStore();
 const searchShortcut = useKbd([`$mod`, 'k']);
@@ -266,6 +272,40 @@ const menuItems = computed(() => {
             to: accountScopedRoute('folder_conversations', { id: view.id }),
           })),
         },
+        // ── Spam Bin ──────────────────────────────────────────────────────
+        // Auto-classifier output. Three sub-items linking to the existing
+        // label-filtered conversation views. The labels themselves are
+        // created automatically by the zoho-bridge when the classifier
+        // first labels a conversation — children appear once their label
+        // exists in the account's labels list (no manual setup needed).
+        // These same label names are filtered OUT of the generic "Labels"
+        // group below so they don't show up twice in the sidebar.
+        {
+          name: 'SpamBin',
+          label: 'Spam Bin',
+          icon: 'i-lucide-shield-alert',
+          activeOn: ['conversations_through_label'],
+          children: CLASSIFIER_MANAGED_LABELS
+            .filter(name =>
+              labels.value.some(l => l.title?.toLowerCase() === name)
+            )
+            .map(name => {
+              const label = labels.value.find(
+                l => l.title?.toLowerCase() === name
+              );
+              return {
+                name: `spambin-${name}`,
+                label: name.charAt(0).toUpperCase() + name.slice(1),
+                icon: h('span', {
+                  class: 'size-[8px] rounded-sm',
+                  style: { backgroundColor: label?.color || '#94a3b8' },
+                }),
+                to: accountScopedRoute('label_conversations', {
+                  label: name,
+                }),
+              };
+            }),
+        },
         {
           name: 'Teams',
           label: t('SIDEBAR.TEAMS'),
@@ -300,17 +340,25 @@ const menuItems = computed(() => {
           label: t('SIDEBAR.LABELS'),
           icon: 'i-lucide-tag',
           activeOn: ['conversations_through_label'],
-          children: labels.value.map(label => ({
-            name: `${label.title}-${label.id}`,
-            label: label.title,
-            icon: h('span', {
-              class: `size-[8px] rounded-sm`,
-              style: { backgroundColor: label.color },
-            }),
-            to: accountScopedRoute('label_conversations', {
+          // Filter out labels that are surfaced in the Spam Bin group above —
+          // otherwise spam/promotional/automated would appear twice in the
+          // sidebar (once under Spam Bin, once under Labels).
+          children: labels.value
+            .filter(
+              label =>
+                !CLASSIFIER_MANAGED_LABELS.includes(label.title?.toLowerCase())
+            )
+            .map(label => ({
+              name: `${label.title}-${label.id}`,
               label: label.title,
-            }),
-          })),
+              icon: h('span', {
+                class: `size-[8px] rounded-sm`,
+                style: { backgroundColor: label.color },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: label.title,
+              }),
+            })),
         },
       ],
     },

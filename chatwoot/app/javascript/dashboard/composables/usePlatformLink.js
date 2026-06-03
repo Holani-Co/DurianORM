@@ -150,16 +150,17 @@ export const usePlatformLink = () => {
     }
 
     // --- Email channel ---
-    // Open the inbox in its hosted webmail UI rather than a local mailto:.
-    // We can't link to the exact thread without the Message-ID, but a
-    // search filter for the contact's address lands you next to it.
+    // Open the inbox in its hosted webmail UI. We try to deep-link to the
+    // EXACT thread using the customer email's Message-ID (rfc822msgid: in
+    // Gmail's query syntax). Falls back to a contact-email search if no
+    // Message-ID is available on any message in the conversation.
     if (ch === INBOX_TYPES.EMAIL) {
       const contactEmail = contact.value?.email;
       const inboxEmail = inbox.value?.email || '';
       const provider = (inbox.value?.provider || '').toLowerCase();
       const imapAddr = (inbox.value?.imap_address || '').toLowerCase();
 
-      // Detect provider: explicit Channel::Email provider or IMAP host or email domain.
+      // Provider detection
       const isGoogle =
         provider === 'google' ||
         provider === 'gmail' ||
@@ -174,17 +175,64 @@ export const usePlatformLink = () => {
         imapAddr.includes('office365') ||
         /@(outlook|hotmail|live|office365)\.com$/i.test(inboxEmail);
 
-      if (contactEmail || inboxEmail) {
+      // Hunt for the earliest INCOMING email's Message-ID on this conversation.
+      // Chatwoot stores it on the message as either
+      //   content_attributes.email.message_id  (preferred)
+      //   source_id                            (older path / IMAP channel)
+      // Outgoing/agent messages won't have it until they're actually sent,
+      // so we filter for incoming first then fall back to any message.
+      const messages = currentChat.value?.messages || [];
+      const pickMessageId = msg => {
+        const fromAttrs = msg?.content_attributes?.email?.message_id;
+        if (fromAttrs) return fromAttrs;
+        // source_id on email messages = the Message-ID header
+        if (msg?.source_id && String(msg.source_id).includes('@')) {
+          return msg.source_id;
+        }
+        return null;
+      };
+      const incomingFirst = [...messages].sort(
+        (a, b) =>
+          // incoming (0) before outgoing (1); then by created_at ascending
+          (a.message_type ?? 0) - (b.message_type ?? 0) ||
+          (a.created_at ?? 0) - (b.created_at ?? 0)
+      );
+      let messageId = null;
+      for (const m of incomingFirst) {
+        const id = pickMessageId(m);
+        if (id) {
+          messageId = id;
+          break;
+        }
+      }
+
+      if (contactEmail || inboxEmail || messageId) {
         if (isGoogle) {
-          const q = contactEmail
-            ? encodeURIComponent(`from:${contactEmail} OR to:${contactEmail}`)
-            : 'in:inbox';
-          // Use ?authuser=<inbox email> so Gmail opens the SPECIFIC account
-          // that owns this Chatwoot inbox, not whichever Google account the
-          // user happens to be signed into first (which /u/0/ defaults to).
+          // `?authuser=<inbox-email>` opens the SPECIFIC Google account that
+          // owns this Chatwoot inbox, not whichever /u/0/ defaults to.
           const authParam = inboxEmail
             ? `?authuser=${encodeURIComponent(inboxEmail)}`
             : '';
+
+          if (messageId) {
+            // rfc822msgid:<id> — when there's a unique match Gmail navigates
+            // directly to the thread (no intermediate search list). Strip
+            // any surrounding angle brackets that some headers carry.
+            const cleaned = String(messageId).replace(/^<|>$/g, '');
+            const q = encodeURIComponent(`rfc822msgid:${cleaned}`);
+            return {
+              url: `https://mail.google.com/mail/u/0/${authParam}#search/${q}`,
+              label: inboxEmail
+                ? `Open thread in Gmail (${inboxEmail})`
+                : 'Open thread in Gmail',
+              icon: 'i-ri-mail-fill',
+            };
+          }
+
+          // Fallback: contact-email search (lists all messages with them)
+          const q = contactEmail
+            ? encodeURIComponent(`from:${contactEmail} OR to:${contactEmail}`)
+            : 'in:inbox';
           return {
             url: `https://mail.google.com/mail/u/0/${authParam}#search/${q}`,
             label: inboxEmail
@@ -194,6 +242,8 @@ export const usePlatformLink = () => {
           };
         }
         if (isMicrosoft) {
+          // Outlook doesn't expose an analogous rfc822msgid: operator over
+          // the web URL, so we keep search-by-email here for now.
           return {
             url: contactEmail
               ? `https://outlook.live.com/mail/0/inbox?search=${encodeURIComponent(contactEmail)}`

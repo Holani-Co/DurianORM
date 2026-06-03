@@ -11,10 +11,16 @@ import { useMessageContext } from '../provider.js';
 import { downloadFile } from '@chatwoot/utils';
 
 import GalleryView from 'dashboard/components/widgets/conversation/components/GalleryView.vue';
+import FormattedContent from './Text/FormattedContent.vue';
 
 const { t } = useI18n();
 
-const { filteredCurrentChatAttachments, attachments } = useMessageContext();
+const { filteredCurrentChatAttachments, attachments, content } =
+  useMessageContext();
+// Caption support: now that the dispatcher routes image-with-caption
+// messages here (instead of TextBubble), the bubble renders the caption
+// itself. Keeps the visual where the photo and its message stay together.
+const hasCaption = computed(() => Boolean(content.value?.trim()));
 
 const attachment = computed(() => {
   return attachments.value[0];
@@ -83,6 +89,9 @@ const handleImageError = () => {
           @click.stop="downloadAttachment"
         />
       </div>
+    </div>
+    <div v-if="hasCaption" class="mt-2" @click.stop>
+      <FormattedContent :content="content" />
     </div>
   </BaseBubble>
   <GalleryView

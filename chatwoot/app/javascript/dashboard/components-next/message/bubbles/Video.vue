@@ -5,12 +5,19 @@ import Icon from 'next/icon/Icon.vue';
 import { useSnakeCase } from 'dashboard/composables/useTransformKeys';
 import { useMessageContext } from '../provider.js';
 import GalleryView from 'dashboard/components/widgets/conversation/components/GalleryView.vue';
+import FormattedContent from './Text/FormattedContent.vue';
 import { ATTACHMENT_TYPES } from '../constants';
 
 const emit = defineEmits(['error']);
 const hasError = ref(false);
 const showGallery = ref(false);
-const { filteredCurrentChatAttachments, attachments } = useMessageContext();
+const { filteredCurrentChatAttachments, attachments, content } =
+  useMessageContext();
+// `content` is the caption customers often send alongside reels/videos
+// ("check this 🔥"). Before this lived only in TextBubble; now that the
+// dispatcher always picks the media bubble for video-typed attachments,
+// the bubble itself has to render it or it would disappear.
+const hasCaption = computed(() => Boolean(content.value?.trim()));
 
 const handleError = () => {
   hasError.value = true;
@@ -50,6 +57,9 @@ const isReel = computed(() => {
         @click.stop
         @error="handleError"
       />
+    </div>
+    <div v-if="hasCaption" class="mt-2" @click.stop>
+      <FormattedContent :content="content" />
     </div>
   </BaseBubble>
   <GalleryView

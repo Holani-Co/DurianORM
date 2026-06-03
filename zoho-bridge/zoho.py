@@ -1,11 +1,19 @@
 # Zoho Desk client: OAuth token cache + ticket creation + related-ticket search.
 
 import time
-from datetime import datetime  # noqa: F401 — used in type annotation strings
+from datetime import datetime, timezone  # noqa: F401 — used in type annotation strings
 
 import httpx
 
 import config
+
+
+def _zoho_iso(dt: datetime) -> str:
+    """Format a datetime in the shape Zoho Desk accepts for date-time fields
+    (dueDate, etc.). Zoho expects `YYYY-MM-DDTHH:MM:SS.SSSZ` — explicit
+    milliseconds + the literal 'Z' suffix. Python's default `isoformat()`
+    emits `+00:00` which Zoho rejects with a 422 INVALID_DATA on /dueDate."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 _token_cache = {"value": None, "expires_at": 0.0}
 
@@ -115,7 +123,7 @@ async def create_ticket(payload: dict, priority: str | None = None,
 
     if due_at is not None:
         try:
-            body["dueDate"] = due_at.replace(microsecond=0).isoformat()
+            body["dueDate"] = _zoho_iso(due_at)
         except Exception:
             pass
 
