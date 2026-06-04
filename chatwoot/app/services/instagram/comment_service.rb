@@ -107,8 +107,42 @@ class Instagram::CommentService
       inbox_id: inbox.id,
       contact_id: @contact_inbox.contact_id,
       contact_inbox_id: @contact_inbox.id,
-      additional_attributes: { media_id: media_id, type: 'instagram_comment' }
+      additional_attributes: comment_conversation_attributes
     )
+  end
+
+  # additional_attributes for a NEW comment conversation. Includes the post's
+  # public permalink (resolved via the Graph API) so the dashboard's
+  # "Open in Platform" button can jump straight to the post the comment is on.
+  def comment_conversation_attributes
+    attrs = { media_id: media_id, type: 'instagram_comment' }
+    permalink = fetch_media_permalink
+    attrs[:permalink] = permalink if permalink.present?
+    attrs
+  end
+
+  # Resolve the public post URL for this comment's media via the Graph API.
+  # The comment webhook carries only the numeric media id (no shortcode /
+  # permalink), and that id is NOT convertible to a public shortcode locally,
+  # so we ask Graph for the canonical permalink. Best-effort: returns nil on
+  # any failure so a Graph hiccup never blocks comment ingestion.
+  def fetch_media_permalink
+    return if media_id.blank?
+
+    host  = channel.is_a?(Channel::FacebookPage) ? 'graph.facebook.com' : 'graph.instagram.com'
+    token = channel.is_a?(Channel::FacebookPage) ? channel.page_access_token : channel.access_token
+    return if token.blank?
+
+    response = HTTParty.get(
+      "https://#{host}/v22.0/#{media_id}",
+      query: { fields: 'permalink', access_token: token }
+    )
+    return unless response.success?
+
+    response.parsed_response['permalink'].presence
+  rescue StandardError => e
+    Rails.logger.warn("Instagram::CommentService permalink fetch failed for media #{media_id}: #{e.message}")
+    nil
   end
 
   def apply_comment_label

@@ -121,20 +121,41 @@ export const usePlatformLink = () => {
     }
 
     // --- Native Instagram channel (Instagram Login API) ---
-    // This channel is NOT backed by a Facebook Page, so the Meta Business
-    // Suite inbox URL does NOT apply: `business.facebook.com/.../instagram/
-    // ?asset_id=` expects a Facebook *Page* asset id, and passing the
-    // Instagram account id there yields Facebook's "content isn't available"
-    // error. (Page-linked Instagram is handled in the FB branch above via
-    // convType === 'instagram_direct_message'.)
+    // This channel is NOT backed by a Facebook Page, and Instagram exposes
+    // NO public URL that opens a specific existing DM thread (unlike Gmail's
+    // rfc822msgid). Approaches that DON'T work here, for the record:
+    //   • business.facebook.com/.../instagram/?asset_id=<igId>
+    //       — expects a Facebook *Page* id; native IG has no Page → Facebook
+    //         "content isn't available" error.
+    //   • ig.me/m/<username>
+    //       — that's Instagram's *message-a-business* link; it expects a
+    //         business handle, so a customer's personal handle returns
+    //         "this page isn't available".
+    //   • instagram.com/direct/t/<thread_id>
+    //       — would open the exact thread, but Chatwoot stores no thread id
+    //         for native IG conversations (additional_attributes is empty).
     //
-    // Instagram has no public per-thread deep-link (unlike Gmail's
-    // rfc822msgid). Best effort, in order:
-    //   1. ig.me/m/<username> — opens a DM with that exact user. Closest
-    //      thing to "open this conversation". Needs the contact's handle,
-    //      which Chatwoot stores on the IG contact's additional_attributes.
-    //   2. instagram.com/direct/inbox/ — opens the IG DM inbox otherwise.
+    // Best achievable: open the customer's PROFILE. The profile always
+    // resolves for a valid handle, and Instagram's "Message" button there
+    // opens the EXISTING DM thread (it doesn't create a duplicate) — so it's
+    // a reliable one-extra-click path to this conversation, plus useful
+    // context (who they are). Falls back to the DM inbox with no handle.
     if (ch === INBOX_TYPES.INSTAGRAM) {
+      const convAttrs = currentChat.value?.additional_attributes || {};
+
+      // Comment conversation → open the POST the comment is on. The permalink
+      // is resolved + stored at ingest (Instagram::CommentService) because the
+      // numeric media_id alone isn't usable in a URL.
+      if (String(convAttrs.type || '').includes('comment') && convAttrs.permalink) {
+        return {
+          url: convAttrs.permalink,
+          label: 'Open post on Instagram',
+          icon: 'i-ri-instagram-fill',
+        };
+      }
+
+      // DM (or a comment whose permalink wasn't resolved) → the contact's
+      // profile; its "Message" button opens the existing thread.
       const attrs = contact.value?.additional_attributes || {};
       const username =
         attrs.social_instagram_user_name ||
@@ -143,8 +164,8 @@ export const usePlatformLink = () => {
         null;
       if (username) {
         return {
-          url: `https://ig.me/m/${encodeURIComponent(username)}`,
-          label: `Open chat in Instagram (@${username})`,
+          url: `https://www.instagram.com/${encodeURIComponent(username)}/`,
+          label: `Open @${username} on Instagram`,
           icon: 'i-ri-instagram-fill',
         };
       }
