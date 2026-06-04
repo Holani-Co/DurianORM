@@ -23,10 +23,14 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     { title: '👤 Talk to a Human',  value: 'human'           }
   ].freeze
 
-  # Public reply posted on a comment the AI flags as serious (abuse, scam/sue
-  # accusations, legal threats). We always respond publicly AND hand to a
-  # human, instead of silently handing off with no visible reply.
-  COMMENT_HANDOFF_REPLY = "We're sorry to hear this 🙏 Please DM us so our team can look into it right away."
+  # Default public reply for a comment the AI flags as serious (abuse,
+  # scam/sue accusations, legal threats). Overridable at runtime via the
+  # DM_BOT_COMMENT_HANDOFF_REPLY env var so the wording can change without a
+  # code deploy. We intentionally use a CONTROLLED message here (not the
+  # model's output): on escalation the AI returns just the token "HANDOFF",
+  # and for legal threats / accusations a predictable, brand-safe line is
+  # safer than letting the model improvise.
+  DEFAULT_COMMENT_HANDOFF_REPLY = "We're sorry to hear this 🙏 Please DM us so our team can look into it right away."
 
   private
 
@@ -146,18 +150,24 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     return if user_content.blank?
 
     credential = llm_credential
-    return { content: COMMENT_HANDOFF_REPLY, handoff: true } unless credential
+    return { content: comment_handoff_reply, handoff: true } unless credential
 
     model = Llm::Config.configured_model
     result = generate_ai_response(credential, model, user_content)
     content = result[:message].to_s.strip
 
-    return { content: COMMENT_HANDOFF_REPLY, handoff: true } if should_escalate?(content)
+    return { content: comment_handoff_reply, handoff: true } if should_escalate?(content)
 
     { content: content }
   rescue StandardError => e
     Rails.logger.error("DmBot comment AI error: #{e.message}")
-    { content: COMMENT_HANDOFF_REPLY, handoff: true }
+    { content: comment_handoff_reply, handoff: true }
+  end
+
+  # Escalation reply text, overridable at runtime via env (see the
+  # DEFAULT_COMMENT_HANDOFF_REPLY comment for why it's a controlled message).
+  def comment_handoff_reply
+    ENV['DM_BOT_COMMENT_HANDOFF_REPLY'].presence || DEFAULT_COMMENT_HANDOFF_REPLY
   end
 
   # Runs the LLM turn inside a Langfuse generation span. Returns a hash shaped
