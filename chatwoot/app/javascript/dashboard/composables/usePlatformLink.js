@@ -141,6 +141,21 @@ export const usePlatformLink = () => {
     // a reliable one-extra-click path to this conversation, plus useful
     // context (who they are). Falls back to the DM inbox with no handle.
     if (ch === INBOX_TYPES.INSTAGRAM) {
+      const convAttrs = currentChat.value?.additional_attributes || {};
+
+      // Comment conversation → open the POST the comment is on. The permalink
+      // is resolved + stored at ingest (Instagram::CommentService) because the
+      // numeric media_id alone isn't usable in a URL.
+      if (String(convAttrs.type || '').includes('comment') && convAttrs.permalink) {
+        return {
+          url: convAttrs.permalink,
+          label: 'Open post on Instagram',
+          icon: 'i-ri-instagram-fill',
+        };
+      }
+
+      // DM (or a comment whose permalink wasn't resolved) → the contact's
+      // profile; its "Message" button opens the existing thread.
       const attrs = contact.value?.additional_attributes || {};
       const username =
         attrs.social_instagram_user_name ||
