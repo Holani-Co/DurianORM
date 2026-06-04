@@ -129,6 +129,24 @@ def _verify_signature(signature: Optional[str], timestamp: Optional[str], body: 
         raise HTTPException(status_code=401, detail="bad signature")
 
 
+# ── Comment-conversation detection ────────────────────────────────────────
+def _is_comment_conversation(conv: dict) -> bool:
+    """True for Instagram/Facebook *comment* conversations (someone commenting
+    on a post), as opposed to direct messages.
+
+    These are owned entirely by the in-Chatwoot DM bot, which auto-replies
+    with a comment-specific prompt (thank / redirect-to-DM / HANDOFF on spam).
+    The bridge must NOT create Zoho tickets or run the spam/team-routing
+    pipeline for them — otherwise a public comment that transitions to `open`
+    (e.g. the bot hands off a spam comment) spawns a support ticket, which is
+    exactly the behaviour we want to stop.
+
+    Chatwoot tags the kind on conversation.additional_attributes.type
+    (observed values: 'instagram_comment', 'facebook_comment')."""
+    t = (conv.get("additional_attributes") or {}).get("type") or ""
+    return "comment" in str(t).lower()
+
+
 # ── Handler: bot handoff → Zoho ticket ────────────────────────────────────
 async def handle_status_changed(data: dict) -> dict:
     conv       = data.get("conversation") or data
@@ -136,6 +154,10 @@ async def handle_status_changed(data: dict) -> dict:
     new_status = (conv.get("status") or data.get("status") or "").lower()
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
+    # Comments are handled by the DM bot — never raise a Zoho ticket for them.
+    if _is_comment_conversation(conv):
+        print(f"[handoff] conv {conv_id} is a comment — handled by DM bot, no Zoho ticket")
+        return {"ignored": True, "reason": "comment_conversation"}
     try:
         ticket = await zoho.create_ticket(data)
         await _surface_ticket_in_chatwoot(conv_id, ticket, source="manual_handoff")
@@ -329,6 +351,13 @@ async def handle_message_created(data: dict) -> dict:
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
+
+    # Comment conversations belong to the in-Chatwoot DM bot, which replies
+    # with a comment-specific prompt. The bridge must not run the spam/team
+    # pipeline or escalate them to Zoho — bail out before any of that.
+    if _is_comment_conversation(conv):
+        print(f"[msg] conv {conv_id} is a comment — leaving to DM bot, skipping pipeline")
+        return {"ignored": True, "reason": "comment_conversation"}
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_attrs   = conv.get("custom_attributes") or {}
