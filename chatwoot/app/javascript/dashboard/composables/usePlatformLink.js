@@ -120,13 +120,31 @@ export const usePlatformLink = () => {
       }
     }
 
-    // --- Native Instagram channel ---
+    // --- Native Instagram channel (Instagram Login API) ---
+    // This channel is NOT backed by a Facebook Page, so the Meta Business
+    // Suite inbox URL does NOT apply: `business.facebook.com/.../instagram/
+    // ?asset_id=` expects a Facebook *Page* asset id, and passing the
+    // Instagram account id there yields Facebook's "content isn't available"
+    // error. (Page-linked Instagram is handled in the FB branch above via
+    // convType === 'instagram_direct_message'.)
+    //
+    // Instagram has no public per-thread deep-link (unlike Gmail's
+    // rfc822msgid). Best effort, in order:
+    //   1. ig.me/m/<username> — opens a DM with that exact user. Closest
+    //      thing to "open this conversation". Needs the contact's handle,
+    //      which Chatwoot stores on the IG contact's additional_attributes.
+    //   2. instagram.com/direct/inbox/ — opens the IG DM inbox otherwise.
     if (ch === INBOX_TYPES.INSTAGRAM) {
-      const igId = inbox.value?.instagram_id || inbox.value?.user_id;
-      if (igId) {
+      const attrs = contact.value?.additional_attributes || {};
+      const username =
+        attrs.social_instagram_user_name ||
+        attrs.social_profiles?.instagram ||
+        attrs.username ||
+        null;
+      if (username) {
         return {
-          url: `https://business.facebook.com/latest/inbox/instagram/?asset_id=${igId}`,
-          label: 'Open in Instagram (Business Suite)',
+          url: `https://ig.me/m/${encodeURIComponent(username)}`,
+          label: `Open chat in Instagram (@${username})`,
           icon: 'i-ri-instagram-fill',
         };
       }
