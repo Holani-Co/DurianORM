@@ -35,10 +35,12 @@ const closeGallery = () => {
 };
 
 const isImage = a => a.fileType === ATTACHMENT_TYPES.IMAGE;
-const isVideo = a =>
-  a.fileType === ATTACHMENT_TYPES.VIDEO ||
-  a.fileType === ATTACHMENT_TYPES.IG_REEL;
+// NOTE: IG reels are intentionally NOT treated as video here — their dataUrl
+// is an instagram.com/reel/... permalink, not a playable video file, so a
+// <video> tag renders a black box. They fall through to the link row below.
+const isVideo = a => a.fileType === ATTACHMENT_TYPES.VIDEO;
 const isAudio = a => a.fileType === ATTACHMENT_TYPES.AUDIO;
+const isReel = a => a.fileType === ATTACHMENT_TYPES.IG_REEL;
 
 // Filename rendered for the generic file row. Backend doesn't always surface
 // the original name on the attachment object; fall back to the URL tail so
@@ -96,7 +98,8 @@ const imageGridClass = computed(() => {
         </button>
       </div>
 
-      <!-- Videos + IG reels: inline player per item. -->
+      <!-- Videos: inline player per item (real video files only; IG reels are
+           handled in the link row below — their dataUrl isn't playable). -->
       <video
         v-for="att in attachments.filter(isVideo)"
         :key="att.id || att.dataUrl"
@@ -116,8 +119,9 @@ const imageGridClass = computed(() => {
         @click.stop
       />
 
-      <!-- Everything else (file, embed, unknown future types, etc.) — render a
-           clear download row so the agent can at least access the artifact. -->
+      <!-- Everything else (IG reels, files, embeds, unknown future types) —
+           render a clear link row so the agent can reach the artifact. Reels
+           get an Instagram icon + label since their dataUrl is a permalink. -->
       <a
         v-for="att in attachments.filter(
           a => !isImage(a) && !isVideo(a) && !isAudio(a)
@@ -129,8 +133,13 @@ const imageGridClass = computed(() => {
         class="flex items-center gap-2 px-3 py-2 rounded-lg bg-n-alpha-1 hover:bg-n-alpha-2"
         @click.stop
       >
-        <Icon icon="i-lucide-paperclip" class="text-n-slate-11" />
-        <span class="truncate text-n-slate-12">{{ filenameFor(att) }}</span>
+        <Icon
+          :icon="isReel(att) ? 'i-ri-instagram-line' : 'i-lucide-paperclip'"
+          class="text-n-slate-11"
+        />
+        <span class="truncate text-n-slate-12">
+          {{ isReel(att) ? 'Instagram Reel — open on Instagram' : filenameFor(att) }}
+        </span>
       </a>
     </div>
   </BaseBubble>

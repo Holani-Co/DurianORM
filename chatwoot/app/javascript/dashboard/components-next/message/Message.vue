@@ -41,6 +41,7 @@ import CSATBubble from './bubbles/CSAT.vue';
 import FormBubble from './bubbles/Form.vue';
 import VoiceCallBubble from './bubbles/VoiceCall.vue';
 import MultiAttachmentBubble from './bubbles/MultiAttachment.vue';
+import InstagramReelBubble from './bubbles/InstagramReel.vue';
 
 import MessageError from './MessageError.vue';
 import ContextMenu from 'dashboard/modules/conversations/components/MessageContextMenu.vue';
@@ -292,7 +293,9 @@ const bubbleForFileType = fileType => {
   if (fileType === ATTACHMENT_TYPES.IMAGE) return ImageBubble;
   if (fileType === ATTACHMENT_TYPES.AUDIO) return AudioBubble;
   if (fileType === ATTACHMENT_TYPES.VIDEO) return VideoBubble;
-  if (fileType === ATTACHMENT_TYPES.IG_REEL) return VideoBubble;
+  // IG reels arrive as a permalink (no video file), so the VideoBubble's
+  // <video> can't play them — render a clickable "open on Instagram" card.
+  if (fileType === ATTACHMENT_TYPES.IG_REEL) return InstagramReelBubble;
   if (fileType === ATTACHMENT_TYPES.FILE) return FileBubble;
   if (fileType === ATTACHMENT_TYPES.EMBED) return EmbedBubble;
   if (fileType === ATTACHMENT_TYPES.LOCATION) return LocationBubble;
