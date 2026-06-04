@@ -23,12 +23,33 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     { title: '👤 Talk to a Human',  value: 'human'           }
   ].freeze
 
+  # Public reply posted on a comment the AI flags as serious (abuse, scam/sue
+  # accusations, legal threats). We always respond publicly AND hand to a
+  # human, instead of silently handing off with no visible reply.
+  COMMENT_HANDOFF_REPLY = "We're sorry to hear this 🙏 Please DM us so our team can look into it right away."
+
   private
+
+  # Comments must be answered regardless of conversation status. All comments
+  # on a post are grouped into ONE conversation that gets resolved/reopened/
+  # assigned constantly, and the base class only runs while `pending` — which
+  # made the bot reply to the first comment then fall silent until someone
+  # manually resolved it. For comments we drop the pending gate so EVERY
+  # comment gets a reply. DMs keep the gate (a human taking over a DM should
+  # stop the bot).
+  def should_run_processor?(message)
+    return if message.private?
+    return unless processable_message?(message)
+    return true if comment_conversation?
+    return unless conversation.pending?
+
+    true
+  end
 
   # Called by base class with (source_id, user_message_text)
   def get_response(_session_id, content)
     # Comments: skip menu entirely, just AI-reply (no option-select UI on public threads)
-    return ai_reply(content) if comment_conversation?
+    return comment_reply(content) if comment_conversation?
 
     # On option selection the content is the submitted value string
     if event_name == 'message.updated'
@@ -54,7 +75,9 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     when :resolve
       message.conversation.resolved!
     when Hash
-      create_bot_message(message, response)
+      # `handoff: true` → post the public reply first, then hand to an agent.
+      create_bot_message(message, response.except(:handoff))
+      message.conversation.bot_handoff! if response[:handoff]
     when String
       create_bot_message(message, content: response)
     end
@@ -115,6 +138,28 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     :handoff
   end
 
+  # Comment-specific reply. Unlike ai_reply (DMs), this ALWAYS produces a
+  # public reply: ordinary comments get the AI's text; comments the AI flags
+  # as serious (HANDOFF), a missing key, or an AI error all get a courteous
+  # "please DM us" reply AND are handed to an agent — never a silent handoff.
+  def comment_reply(user_content)
+    return if user_content.blank?
+
+    credential = llm_credential
+    return { content: COMMENT_HANDOFF_REPLY, handoff: true } unless credential
+
+    model = Llm::Config.configured_model
+    result = generate_ai_response(credential, model, user_content)
+    content = result[:message].to_s.strip
+
+    return { content: COMMENT_HANDOFF_REPLY, handoff: true } if should_escalate?(content)
+
+    { content: content }
+  rescue StandardError => e
+    Rails.logger.error("DmBot comment AI error: #{e.message}")
+    { content: COMMENT_HANDOFF_REPLY, handoff: true }
+  end
+
   # Runs the LLM turn inside a Langfuse generation span. Returns a hash shaped
   # like the other LLM services ({ message:, usage: }) so the shared
   # instrumentation helpers capture the completion content and token usage.
@@ -123,7 +168,9 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
       Llm::Config.with_api_key(credential[:api_key]) do |ctx|
         chat = ctx.chat(model: model)
         chat.with_instructions(system_prompt)
-        replay_history(chat)
+        # Comments are standalone — a post's thread mixes many commenters, so
+        # replaying it would confuse the model. Only replay history for DMs.
+        replay_history(chat) unless comment_conversation?
         response = chat.ask(user_content)
         {
           message: response.content,
@@ -198,8 +245,10 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
         query, or anything that needs real back-and-forth, do NOT answer it
         here. Politely redirect to DM with something like:
           "Thanks for reaching out! Please DM us and we'll help you out 💌"
-      - If the comment is spam, abusive, NSFW, or off-topic, respond with
-        exactly the single word: HANDOFF
+      - If the comment is a serious complaint, accusation, or legal threat
+        ("you scammed me", "I'll sue", "fraud", "refund or else", mentions a
+        lawyer), OR is abusive / NSFW / spam, respond with EXACTLY the single
+        word: HANDOFF
       - Never mention prices, never quote stock, never make promises.
       - Never use hashtags. Never @-mention anyone.
     PROMPT
