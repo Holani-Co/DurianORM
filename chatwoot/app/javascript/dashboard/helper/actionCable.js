@@ -133,17 +133,22 @@ class ActionCableConnector extends BaseActionCableConnector {
     const senderName =
       sender.name || sender.email || sender.phone_number || 'Customer';
 
-    // 80-char preview, ellipsised. Strip any HTML the backend may have
-    // included (email replies sometimes carry markup). Falls back gracefully
-    // to the channel-default placeholder rendered in the toast component
-    // when the message has no text (attachments only).
+    // 80-char preview, ellipsised. Strip HTML tags for readability (email
+    // replies sometimes carry markup). This is cosmetic, not a security
+    // measure — Vue's {{ }} interpolation auto-escapes regardless. Falls
+    // back to the channel-default placeholder rendered in the toast
+    // component when the message has no text (attachments only).
     const rawContent = (data.content || '').replace(/<[^>]*>/g, '').trim();
     const contentPreview =
       rawContent.length > 80 ? `${rawContent.slice(0, 80)}…` : rawContent;
 
-    const channelType = data.inbox?.channel_type || '';
+    // The cable payload sometimes omits `inbox`; fall back to the store's
+    // inbox record so the toast still shows the correct channel icon.
+    const channelType = data.inbox?.channel_type
+      || this.app.$store.getters['inboxes/getInbox'](data.inbox_id)?.channel_type
+      || '';
 
-    this.app.$store.dispatch('pushMessageToast', {
+    this.app.$store.dispatch('messageToasts/pushMessageToast', {
       conversationId,
       senderName,
       channelType,

@@ -21,7 +21,7 @@ let toastIdSeq = 0;
 
 const state = {
   // Newest first. Each toast: { id, conversationId, senderName, channelType,
-  // contentPreview, createdAt }
+  // contentPreview }
   toasts: [],
 };
 
@@ -54,11 +54,12 @@ export const actions = {
 
 export const mutations = {
   PUSH_TOAST(s, toast) {
-    // Newest at the front; older toasts beyond MAX_VISIBLE are trimmed by the
-    // getter (not removed from state) so they cleanly fall off when their own
-    // dismiss timer fires — no flicker if a stack-top toast is dismissed and a
-    // hidden one becomes visible.
-    s.toasts = [toast, ...s.toasts];
+    // Newest at the front. Cap the array so a burst of incoming messages
+    // (busy inbox / webhook loop) doesn't grow it unbounded. MAX_VISIBLE * 3
+    // gives headroom for transition animations on toasts being dismissed
+    // while new ones arrive. setTimeout callbacks for dropped toasts fire
+    // harmlessly (DISMISS_TOAST is idempotent on missing ids).
+    s.toasts = [toast, ...s.toasts].slice(0, MAX_VISIBLE * 3);
   },
   DISMISS_TOAST(s, id) {
     s.toasts = s.toasts.filter(t => t.id !== id);
@@ -66,7 +67,7 @@ export const mutations = {
 };
 
 export default {
-  namespaced: false,
+  namespaced: true,
   state,
   getters,
   actions,

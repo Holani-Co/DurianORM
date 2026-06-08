@@ -8,16 +8,15 @@
 // Mounted ONCE at the dashboard root (App.vue) so it overlays every route.
 
 import { computed } from 'vue';
-import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
-import { useMapGetter } from 'dashboard/composables/store';
+import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { getInboxIconByType } from 'dashboard/helper/inbox';
 import Icon from 'next/icon/Icon.vue';
 
 const store = useStore();
 const router = useRouter();
 
-const toasts = useMapGetter('visibleToasts');
+const toasts = useMapGetter('messageToasts/visibleToasts');
 const currentAccountId = useMapGetter('getCurrentAccountId');
 
 // Map a channel_type ('Channel::Instagram', 'Channel::Email', etc.) to its
@@ -26,7 +25,7 @@ const currentAccountId = useMapGetter('getCurrentAccountId');
 const channelIcon = channelType => getInboxIconByType(channelType) || 'i-ri-chat-3-line';
 
 const openConversation = toast => {
-  store.dispatch('dismissMessageToast', toast.id);
+  store.dispatch('messageToasts/dismissMessageToast', toast.id);
   if (!toast.conversationId || !currentAccountId.value) return;
   router.push(
     `/app/accounts/${currentAccountId.value}/conversations/${toast.conversationId}`
@@ -37,7 +36,7 @@ const dismiss = (event, id) => {
   // Stop the click from bubbling to the parent (which would also try to
   // navigate). The dismiss-X is purely "go away" — no navigation.
   event.stopPropagation();
-  store.dispatch('dismissMessageToast', id);
+  store.dispatch('messageToasts/dismissMessageToast', id);
 };
 
 // Toasts is reactive; the template iterates `toasts.value` and Vue handles
