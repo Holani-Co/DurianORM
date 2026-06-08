@@ -105,6 +105,55 @@ class ActionCableConnector extends BaseActionCableConnector {
       lastActivityAt,
       conversationId,
     });
+    this.maybePushToast(data, conversationId);
+  };
+
+  /**
+   * Slide-in toast for newly arrived customer messages. Deliberately quiet:
+   * only fires for INCOMING (customer) messages on conversations the agent
+   * isn't already looking at. Outgoing messages (agent replies echoed back
+   * via the cable) and the currently-open conversation never toast.
+   *
+   * The toast itself is rendered by MessageToastContainer mounted in App.vue;
+   * this method just produces the payload and dispatches.
+   */
+  maybePushToast = (data, conversationId) => {
+    // Only incoming customer messages (message_type=0). Outgoing (1) and
+    // template/activity (2/3) shouldn't toast — those are our own messages
+    // or system events.
+    if (data.message_type !== 0 && data.message_type !== 'incoming') return;
+
+    // If the agent already has this conversation open, no need to notify —
+    // they're looking right at it. selectedChatId getter returns the active
+    // conversation id (display_id), or null when on a list view.
+    const selected = this.app.$store.getters.getSelectedChat;
+    if (selected && Number(selected.id) === Number(conversationId)) return;
+
+    const sender = (data.sender || {});
+    const senderName =
+      sender.name || sender.email || sender.phone_number || 'Customer';
+
+    // 80-char preview, ellipsised. Strip HTML tags for readability (email
+    // replies sometimes carry markup). This is cosmetic, not a security
+    // measure — Vue's {{ }} interpolation auto-escapes regardless. Falls
+    // back to the channel-default placeholder rendered in the toast
+    // component when the message has no text (attachments only).
+    const rawContent = (data.content || '').replace(/<[^>]*>/g, '').trim();
+    const contentPreview =
+      rawContent.length > 80 ? `${rawContent.slice(0, 80)}…` : rawContent;
+
+    // The cable payload sometimes omits `inbox`; fall back to the store's
+    // inbox record so the toast still shows the correct channel icon.
+    const channelType = data.inbox?.channel_type
+      || this.app.$store.getters['inboxes/getInbox'](data.inbox_id)?.channel_type
+      || '';
+
+    this.app.$store.dispatch('messageToasts/pushMessageToast', {
+      conversationId,
+      senderName,
+      channelType,
+      contentPreview,
+    });
   };
 
   // eslint-disable-next-line class-methods-use-this
