@@ -324,9 +324,13 @@ async def _surface_ticket_in_chatwoot(
     # issues raised in the same thread). Persist the full history as an
     # array, newest first, deduped by ticket id, capped at MAX_TRACKED.
     #
-    # `zoho_ticket` (singular) is kept in sync with the head of the array
-    # for backward compatibility — anything still reading the old
-    # single-ticket key keeps working until callers are migrated.
+    # `zoho_tickets` is the single source of truth. The legacy `zoho_ticket`
+    # (singular) key is no longer written — a one-shot backfill script
+    # (scripts/backfill_zoho_tickets.py) migrates any existing conversations
+    # that still have the singular key into the array and removes it.
+    # The read-side legacy seed below is kept as a defense-in-depth measure
+    # for any conversation the backfill missed (created between deploy and
+    # script run, etc.) — costs ~5 lines and prevents silent data loss.
     new_entry = {
         "id":         ticket_id,
         "number":     ticket_number,
@@ -346,9 +350,9 @@ async def _surface_ticket_in_chatwoot(
         conv_data = await chatwoot.get_conversation(conv_id)
         existing_attrs = conv_data.get("custom_attributes") or {}
         existing_tickets = existing_attrs.get("zoho_tickets") or []
-        # Backfill: if there's no array yet but the legacy singular key
-        # exists (pre-migration conversation), seed the array from it so
-        # the old ticket isn't lost from the history.
+        # Defense-in-depth: if a conversation was missed by the backfill
+        # script and still has the legacy singular key, fold it in so the
+        # old ticket isn't lost from history on the next write.
         if not existing_tickets and existing_attrs.get("zoho_ticket"):
             legacy = existing_attrs["zoho_ticket"]
             if isinstance(legacy, dict) and legacy.get("id"):
@@ -366,7 +370,6 @@ async def _surface_ticket_in_chatwoot(
 
     payload_attrs = {
         "zoho_tickets":    tickets_array,
-        "zoho_ticket":     new_entry,        # legacy mirror — see note above
         "related_tickets": related,
     }
     if sla:
