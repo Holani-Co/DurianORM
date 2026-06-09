@@ -181,8 +181,23 @@ async def handle_conversation_updated(data: dict) -> dict:
         return {"ignored": True, "reason": f"priority_not_critical({priority!r})"}
 
     # Idempotency: don't re-create a ticket for the same conversation.
+    #
+    # CRITICAL: this guard MUST check the `zoho_tickets` (plural) array,
+    # NOT the legacy `zoho_ticket` singular key. The singular key is no
+    # longer written by _surface_ticket_in_chatwoot (the multi-ticket
+    # array PR retired it). Reading only the singular key here caused an
+    # infinite loop on priority bumps:
+    #   1. Agent sets priority high  → conversation_updated webhook fires
+    #   2. Handler sees no `zoho_ticket` → creates a Zoho ticket
+    #   3. _surface_ticket_in_chatwoot writes `zoho_tickets` to the conv
+    #   4. That write fires conversation_updated AGAIN
+    #   5. Guard still sees no singular key → creates another ticket
+    #   6. Loop forever until the bridge or Zoho falls over.
+    #
+    # We check BOTH keys so any pre-migration conversation the backfill
+    # missed (still carrying the legacy singular) is also idempotent.
     custom_attrs = conv.get("custom_attributes") or {}
-    if custom_attrs.get("zoho_ticket"):
+    if custom_attrs.get("zoho_tickets") or custom_attrs.get("zoho_ticket"):
         return {"ignored": True, "reason": "ticket_already_exists"}
 
     print(f"[priority] conv {conv_id} flagged {priority.upper()} — escalating to Zoho")
