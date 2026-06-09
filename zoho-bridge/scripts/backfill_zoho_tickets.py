@@ -156,8 +156,7 @@ def _merge_legacy_into_array(legacy: dict, tickets: list[dict]) -> list[dict]:
 async def migrate_conversation(client: httpx.AsyncClient,
                                conv_summary: dict,
                                dry_run: bool) -> str:
-    """Return a status string: 'migrated', 'skipped_no_legacy',
-    'skipped_unchanged', or 'failed'."""
+    """Return a status string: 'migrated', 'skipped_no_legacy', or 'failed'."""
     conv_id = conv_summary.get("id")
     if not conv_id:
         return "skipped_no_legacy"
@@ -178,14 +177,12 @@ async def migrate_conversation(client: httpx.AsyncClient,
     tickets = list(attrs.get("zoho_tickets") or [])
     new_tickets = _merge_legacy_into_array(legacy, tickets)
 
-    # Build the post-migration attrs: array set, singular dropped.
+    # Build the post-migration attrs: array set, singular dropped. We always
+    # mutate (the singular key is always removed at this point), so no
+    # "no-op" branch is needed — every reach past the `if not legacy` guard
+    # is a real migration.
     new_attrs = {k: v for k, v in attrs.items() if k != "zoho_ticket"}
     new_attrs["zoho_tickets"] = new_tickets
-
-    if new_attrs == attrs:
-        # Nothing actually changed (shouldn't happen given legacy was set,
-        # but defensive).
-        return "skipped_unchanged"
 
     if dry_run:
         print(f"[dry-run] conv {conv_id}: would migrate "
@@ -210,7 +207,6 @@ async def main(dry_run: bool) -> int:
     counts = {
         "migrated":          0,
         "skipped_no_legacy": 0,
-        "skipped_unchanged": 0,
         "failed":            0,
     }
 
