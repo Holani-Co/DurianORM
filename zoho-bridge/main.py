@@ -317,14 +317,59 @@ async def _surface_ticket_in_chatwoot(
     except Exception as e:
         print(f"[zoho] post_private_note failed for conv {conv_id}: {e}")
 
-    # 3. Persist structured data on the conversation
+    # 3. Persist structured data on the conversation.
+    #
+    # A conversation can spawn MULTIPLE Zoho tickets over its lifetime
+    # (re-opens, priority bumps, new escalations weeks apart, separate
+    # issues raised in the same thread). Persist the full history as an
+    # array, newest first, deduped by ticket id, capped at MAX_TRACKED.
+    #
+    # `zoho_tickets` is the single source of truth. The legacy `zoho_ticket`
+    # (singular) key is no longer written — a one-shot backfill script
+    # (scripts/backfill_zoho_tickets.py) migrates any existing conversations
+    # that still have the singular key into the array and removes it.
+    # The read-side legacy seed below is kept as a defense-in-depth measure
+    # for any conversation the backfill missed (created between deploy and
+    # script run, etc.) — costs ~5 lines and prevents silent data loss.
+    new_entry = {
+        "id":         ticket_id,
+        "number":     ticket_number,
+        "url":        web_url,
+        "subject":    subject,
+        "source":     source,
+        "created_at": _now_iso(),
+        "status":     ticket.get("status") or "Open",  # last known; refresh via sync job
+    }
+
+    # Read existing tickets array. Best-effort: if the fetch fails (network,
+    # 4xx, conv vanished), we treat the array as empty rather than blocking
+    # the whole surface step — the new ticket still lands as the head.
+    MAX_TRACKED = 20
+    existing_tickets: list[dict] = []
+    try:
+        conv_data = await chatwoot.get_conversation(conv_id)
+        existing_attrs = conv_data.get("custom_attributes") or {}
+        existing_tickets = existing_attrs.get("zoho_tickets") or []
+        # Defense-in-depth: if a conversation was missed by the backfill
+        # script and still has the legacy singular key, fold it in so the
+        # old ticket isn't lost from history on the next write.
+        if not existing_tickets and existing_attrs.get("zoho_ticket"):
+            legacy = existing_attrs["zoho_ticket"]
+            if isinstance(legacy, dict) and legacy.get("id"):
+                existing_tickets = [legacy]
+    except Exception as e:
+        print(f"[zoho] get_conversation failed for {conv_id}: {e} — "
+              f"proceeding with empty tickets history")
+
+    # Dedup by id (idempotency — same webhook can fire twice); keep the
+    # latest version of any duplicate, place it at the head.
+    deduped = [t for t in existing_tickets
+               if str(t.get("id") or "") != str(ticket_id or "")]
+    tickets_array = [new_entry] + deduped
+    tickets_array = tickets_array[:MAX_TRACKED]
+
     payload_attrs = {
-        "zoho_ticket": {
-            "id":         ticket_id,
-            "number":     ticket_number,
-            "url":        web_url,
-            "source":     source,
-        },
+        "zoho_tickets":    tickets_array,
         "related_tickets": related,
     }
     if sla:
