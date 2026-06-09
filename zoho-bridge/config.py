@@ -23,7 +23,23 @@ ZOHO_ACCOUNTS_URL  = os.environ.get("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.
 ZOHO_DESK_URL      = os.environ.get("ZOHO_DESK_URL", "https://desk.zoho.in")
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────
+# CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
+# Chatwoot API. On a single-VM deployment this is `http://localhost:3000`
+# (faster, no SSL handshake, no DNS) and that's the default.
+#
+# CHATWOOT_PUBLIC_URL is the USER-FACING address — what agents type into
+# their browser to reach the dashboard (e.g., `https://orm.durianos.in`).
+# This is the URL embedded in deep-links the bridge writes into other
+# systems — the "Open conversation in Chatwoot" link in Zoho ticket
+# descriptions, future webhook callback URLs, etc. It MUST be the public
+# URL — a localhost link inside a Zoho ticket is useless to anyone who
+# isn't SSH'd into the VM.
+#
+# Falls back to CHATWOOT_BASE_URL if unset, so existing dev setups where
+# localhost IS the public address (e.g. running everything on a laptop)
+# keep working without a config change.
 CHATWOOT_BASE_URL       = os.environ.get("CHATWOOT_BASE_URL", "http://localhost:3000")
+CHATWOOT_PUBLIC_URL     = os.environ.get("CHATWOOT_PUBLIC_URL", CHATWOOT_BASE_URL)
 CHATWOOT_API_TOKEN      = _required("CHATWOOT_API_TOKEN")
 CHATWOOT_ACCOUNT_ID     = int(os.environ.get("CHATWOOT_ACCOUNT_ID", "1"))
 CHATWOOT_WEBHOOK_SECRET = os.environ.get("CHATWOOT_WEBHOOK_SECRET", "")

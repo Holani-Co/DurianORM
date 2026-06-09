@@ -147,8 +147,13 @@ onMounted(() => {
     />
     <ContactInfo :contact="contact" :channel-type="channelType" />
     <!-- Zoho Desk ticket panel: populated by the zoho-bridge sidecar when it
-         creates a ticket (manual bot handoff or auto-routed Legal). The bridge
-         writes custom_attributes.zoho_ticket on the conversation. -->
+         creates a ticket (manual bot handoff, priority escalation, or
+         auto-routed Legal). The bridge writes the full history into
+         `custom_attributes.zoho_tickets` (an array, newest first). The
+         legacy `zoho_ticket` singular key is kept as a read-side fallback
+         for any conversation the backfill script may have missed —
+         without it, those conversations would show "no ticket" in the
+         sidebar even though they have one in Zoho. -->
     <div class="px-2 pt-2">
       <AccordionItem
         title="Zoho Desk"
@@ -156,7 +161,12 @@ onMounted(() => {
         compact
         @toggle="value => toggleSidebarUIState('is_zoho_ticket_open', value)"
       >
-        <ZohoTicketPanel :ticket="conversationCustomAttributes.zoho_ticket" />
+        <ZohoTicketPanel
+          :ticket="
+            (conversationCustomAttributes.zoho_tickets || [])[0] ||
+              conversationCustomAttributes.zoho_ticket
+          "
+        />
       </AccordionItem>
     </div>
     <!-- Related Tickets panel: hints from Zoho's search of past tickets that
