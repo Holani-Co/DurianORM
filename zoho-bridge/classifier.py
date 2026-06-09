@@ -161,6 +161,66 @@ _SAFE_DEFAULT = {
 }
 
 
+# ── Structured-output schema (OpenAI strict json_schema mode) ─────────────
+#
+# Previously this function used `response_format={"type": "json_object"}`,
+# which guarantees the response is valid JSON but does NOT constrain its
+# shape — so we hand-validated every field downstream (lowercase the label,
+# enum-check it, int-coerce + clamp the confidence, enum-check the signal,
+# etc.). About 20 lines of defensive code.
+#
+# Strict json_schema mode (gpt-4o / gpt-4o-mini 2024-08-06+) enforces the
+# schema at generation time: the model literally cannot return a response
+# that violates the schema — OpenAI re-samples internally until it matches.
+# That lets us delete all the field-by-field validation.
+#
+# Strict-mode caveats (worth knowing if extending the schema):
+#   * Every property in `properties` MUST appear in `required` — no optional
+#     fields. (Workaround: include the field but allow it to be empty.)
+#   * `additionalProperties: false` is REQUIRED at every object level.
+#   * Numeric `minimum`/`maximum` and string `minLength`/`maxLength`/`pattern`
+#     are NOT supported. For bounded integers we use `enum: [1..10]`; for
+#     string length we truncate after the call (see escalation_reason below).
+#   * `enum`, `type`, `items`, `$ref`, `anyOf` ARE supported.
+EMAIL_TYPE_RESPONSE_SCHEMA = {
+    "name": "email_classification",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "label", "confidence", "escalation_signal", "escalation_reason",
+        ],
+        "properties": {
+            "label": {
+                "type": "string",
+                "enum": ["legitimate", "promotional", "automated", "spam"],
+            },
+            "confidence": {
+                # Strict mode doesn't support minimum/maximum, so enumerate.
+                "type": "integer",
+                "enum": list(range(1, 11)),
+            },
+            "escalation_signal": {
+                "type": "string",
+                "enum": [
+                    "none",
+                    "legal_or_compliance",
+                    "hr_sensitive",
+                    "financial_dispute",
+                    "brand_or_contract",
+                ],
+            },
+            "escalation_reason": {
+                # Cannot constrain maxLength in strict mode; truncated after
+                # the call. Always required (empty string when signal=none).
+                "type": "string",
+            },
+        },
+    },
+}
+
+
 async def classify_email_type(content: str, sender_email: str = "",
                               subject: str = "") -> dict:
     """Classify an inbound message and return a dict with keys:
@@ -188,7 +248,10 @@ async def classify_email_type(content: str, sender_email: str = "",
             model=config.OPENAI_MODEL,
             temperature=0,
             max_tokens=200,                  # room for reason field; was 40
-            response_format={"type": "json_object"},
+            response_format={
+                "type": "json_schema",
+                "json_schema": EMAIL_TYPE_RESPONSE_SCHEMA,
+            },
             messages=[
                 {"role": "system", "content": EMAIL_TYPE_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_msg},
@@ -200,44 +263,45 @@ async def classify_email_type(content: str, sender_email: str = "",
                 "langfuse_tags": ["classifier", "spam-filter"],
             },
         )
-        raw = r.choices[0].message.content.strip()
+        raw = r.choices[0].message.content
     except Exception as e:
         print(f"[classifier:email_type] ERROR ({type(e).__name__}): {e} — "
               f"falling back to safe defaults")
         return dict(_SAFE_DEFAULT)
 
-    # Parse JSON defensively; tolerate older models that ignore json mode.
+    # Strict json_schema mode guarantees the shape — every field is present,
+    # types are correct, and string fields hit their enum. The previous
+    # ~20 lines of defensive validation (lowercase, enum-check, int-clamp)
+    # are no longer needed: OpenAI re-samples internally until the model
+    # produces a response that matches EMAIL_TYPE_RESPONSE_SCHEMA.
+    #
+    # We still json.loads inside try/except because strict mode CAN return
+    # an empty `content` field in rare failure modes — model refusal,
+    # content filtering, max_tokens cut-off mid-generation. In those cases
+    # we fall through to the safe default rather than crashing on a
+    # malformed/empty payload.
     try:
-        parsed = json.loads(raw)
-    except Exception:
-        # Plain-word response → infer label, keep escalation safe-default.
-        word = raw.lower().rstrip(".!?,;:\"'}").strip()
-        out = dict(_SAFE_DEFAULT)
-        if word in EMAIL_TYPE_VALID:
-            out["label"], out["confidence"] = word, 5
-        return out
+        parsed = json.loads(raw or "")
+    except Exception as e:
+        print(f"[classifier:email_type] strict-schema response unparseable "
+              f"({type(e).__name__}: {e}) — content was {raw!r}; "
+              f"falling back to safe defaults")
+        return dict(_SAFE_DEFAULT)
 
-    label = str(parsed.get("label", "")).strip().lower()
-    if label not in EMAIL_TYPE_VALID:
-        label = "legitimate"
+    # `maxLength` isn't supported in strict mode, so truncate the reason
+    # here for storage sanity (200 chars matches what classify_email_type's
+    # docstring & downstream consumers expect).
+    reason = (parsed.get("escalation_reason") or "")[:200]
 
-    try:
-        conf = int(parsed.get("confidence", 0))
-    except (TypeError, ValueError):
-        conf = 0
-    conf = max(0, min(10, conf))
-
-    signal = str(parsed.get("escalation_signal", "none")).strip().lower()
-    if signal not in ESCALATION_SIGNALS_VALID:
-        signal = "none"
-
-    reason = str(parsed.get("escalation_reason", "") or "").strip()[:200]
-    if signal == "none":
-        reason = ""   # don't keep stray text on no-escalation rows
+    # When the model picked signal=none, drop any stray reason text so the
+    # audit row stays clean. (Schema requires the field to exist; this just
+    # normalises its content for the no-escalation case.)
+    if parsed["escalation_signal"] == "none":
+        reason = ""
 
     return {
-        "label":             label,
-        "confidence":        conf,
-        "escalation_signal": signal,
+        "label":             parsed["label"],
+        "confidence":        parsed["confidence"],
+        "escalation_signal": parsed["escalation_signal"],
         "escalation_reason": reason,
     }
