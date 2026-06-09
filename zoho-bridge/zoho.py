@@ -89,13 +89,21 @@ def _build_ticket_body(payload: dict) -> dict:
     # Deep-link back to the originating Chatwoot conversation. Lets a Zoho agent
     # jump straight from the ticket into Chatwoot to see the full thread, reply
     # to the customer, or check newer messages that arrived after ticket
-    # creation. Rendered as an HTML anchor because Zoho Desk's description
-    # field renders HTML — a raw URL also works as a fallback if rendering is
-    # ever disabled. Best-effort: skipped silently if conv id is missing.
+    # creation.
+    #
+    # IMPORTANT: builds from CHATWOOT_PUBLIC_URL, not CHATWOOT_BASE_URL.
+    # BASE_URL is what the bridge uses for INTERNAL API calls (defaults to
+    # localhost:3000 on single-VM deploys); PUBLIC_URL is the user-facing
+    # address (e.g. https://orm.durianos.in). A Zoho agent clicking this link
+    # is in a browser outside the VM, so localhost would be unreachable.
+    #
+    # Rendered as an HTML anchor because Zoho Desk's description field renders
+    # HTML — a raw URL also works as a fallback if rendering is ever disabled.
+    # Best-effort: skipped silently if conv id is missing.
     conv_id = conv.get("id")
     if conv_id:
         chatwoot_url = (
-            f"{config.CHATWOOT_BASE_URL.rstrip('/')}"
+            f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
             f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}"
             f"/conversations/{conv_id}"
         )
