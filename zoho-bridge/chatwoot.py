@@ -245,6 +245,20 @@ async def post_private_note(conversation_id: int, content: str) -> dict:
         return r.json()
 
 
+async def get_conversation(conversation_id: int) -> dict:
+    """Fetch the full conversation JSON. Caller usually only needs
+    `custom_attributes`, but returning the whole payload keeps the helper
+    reusable. Raises on non-2xx — callers should wrap if they want
+    best-effort semantics."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(_conv_url(conversation_id), headers=_headers())
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot get conversation failed [{r.status_code}]: {r.text}"
+            )
+        return r.json() or {}
+
+
 async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
     """Merge keys into the conversation's `custom_attributes` JSONB column via
     Chatwoot's dedicated endpoint. Read-modify-write — concurrency caveat:
