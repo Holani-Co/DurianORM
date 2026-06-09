@@ -86,9 +86,29 @@ def _build_ticket_body(payload: dict) -> dict:
     team_meta  = (conv.get("meta") or {}).get("team")
     team_label = f"\n\n— Chatwoot team: {team_meta.get('name')}" if team_meta else ""
 
+    # Deep-link back to the originating Chatwoot conversation. Lets a Zoho agent
+    # jump straight from the ticket into Chatwoot to see the full thread, reply
+    # to the customer, or check newer messages that arrived after ticket
+    # creation. Rendered as an HTML anchor because Zoho Desk's description
+    # field renders HTML — a raw URL also works as a fallback if rendering is
+    # ever disabled. Best-effort: skipped silently if conv id is missing.
+    conv_id = conv.get("id")
+    if conv_id:
+        chatwoot_url = (
+            f"{config.CHATWOOT_BASE_URL.rstrip('/')}"
+            f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}"
+            f"/conversations/{conv_id}"
+        )
+        chatwoot_link = (
+            f'<p><a href="{chatwoot_url}" target="_blank" rel="noopener">'
+            f'➡ Open conversation in Chatwoot</a></p><hr/>'
+        )
+    else:
+        chatwoot_link = ""
+
     return {
         "subject":      subject,
-        "description":  transcript + team_label,
+        "description":  chatwoot_link + transcript + team_label,
         "departmentId": config.ZOHO_DEPARTMENT_ID,
         "channel":      "Chat",
         "priority":     "Medium",
