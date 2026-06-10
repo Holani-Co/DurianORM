@@ -121,8 +121,42 @@ class Facebook::CommentService
       inbox_id: inbox.id,
       contact_id: @contact_inbox.contact_id,
       contact_inbox_id: @contact_inbox.id,
-      additional_attributes: { post_id: post_id, type: 'facebook_comment' }
+      additional_attributes: comment_conversation_attributes
     )
+  end
+
+  # additional_attributes for a NEW comment conversation. The permalink
+  # feeds the dashboard's "Open Facebook post" button — usePlatformLink's
+  # facebook_comment branch reads additional_attributes.permalink_url and
+  # falls back to a generic page link without it (parity with the
+  # Instagram comment service, which stores the post permalink the same
+  # way).
+  def comment_conversation_attributes
+    attrs = { post_id: post_id, type: 'facebook_comment' }
+    permalink = fetch_post_permalink
+    attrs[:permalink_url] = permalink if permalink.present?
+    attrs
+  end
+
+  # Resolve the post's public URL via Graph. Best-effort: nil on any
+  # failure (network, token missing pages_read_user_content) so a Graph
+  # hiccup never blocks comment ingestion.
+  def fetch_post_permalink
+    return if post_id.blank?
+
+    token = channel.page_access_token
+    return if token.blank?
+
+    response = HTTParty.get(
+      "https://graph.facebook.com/v22.0/#{post_id}",
+      query: { fields: 'permalink_url', access_token: token }
+    )
+    return unless response.success?
+
+    response.parsed_response['permalink_url'].presence
+  rescue StandardError => e
+    Rails.logger.warn("Facebook::CommentService permalink fetch failed for post #{post_id}: #{e.message}")
+    nil
   end
 
   def apply_comment_label
