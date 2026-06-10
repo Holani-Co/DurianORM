@@ -25,6 +25,7 @@ import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
+import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 
 const props = defineProps({
@@ -147,13 +148,16 @@ onMounted(() => {
     />
     <ContactInfo :contact="contact" :channel-type="channelType" />
     <!-- Zoho Desk ticket panel: populated by the zoho-bridge sidecar when it
-         creates a ticket (manual bot handoff, priority escalation, or
-         auto-routed Legal). The bridge writes the full history into
-         `custom_attributes.zoho_tickets` (an array, newest first). The
-         legacy `zoho_ticket` singular key is kept as a read-side fallback
-         for any conversation the backfill script may have missed —
-         without it, those conversations would show "no ticket" in the
-         sidebar even though they have one in Zoho. -->
+         creates a ticket (manual bot handoff, priority escalation, AI
+         signal escalation, auto-routed Legal). The bridge writes the
+         full history into `custom_attributes.zoho_tickets` (an array,
+         newest first) — render the entire array so agents see every
+         escalation, not just the latest.
+         The legacy `zoho_ticket` singular key is kept as a read-side
+         fallback for any conversation the backfill script missed —
+         without it, those would show "no ticket" in the sidebar even
+         though they have one in Zoho. Routed through the single-ticket
+         component since the legacy key was always a single ticket. -->
     <div class="px-2 pt-2">
       <AccordionItem
         title="Zoho Desk"
@@ -161,11 +165,13 @@ onMounted(() => {
         compact
         @toggle="value => toggleSidebarUIState('is_zoho_ticket_open', value)"
       >
+        <ZohoTicketsListPanel
+          v-if="(conversationCustomAttributes.zoho_tickets || []).length"
+          :tickets="conversationCustomAttributes.zoho_tickets"
+        />
         <ZohoTicketPanel
-          :ticket="
-            (conversationCustomAttributes.zoho_tickets || [])[0] ||
-              conversationCustomAttributes.zoho_ticket
-          "
+          v-else
+          :ticket="conversationCustomAttributes.zoho_ticket"
         />
       </AccordionItem>
     </div>

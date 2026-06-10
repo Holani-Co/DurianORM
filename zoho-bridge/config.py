@@ -155,3 +155,26 @@ PRIORITY_SLA_HOURS = {**_DEFAULT_SLA, **_parse_sla_map(os.environ.get("PRIORITY_
 # decision (pre-review there were two separate sets, HIGH_PRIORITY_LEVELS
 # and PRIORITY_ESCALATION_LEVELS, that could drift apart silently).
 PRIORITY_ESCALATION_LEVELS = _csv("PRIORITY_ESCALATION_LEVELS", "urgent,high")
+
+# How long (minutes) to suppress duplicate priority-escalation tickets for
+# the same conversation. Two roles:
+#
+#  1. INFINITE-LOOP GUARD (mandatory): when the bridge creates a Zoho ticket
+#     it writes custom_attributes back to the conversation, which fires
+#     ANOTHER conversation_updated webhook within milliseconds. Without this
+#     cooldown the handler would create a fresh ticket on every loop
+#     iteration — the bug fixed in PR #8.
+#
+#  2. DEDUP WINDOW (intended): if an agent bumps priority high → urgent
+#     within the window, don't fire a second ticket — the original one is
+#     still actively being worked. Outside the window (e.g. conversation
+#     resolved months ago, now re-opened + flagged urgent), a fresh ticket
+#     IS what we want.
+#
+# Default 60 minutes — generous enough to handle role 1 reliably and tight
+# enough that genuine re-escalations weeks/months later land a new ticket.
+# Setting this below ~1 minute risks re-enabling the loop (Chatwoot can
+# retry webhooks for up to that long); guard against it with max(1, ...).
+PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
+    1, int(os.environ.get("PRIORITY_ESCALATION_COOLDOWN_MINUTES", "60"))
+)

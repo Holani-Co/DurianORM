@@ -114,6 +114,52 @@ def _should_create_zoho_ticket(
     return False, f"no_escalation_for_team({team_key!r})"
 
 
+# ── Priority-ticket cooldown helper ───────────────────────────────────────
+def _has_recent_priority_ticket(tickets: list, cooldown_minutes: int) -> bool:
+    """True if any priority-sourced ticket in `tickets` was created within
+    the cooldown window.
+
+    Replaces the "any ticket exists, never escalate again" guard from
+    PR #8. That guard stopped the infinite loop but also blocked legitimate
+    re-escalations forever — if the AI classifier already raised a
+    `auto_signal_*` ticket, an agent bumping priority later would silently
+    do nothing.
+
+    The smarter rule: only block when the SAME source-type (priority_*)
+    fired recently. That way:
+      * AI-signal ticket exists + agent bumps priority → fires NEW priority
+        ticket (different source, no conflict).
+      * Priority ticket exists + the immediate self-fired
+        conversation_updated webhook from our own write → blocked
+        (loop guard, fires within milliseconds, well inside window).
+      * Conversation resolved months ago, re-opened, re-flagged urgent →
+        fires NEW ticket (outside window).
+
+    Defensive on bad timestamps: anything we can't parse is treated as
+    RECENT — better to skip a re-escalation than to re-enable the loop.
+    """
+    if cooldown_minutes <= 0 or not tickets:
+        return False
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=cooldown_minutes)
+    for t in tickets:
+        source = str((t or {}).get("source") or "")
+        if not source.startswith("priority_"):
+            continue
+        created_raw = (t or {}).get("created_at") or ""
+        try:
+            created = datetime.fromisoformat(created_raw)
+        except (TypeError, ValueError):
+            # Unparseable timestamp on a priority ticket → treat as recent
+            # (loop-safety bias).
+            return True
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created >= cutoff:
+            return True
+    return False
+
+
 # ── Webhook signature (optional) ──────────────────────────────────────────
 def _verify_signature(signature: Optional[str], timestamp: Optional[str], body: bytes):
     if not config.CHATWOOT_WEBHOOK_SECRET:
@@ -180,25 +226,29 @@ async def handle_conversation_updated(data: dict) -> dict:
     if priority not in config.PRIORITY_ESCALATION_LEVELS:
         return {"ignored": True, "reason": f"priority_not_critical({priority!r})"}
 
-    # Idempotency: don't re-create a ticket for the same conversation.
+    # Smart idempotency — see _has_recent_priority_ticket() for the full
+    # design. Short version: PR #8 blocked ALL re-tickets ("any ticket
+    # exists, skip"). That fixed the infinite loop but broke the legitimate
+    # case of "AI classifier already raised an auto_signal ticket → agent
+    # bumps priority → should fire a SECOND, separately-sourced ticket."
     #
-    # CRITICAL: this guard MUST check the `zoho_tickets` (plural) array,
-    # NOT the legacy `zoho_ticket` singular key. The singular key is no
-    # longer written by _surface_ticket_in_chatwoot (the multi-ticket
-    # array PR retired it). Reading only the singular key here caused an
-    # infinite loop on priority bumps:
-    #   1. Agent sets priority high  → conversation_updated webhook fires
-    #   2. Handler sees no `zoho_ticket` → creates a Zoho ticket
-    #   3. _surface_ticket_in_chatwoot writes `zoho_tickets` to the conv
-    #   4. That write fires conversation_updated AGAIN
-    #   5. Guard still sees no singular key → creates another ticket
-    #   6. Loop forever until the bridge or Zoho falls over.
-    #
-    # We check BOTH keys so any pre-migration conversation the backfill
-    # missed (still carrying the legacy singular) is also idempotent.
+    # New rule: only block when a priority_* ticket fired inside the
+    # cooldown window (default 60 min, config.PRIORITY_ESCALATION_COOLDOWN_MINUTES).
+    # That still kills the self-fired conversation_updated loop (the second
+    # webhook arrives in milliseconds, well inside the window) while
+    # allowing AI-signal + priority tickets to coexist and re-escalations
+    # of stale conversations months later to land fresh tickets.
     custom_attrs = conv.get("custom_attributes") or {}
-    if custom_attrs.get("zoho_tickets") or custom_attrs.get("zoho_ticket"):
-        return {"ignored": True, "reason": "ticket_already_exists"}
+    zoho_tickets = list(custom_attrs.get("zoho_tickets") or [])
+    # Legacy compat: pre-migration conversations only had the singular key.
+    if not zoho_tickets and custom_attrs.get("zoho_ticket"):
+        legacy = custom_attrs["zoho_ticket"]
+        if isinstance(legacy, dict):
+            zoho_tickets = [legacy]
+    if _has_recent_priority_ticket(
+        zoho_tickets, config.PRIORITY_ESCALATION_COOLDOWN_MINUTES
+    ):
+        return {"ignored": True, "reason": "recent_priority_escalation"}
 
     print(f"[priority] conv {conv_id} flagged {priority.upper()} — escalating to Zoho")
 
