@@ -47,10 +47,40 @@ class Facebook::SendOnFacebookService < Base::SendOnChannelService
   def fb_text_message_params
     {
       recipient: { id: contact.get_source_id(inbox.id) },
-      message: fb_text_message_payload,
-      messaging_type: 'MESSAGE_TAG',
-      tag: message_tag
-    }
+      message: fb_text_message_payload
+    }.merge(fb_delivery_context)
+  end
+
+  # Meta distinguishes two delivery modes for page messages:
+  #
+  #   * messaging_type RESPONSE — replies inside the STANDARD 24-HOUR window
+  #     after the customer's last message. No special permission needed.
+  #   * messaging_type MESSAGE_TAG + tag — messages OUTSIDE that window,
+  #     allowed only for narrow tag-specific use cases with per-tag policy
+  #     enforcement on Meta's side.
+  #
+  # Upstream Chatwoot hardcodes MESSAGE_TAG (+ ACCOUNT_UPDATE by default)
+  # for EVERY send. Meta rejects ACCOUNT_UPDATE-tagged ordinary support
+  # replies on newer apps with "(#100) Invalid parameter" — confirmed in
+  # production: the identical text to the identical PSID succeeded via a
+  # raw Graph call with RESPONSE while Chatwoot's tagged send failed.
+  #
+  # Fix: use RESPONSE whenever we're inside the standard window (the
+  # overwhelmingly common case — bot replies and live agent replies) and
+  # only fall back to the tagged path for genuinely late replies, where
+  # HUMAN_AGENT (needs approved permission — see message_tag) or
+  # ACCOUNT_UPDATE at least has a chance of being policy-eligible.
+  def fb_delivery_context
+    if within_standard_messaging_window?
+      { messaging_type: 'RESPONSE' }
+    else
+      { messaging_type: 'MESSAGE_TAG', tag: message_tag }
+    end
+  end
+
+  def within_standard_messaging_window?
+    last_incoming = conversation.last_incoming_message
+    last_incoming.present? && last_incoming.created_at > 24.hours.ago
   end
 
   def fb_text_message_payload
@@ -88,10 +118,8 @@ class Facebook::SendOnFacebookService < Base::SendOnChannelService
             url: attachment.download_url
           }
         }
-      },
-      messaging_type: 'MESSAGE_TAG',
-      tag: message_tag
-    }
+      }
+    }.merge(fb_delivery_context)
   end
 
   def message_tag
