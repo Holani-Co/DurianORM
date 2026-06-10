@@ -160,6 +160,31 @@ def _has_recent_priority_ticket(tickets: list, cooldown_minutes: int) -> bool:
     return False
 
 
+def _priority_changed(data: dict) -> bool:
+    """True if this conversation_updated event's `changed_attributes` says
+    the priority changed — or if we can't tell.
+
+    Chatwoot's payload shape for changed_attributes varies by version:
+      * list of one-key dicts:  [{"priority": {"current_value": "urgent",
+                                               "previous_value": None}}]
+      * flat dict:              {"priority": ["high", "urgent"], ...}
+    Both are handled. A missing/empty key returns True (can't-tell →
+    proceed), which degrades gracefully to cooldown-only filtering — the
+    exact behaviour before this check existed, never stricter than that.
+    """
+    changed = data.get("changed_attributes")
+    if not changed:
+        return True   # can't tell → let the cooldown guard decide
+    if isinstance(changed, dict):
+        return "priority" in changed
+    if isinstance(changed, list):
+        return any(
+            isinstance(c, dict) and "priority" in c
+            for c in changed
+        )
+    return True       # unknown shape → fail open to cooldown guard
+
+
 # ── Webhook signature (optional) ──────────────────────────────────────────
 def _verify_signature(signature: Optional[str], timestamp: Optional[str], body: bytes):
     if not config.CHATWOOT_WEBHOOK_SECRET:
@@ -225,6 +250,23 @@ async def handle_conversation_updated(data: dict) -> dict:
 
     if priority not in config.PRIORITY_ESCALATION_LEVELS:
         return {"ignored": True, "reason": f"priority_not_critical({priority!r})"}
+
+    # Intent check: only escalate when THIS event actually changed the
+    # priority. conversation_updated fires on EVERY conversation mutation —
+    # resolve, label, reassign, snooze, and the bridge's own
+    # custom_attributes writes. Without this check, a conversation left
+    # sitting at priority=urgent would spawn a fresh ticket on ANY of those
+    # updates once the cooldown window lapsed (e.g. "agent resolves a
+    # 2-hour-old urgent conversation → surprise new Zoho ticket").
+    #
+    # Chatwoot includes `changed_attributes` on conversation_updated
+    # payloads. Observed shapes vary by version — list of one-key dicts
+    # ([{"priority": {...}}]) or a flat dict ({"priority": [old, new]}) —
+    # so _priority_changed() handles both. When the key is absent entirely
+    # (older Chatwoot / partial payloads) we fall through to the cooldown
+    # guard alone, which is exactly the pre-fix behaviour — no worse.
+    if not _priority_changed(data):
+        return {"ignored": True, "reason": "priority_unchanged"}
 
     # Smart idempotency — see _has_recent_priority_ticket() for the full
     # design. Short version: PR #8 blocked ALL re-tickets ("any ticket
