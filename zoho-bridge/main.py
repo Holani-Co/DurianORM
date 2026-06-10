@@ -26,6 +26,7 @@ from langfuse import get_client
 import config
 import chatwoot
 import classifier
+import document_extractor
 import zoho
 import google_reviews as gr
 import reviews_poller
@@ -487,6 +488,94 @@ async def _surface_ticket_in_chatwoot(
         print(f"[zoho] merge_custom_attributes failed for conv {conv_id}: {e}")
 
 
+# ── Document extraction: bills / receipts / order screenshots ─────────────
+# Fire-and-forget task scheduled by handle_message_created for every
+# incoming non-comment message. Gating (attachment types, bill-ish text
+# regex), idempotency (per-attachment / per-message source keys) and all
+# LLM plumbing live in document_extractor; this wrapper owns persistence
+# and the agent-facing private note. Never raises.
+MAX_TRACKED_DOCUMENTS = 20
+
+
+def _format_document_note(doc: dict) -> str:
+    type_label = (doc.get("document_type") or "document").replace("_", " ").title()
+    bits = [f"📄 **{type_label} detected**"]
+    if doc.get("order_id"):
+        bits.append(f"Order `{doc['order_id']}`")
+    if doc.get("invoice_number"):
+        bits.append(f"Invoice `{doc['invoice_number']}`")
+    if doc.get("amount"):
+        bits.append(f"{doc.get('currency') or ''} {doc['amount']}".strip())
+    if doc.get("document_date"):
+        bits.append(doc["document_date"])
+    if doc.get("merchant"):
+        bits.append(doc["merchant"])
+    note = " — ".join([bits[0], " · ".join(bits[1:])]) if len(bits) > 1 else bits[0]
+    if doc.get("issue_hint"):
+        note += f"\n\n_Issue:_ {doc['issue_hint']}"
+    extras = doc.get("other_details") or []
+    if extras:
+        lines = "\n".join(f"• {d.get('label')}: {d.get('value')}"
+                          for d in extras[:8] if d.get("label"))
+        note += f"\n\n_Details:_\n{lines}"
+    return note
+
+
+async def _maybe_extract_documents(data: dict) -> None:
+    try:
+        conv = data.get("conversation") or {}
+        conv_id = conv.get("id")
+        if not conv_id:
+            return
+
+        attachments = data.get("attachments") or []
+        content = data.get("content") or ""
+        message_id = data.get("id")
+
+        # Cheap pre-gate before any network/LLM work.
+        has_media = any(a.get("file_type") in ("image", "file") for a in attachments)
+        if not has_media and not document_extractor.text_looks_billish(content):
+            return
+
+        # Idempotency: source keys of everything already extracted on this
+        # conversation. Webhook payload may be stale, so refetch.
+        try:
+            conv_data = await chatwoot.get_conversation(conv_id)
+            existing_docs = (conv_data.get("custom_attributes") or {}) \
+                .get("extracted_documents") or []
+        except Exception:
+            existing_docs = (conv.get("custom_attributes") or {}) \
+                .get("extracted_documents") or []
+        seen_keys = {d.get("source_key") for d in existing_docs}
+
+        results = await document_extractor.extract_for_message(
+            content, attachments, message_id, seen_keys
+        )
+        if not results:
+            return
+
+        for doc in results:
+            doc["extracted_at"] = _now_iso()
+            doc["message_id"] = message_id
+
+        # Newest first, capped — same shape discipline as zoho_tickets.
+        merged = (results + existing_docs)[:MAX_TRACKED_DOCUMENTS]
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "extracted_documents": merged,
+        })
+
+        for doc in results:
+            try:
+                await chatwoot.post_private_note(conv_id, _format_document_note(doc))
+            except Exception as e:
+                print(f"[docs] private note failed for conv {conv_id}: {e}")
+
+        print(f"[docs] conv {conv_id}: extracted {len(results)} document(s) "
+              f"({', '.join(d.get('document_type') or '?' for d in results)})")
+    except Exception as e:  # noqa: BLE001 — fire-and-forget task, never raise
+        print(f"[docs] extraction task failed: {type(e).__name__}: {e}")
+
+
 # ── Handler: first incoming message → spam pipeline + classify + assign ───
 async def handle_message_created(data: dict) -> dict:
     msg_type = data.get("message_type")
@@ -510,6 +599,14 @@ async def handle_message_created(data: dict) -> dict:
     if _is_comment_conversation(conv):
         print(f"[msg] conv {conv_id} is a comment — leaving to DM bot, skipping pipeline")
         return {"ignored": True, "reason": "comment_conversation"}
+
+    # Document extraction (bills / receipts / order screenshots). MUST be
+    # scheduled BEFORE the early returns below: the spam/team pipeline only
+    # runs on a conversation's FIRST message, but bills arrive at ANY point
+    # in a conversation. Fire-and-forget so a slow vision call never delays
+    # the webhook response; gating + idempotency live inside the helper.
+    if config.DOC_EXTRACTION_ENABLED:
+        asyncio.create_task(_maybe_extract_documents(data))
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_attrs   = conv.get("custom_attributes") or {}
