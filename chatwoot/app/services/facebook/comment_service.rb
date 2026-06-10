@@ -64,9 +64,21 @@ class Facebook::CommentService
     @value['message']
   end
 
+  # Meta only includes `from` on feed events when the app holds
+  # pages_read_user_content. Without it, sender_id is nil — and a nil
+  # source_id made the contact builder raise, which the perform-level
+  # rescue swallowed: the comment vanished without a trace. Losing WHO
+  # commented is better than losing THAT they commented, so fall back to
+  # a synthetic per-comment source id and a placeholder name. (Once the
+  # app gains the permission and the inbox is reconnected, real names
+  # flow automatically.)
+  def contact_source_id
+    sender_id.presence || "fb_comment_#{comment_id}"
+  end
+
   def build_contact_inbox
     @contact_inbox = ::ContactInboxWithContactBuilder.new(
-      source_id: sender_id,
+      source_id: contact_source_id,
       inbox: inbox,
       contact_attributes: contact_attributes
     ).perform
