@@ -121,25 +121,23 @@ export const usePlatformLink = () => {
     }
 
     // --- Native Instagram channel (Instagram Login API) ---
-    // This channel is NOT backed by a Facebook Page, and Instagram exposes
-    // NO public URL that opens a specific existing DM thread (unlike Gmail's
-    // rfc822msgid). Approaches that DON'T work here, for the record:
-    //   • business.facebook.com/.../instagram/?asset_id=<igId>
-    //       — expects a Facebook *Page* id; native IG has no Page → Facebook
-    //         "content isn't available" error.
-    //   • ig.me/m/<username>
-    //       — that's Instagram's *message-a-business* link; it expects a
-    //         business handle, so a customer's personal handle returns
-    //         "this page isn't available".
-    //   • instagram.com/direct/t/<thread_id>
-    //       — would open the exact thread, but Chatwoot stores no thread id
-    //         for native IG conversations (additional_attributes is empty).
+    // This channel is NOT backed by a Facebook Page, so Business Suite links
+    // don't apply (asset_id expects a Page id) and ig.me/m/<handle> only works
+    // for business handles, not customers' personal accounts.
     //
-    // Best achievable: open the customer's PROFILE. The profile always
-    // resolves for a valid handle, and Instagram's "Message" button there
-    // opens the EXISTING DM thread (it doesn't create a duplicate) — so it's
-    // a reliable one-extra-click path to this conversation, plus useful
-    // context (who they are). Falls back to the DM inbox with no handle.
+    // BEST link: instagram.com/direct/t/<thread_id> — opens the exact DM
+    // thread in the brand's web inbox. The thread id is resolved at message
+    // ingest (Messages::Instagram::MessageBuilder#ensure_dm_thread_id: the
+    // Graph API conversation id base64-decodes to "ig_dm:<thread_id>") and
+    // stored on conversation.additional_attributes.ig_thread_id. Note the
+    // agent must be logged into the BRAND's Instagram account in the browser,
+    // otherwise Instagram shows their own inbox instead.
+    //
+    // FALLBACK (thread id not yet resolved — e.g. old conversation that
+    // hasn't received a message since the feature shipped): the customer's
+    // PROFILE. Its "Message" button opens the existing thread without
+    // creating a duplicate, so it's a reliable one-extra-click path. Falls
+    // back further to the DM inbox when we don't even have a handle.
     if (ch === INBOX_TYPES.INSTAGRAM) {
       const convAttrs = currentChat.value?.additional_attributes || {};
 
@@ -154,8 +152,18 @@ export const usePlatformLink = () => {
         };
       }
 
-      // DM (or a comment whose permalink wasn't resolved) → the contact's
-      // profile; its "Message" button opens the existing thread.
+      // DM with a resolved thread id → the exact thread in the web inbox.
+      if (convAttrs.ig_thread_id) {
+        return {
+          url: `https://www.instagram.com/direct/t/${encodeURIComponent(convAttrs.ig_thread_id)}/`,
+          label: 'Open conversation on Instagram',
+          icon: 'i-ri-instagram-fill',
+        };
+      }
+
+      // DM without a thread id (or a comment whose permalink wasn't
+      // resolved) → the contact's profile; its "Message" button opens the
+      // existing thread.
       const attrs = contact.value?.additional_attributes || {};
       const username =
         attrs.social_instagram_user_name ||
