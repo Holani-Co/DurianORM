@@ -40,30 +40,59 @@ class Messages::Instagram::MessageBuilder < Messages::Instagram::BaseMessageBuil
     return if @message.blank?
 
     conv = @message.conversation
-    existing = conv.additional_attributes || {}
-    return if existing['ig_thread_id'].present?
+    attrs = conv.additional_attributes || {}
+    return if attrs['ig_thread_id'].present?
 
+    # Reuse a previously-stored conversation id when the earlier decode
+    # failed — lets conversations that captured the raw id before this
+    # parser existed derive their thread id WITHOUT another Graph call.
+    ig_conversation_id = attrs['ig_conversation_id'].presence || fetch_ig_conversation_id
+    return if ig_conversation_id.blank?
+
+    new_attrs = attrs.merge('ig_conversation_id' => ig_conversation_id)
+    thread_id = extract_dm_thread_id(ig_conversation_id)
+    new_attrs['ig_thread_id'] = thread_id if thread_id
+
+    conv.update!(additional_attributes: new_attrs) unless new_attrs == attrs
+  rescue StandardError => e
+    Rails.logger.warn("[InstagramThreadIdFetch] conv #{@message&.conversation_id}: #{e.message}")
+  end
+
+  def fetch_ig_conversation_id
     url = "#{base_uri}/me/conversations?user_id=#{message_source_id}&access_token=#{@inbox.channel.access_token}"
     response = HTTParty.get(url, timeout: 5)
     return unless response.success?
 
-    ig_conversation_id = JSON.parse(response.body).dig('data', 0, 'id')
-    return if ig_conversation_id.blank?
+    JSON.parse(response.body).dig('data', 0, 'id')
+  end
 
-    attrs = existing.merge('ig_conversation_id' => ig_conversation_id)
-    decoded = begin
-      Base64.decode64(ig_conversation_id)
-    rescue StandardError
-      nil
-    end
-    if decoded&.start_with?('ig_dm:')
-      thread_id = decoded.delete_prefix('ig_dm:').strip
-      attrs['ig_thread_id'] = thread_id if thread_id.match?(/\A\d+\z/)
-    end
+  # Extract the numeric DM thread id from a Graph API conversation id.
+  #
+  # Canonically the id is base64("ig_dm:<thread_id>") — but Meta's newer
+  # ids inject extra characters into the prefix (observed in production:
+  # "aWdfZAG06..." where clean base64 of "ig_dm:" is "aWdfZG06" — note the
+  # extra 'A'), which breaks whole-string decoding. The digits block at the
+  # END of the id is still clean base64, though: base64 works in 4-char
+  # units, so we scan every 4-aligned SUFFIX (longest first) and return the
+  # first one that decodes to a pure 10-50 digit string — that's the thread
+  # id instagram.com/direct/t/ expects. Handles both the canonical and the
+  # mangled prefix without caring what Meta prepends. Returns nil when no
+  # suffix decodes to digits (behaviour then falls back to the profile
+  # link, same as before).
+  def extract_dm_thread_id(encoded)
+    s = encoded.to_s.delete('=')
+    (0...s.length).each do |start|
+      chunk = s[start..]
+      next unless (chunk.length % 4).zero?
 
-    conv.update!(additional_attributes: attrs)
-  rescue StandardError => e
-    Rails.logger.warn("[InstagramThreadIdFetch] conv #{@message&.conversation_id}: #{e.message}")
+      decoded = begin
+        Base64.decode64(chunk)
+      rescue StandardError
+        next
+      end
+      return decoded if decoded.match?(/\A\d{10,50}\z/)
+    end
+    nil
   end
 
   def get_story_object_from_source_id(source_id)
