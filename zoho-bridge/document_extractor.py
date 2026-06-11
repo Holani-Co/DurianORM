@@ -17,6 +17,7 @@
 # idempotent per attachment/message (caller passes seen keys), and the whole
 # feature sits behind config.DOC_EXTRACTION_ENABLED.
 
+import asyncio
 import base64
 import io
 import json
@@ -202,23 +203,11 @@ async def _extract_from_text(text: str) -> dict | None:
     )
 
 
-async def _extract_from_pdf(data: bytes) -> dict | None:
-    """Digital PDFs (text layer) → cheap text extraction via pypdf.
-    Scanned PDFs (no text layer) → render page 1 with poppler's pdftoppm
-    and go through the vision path. If poppler isn't installed on the host,
-    scanned PDFs are skipped with a log line (apt install poppler-utils)."""
-    text = ""
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        text = "\n".join((page.extract_text() or "") for page in reader.pages[:3])
-    except Exception as e:  # noqa: BLE001
-        print(f"[docs] pypdf text extraction failed: {e}")
-
-    if len(text.strip()) > 40:
-        return await _extract_from_text(text[:8000])
-
-    # No usable text layer → rasterise first page.
+def _rasterise_pdf_first_page(data: bytes) -> bytes | None:
+    """Render page 1 of a scanned PDF to PNG via poppler's pdftoppm.
+    SYNCHRONOUS — call through asyncio.to_thread; pdftoppm can take
+    seconds, and running it inline would block the bridge's event loop
+    (every webhook stalls while one PDF renders)."""
     try:
         with tempfile.TemporaryDirectory() as tmp:
             pdf_path = Path(tmp) / "doc.pdf"
@@ -230,9 +219,7 @@ async def _extract_from_pdf(data: bytes) -> dict | None:
                 check=True, capture_output=True, timeout=30,
             )
             pngs = sorted(Path(tmp).glob("page*.png"))
-            if not pngs:
-                return None
-            return await _extract_from_image(pngs[0].read_bytes(), "image/png")
+            return pngs[0].read_bytes() if pngs else None
     except FileNotFoundError:
         print("[docs] scanned PDF skipped — poppler-utils not installed "
               "(apt install poppler-utils)")
@@ -240,6 +227,33 @@ async def _extract_from_pdf(data: bytes) -> dict | None:
     except Exception as e:  # noqa: BLE001
         print(f"[docs] pdf rasterise failed: {e}")
         return None
+
+
+def _pdf_text_layer(data: bytes) -> str:
+    """Extract the text layer from the first pages. SYNCHRONOUS — pypdf
+    parsing is CPU-bound; call through asyncio.to_thread."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((page.extract_text() or "") for page in reader.pages[:3])
+    except Exception as e:  # noqa: BLE001
+        print(f"[docs] pypdf text extraction failed: {e}")
+        return ""
+
+
+async def _extract_from_pdf(data: bytes) -> dict | None:
+    """Digital PDFs (text layer) → cheap text extraction via pypdf.
+    Scanned PDFs (no text layer) → render page 1 with poppler's pdftoppm
+    and go through the vision path. Both CPU/subprocess steps run in a
+    worker thread so the event loop keeps serving webhooks."""
+    text = await asyncio.to_thread(_pdf_text_layer, data)
+    if len(text.strip()) > 40:
+        return await _extract_from_text(text[:8000])
+
+    png = await asyncio.to_thread(_rasterise_pdf_first_page, data)
+    if png is None:
+        return None
+    return await _extract_from_image(png, "image/png")
 
 
 async def _download(url: str) -> tuple[bytes | None, str]:

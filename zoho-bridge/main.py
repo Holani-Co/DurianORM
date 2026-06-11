@@ -496,6 +496,26 @@ async def _surface_ticket_in_chatwoot(
 # and the agent-facing private note. Never raises.
 MAX_TRACKED_DOCUMENTS = 20
 
+# Strong references to in-flight extraction tasks. asyncio's event loop
+# only holds WEAK references to tasks — a bare create_task() with the
+# return value dropped can be garbage-collected MID-FLIGHT (documented
+# CPython behaviour), silently killing the extraction. Tasks remove
+# themselves on completion via the done-callback.
+_EXTRACTION_TASKS: set = set()
+
+# Serialises the read-merge-write on extracted_documents. Without it, two
+# messages arriving in quick succession run concurrent tasks that both
+# read the array before either writes — the slower write silently drops
+# the faster one's documents (merge_custom_attributes is read-modify-
+# write, not atomic). Single-process bridge → an asyncio.Lock suffices.
+_EXTRACTION_WRITE_LOCK = asyncio.Lock()
+
+
+def _schedule_document_extraction(data: dict) -> None:
+    task = asyncio.create_task(_maybe_extract_documents(data))
+    _EXTRACTION_TASKS.add(task)
+    task.add_done_callback(_EXTRACTION_TASKS.discard)
+
 
 def _format_document_note(doc: dict) -> str:
     type_label = (doc.get("document_type") or "document").replace("_", " ").title()
@@ -558,11 +578,26 @@ async def _maybe_extract_documents(data: dict) -> None:
             doc["extracted_at"] = _now_iso()
             doc["message_id"] = message_id
 
-        # Newest first, capped — same shape discipline as zoho_tickets.
-        merged = (results + existing_docs)[:MAX_TRACKED_DOCUMENTS]
-        await chatwoot.merge_custom_attributes(conv_id, {
-            "extracted_documents": merged,
-        })
+        # Persist under the lock: re-read the authoritative array, drop any
+        # result another concurrent task already stored (webhook retries),
+        # then merge newest-first, deduped by source_key, capped — same
+        # shape discipline as zoho_tickets. The slow LLM work above stays
+        # OUTSIDE the lock; only the read-merge-write is serialised.
+        async with _EXTRACTION_WRITE_LOCK:
+            try:
+                conv_data = await chatwoot.get_conversation(conv_id)
+                existing_docs = (conv_data.get("custom_attributes") or {}) \
+                    .get("extracted_documents") or []
+            except Exception:
+                pass  # keep the pre-extraction snapshot from above
+            stored_keys = {d.get("source_key") for d in existing_docs}
+            results = [r for r in results if r.get("source_key") not in stored_keys]
+            if not results:
+                return
+            merged = (results + existing_docs)[:MAX_TRACKED_DOCUMENTS]
+            await chatwoot.merge_custom_attributes(conv_id, {
+                "extracted_documents": merged,
+            })
 
         for doc in results:
             try:
@@ -606,7 +641,7 @@ async def handle_message_created(data: dict) -> dict:
     # in a conversation. Fire-and-forget so a slow vision call never delays
     # the webhook response; gating + idempotency live inside the helper.
     if config.DOC_EXTRACTION_ENABLED:
-        asyncio.create_task(_maybe_extract_documents(data))
+        _schedule_document_extraction(data)
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_attrs   = conv.get("custom_attributes") or {}
