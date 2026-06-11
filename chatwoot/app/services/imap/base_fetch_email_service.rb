@@ -67,9 +67,17 @@ class Imap::BaseFetchEmailService
     end
 
     inbound_mail = build_mail_from_string(mail_str)
+    augment_inbound_mail(inbound_mail, seq_no)
     mail_info_logger(inbound_mail, seq_no)
     inbound_mail
   end
+
+  # Hook for provider-specific enrichment of the fetched mail while the
+  # IMAP connection (and the message's sequence number) is still live —
+  # data like Gmail's X-GM-THRID exists only as a FETCH attribute, not in
+  # the RFC822 content, so it can't be recovered later in the pipeline.
+  # Base: no-op. Overrides must be best-effort and never raise.
+  def augment_inbound_mail(inbound_mail, seq_no); end
 
   # Sends a FETCH command to retrieve data associated with a message in the mailbox.
   # You can send batches of message sequence number in `.fetch` method.
