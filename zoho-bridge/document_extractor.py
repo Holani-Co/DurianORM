@@ -118,7 +118,9 @@ Rules:
   message is false (set every other field to "" / empty).
 - amount: the main total as written (you may keep separators); currency:
   the currency symbol or code as written (₹, Rs, INR, $, USD...).
-- document_date: as written; prefer ISO YYYY-MM-DD when unambiguous.
+- document_date: as written; prefer ISO YYYY-MM-DD when unambiguous. Never
+  infer missing parts — a date with no year stays as written ("1 June"
+  stays "1 June", NOT a guessed "2023-06-01").
 - issue_hint: one short sentence describing the problem the customer
   appears to be raising, if inferable from the document or message ("" if
   none).
@@ -258,7 +260,25 @@ async def _download(url: str) -> tuple[bytes | None, str]:
 # send; bills are small. Oversized files are skipped with a log line.
 MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
-_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+def sniff_image_mime(data: bytes) -> str | None:
+    """Return the OpenAI-vision-supported mime for these bytes, or None.
+
+    Trusts MAGIC BYTES, never extensions or content-type headers — both lie
+    routinely (caught in testing: an AVIF photo renamed to .jpg made the
+    vision API 400 with invalid_image_format). HEIC/AVIF — what iPhones and
+    many Android cameras produce — are NOT supported by OpenAI vision, so
+    they return None and the caller skips with a log line instead of
+    burning a doomed API call."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return None  # HEIC/AVIF/TIFF/BMP/... — vision API rejects these
 
 
 async def extract_for_message(content: str, attachments: list,
@@ -291,12 +311,18 @@ async def extract_for_message(content: str, attachments: list,
                   f"{len(data) // 1024} KB exceeds cap")
             continue
 
-        if mime == "application/pdf" or str(data_url).lower().endswith(".pdf"):
+        # Route by ACTUAL bytes, not by mime/extension — channel CDNs and
+        # customers rename files freely. `mime` from the download response
+        # is intentionally ignored here.
+        if data.startswith(b"%PDF"):
             fields = await _extract_from_pdf(data)
-        elif mime in _IMAGE_MIMES or att.get("file_type") == "image":
-            fields = await _extract_from_image(data, mime or "image/jpeg")
         else:
-            continue  # other file types (docx etc.) — out of scope for v1
+            sniffed = sniff_image_mime(data)
+            if sniffed is None:
+                print(f"[docs] attachment {att_id} skipped — bytes are not "
+                      f"a supported image/pdf format (HEIC/AVIF/docx/...)")
+                continue
+            fields = await _extract_from_image(data, sniffed)
 
         if fields and fields.get("is_financial_document"):
             fields["source_key"] = key
