@@ -23,9 +23,34 @@ class Imap::ImapMailbox
       create_message
       add_attachments_to_message
     end
+
+    # Outside the transaction — a failure here must never roll back the
+    # ingested email.
+    store_gmail_thread_id
   end
 
   private
+
+  # Persist Gmail's thread id (injected as a custom header by
+  # Imap::GoogleFetchEmailService while the IMAP connection was live) so
+  # the dashboard's "Open in Gmail" button can deep-link straight into the
+  # thread. Runs for replies into EXISTING conversations too, so
+  # conversations created before this feature self-heal on their next
+  # incoming email. Best-effort: absent header (non-Gmail inboxes, fetch
+  # hiccups) or any error leaves today's behaviour untouched.
+  def store_gmail_thread_id
+    return if @conversation.blank?
+
+    thrid = @inbound_mail.header[Imap::GoogleFetchEmailService::GM_THRID_HEADER]&.value.to_s.strip
+    return if thrid.blank? || !thrid.match?(/\A\d+\z/)
+
+    attrs = @conversation.additional_attributes || {}
+    return if attrs['gmail_thread_id'].present?
+
+    @conversation.update!(additional_attributes: attrs.merge('gmail_thread_id' => thrid))
+  rescue StandardError => e
+    Rails.logger.warn("[ImapMailbox] gmail_thread_id store failed: #{e.message}")
+  end
 
   def load_account
     @account = @channel.account

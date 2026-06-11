@@ -222,6 +222,36 @@ export const usePlatformLink = () => {
         imapAddr.includes('office365') ||
         /@(outlook|hotmail|live|office365)\.com$/i.test(inboxEmail);
 
+      // BEST case for Gmail: the conversation carries Gmail's own thread id
+      // (captured from the X-GM-THRID IMAP attribute at fetch time and
+      // stored by Imap::ImapMailbox). mail.google.com/...#all/<hex id>
+      // opens the thread DIRECTLY — no intermediate rfc822msgid: search
+      // results page. The id is a decimal string for a 64-bit integer, so
+      // it MUST go through BigInt (Number silently loses precision above
+      // 2^53 and would produce a wrong thread id).
+      const gmailThreadId =
+        currentChat.value?.additional_attributes?.gmail_thread_id;
+      if (isGoogle && gmailThreadId) {
+        let hexThreadId = null;
+        try {
+          hexThreadId = BigInt(gmailThreadId).toString(16);
+        } catch {
+          hexThreadId = null; // malformed id → fall through to search link
+        }
+        if (hexThreadId) {
+          const authParam = inboxEmail
+            ? `?authuser=${encodeURIComponent(inboxEmail)}`
+            : '';
+          return {
+            url: `https://mail.google.com/mail/u/0/${authParam}#all/${hexThreadId}`,
+            label: inboxEmail
+              ? `Open thread in Gmail (${inboxEmail})`
+              : 'Open thread in Gmail',
+            icon: 'i-ri-mail-fill',
+          };
+        }
+      }
+
       // Hunt for the earliest INCOMING email's Message-ID on this conversation.
       // Chatwoot stores it on the message as either
       //   content_attributes.email.message_id  (preferred)
