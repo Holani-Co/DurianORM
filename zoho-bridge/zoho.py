@@ -86,6 +86,29 @@ def _build_ticket_body(payload: dict) -> dict:
     team_meta  = (conv.get("meta") or {}).get("team")
     team_label = f"\n\n— Chatwoot team: {team_meta.get('name')}" if team_meta else ""
 
+    # Ride-along: extracted bill/receipt data (document_extractor pipeline,
+    # stored on custom_attributes.extracted_documents). Surfacing it in the
+    # ticket description means the Zoho agent sees order id / amount / issue
+    # without opening Chatwoot. Best-effort; absent for most conversations.
+    docs = (conv.get("custom_attributes") or {}).get("extracted_documents") or []
+    doc_lines = []
+    for d in docs[:5]:
+        if not isinstance(d, dict):
+            continue
+        bits = [(d.get("document_type") or "document").replace("_", " ")]
+        if d.get("order_id"):
+            bits.append(f"order {d['order_id']}")
+        if d.get("invoice_number"):
+            bits.append(f"invoice {d['invoice_number']}")
+        if d.get("amount"):
+            bits.append(f"{d.get('currency') or ''} {d['amount']}".strip())
+        if d.get("document_date"):
+            bits.append(d["document_date"])
+        if d.get("issue_hint"):
+            bits.append(f"issue: {d['issue_hint']}")
+        doc_lines.append("  • " + " · ".join(bits))
+    docs_label = ("\n\n— Extracted documents:\n" + "\n".join(doc_lines)) if doc_lines else ""
+
     # Deep-link back to the originating Chatwoot conversation. Lets a Zoho agent
     # jump straight from the ticket into Chatwoot to see the full thread, reply
     # to the customer, or check newer messages that arrived after ticket
@@ -116,7 +139,7 @@ def _build_ticket_body(payload: dict) -> dict:
 
     return {
         "subject":      subject,
-        "description":  chatwoot_link + transcript + team_label,
+        "description":  chatwoot_link + transcript + team_label + docs_label,
         "departmentId": config.ZOHO_DEPARTMENT_ID,
         "channel":      "Chat",
         "priority":     "Medium",

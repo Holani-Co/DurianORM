@@ -48,6 +48,20 @@ CHATWOOT_WEBHOOK_SECRET = os.environ.get("CHATWOOT_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = _required("OPENAI_API_KEY")
 OPENAI_MODEL   = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
+# ── Document extraction (bills / receipts / order screenshots) ────────────
+# Kill-switch for the attachment/bill extraction pipeline. Vision calls on
+# images are the priciest LLM calls the bridge makes (~$0.002-0.01 each vs
+# ~$0.0002 for a classification) — gated by attachment presence / a regex
+# text filter, but if costs ever surprise you, flip this off and restart.
+def _bool_early(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes")
+
+
+DOC_EXTRACTION_ENABLED = _bool_early("DOC_EXTRACTION_ENABLED", "true")
+# Must be a VISION-capable model (gpt-4o-mini / gpt-4o). Defaults to the
+# shared OPENAI_MODEL, override independently if you ever split models.
+DOC_EXTRACTION_MODEL = os.environ.get("DOC_EXTRACTION_MODEL", OPENAI_MODEL)
+
 # ── Team routing (Chatwoot team IDs) ──────────────────────────────────────
 # Find IDs with: curl -H "api_access_token: $TOKEN" http://localhost:3000/api/v1/accounts/1/teams
 TEAM_IDS = {
