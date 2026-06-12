@@ -90,14 +90,14 @@ class Rack::Attack
 
   # ### Prevent Brute-Force Login Attacks ###
   # Exclude MFA verification attempts from regular login throttling
-  throttle('login/ip', limit: 5, period: 5.minutes) do |req|
+  throttle('login/ip', limit: ENV.fetch('RACK_ATTACK_LOGIN_IP_LIMIT', '5').to_i, period: 5.minutes) do |req|
     if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank?
       # Skip if this is an MFA verification request
       req.ip
     end
   end
 
-  throttle('login/email', limit: 10, period: 15.minutes) do |req|
+  throttle('login/email', limit: ENV.fetch('RACK_ATTACK_LOGIN_EMAIL_LIMIT', '10').to_i, period: 15.minutes) do |req|
     # Skip if this is an MFA verification request
     if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank?
       # ref: https://github.com/rack/rack-attack/issues/399
