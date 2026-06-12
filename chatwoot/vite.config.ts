@@ -45,6 +45,14 @@ if (isLibraryMode) {
 
 export default defineConfig({
   plugins: plugins,
+  server: {
+    allowedHosts: ['orm.durianos.in'],
+    hmr: {
+      host: 'orm.durianos.in',
+      protocol: 'wss',
+      clientPort: 443,
+    },
+  },
   build: {
     rollupOptions: {
       output: {

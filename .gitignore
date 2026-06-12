@@ -6,3 +6,5 @@ dump.rdb
 zoho-bridge/reviews_state.db
 zoho-bridge/reviews_state.db-journal
 docs/
+zoho-bridge/venv
+chatwoot/.git_sha
