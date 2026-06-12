@@ -2,8 +2,15 @@
 
 # DM Bot processor: handles incoming DMs on Facebook/Instagram inboxes.
 # Sends a welcome option-menu on the first user message, routes based on
-# the chosen option, calls OpenAI for AI-backed replies, and hands off to
-# a human agent when needed.
+# the chosen option, runs a tool-calling LLM agent for AI-backed replies, and
+# hands off to a human agent when needed.
+#
+# The agent emits a chain-of-thought trace (content_attributes.ai_trace on the
+# outgoing message) so support agents can see WHY the bot replied the way it
+# did: which prompt rule applied (source: 'rule'), which tools it called and
+# why (source: 'model'/'tool'), and its own reasoning (source: 'model'). Each
+# step carries a `visibility` ('internal' | 'public') so the same trace can
+# later be surfaced to end users by filtering to the public subset.
 #
 # Setup (run once in Rails console):
 #   bot = AgentBot.create!(name: 'DM Bot', outgoing_url: 'http://localhost:3000/internal/dm_bot/webhook')
@@ -13,6 +20,13 @@
 # rubocop:disable Metrics/ClassLength
 class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   include Integrations::LlmInstrumentation
+
+  # RubyLLM's tool loop has no built-in iteration cap (handle_tool_calls
+  # recurses into complete unconditionally), so a model stuck re-calling tools
+  # would loop forever on our API bill. Overflow raises, which the reply
+  # methods rescue into a failure message + human handoff.
+  class ToolLoopOverflow < StandardError; end
+  MAX_TOOL_CALLS = 8
 
   pattr_initialize [:event_name!, :hook!, :event_data!]
 
@@ -67,6 +81,8 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   end
 
   def process_response(message, response)
+    return if stale_dm_response?(message)
+
     case response
     when :welcome_menu
       send_welcome_menu(message)
@@ -75,12 +91,23 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     when :resolve
       message.conversation.resolved!
     when Hash
-      # `handoff: true` → post the public reply first, then hand to an agent.
-      create_bot_message(message, response.except(:handoff))
-      message.conversation.bot_handoff! if response[:handoff]
+      post_bot_reply(message, response)
     when String
       create_bot_message(message, content: response)
     end
+  end
+
+  # `handoff: true` → post the public reply first, then hand to an agent.
+  def post_bot_reply(message, response)
+    create_bot_message(message, response.except(:handoff))
+    message.conversation.bot_handoff! if response[:handoff]
+  end
+
+  # A human can take over a DM while the agent loop runs (it's seconds-long
+  # now that tools are involved); don't post a stale bot reply on top of them.
+  # Comments stay ungated — they're always answered.
+  def stale_dm_response?(message)
+    !comment_conversation? && !message.conversation.reload.pending?
   end
 
   # ── Option routing ────────────────────────────────────────────────────────
@@ -113,8 +140,10 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
                        })
   end
 
-  # ── AI reply ─────────────────────────────────────────────────────────────
-
+  # ── AI reply (DMs) ─────────────────────────────────────────────────────────
+  # Runs the tool-calling agent and posts the reply with its chain-of-thought
+  # trace attached. Posts the reply even when handing off, so a DM handoff is
+  # graceful rather than silent.
   def ai_reply(user_content)
     return :handoff if user_content.blank?
 
@@ -124,14 +153,10 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
       return :handoff
     end
 
-    model = Llm::Config.configured_model
-    result = generate_ai_response(credential, model, user_content)
+    result = generate_ai_response(credential, Llm::Config.configured_model, user_content)
+    reply = result[:reply].presence || 'Let me connect you with a teammate who can help! 🙏'
 
-    content = result[:message].to_s.strip
-    # Escalate if the AI signals it can't help
-    return :handoff if should_escalate?(content)
-
-    { content: content }
+    { content: reply, content_attributes: { ai_trace: result[:trace] }, handoff: result[:handoff] }
   rescue StandardError => e
     Rails.logger.error("DmBot AI error: #{e.message}")
     send_failure_message(event_data[:message])
@@ -139,49 +164,179 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   end
 
   # Comment-specific reply. Unlike ai_reply (DMs), this ALWAYS produces a
-  # public reply: ordinary comments get the AI's text; comments the AI flags
-  # as serious (HANDOFF), a missing key, or an AI error all get a courteous
-  # "please DM us" reply AND are handed to an agent — never a silent handoff.
+  # public reply: ordinary comments get the AI's text; comments the AI hands
+  # off (serious complaints/abuse/legal), a missing key, or an AI error all get
+  # a courteous "please DM us" reply AND are handed to an agent.
   def comment_reply(user_content)
     return if user_content.blank?
 
     credential = llm_credential
     return { content: COMMENT_HANDOFF_REPLY, handoff: true } unless credential
 
-    model = Llm::Config.configured_model
-    result = generate_ai_response(credential, model, user_content)
-    content = result[:message].to_s.strip
+    result = generate_ai_response(credential, Llm::Config.configured_model, user_content)
+    reply = result[:reply].presence || COMMENT_HANDOFF_REPLY
 
-    return { content: COMMENT_HANDOFF_REPLY, handoff: true } if should_escalate?(content)
-
-    { content: content }
+    { content: reply, content_attributes: { ai_trace: result[:trace] }, handoff: result[:handoff] }
   rescue StandardError => e
     Rails.logger.error("DmBot comment AI error: #{e.message}")
     { content: COMMENT_HANDOFF_REPLY, handoff: true }
   end
 
   # Runs the LLM turn inside a Langfuse generation span. Returns a hash shaped
-  # like the other LLM services ({ message:, usage: }) so the shared
-  # instrumentation helpers capture the completion content and token usage.
+  # like the other LLM services ({ message:, usage: }) PLUS the customer-facing
+  # reply, the handoff flag, and the chain-of-thought trace.
   def generate_ai_response(credential, model, user_content)
     instrument_llm_call(ai_instrumentation_params(model, user_content)) do
       Llm::Config.with_api_key(credential[:api_key]) do |ctx|
-        chat = ctx.chat(model: model)
-        chat.with_instructions(system_prompt)
-        # Comments are standalone — a post's thread mixes many commenters, so
-        # replaying it would confuse the model. Only replay history for DMs.
-        replay_history(chat) unless comment_conversation?
-        response = chat.ask(user_content)
-        {
-          message: response.content,
-          usage: {
-            'prompt_tokens' => response.input_tokens,
-            'completion_tokens' => response.output_tokens,
-            'total_tokens' => (response.input_tokens || 0) + (response.output_tokens || 0)
-          }
-        }
+        run_agent(ctx, model, user_content)
       end
     end
+  end
+
+  # ── Tool-calling agent ──────────────────────────────────────────────────────
+
+  # Drives the RubyLLM tool loop and records every decision as a trace step.
+  # `chat.ask` runs the whole agentic loop (the model may call several tools);
+  # on_tool_call/on_tool_result fire per tool so we capture the ordered steps.
+  def run_agent(ctx, model, user_content)
+    trace = base_policy_steps
+    usage = { 'prompt_tokens' => 0, 'completion_tokens' => 0 }
+    chat  = build_agent_chat(ctx, model)
+    record_agent_activity(chat, trace, usage)
+
+    response = chat.ask(user_content)
+    parsed   = parse_json(response.content)
+    reply    = (parsed['reply'].presence || parsed['content']).to_s.strip
+
+    append_reasoning_and_answer(trace, parsed, model, usage)
+    trace.each_with_index { |step, idx| step[:i] = idx + 1 }
+
+    # Deriving handoff from the trace avoids a mutable flag in the callback.
+    { message: reply, reply: reply, handoff: trace.any? { |s| s[:tool] == 'handoff' },
+      trace: trace, usage: usage.merge('total_tokens' => usage.values.sum) }
+  end
+
+  def build_agent_chat(ctx, model)
+    chat = ctx.chat(model: model)
+    chat = chat.with_instructions(system_prompt)
+    chat = chat.with_params(response_format: { type: 'json_object' })
+    agent_tools.each { |tool| chat = chat.with_tool(tool) }
+    replay_history(chat) unless comment_conversation?
+    chat
+  end
+
+  # Hooks the chat callbacks to (1) record each tool call as a trace step the
+  # moment the model makes it, (2) enforce the loop cap, and (3) accumulate
+  # token usage across EVERY turn of the loop — the final response alone would
+  # undercount, since each tool round-trip is its own billed completion.
+  def record_agent_activity(chat, trace, usage)
+    calls = 0
+    chat.on_tool_call do |tool_call|
+      calls += 1
+      raise ToolLoopOverflow, "exceeded #{MAX_TOOL_CALLS} tool calls" if calls > MAX_TOOL_CALLS
+
+      args = (tool_call.arguments || {}).with_indifferent_access
+      trace << tool_step(tool_call.name.to_s, args)
+    end
+    chat.on_end_message do |message|
+      # Skips the role-:tool result messages the loop also emits.
+      next unless message.respond_to?(:role) && message.role.to_s == 'assistant'
+
+      usage['prompt_tokens']     += message.input_tokens.to_i
+      usage['completion_tokens'] += message.output_tokens.to_i
+    end
+  end
+
+  def append_reasoning_and_answer(trace, parsed, model, usage)
+    reasoning = parsed['reasoning'].to_s.strip
+    trace << reasoning_step(reasoning) if reasoning.present?
+    trace << answer_step(model, usage)
+  end
+
+  def agent_tools
+    if comment_conversation?
+      [Integrations::DmBot::Tools::RedirectToDm.new,
+       Integrations::DmBot::Tools::Handoff.new]
+    else
+      [Integrations::DmBot::Tools::SearchCatalog.new,
+       Integrations::DmBot::Tools::OrderStatus.new,
+       Integrations::DmBot::Tools::PlaceOrder.new,
+       Integrations::DmBot::Tools::Handoff.new]
+    end
+  end
+
+  # ── Chain-of-thought trace builders ─────────────────────────────────────────
+
+  def step(type, source, visibility, label, detail)
+    { type: type, source: source, visibility: visibility, label: label, detail: detail.to_s }
+  end
+
+  # Deterministic, code-driven steps known before the model runs — they explain
+  # the "it was in the prompt" provenance (which ruleset is in force).
+  def base_policy_steps
+    if comment_conversation?
+      [step('policy', 'system', 'internal', 'Channel', 'Public comment on a post'),
+       step('policy', 'rule', 'internal', 'Ruleset',
+            'Brand-safe comments — keep it short, never quote price/stock publicly, redirect questions to DM')]
+    else
+      [step('policy', 'system', 'internal', 'Channel', 'Direct message'),
+       step('policy', 'rule', 'internal', 'Ruleset',
+            'DM support — use the catalog/order tools, hand off when out of scope')]
+    end
+  end
+
+  # A tool the model chose to call. Decision tools (handoff/redirect_to_dm) tie
+  # the action to a named rule from the prompt; data tools record the model's
+  # stated reason for the call.
+  def tool_step(name, args)
+    reason = args[:reason].to_s
+    case name
+    when 'handoff'
+      step('decision', 'rule', 'internal', 'Hand off to a human', reason).merge(tool: name, rule: args[:rule])
+    when 'redirect_to_dm'
+      step('decision', 'rule', 'public', 'Redirect to DM', reason).merge(tool: name, rule: args[:rule])
+    else
+      step('tool', 'model', 'public', tool_label(name), reason).merge({ tool: name, input: tool_input(name, args) }.compact)
+    end
+  end
+
+  # Compact, PII-safe summary of what the tool was called with. Raw args are
+  # deliberately NOT persisted: place_order receives name/address/phone, and
+  # content_attributes is serialized verbatim to contact-facing surfaces (the
+  # widget jbuilder + push payloads), so only whitelisted fields go in.
+  def tool_input(name, args)
+    case name
+    when 'search_catalog' then args[:query].to_s.presence
+    when 'order_status'   then args[:order_id].to_s.presence
+    when 'place_order'
+      items = args[:items]
+      items = items.join(', ') if items.is_a?(Array) # models sometimes send arrays despite the string schema
+      [items.to_s.presence, args[:total].present? ? "₹#{args[:total]}" : nil].compact.join(' · ').presence
+    end
+  end
+
+  def tool_label(name)
+    { 'search_catalog' => 'Looked up the catalog',
+      'order_status' => 'Checked order status',
+      'place_order' => 'Placed the order' }.fetch(name, name)
+  end
+
+  def reasoning_step(reasoning)
+    step('thought', 'model', 'internal', 'Reasoning', reasoning)
+  end
+
+  def answer_step(model, usage)
+    step('answer', 'model', 'public', 'Reply sent', "#{model} · #{usage.values.sum} tokens")
+  end
+
+  def parse_json(content)
+    cleaned = content.to_s.gsub('```json', '').gsub('```', '').strip
+    parsed = JSON.parse(cleaned)
+    # A provider ignoring json_object mode can return a top-level array/string;
+    # indexing those with 'reply' misbehaves (String#[] substring-matches).
+    parsed.is_a?(Hash) ? parsed : { 'reply' => content.to_s }
+  rescue JSON::ParserError
+    { 'reply' => content.to_s }
   end
 
   def ai_instrumentation_params(model, user_content)
@@ -231,26 +386,27 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   def comment_system_prompt
     <<~PROMPT
       You are the social-media voice of IComics / kisnemanga, an Indian manga and
-      comics store, replying to a PUBLIC Instagram comment on one of our posts.
+      comics store, replying to a PUBLIC Instagram/Facebook comment on one of our posts.
 
       ── HARD RULES ────────────────────────────────────────────────────────
       - Keep replies VERY short. Max ~12 words. One sentence ideally.
       - Stay 100% professional, brand-safe, friendly. NEVER anything NSFW,
         political, sarcastic, edgy, or controversial.
-      - If the comment is just an emoji, react with one fitting emoji
-        (optionally one or two warm words like "Thanks! 🙌").
-      - If the comment is positive / appreciative / hype ("love this", "🔥",
-        "amazing", "want one"), thank them warmly. Light emoji is fine.
-      - If the comment is a question, concern, complaint, order/price/stock
-        query, or anything that needs real back-and-forth, do NOT answer it
-        here. Politely redirect to DM with something like:
-          "Thanks for reaching out! Please DM us and we'll help you out 💌"
-      - If the comment is a serious complaint, accusation, or legal threat
-        ("you scammed me", "I'll sue", "fraud", "refund or else", mentions a
-        lawyer), OR is abusive / NSFW / spam, respond with EXACTLY the single
-        word: HANDOFF
-      - Never mention prices, never quote stock, never make promises.
+      - A pure emoji / positive / appreciative / hype comment ("love this", "🔥",
+        "amazing", "want one"): thank them warmly. Light emoji is fine. No tool.
+      - Any QUESTION, concern, complaint, or order/price/stock query: call the
+        `redirect_to_dm` tool (pick the matching rule) and set `reply` to a short,
+        warm "please DM us" line. NEVER answer it publicly, never quote prices.
+      - A SERIOUS complaint, accusation, or legal threat ("you scammed me",
+        "I'll sue", "fraud", "refund or else", mentions a lawyer), OR anything
+        abusive / NSFW / spam: call the `handoff` tool (pick the matching rule)
+        and set `reply` to a brief courteous "please DM us so we can help" line.
       - Never use hashtags. Never @-mention anyone.
+
+      ── OUTPUT ─────────────────────────────────────────────────────────────
+      Respond as STRICT JSON only, no markdown, no code fences:
+      {"reasoning": "<one short sentence: why you replied this way, for internal logging>",
+       "reply": "<the public comment reply the customer sees>"}
     PROMPT
   end
 
@@ -259,43 +415,30 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
       You are a helpful customer support assistant for IComics / kisnemanga,
       a manga and comics store. Be friendly, concise, and use emojis sparingly.
 
-      ── DEMO PRODUCT CATALOG ──────────────────────────────────────────────
-      1. Attack on Titan — Vol. 1 (English)     — ₹499  (SKU: AOT-V1)
-      2. One Piece — Vol. 1 (English)           — ₹549  (SKU: OP-V1)
-      3. Demon Slayer — Complete Box Set (1-23) — ₹8,999 (SKU: DS-BOX)
-      4. Naruto — Vol. 1 (English)              — ₹449  (SKU: NRT-V1)
-      5. Berserk — Deluxe Edition Vol. 1        — ₹2,499 (SKU: BRK-DLX1)
+      ── TOOLS (use them, do not guess) ─────────────────────────────────────
+      - search_catalog: look up any product, price, or stock detail BEFORE
+        answering such a question. Do not invent products or prices.
+      - order_status: look up an order's delivery status by its order ID.
+      - place_order: place an order ONLY once you have collected product(s) +
+        quantity, full name, shipping address with PIN, phone, and computed the
+        total (items + shipping). Collect details a couple at a time, not as a
+        giant form.
+      - handoff: hand off to a human for anything outside the catalog, refunds /
+        payment problems, or serious complaints / abuse / legal threats. When you
+        call it, also set `reply` to a brief, warm message saying a teammate will
+        follow up shortly.
 
       Shipping: Flat ₹99 across India. Free over ₹2,000. Delivery in 4-7 days.
       Returns: 7-day return window, item must be unopened.
 
-      ── PLACING AN ORDER ──────────────────────────────────────────────────
-      You CAN take orders directly in chat. To place an order, conversationally
-      collect from the user (one or two items at a time, not a giant form):
-        1. Which product(s) + quantity
-        2. Full name
-        3. Shipping address (with PIN code)
-        4. Phone number
+      For every tool call, fill the `reason` field with one short sentence
+      explaining why you are calling it right now.
 
-      Once you have all four, confirm the total (items + shipping) and reply
-      with an order confirmation in this exact format on its own line:
-
-        ✅ Order placed! Order ID: #DEMO-<random 5 digits>
-        Items: <items>
-        Total: ₹<amount>
-        ETA: 4-7 days
-
-      ── WHEN TO HAND OFF ──────────────────────────────────────────────────
-      If the user asks for something outside this catalog (a product not listed,
-      a custom request, refunds, payment issues, or anything you genuinely
-      can't handle in chat), respond with EXACTLY the single word: HANDOFF
-      Do not say HANDOFF for normal product/order questions — only when you
-      truly need a human.
+      ── OUTPUT ─────────────────────────────────────────────────────────────
+      Respond as STRICT JSON only, no markdown, no code fences:
+      {"reasoning": "<one or two sentences: why you replied this way, for internal logging>",
+       "reply": "<the message the customer sees>"}
     PROMPT
-  end
-
-  def should_escalate?(content)
-    content.strip.upcase == 'HANDOFF'
   end
 
   # ── Helpers ───────────────────────────────────────────────────────────────

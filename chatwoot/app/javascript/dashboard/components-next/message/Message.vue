@@ -44,6 +44,7 @@ import MultiAttachmentBubble from './bubbles/MultiAttachment.vue';
 import InstagramReelBubble from './bubbles/InstagramReel.vue';
 
 import MessageError from './MessageError.vue';
+import AiTrace from './AiTrace.vue';
 import ContextMenu from 'dashboard/modules/conversations/components/MessageContextMenu.vue';
 import { useBranding } from 'shared/composables/useBranding';
 
@@ -379,6 +380,10 @@ const isMessageDeleted = computed(() => {
   return props.contentAttributes?.deleted;
 });
 
+// Chain-of-thought steps produced by the DM bot. Stored on the message as
+// content_attributes.ai_trace; the message list deep-camelizes it to aiTrace.
+const agentTrace = computed(() => props.contentAttributes?.aiTrace || []);
+
 const payloadForContextMenu = computed(() => {
   return {
     id: props.id,
@@ -594,6 +599,13 @@ provideMessageContext({
         :error="contentAttributes.externalError"
         @retry="emit('retry')"
       />
+      <div
+        v-if="agentTrace.length && !contentAttributes.externalError"
+        class="[grid-area:meta] flex mt-1"
+        :class="flexOrientationClass"
+      >
+        <AiTrace :steps="agentTrace" />
+      </div>
     </div>
     <div v-if="shouldShowContextMenu" class="context-menu-wrap">
       <ContextMenu
