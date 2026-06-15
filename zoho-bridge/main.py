@@ -27,6 +27,7 @@ import config
 import chatwoot
 import classifier
 import document_extractor
+import summarizer
 import zoho
 import google_reviews as gr
 import reviews_poller
@@ -220,6 +221,20 @@ def _is_comment_conversation(conv: dict) -> bool:
 
 
 # ── Handler: bot handoff → Zoho ticket ────────────────────────────────────
+# Fetch the real transcript + an AI summary for a conversation about to be
+# ticketed. Both best-effort: returns ([], {}) on failure so create_ticket
+# falls back to its existing payload-based behaviour. Centralised so all
+# three escalation paths (manual handoff, priority bump, Option-D) produce
+# tickets headlined by the customer's actual issue, not the bot's handoff
+# line.
+async def _ticket_context(conv_id) -> tuple[list, dict]:
+    if not conv_id:
+        return [], {}
+    messages = await chatwoot.get_conversation_messages(conv_id)
+    summary = await summarizer.summarize_conversation(messages) if messages else {}
+    return messages, summary
+
+
 async def handle_status_changed(data: dict) -> dict:
     conv       = data.get("conversation") or data
     conv_id    = conv.get("id") or data.get("id")
@@ -231,7 +246,8 @@ async def handle_status_changed(data: dict) -> dict:
         print(f"[handoff] conv {conv_id} is a comment — handled by DM bot, no Zoho ticket")
         return {"ignored": True, "reason": "comment_conversation"}
     try:
-        ticket = await zoho.create_ticket(data)
+        messages, summary = await _ticket_context(conv_id)
+        ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
         await _surface_ticket_in_chatwoot(conv_id, ticket, source="manual_handoff")
         return {"created": True, "ticket_id": ticket.get("id"),
                 "ticket_number": ticket.get("ticketNumber")}
@@ -305,7 +321,9 @@ async def handle_conversation_updated(data: dict) -> dict:
     # TypeError raised INSIDE create_ticket (e.g., a None field arithmetic
     # bug), dropping the SLA entirely. Removed.
     try:
-        ticket = await zoho.create_ticket(data, priority=priority, due_at=due_at)
+        messages, summary = await _ticket_context(conv_id)
+        ticket = await zoho.create_ticket(data, priority=priority, due_at=due_at,
+                                          messages=messages, summary=summary)
     except Exception as e:
         print(f"[priority] ERROR creating Zoho ticket for conv {conv_id}: {e}")
         return {"created": False, "error": str(e)}
@@ -826,7 +844,8 @@ async def handle_message_created(data: dict) -> dict:
     zoho_ticket = None
     if should_escalate:
         try:
-            ticket = await zoho.create_ticket(data)
+            messages, summary = await _ticket_context(conv_id)
+            ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
             zoho_ticket = ticket.get("id")
             print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
             await _surface_ticket_in_chatwoot(

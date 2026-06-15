@@ -259,6 +259,37 @@ async def get_conversation(conversation_id: int) -> dict:
         return r.json() or {}
 
 
+async def get_conversation_messages(conversation_id: int) -> list[dict]:
+    """Fetch the full message list for a conversation, oldest-first.
+
+    The webhook payloads (especially conversation_status_changed) carry only
+    a sparse `messages` array — often just the single message that triggered
+    the event — so a ticket built from the payload alone reflects the bot's
+    handoff line, not the customer's actual problem. This pulls the real
+    transcript from the API instead.
+
+    Returns [] on any failure (best-effort — callers fall back to whatever
+    the payload had)."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(_conv_url(conversation_id, "/messages"),
+                                  headers=_headers())
+            if r.status_code >= 300:
+                print(f"[chatwoot] get messages failed [{r.status_code}] "
+                      f"for conv {conversation_id}")
+                return []
+            body = r.json() or {}
+            # The endpoint returns {payload: [...]} (sometimes {data: {payload}}).
+            payload = body.get("payload")
+            if payload is None:
+                payload = (body.get("data") or {}).get("payload") or []
+            # API returns newest-first; we want chronological for a transcript.
+            return list(reversed(payload)) if payload else []
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] get messages error for conv {conversation_id}: {e}")
+        return []
+
+
 async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
     """Merge keys into the conversation's `custom_attributes` JSONB column via
     Chatwoot's dedicated endpoint. Read-modify-write — concurrency caveat:
