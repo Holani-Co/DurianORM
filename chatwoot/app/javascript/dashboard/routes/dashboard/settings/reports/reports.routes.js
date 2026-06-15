@@ -22,6 +22,7 @@ import TeamReports from './TeamReports.vue';
 import CsatResponses from './CsatResponses.vue';
 import BotReports from './BotReports.vue';
 import LiveReports from './LiveReports.vue';
+import OperationsReports from './OperationsReports.vue';
 import SLAReports from './SLAReports.vue';
 
 const meta = {
@@ -141,6 +142,18 @@ export default {
           name: 'account_overview_reports',
           meta,
           component: LiveReports,
+        },
+        {
+          // Operations dashboard — live counts per team across Open /
+          // Pending / Snoozed plus resolved-today and the longest-open
+          // list. The "what's going on right now" view the existing
+          // overview was missing. Read-only; every cell drills into
+          // Chatwoot's existing conversations list with the right
+          // filter pre-applied.
+          path: 'operations',
+          name: 'operations_reports',
+          meta,
+          component: OperationsReports,
         },
         {
           path: 'conversation',

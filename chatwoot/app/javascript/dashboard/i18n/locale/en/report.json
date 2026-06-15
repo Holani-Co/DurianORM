@@ -646,5 +646,29 @@
     "AVG_REPLY_TIME": "Avg. Customer Waiting Time",
     "RESOLUTION_COUNT": "Resolution Count",
     "CONVERSATIONS": "No. of conversations"
+  },
+  "OPERATIONS_REPORT": {
+    "HEADER": "Operations",
+    "HERO_TITLE": "Right now",
+    "TEAMS_TITLE": "By team",
+    "LONGEST_OPEN_TITLE": "Longest-open conversations",
+    "RESOLVED_TODAY": "Resolved (last 24h)",
+    "TEAM": "Team",
+    "ALL_TEAMS": "All teams",
+    "TOTAL": "Total",
+    "CUSTOMER": "Customer",
+    "CHANNEL": "Channel",
+    "INBOX": "Inbox",
+    "WAITING": "Waiting",
+    "OPEN": "Open",
+    "NO_TEAMS": "No teams configured yet. Create teams in Settings to see per-team counts here.",
+    "NO_OPEN": "No open conversations right now. 🎉",
+    "LOADING": "Loading…",
+    "STATUS": {
+      "OPEN": "Open",
+      "PENDING": "Pending",
+      "SNOOZED": "Snoozed",
+      "RESOLVED": "Resolved"
+    }
   }
 }

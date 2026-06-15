@@ -524,6 +524,15 @@ const menuItems = computed(() => {
           to: accountScopedRoute('account_overview_reports'),
         },
         {
+          // Operations — live per-team status counts + longest-open list.
+          // Placed right after Overview because it answers the same
+          // "what's happening now" question, but at the team granularity
+          // an ops manager actually cares about.
+          name: 'Report Operations',
+          label: t('SIDEBAR.REPORTS_OPERATIONS'),
+          to: accountScopedRoute('operations_reports'),
+        },
+        {
           name: 'Report Conversation',
           label: t('SIDEBAR.REPORTS_CONVERSATION'),
           to: accountScopedRoute('conversation_reports'),
