@@ -1,5 +1,6 @@
 # Zoho Desk client: OAuth token cache + ticket creation + related-ticket search.
 
+import html
 import re
 import time
 from datetime import datetime, timezone  # noqa: F401 — used in type annotation strings
@@ -45,29 +46,41 @@ async def get_access_token() -> str:
 
 
 # ── Ticket creation ───────────────────────────────────────────────────────
-def _build_ticket_body(payload: dict) -> dict:
+def _build_ticket_body(payload: dict, messages: list | None = None,
+                       summary: dict | None = None) -> dict:
     conv     = payload.get("conversation") or payload
     contact  = (conv.get("meta") or {}).get("sender") or {}
     inbox    = (conv.get("inbox") or {}).get("name") \
                or payload.get("inbox", {}).get("name", "Chatwoot")
-    messages = conv.get("messages") or []
+    # Prefer the FULL transcript fetched from the API (passed in by the
+    # caller); fall back to the sparse messages on the webhook payload.
+    # The payload's array is often just the single triggering message — on a
+    # manual handoff that's the bot's "teammate will follow up" line, which
+    # is why pre-summary tickets had useless subjects + transcripts.
+    messages = messages if messages is not None else (conv.get("messages") or [])
+    summary  = summary or {}
 
     def label(m):
-        return "Customer" if m.get("message_type") == 0 else "Agent/Bot"
+        return "Customer" if m.get("message_type") in (0, "incoming") else "Agent/Bot"
 
     transcript = "\n".join(
         f"[{label(m)}] {m.get('content', '').strip()}"
         for m in messages if m.get("content")
     ) or "(no text messages)"
 
-    # Prefer the trigger-message's content (top-level on the webhook payload)
-    # when it's an INCOMING customer message — the conv.messages array may not
-    # yet include it (timing / cache) and early entries are usually bot
-    # template prompts that make a useless subject.
+    # Subject priority:
+    #   1. AI summary's one-line issue (best — the customer's actual problem)
+    #   2. trigger message IF it's an incoming customer message
+    #   3. first incoming message in the transcript
+    #   4. any message / fallback
+    # The bot's outgoing handoff line is never used as the subject.
     trigger_content = (payload.get("content") or "").strip()
     is_trigger_incoming = payload.get("message_type") in (0, "incoming")
 
-    if trigger_content and is_trigger_incoming:
+    summary_subject = (summary.get("subject") or "").strip()
+    if summary_subject:
+        first_msg = summary_subject
+    elif trigger_content and is_trigger_incoming:
         first_msg = trigger_content
     else:
         first_msg = next(
@@ -79,7 +92,29 @@ def _build_ticket_body(payload: dict) -> dict:
             first_msg = next(
                 (m.get("content", "") for m in messages if m.get("content")), ""
             )
-    subject = f"[{inbox}] {first_msg[:60] or 'New conversation'}"
+    subject = f"[{inbox}] {first_msg[:80] or 'New conversation'}"
+
+    # AI summary block — headlines the ticket so the agent sees the issue,
+    # goal, and recommended next step without reading the thread. Rendered
+    # as HTML (Zoho Desk renders the description as HTML). Empty when the
+    # summariser had nothing usable.
+    # esc() guards the HTML description: the summary fields are model output
+    # derived from customer text and could contain <, >, & — escape so a
+    # stray character can't break the <li> markup or inject.
+    def esc(text):
+        return html.escape(str(text or ""))
+
+    summary_block = ""
+    if summary.get("summary") or summary.get("customer_goal") or summary.get("next_step"):
+        parts = ["<p><b>📋 Summary (AI-generated)</b></p><ul>"]
+        if summary.get("summary"):
+            parts.append(f"<li><b>What happened:</b> {esc(summary['summary'])}</li>")
+        if summary.get("customer_goal"):
+            parts.append(f"<li><b>Customer wants:</b> {esc(summary['customer_goal'])}</li>")
+        if summary.get("next_step"):
+            parts.append(f"<li><b>Suggested next step:</b> {esc(summary['next_step'])}</li>")
+        parts.append("</ul><hr/>")
+        summary_block = "".join(parts)
 
     # Include Chatwoot team in description for context (e.g., "Legal" → Zoho agent
     # knows what kind of ticket this is even before routing inside Zoho)
@@ -139,7 +174,7 @@ def _build_ticket_body(payload: dict) -> dict:
 
     return {
         "subject":      subject,
-        "description":  chatwoot_link + transcript + team_label + docs_label,
+        "description":  summary_block + chatwoot_link + transcript + team_label + docs_label,
         "departmentId": config.ZOHO_DEPARTMENT_ID,
         "channel":      "Chat",
         "priority":     "Medium",
@@ -156,16 +191,23 @@ def _build_ticket_body(payload: dict) -> dict:
 
 
 async def create_ticket(payload: dict, priority: str | None = None,
-                        due_at: "datetime | None" = None) -> dict:
+                        due_at: "datetime | None" = None,
+                        messages: list | None = None,
+                        summary: dict | None = None) -> dict:
     """Create a Zoho Desk ticket from a Chatwoot webhook payload.
 
-    Optional kwargs (used by the priority-escalation handler):
+    Optional kwargs:
       priority: Chatwoot priority level ("urgent" / "high" / "medium" / "low").
                 Mapped to Zoho enum: urgent → "Highest", others by name.
                 Also prefixes the subject so it stands out in Zoho's list view.
       due_at:   datetime → Zoho's `dueDate`. Adds an SLA-style deadline.
+      messages: full conversation transcript fetched from the Chatwoot API
+                (overrides the sparse messages on the webhook payload).
+      summary:  AI summary dict {subject, summary, customer_goal, next_step}
+                used to headline the ticket and title it by the customer's
+                actual issue rather than the bot's handoff line.
     """
-    body = _build_ticket_body(payload)
+    body = _build_ticket_body(payload, messages=messages, summary=summary)
 
     if priority:
         pmap = {"urgent": "Highest", "high": "High",
