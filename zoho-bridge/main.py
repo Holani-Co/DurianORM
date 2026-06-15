@@ -27,6 +27,7 @@ import config
 import chatwoot
 import classifier
 import document_extractor
+import identity_matcher
 import summarizer
 import zoho
 import google_reviews as gr
@@ -629,6 +630,112 @@ async def _maybe_extract_documents(data: dict) -> None:
         print(f"[docs] extraction task failed: {type(e).__name__}: {e}")
 
 
+# ── Identity matching: duplicate-contact detection ────────────────────────
+# Fire-and-forget task scheduled on a conversation's first incoming message.
+# Searches existing Chatwoot contacts for the SAME PERSON on another channel
+# and writes ranked candidates (+ the evidence behind each score) to
+# custom_attributes.identity_matches for the sidebar panel. Never auto-merges
+# — merge is a human decision (see identity_matcher.py). Never raises.
+#
+# Same task-GC guard as document extraction: asyncio only weak-references
+# tasks, so a bare create_task() can be collected mid-flight.
+_IDENTITY_TASKS: set = set()
+
+
+def _schedule_identity_match(data: dict) -> None:
+    task = asyncio.create_task(_maybe_match_identity(data))
+    _IDENTITY_TASKS.add(task)
+    task.add_done_callback(_IDENTITY_TASKS.discard)
+
+
+def _contact_url(contact_id) -> str:
+    return (
+        f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
+        f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}"
+    )
+
+
+def _format_identity_note(match: dict) -> str:
+    """Inline private note for a high-confidence duplicate. Only posted when
+    the top match clears IDENTITY_MATCH_NOTE_SCORE — otherwise the sidebar
+    card carries it silently."""
+    name = match.get("name") or "Unknown contact"
+    score = match.get("score")
+    signals = ", ".join(m.get("label", "") for m in match.get("matched") or [])
+    url = _contact_url(match.get("contact_id"))
+    note = (
+        f"🔗 **Possible duplicate contact ({score}%)** — "
+        f"[{name}]({url}) looks like the same person on another channel."
+    )
+    if signals:
+        note += f"\n\n_Matched on:_ {signals}"
+    if match.get("note"):
+        note += f"\n\n⚠️ {match['note']}"
+    note += "\n\n_Review in the sidebar and merge if it's the same person._"
+    return note
+
+
+async def _maybe_match_identity(data: dict) -> None:
+    try:
+        conv = data.get("conversation") or {}
+        conv_id = conv.get("id")
+        if not conv_id:
+            return
+
+        sender = (conv.get("meta") or {}).get("sender") or {}
+        contact_id = sender.get("id")
+        if not contact_id:
+            return
+
+        # Idempotency: only run once per conversation. Re-fetch the
+        # authoritative custom_attributes (the webhook payload can be stale).
+        try:
+            conv_data = await chatwoot.get_conversation(conv_id)
+            attrs = conv_data.get("custom_attributes") or {}
+        except Exception:
+            attrs = conv.get("custom_attributes") or {}
+        if attrs.get("identity_checked"):
+            return
+
+        # The sender object on the webhook is thin; fetch the full contact
+        # record so we have email + phone_number to match on.
+        contact = await chatwoot.get_contact(contact_id)
+        if not contact:
+            contact = sender
+
+        content = data.get("content") or ""
+        matches = await identity_matcher.find_matches(
+            contact, message_text=content, exclude_contact_id=contact_id
+        )
+
+        # Always set the checked flag (even on no matches) so we don't
+        # re-search this conversation on every subsequent message.
+        merged_attrs: dict = {"identity_checked": True}
+        if matches:
+            merged_attrs["identity_matches"] = matches
+        try:
+            await chatwoot.merge_custom_attributes(conv_id, merged_attrs)
+        except Exception as e:
+            print(f"[identity] merge_custom_attributes failed for conv {conv_id}: {e}")
+
+        if not matches:
+            print(f"[identity] conv {conv_id}: no duplicate-contact candidates")
+            return
+
+        top = matches[0]
+        print(f"[identity] conv {conv_id}: {len(matches)} candidate(s); "
+              f"top={top['name']!r} score={top['score']} band={top['band']}")
+
+        # Proactive inline note only for high-confidence matches.
+        if top["score"] >= config.IDENTITY_MATCH_NOTE_SCORE:
+            try:
+                await chatwoot.post_private_note(conv_id, _format_identity_note(top))
+            except Exception as e:
+                print(f"[identity] private note failed for conv {conv_id}: {e}")
+    except Exception as e:  # noqa: BLE001 — fire-and-forget task, never raise
+        print(f"[identity] match task failed: {type(e).__name__}: {e}")
+
+
 # ── Handler: first incoming message → spam pipeline + classify + assign ───
 async def handle_message_created(data: dict) -> dict:
     msg_type = data.get("message_type")
@@ -660,6 +767,22 @@ async def handle_message_created(data: dict) -> dict:
     # the webhook response; gating + idempotency live inside the helper.
     if config.DOC_EXTRACTION_ENABLED:
         _schedule_document_extraction(data)
+
+    # Identity matching (duplicate-contact detection). Like doc extraction,
+    # scheduled BEFORE the classification early-returns: it keys off the
+    # CONTACT, not the conversation's classification state, and is itself
+    # idempotent (one search per conversation, guarded by an
+    # `identity_checked` flag inside the task). Fire-and-forget so the
+    # contact-search round-trips never delay the webhook response.
+    #
+    # Cheap payload-level gate: skip scheduling once the flag is already set
+    # so we don't spin up a task (and an extra GET) on every later message in
+    # an already-checked conversation. The task re-checks authoritatively, so
+    # a stale payload here only ever causes one harmless extra run.
+    if config.IDENTITY_MATCH_ENABLED and not (
+        conv.get("custom_attributes") or {}
+    ).get("identity_checked"):
+        _schedule_identity_match(data)
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_attrs   = conv.get("custom_attributes") or {}

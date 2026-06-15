@@ -192,3 +192,34 @@ PRIORITY_ESCALATION_LEVELS = _csv("PRIORITY_ESCALATION_LEVELS", "urgent,high")
 PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
     1, int(os.environ.get("PRIORITY_ESCALATION_COOLDOWN_MINUTES", "60"))
 )
+
+
+# ── Identity matching (duplicate-contact detection) ───────────────────────
+# When a new conversation's first message arrives, the bridge searches
+# existing Chatwoot contacts for the SAME PERSON reaching out on a different
+# channel (Instagram + email + WhatsApp...). Matches are surfaced in the
+# sidebar with a confidence score + the evidence behind it; the agent
+# decides whether to merge. The bridge NEVER auto-merges — merge is
+# partially irreversible (Chatwoot deletes the absorbed contact), so it
+# stays a human decision. See identity_matcher.py for the scoring design.
+#
+# Kill-switch: like DOC_EXTRACTION_ENABLED, flip off if the extra
+# contact-search API calls per first-message ever become a problem.
+IDENTITY_MATCH_ENABLED = _bool_early("IDENTITY_MATCH_ENABLED", "true")
+
+# Minimum score (0-100) for a candidate to be surfaced at all. Below this we
+# drop it silently — too uncertain to be worth an agent's attention. Default
+# 31 = the floor of the "possible match" band (see identity_matcher.BANDS).
+IDENTITY_MATCH_MIN_SCORE = int(os.environ.get("IDENTITY_MATCH_MIN_SCORE", "31"))
+
+# Minimum score to ALSO post a proactive private note into the conversation
+# (vs. only rendering the sidebar card). Default 86 = the "near-certain"
+# band — only ping the agent inline when we're very confident, otherwise the
+# note becomes noise. Set above 100 to disable inline notes entirely.
+IDENTITY_MATCH_NOTE_SCORE = int(os.environ.get("IDENTITY_MATCH_NOTE_SCORE", "86"))
+
+# How many candidates to keep on the conversation (highest score first).
+# A handful is plenty for the sidebar; more just clutters.
+IDENTITY_MATCH_MAX_CANDIDATES = int(
+    os.environ.get("IDENTITY_MATCH_MAX_CANDIDATES", "5")
+)

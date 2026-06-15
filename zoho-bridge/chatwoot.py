@@ -171,6 +171,58 @@ async def get_contact_conversations(contact_id: int) -> list[dict]:
         return body.get("payload") or body.get("data") or []
 
 
+async def search_contacts(query: str) -> list[dict]:
+    """Free-text search over contacts (name / email / phone / identifier),
+    via Chatwoot's GET /contacts/search?q=. Returns the raw contact payloads
+    (id, name, email, phone_number, additional_attributes, last_activity_at,
+    ...). Used by the identity matcher to find duplicate-contact candidates.
+
+    Best-effort: returns [] on empty query or any failure — identity
+    matching is an enhancement, never a reason to fail a webhook."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                _acct_url("/contacts/search"),
+                headers=_headers(),
+                params={"q": q},
+            )
+            if r.status_code >= 300:
+                print(f"[chatwoot] search_contacts({q!r}) non-200 "
+                      f"[{r.status_code}]: {r.text[:200]}")
+                return []
+            body = r.json() or {}
+            # Shape: {payload: [...], meta: {...}}
+            return body.get("payload") or body.get("data") or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] search_contacts({q!r}) error: {type(e).__name__}: {e}")
+        return []
+
+
+async def get_contact(contact_id: int) -> dict:
+    """Fetch a single contact's full record. Best-effort: returns {} on any
+    failure (the identity matcher degrades to whatever the search payload
+    already carried)."""
+    if not contact_id:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                _acct_url(f"/contacts/{contact_id}"), headers=_headers()
+            )
+            if r.status_code >= 300:
+                print(f"[chatwoot] get_contact({contact_id}) non-200 "
+                      f"[{r.status_code}]: {r.text[:200]}")
+                return {}
+            body = r.json() or {}
+            return body.get("payload") or body
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] get_contact({contact_id}) error: {type(e).__name__}: {e}")
+        return {}
+
+
 async def search_snoozed_spam_since(since_iso: str = "") -> list[dict]:
     """Return SNOOZED conversations carrying a 'spam' label, used by the
     /spam-digest endpoint to build the daily review summary.
