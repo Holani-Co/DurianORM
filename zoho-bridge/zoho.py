@@ -1,5 +1,6 @@
 # Zoho Desk client: OAuth token cache + ticket creation + related-ticket search.
 
+import html
 import re
 import time
 from datetime import datetime, timezone  # noqa: F401 — used in type annotation strings
@@ -97,15 +98,21 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     # goal, and recommended next step without reading the thread. Rendered
     # as HTML (Zoho Desk renders the description as HTML). Empty when the
     # summariser had nothing usable.
+    # esc() guards the HTML description: the summary fields are model output
+    # derived from customer text and could contain <, >, & — escape so a
+    # stray character can't break the <li> markup or inject.
+    def esc(text):
+        return html.escape(str(text or ""))
+
     summary_block = ""
     if summary.get("summary") or summary.get("customer_goal") or summary.get("next_step"):
         parts = ["<p><b>📋 Summary (AI-generated)</b></p><ul>"]
         if summary.get("summary"):
-            parts.append(f"<li><b>What happened:</b> {summary['summary']}</li>")
+            parts.append(f"<li><b>What happened:</b> {esc(summary['summary'])}</li>")
         if summary.get("customer_goal"):
-            parts.append(f"<li><b>Customer wants:</b> {summary['customer_goal']}</li>")
+            parts.append(f"<li><b>Customer wants:</b> {esc(summary['customer_goal'])}</li>")
         if summary.get("next_step"):
-            parts.append(f"<li><b>Suggested next step:</b> {summary['next_step']}</li>")
+            parts.append(f"<li><b>Suggested next step:</b> {esc(summary['next_step'])}</li>")
         parts.append("</ul><hr/>")
         summary_block = "".join(parts)
 

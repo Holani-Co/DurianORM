@@ -283,8 +283,22 @@ async def get_conversation_messages(conversation_id: int) -> list[dict]:
             payload = body.get("payload")
             if payload is None:
                 payload = (body.get("data") or {}).get("payload") or []
-            # API returns newest-first; we want chronological for a transcript.
-            return list(reversed(payload)) if payload else []
+            if not payload:
+                return []
+            # Chatwoot returns the payload CHRONOLOGICALLY (oldest-first) —
+            # MessageFinder's default branch is `reorder(created_at desc)
+            # .limit(20).reverse`, i.e. ascending. So DON'T reverse it.
+            #
+            # Drop noise the default endpoint includes: private notes (the
+            # bridge's own "🎫 ticket created" notes etc.) and activity rows
+            # (message_type 2: "Assigned to … by Zoho Bridge"). Keep only
+            # real customer/agent messages (incoming 0 / outgoing 1) so the
+            # transcript and the summary aren't polluted.
+            return [
+                m for m in payload
+                if not m.get("private")
+                and m.get("message_type") in (0, 1, "incoming", "outgoing")
+            ]
     except Exception as e:  # noqa: BLE001
         print(f"[chatwoot] get messages error for conv {conversation_id}: {e}")
         return []
