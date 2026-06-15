@@ -522,12 +522,19 @@ MAX_TRACKED_DOCUMENTS = 20
 # themselves on completion via the done-callback.
 _EXTRACTION_TASKS: set = set()
 
-# Serialises the read-merge-write on extracted_documents. Without it, two
-# messages arriving in quick succession run concurrent tasks that both
-# read the array before either writes — the slower write silently drops
-# the faster one's documents (merge_custom_attributes is read-modify-
-# write, not atomic). Single-process bridge → an asyncio.Lock suffices.
-_EXTRACTION_WRITE_LOCK = asyncio.Lock()
+# Serialises ANY read-modify-write on a conversation's custom_attributes.
+# Without it, two fire-and-forget tasks (doc extraction + identity matching,
+# or two doc-extraction tasks for the same conv, etc.) can race: both read
+# {}, both POST their own merged dict, and the slower write silently
+# overwrites the faster one's keys (chatwoot.merge_custom_attributes is
+# read-modify-write at the API level, not atomic).
+#
+# Single-process bridge → one asyncio.Lock is sufficient. Both
+# `_maybe_extract_documents` and `_maybe_match_identity` hold it across
+# their final read+write block; the slow work (LLM calls, contact
+# searches) stays OUTSIDE the lock so cross-conversation throughput is
+# not affected — only the few-millisecond writeback is serialised.
+_CUSTOM_ATTRS_WRITE_LOCK = asyncio.Lock()
 
 
 def _schedule_document_extraction(data: dict) -> None:
@@ -597,12 +604,15 @@ async def _maybe_extract_documents(data: dict) -> None:
             doc["extracted_at"] = _now_iso()
             doc["message_id"] = message_id
 
-        # Persist under the lock: re-read the authoritative array, drop any
-        # result another concurrent task already stored (webhook retries),
-        # then merge newest-first, deduped by source_key, capped — same
-        # shape discipline as zoho_tickets. The slow LLM work above stays
-        # OUTSIDE the lock; only the read-merge-write is serialised.
-        async with _EXTRACTION_WRITE_LOCK:
+        # Persist under the shared custom_attributes lock: re-read the
+        # authoritative array, drop any result another concurrent task
+        # already stored (webhook retries), then merge newest-first,
+        # deduped by source_key, capped — same shape discipline as
+        # zoho_tickets. The slow LLM work above stays OUTSIDE the lock;
+        # only the read-merge-write is serialised. The lock is shared with
+        # `_maybe_match_identity` so a concurrent identity write cannot
+        # clobber what we POST here (and vice versa).
+        async with _CUSTOM_ATTRS_WRITE_LOCK:
             try:
                 conv_data = await chatwoot.get_conversation(conv_id)
                 existing_docs = (conv_data.get("custom_attributes") or {}) \
@@ -641,11 +651,32 @@ async def _maybe_extract_documents(data: dict) -> None:
 # tasks, so a bare create_task() can be collected mid-flight.
 _IDENTITY_TASKS: set = set()
 
+# Conversations currently being matched. A burst of messages on the same
+# fresh conversation (common on DMs) would otherwise fire one identity
+# task per message — every task races to the same idempotent result and
+# re-does all the contact-search API calls for zero new information. With
+# this set we schedule the FIRST one and skip the rest; later messages
+# bail at the in-task `identity_checked` check anyway once the first one
+# has written.
+_IDENTITY_IN_PROGRESS: set = set()
+
 
 def _schedule_identity_match(data: dict) -> None:
+    conv = data.get("conversation") or {}
+    conv_id = conv.get("id")
+    if conv_id and conv_id in _IDENTITY_IN_PROGRESS:
+        return
+    if conv_id:
+        _IDENTITY_IN_PROGRESS.add(conv_id)
     task = asyncio.create_task(_maybe_match_identity(data))
     _IDENTITY_TASKS.add(task)
-    task.add_done_callback(_IDENTITY_TASKS.discard)
+
+    def _cleanup(t):
+        _IDENTITY_TASKS.discard(t)
+        if conv_id:
+            _IDENTITY_IN_PROGRESS.discard(conv_id)
+
+    task.add_done_callback(_cleanup)
 
 
 def _contact_url(contact_id) -> str:
@@ -687,8 +718,9 @@ async def _maybe_match_identity(data: dict) -> None:
         if not contact_id:
             return
 
-        # Idempotency: only run once per conversation. Re-fetch the
-        # authoritative custom_attributes (the webhook payload can be stale).
+        # Fast-path bail: skip the expensive search work entirely when this
+        # conversation has already been checked (best-effort hint — the
+        # in-lock re-check below is the authoritative one).
         try:
             conv_data = await chatwoot.get_conversation(conv_id)
             attrs = conv_data.get("custom_attributes") or {}
@@ -708,15 +740,32 @@ async def _maybe_match_identity(data: dict) -> None:
             contact, message_text=content, exclude_contact_id=contact_id
         )
 
-        # Always set the checked flag (even on no matches) so we don't
-        # re-search this conversation on every subsequent message.
-        merged_attrs: dict = {"identity_checked": True}
-        if matches:
-            merged_attrs["identity_matches"] = matches
-        try:
-            await chatwoot.merge_custom_attributes(conv_id, merged_attrs)
-        except Exception as e:
-            print(f"[identity] merge_custom_attributes failed for conv {conv_id}: {e}")
+        # Persist under the shared custom_attributes lock — see the lock's
+        # docstring at the top of this section for the race it prevents.
+        # We also re-check `identity_checked` inside the lock: another task
+        # (in another process, retry, or a same-conversation second message
+        # that beat the in-progress guard) may have written between our
+        # outer fast-path read and now. Without the in-lock re-check this
+        # would write twice and could clobber the first task's matches.
+        async with _CUSTOM_ATTRS_WRITE_LOCK:
+            try:
+                conv_data = await chatwoot.get_conversation(conv_id)
+                attrs = conv_data.get("custom_attributes") or {}
+            except Exception:
+                attrs = {}
+            if attrs.get("identity_checked"):
+                print(f"[identity] conv {conv_id}: already checked by another "
+                      f"task; skipping write")
+                return
+
+            merged_attrs: dict = {"identity_checked": True}
+            if matches:
+                merged_attrs["identity_matches"] = matches
+            try:
+                await chatwoot.merge_custom_attributes(conv_id, merged_attrs)
+            except Exception as e:
+                print(f"[identity] merge_custom_attributes failed for conv "
+                      f"{conv_id}: {e}")
 
         if not matches:
             print(f"[identity] conv {conv_id}: no duplicate-contact candidates")

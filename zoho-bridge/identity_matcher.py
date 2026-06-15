@@ -29,6 +29,7 @@
 # Pure-Python + stdlib only (difflib for fuzzy names) — no LLM, no new deps.
 # score_pair() is side-effect-free and unit-testable; find_matches() does I/O.
 
+import asyncio
 import difflib
 import re
 
@@ -356,10 +357,17 @@ async def find_matches(
     if not queries:
         return []
 
-    # Gather + de-dupe candidates across all searches.
+    # Gather + de-dupe candidates across all searches. Queries run in
+    # parallel (asyncio.gather): each /contacts/search is an independent
+    # round-trip and we'd otherwise wait sequentially for up to three of
+    # them. search_contacts already swallows exceptions internally, so
+    # gather will never raise here.
+    search_results = await asyncio.gather(
+        *(chatwoot.search_contacts(q) for q in queries)
+    )
     candidates: dict = {}
-    for q in queries:
-        for c in await chatwoot.search_contacts(q):
+    for results_list in search_results:
+        for c in results_list:
             cid = c.get("id")
             if cid is None:
                 continue
