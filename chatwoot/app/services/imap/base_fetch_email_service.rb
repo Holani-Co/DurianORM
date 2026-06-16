@@ -58,8 +58,25 @@ class Imap::BaseFetchEmailService
 
     return if email_already_present?(channel, message_id)
 
-    # Fetch the original mail content using the sequence no
-    mail_str = imap_client.fetch(seq_no, 'RFC822')[0].attr['RFC822']
+    # Fetch the original mail content using the sequence no.
+    #
+    # `BODY.PEEK[]` instead of `RFC822` is deliberate: per RFC 3501,
+    # fetching `RFC822` (or `BODY[]`) implicitly sets the `\Seen` flag on
+    # the message, which Gmail and most IMAP UIs interpret as "the user
+    # has read this." Chatwoot's IMAP service is a SYNC ENGINE, not the
+    # reader — the reader is the agent who later opens the conversation
+    # in Chatwoot (or the customer triaging in Gmail). Marking everything
+    # read at ingestion destroys Gmail's unread-count as a triage signal,
+    # which is the exact use case our client relies on.
+    #
+    # `BODY.PEEK[]` returns byte-identical content to `RFC822` but
+    # suppresses the `\Seen` side-effect. The response attribute key is
+    # `'BODY[]'`, not `'BODY.PEEK[]'` — `.PEEK` is a request-side
+    # modifier only (RFC 3501 §6.4.5).
+    #
+    # The header-prefetch on line 103 already uses BODY.PEEK[HEADER];
+    # this brings the body-fetch in line with it.
+    mail_str = imap_client.fetch(seq_no, 'BODY.PEEK[]')[0].attr['BODY[]']
 
     if mail_str.blank?
       Rails.logger.info "[IMAP::FETCH_EMAIL_SERVICE] Fetch failed for #{channel.email} with message-id <#{message_id}>."
