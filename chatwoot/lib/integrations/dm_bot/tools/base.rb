@@ -18,4 +18,5 @@ class Integrations::DmBot::Tools::Base < RubyLLM::Tool
 
   SHIPPING = 'Flat ₹99 across India. Free over ₹2,000. Delivery in 4-7 days.'
   RETURNS  = '7-day return window, item must be unopened.'
+  PAYMENT  = 'UPI, debit/credit cards, net banking, popular wallets, and Cash on Delivery (COD).'
 end
