@@ -806,16 +806,44 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
 
-    # email_category == "legitimate" → second LLM call to pick a team.
-    # NOTE: this is the team-routing classifier and is INTENTIONALLY a
-    # separate call from classify_email_type for now — it has a different
-    # response shape (single word) and was already in production before
-    # the email-type classifier was added. Worth folding into one prompt
-    # later if cost matters; today it's ~$0.0001/msg with gpt-4o-mini.
-    print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} content={content[:60]!r}")
-    team_key = await classifier.classify(content, inbox_name)
+    # Team routing.
+    #
+    # We ran TWO LLM calls historically: classify_email_type() (which returns
+    # label/confidence/escalation_signal/reason) AND classify() (single-word
+    # team). They were independent, and they could disagree — a legal notice
+    # was correctly flagged as escalation_signal=legal_or_compliance (Zoho
+    # ticket labeled Legal) but the standalone team classifier looked at the
+    # body's mention of "professional models" and "personality rights" and
+    # misrouted the conversation to HR. The Chatwoot UI then showed "Assigned
+    # to HR" alongside a "Zoho ticket created (auto-routed: Legal)" private
+    # note for the same message. Confusing and incorrect.
+    #
+    # Fix: when the email-type classifier returned a STRONG signal
+    # (anything other than "none"), let that signal pick the team via
+    # classifier.ESCALATION_SIGNAL_TEAM. Skip the generic classifier
+    # entirely. Routing and ticket labeling now share one decision and
+    # can never drift apart. Bonus: one fewer LLM call per signal-bearing
+    # message.
+    #
+    # Only fall back to classify() when signal == "none" — i.e. an
+    # ordinary message with no specific domain bucket. That's the case
+    # the generic classifier is designed for.
+    signal_team = classifier.ESCALATION_SIGNAL_TEAM.get(escalation_signal)
+    if signal_team:
+        team_key = signal_team
+        team_routing_source = f"signal_{escalation_signal}"
+        print(f"[classify] conv {conv_id} routed by escalation signal "
+              f"{escalation_signal!r} → team={team_key} "
+              f"(skipping generic classifier — keeps routing in sync with "
+              f"Zoho ticket team)")
+    else:
+        print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} "
+              f"content={content[:60]!r} (no escalation signal — using "
+              f"generic team classifier)")
+        team_key = await classifier.classify(content, inbox_name)
+        team_routing_source = "generic_classifier"
     team_id  = config.TEAM_IDS.get(team_key)
-    print(f"[classify] → team={team_key} id={team_id}")
+    print(f"[classify] → team={team_key} id={team_id} source={team_routing_source}")
 
     if not team_id:
         print(f"[classify] no TEAM_ID configured for '{team_key}' — skipping assignment")
@@ -856,10 +884,11 @@ async def handle_message_created(data: dict) -> dict:
                   f"(team={team_key}, reason={escalation_label}): {e}")
 
     return {
-        "classified":         team_key,
-        "assigned_team_id":   team_id,
-        "zoho_ticket_id":     zoho_ticket,
-        "escalation_reason":  escalation_label if should_escalate else None,
+        "classified":           team_key,
+        "assigned_team_id":     team_id,
+        "team_routing_source":  team_routing_source,
+        "zoho_ticket_id":       zoho_ticket,
+        "escalation_reason":    escalation_label if should_escalate else None,
     }
 
 

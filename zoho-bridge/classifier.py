@@ -8,15 +8,71 @@ from llm_client import client
 
 VALID_TEAMS = {"legal", "marketing", "hr", "support"}
 
+# Map an email-type classifier escalation_signal → team_key.
+# When the email-type classifier (classify_email_type) returns a non-"none"
+# escalation_signal, this mapping is the SOURCE OF TRUTH for routing — the
+# general `classify()` LLM call is skipped entirely. Rationale documented at
+# the use-site in main.handle_message_created; short version: keeps the
+# routing team and the Zoho-ticket team consistent (incident: a copyright
+# legal notice was correctly flagged as legal_or_compliance for ticket
+# escalation but the standalone team classifier misrouted it to HR because
+# the body mentioned "professional models" and "personality rights").
+#
+# Keep keys in lockstep with classifier.ESCALATION_SIGNALS_VALID. If a new
+# signal is ever added there without an entry here, signal-based routing
+# silently falls back to the general classifier for that signal — not
+# wrong, but loses the consistency benefit.
+ESCALATION_SIGNAL_TEAM = {
+    "legal_or_compliance": "legal",
+    "hr_sensitive":        "hr",
+    # Financial disputes (chargebacks, refund battles) are handled by
+    # support today — there's no dedicated finance team. Re-map here when
+    # one is added without touching main.py.
+    "financial_dispute":   "support",
+    "brand_or_contract":   "marketing",
+}
+
+# Tightened team-routing prompt. Used ONLY as fallback when the email-type
+# classifier returned escalation_signal="none" (i.e. the message has no
+# strong domain signal). The previous shorter prompt occasionally tripped
+# on legal notices that mentioned "models" / "staff" / "complaints" and
+# misrouted them to HR — fixed by:
+#   1. Explicitly listing the strong legal markers (Act/Section citations,
+#      "demand for compensation", advocate/law-firm sender).
+#   2. Disambiguating that HR only covers OUR staff/employees — a legal
+#      notice that mentions third-party models in copyright context is
+#      NOT HR.
+#   3. Adding 2 worked examples (one legal, one HR) so the model sees the
+#      distinction concretely.
 SYSTEM_PROMPT = """\
 You are a routing classifier for IComics / kisnemanga (a manga & comics store).
 Read the customer's first message and assign it to EXACTLY ONE team.
 
 Teams:
-- legal     → legal notices, copyright/DMCA, takedowns, lawsuits, contracts, IP, GDPR/privacy
-- marketing → collaborations, sponsorships, influencer/PR inquiries, brand partnerships
-- hr        → job applications, recruitment, internships, complaints about staff conduct
-- support   → DEFAULT. Orders, products, returns, shipping, refunds, general questions, anything else
+- legal     → ANY communication from a lawyer / attorney / advocate / law firm.
+              Legal notices, demand letters, cease-and-desist, copyright /
+              DMCA / IP infringement claims, lawsuits, GDPR / privacy /
+              data-protection complaints, regulator contact, takedowns,
+              contract disputes. KEY MARKERS: citations of legal Acts or
+              Sections, "demand for compensation/damages", "without prejudice",
+              advocate signature, law-firm letterhead, threats of legal action.
+              ⚠️  If a legal notice mentions models, employees, contributors
+              or "personality rights" in the context of copyright or
+              infringement, it is STILL legal, not HR.
+- marketing → Genuine business outreach: paid collaborations, sponsorships,
+              influencer / PR inquiries, brand partnerships, press queries.
+- hr        → JOB APPLICATIONS to work at our company, recruitment, internship
+              requests, complaints SPECIFICALLY about OUR staff / employees /
+              agents. ⚠️  This is for employment-style matters only — NOT
+              for any message that happens to mention people, models, or
+              "complaints" in a non-employment context.
+- support   → DEFAULT. Orders, products, returns, shipping, refunds, general
+              questions, anything else that isn't clearly one of the above.
+
+Examples:
+- "We act on behalf of ImagesBazaar... Section 51 of the Copyright Act 1957
+  was violated... demand payment of ₹6,36,000 within 7 days." → legal
+- "Hi, I'd like to apply for the SEO Manager role advertised on your site." → hr
 
 Respond with EXACTLY ONE word, lowercase: legal | marketing | hr | support
 No explanation. No punctuation. Just the word.
