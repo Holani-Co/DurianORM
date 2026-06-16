@@ -19,10 +19,16 @@ class Captain::ReplySuggestionService < Captain::BaseTaskService
   end
 
   def prompt_variables
+    # customer_name lets the prompt template address the customer by their
+    # real name instead of falling back to an "[Customer's Name]" placeholder
+    # the LLM has been observed to insert when no name is available. Falls
+    # back to '' when the contact has no name on record — the template then
+    # instructs the model to omit the salutation rather than invent one.
     {
       'channel_type' => conversation.inbox.channel_type,
       'agent_name' => user.name,
-      'agent_signature' => user.message_signature.presence
+      'agent_signature' => user.message_signature.presence,
+      'customer_name' => conversation.contact&.name.presence || ''
     }
   end
 

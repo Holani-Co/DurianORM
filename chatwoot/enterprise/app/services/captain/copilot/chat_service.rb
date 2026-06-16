@@ -102,13 +102,27 @@ class Captain::Copilot::ChatService < Llm::BaseAiService
     return [] unless conversation
 
     Rails.logger.info("#{self.class.name} Assistant: #{@assistant.id}, Setting viewing history for conversation_id=#{conversation_id}")
-    contact_id = conversation.contact_id
+    # Include the contact's actual name + email so Copilot drafts replies with
+    # the customer's name (e.g. "Dear Siddharth,") instead of inserting a
+    # placeholder like "Dear [Customer's Name],". The model otherwise only
+    # had the numeric contact_id and would call GetContactService inconsistently
+    # — putting the identity inline is cheaper and removes the placeholder bug.
+    contact       = conversation.contact
+    contact_name  = contact&.name.presence || '(unknown)'
+    contact_email = contact&.email.presence || '(none)'
     [{
       role: 'system',
       content: <<~HISTORY.strip
         You are currently viewing the conversation with the following details:
         Conversation ID: #{conversation_id}
-        Contact ID: #{contact_id}
+        Contact ID: #{contact&.id}
+        Contact name: #{contact_name}
+        Contact email: #{contact_email}
+
+        When drafting a reply, address the customer by the actual name above.
+        If the name is "(unknown)", omit the salutation entirely (start the
+        reply with the substantive content). Never insert placeholders like
+        "[Customer's Name]" or "Dear Customer" — those are bugs, not drafts.
       HISTORY
     }]
   end
