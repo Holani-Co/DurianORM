@@ -1,8 +1,12 @@
 <script setup>
+// Chatwoot attaches the configured axios instance (with devise-token-auth
+// headers attached on login) to window.axios in entrypoints/dashboard.js.
+// Importing the raw 'axios' package would skip those headers — every
+// request would land with 401 Unauthorized.
 import { computed, ref } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
-import axios from 'axios';
+const axios = window.axios;
 
 // Renders when zoho-bridge has PAUSED Zoho ticket creation because the
 // contact already has one or more open tickets. Lets the agent decide

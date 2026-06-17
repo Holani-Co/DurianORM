@@ -4,6 +4,7 @@
 # authenticated as a Chatwoot agent first, then forwarded over loopback to
 # the sidecar's localhost-only port.
 class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts::BaseController
+  before_action :set_conversation
   before_action :check_authorization
 
   # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_ticket_decision
@@ -22,6 +23,19 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   end
 
   private
+
+  def set_conversation
+    @conversation = Current.account.conversations.find_by(display_id: params[:conversation_id])
+    head :not_found if @conversation.blank?
+  end
+
+  # Authorize against the conversation rather than the (non-existent)
+  # ZohoBridge model the base check_authorization would otherwise try to
+  # constantize. An agent may resolve a ticket decision only on a
+  # conversation they can already view.
+  def check_authorization
+    authorize(@conversation, :show?)
+  end
 
   def bridge_url
     ENV.fetch('ZOHO_BRIDGE_URL', 'http://127.0.0.1:8420')
