@@ -358,6 +358,11 @@ Rails.application.routes.draw do
                 post :add_participant_to_meeting
               end
             end
+            resource :zoho_bridge, controller: 'zoho_bridge', only: [] do
+              collection do
+                post :resolve_ticket_decision
+              end
+            end
             resource :shopify, controller: 'shopify', only: [:destroy] do
               collection do
                 post :auth

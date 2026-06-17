@@ -27,6 +27,7 @@ import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/Lin
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
+import PendingTicketDecisionPanel from './PendingTicketDecisionPanel.vue';
 
 const props = defineProps({
   conversationId: {
@@ -172,6 +173,28 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Pending ticket decision: written by zoho-bridge when it would have
+         auto-created a Zoho ticket but the contact already has open ones.
+         Renders only while `pending_zoho_ticket` is set; the bridge clears
+         the attribute after the agent picks Attach or Create-new. -->
+    <div
+      v-if="conversationCustomAttributes.pending_zoho_ticket"
+      class="px-2 pt-2"
+    >
+      <AccordionItem
+        title="Ticket decision needed"
+        :is-open="isContactSidebarItemOpen('is_ticket_decision_open')"
+        compact
+        @toggle="
+          value => toggleSidebarUIState('is_ticket_decision_open', value)
+        "
+      >
+        <PendingTicketDecisionPanel
+          :pending="conversationCustomAttributes.pending_zoho_ticket"
+          :conversation-id="conversationId"
         />
       </AccordionItem>
     </div>
