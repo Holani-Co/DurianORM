@@ -341,53 +341,88 @@ async def search_tickets(query: str, exclude_id: Optional[str] = None,
 # ── Open-ticket lookup by contact email ───────────────────────────────────
 # Used by the ticket-dedup feature: when we're about to auto-create a ticket
 # for a contact who already has one or more open tickets, the bridge pauses
-# and asks the agent whether to create-new or attach-to-existing. We search
-# by EMAIL (not subject) so the match is precise — the same person, not the
-# same topic. Status filter is hard-coded to "Open" and "On Hold" because a
-# closed ticket isn't a duplicate-risk; it's done.
+# and asks the agent whether to create-new or attach-to-existing.
+#
+# Zoho stores the email on the CONTACT record, not denormalised onto each
+# ticket — tickets created by create_ticket() carry email=None and link to
+# the contact via contactId. So `/tickets/search?email=` returns nothing.
+# The correct path is two hops:
+#   1. GET /contacts/search?email=  → resolve the Zoho contact id
+#   2. GET /contacts/{id}/tickets   → list that contact's tickets
+# Status filter ("Open" / "On Hold") is applied client-side; a closed ticket
+# isn't a duplicate-risk, it's done.
+async def _resolve_contact_id(client, token, email: str) -> Optional[str]:
+    """Resolve a Zoho Desk contact id from an email. None if not found."""
+    r = await client.get(
+        f"{config.ZOHO_DESK_URL}/api/v1/contacts/search",
+        headers={"Authorization": f"Zoho-oauthtoken {token}",
+                 "orgId": config.ZOHO_ORG_ID},
+        params={"email": email, "limit": "1"},
+    )
+    if r.status_code == 401:
+        _token_cache["value"] = None
+        token = await get_access_token()
+        r = await client.get(
+            f"{config.ZOHO_DESK_URL}/api/v1/contacts/search",
+            headers={"Authorization": f"Zoho-oauthtoken {token}",
+                     "orgId": config.ZOHO_ORG_ID},
+            params={"email": email, "limit": "1"},
+        )
+    if r.status_code == 204 or r.status_code >= 300:
+        return None
+    data = (r.json() or {}).get("data") or []
+    return str(data[0]["id"]) if data and data[0].get("id") else None
+
+
+_OPEN_STATUSES = {"open", "on hold"}
+
+
 async def search_open_tickets_by_email(email: str,
                                        limit: int = 5,
                                        exclude_id: Optional[str] = None) -> list[dict]:
-    """Return open / on-hold Zoho Desk tickets associated with the given email.
+    """Return open / on-hold Zoho Desk tickets for the contact with this email.
 
-    Best-effort: returns [] on any failure (no email, network error, 4xx)."""
+    Best-effort: returns [] on any failure (no email, no matching contact,
+    network error, 4xx)."""
     if not email:
         return []
-
-    async def _get(client, token, status):
-        return await client.get(
-            f"{config.ZOHO_DESK_URL}/api/v1/tickets/search",
-            headers={
-                "Authorization": f"Zoho-oauthtoken {token}",
-                "orgId":         config.ZOHO_ORG_ID,
-            },
-            params={
-                "email":        email,
-                "status":       status,
-                "limit":        str(limit + 1),
-                "departmentId": config.ZOHO_DEPARTMENT_ID,
-                "sortBy":       "-createdTime",
-            },
-        )
 
     results: list[dict] = []
     try:
         token = await get_access_token()
         async with httpx.AsyncClient(timeout=15) as client:
-            # Two calls — Zoho's status filter is single-value per request.
-            # Keep open first so the newest non-stale ticket is at index 0.
-            for status in ("Open", "On Hold"):
-                r = await _get(client, token, status)
-                if r.status_code == 401:
-                    _token_cache["value"] = None
-                    r = await _get(client, await get_access_token(), status)
-                if r.status_code == 204:
-                    continue
-                if r.status_code >= 300:
-                    print(f"[zoho] search_open_tickets_by_email non-200 [{r.status_code}]; "
-                          f"email={email!r} status={status} body={r.text[:300]!r}")
-                    continue
-                results += (r.json() or {}).get("data") or []
+            contact_id = await _resolve_contact_id(client, token, email)
+            if not contact_id:
+                return []
+
+            r = await client.get(
+                f"{config.ZOHO_DESK_URL}/api/v1/contacts/{contact_id}/tickets",
+                headers={"Authorization": f"Zoho-oauthtoken {token}",
+                         "orgId": config.ZOHO_ORG_ID},
+                # Pull a generous page; we filter to open statuses client-side
+                # and sort newest-first below.
+                params={"limit": "50"},
+            )
+            if r.status_code == 401:
+                _token_cache["value"] = None
+                token = await get_access_token()
+                r = await client.get(
+                    f"{config.ZOHO_DESK_URL}/api/v1/contacts/{contact_id}/tickets",
+                    headers={"Authorization": f"Zoho-oauthtoken {token}",
+                             "orgId": config.ZOHO_ORG_ID},
+                    params={"limit": "50"},
+                )
+            if r.status_code == 204:
+                return []
+            if r.status_code >= 300:
+                print(f"[zoho] contact tickets lookup non-200 [{r.status_code}] "
+                      f"for {email!r}: {r.text[:300]!r}")
+                return []
+            all_tickets = (r.json() or {}).get("data") or []
+            results = [t for t in all_tickets
+                       if str(t.get("status") or "").lower() in _OPEN_STATUSES]
+            # Newest first by createdTime (string ISO sorts correctly).
+            results.sort(key=lambda t: t.get("createdTime") or "", reverse=True)
     except Exception as e:
         print(f"[zoho] search_open_tickets_by_email exception: {type(e).__name__}: {e}")
         return []
