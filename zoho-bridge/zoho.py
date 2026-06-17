@@ -336,3 +336,111 @@ async def search_tickets(query: str, exclude_id: Optional[str] = None,
             "created_at": t.get("createdTime"),
         })
     return out
+
+
+# ── Open-ticket lookup by contact email ───────────────────────────────────
+# Used by the ticket-dedup feature: when we're about to auto-create a ticket
+# for a contact who already has one or more open tickets, the bridge pauses
+# and asks the agent whether to create-new or attach-to-existing. We search
+# by EMAIL (not subject) so the match is precise — the same person, not the
+# same topic. Status filter is hard-coded to "Open" and "On Hold" because a
+# closed ticket isn't a duplicate-risk; it's done.
+async def search_open_tickets_by_email(email: str,
+                                       limit: int = 5,
+                                       exclude_id: Optional[str] = None) -> list[dict]:
+    """Return open / on-hold Zoho Desk tickets associated with the given email.
+
+    Best-effort: returns [] on any failure (no email, network error, 4xx)."""
+    if not email:
+        return []
+
+    async def _get(client, token, status):
+        return await client.get(
+            f"{config.ZOHO_DESK_URL}/api/v1/tickets/search",
+            headers={
+                "Authorization": f"Zoho-oauthtoken {token}",
+                "orgId":         config.ZOHO_ORG_ID,
+            },
+            params={
+                "email":        email,
+                "status":       status,
+                "limit":        str(limit + 1),
+                "departmentId": config.ZOHO_DEPARTMENT_ID,
+                "sortBy":       "-createdTime",
+            },
+        )
+
+    results: list[dict] = []
+    try:
+        token = await get_access_token()
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Two calls — Zoho's status filter is single-value per request.
+            # Keep open first so the newest non-stale ticket is at index 0.
+            for status in ("Open", "On Hold"):
+                r = await _get(client, token, status)
+                if r.status_code == 401:
+                    _token_cache["value"] = None
+                    r = await _get(client, await get_access_token(), status)
+                if r.status_code == 204:
+                    continue
+                if r.status_code >= 300:
+                    print(f"[zoho] search_open_tickets_by_email non-200 [{r.status_code}]; "
+                          f"email={email!r} status={status} body={r.text[:300]!r}")
+                    continue
+                results += (r.json() or {}).get("data") or []
+    except Exception as e:
+        print(f"[zoho] search_open_tickets_by_email exception: {type(e).__name__}: {e}")
+        return []
+
+    if exclude_id is not None:
+        results = [t for t in results if str(t.get("id")) != str(exclude_id)]
+
+    out = []
+    for t in results[:limit]:
+        tid = t.get("id")
+        out.append({
+            "id":         tid,
+            "number":     t.get("ticketNumber"),
+            "subject":    t.get("subject") or "",
+            "status":     t.get("status"),
+            "url":        t.get("webUrl") or (
+                f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
+            ),
+            "created_at": t.get("createdTime"),
+        })
+    return out
+
+
+# ── Append a comment on an existing ticket ────────────────────────────────
+# Used when the agent picks "Attach to existing" — we don't create a new
+# ticket; instead we add a comment on the existing one summarising the new
+# conversation, so the existing ticket history stays the source of truth.
+async def add_comment_to_ticket(ticket_id: str, body_html: str,
+                                is_public: bool = False) -> dict:
+    """POST /api/v1/tickets/{id}/comments. Raises on failure."""
+    async def _post(client, token):
+        return await client.post(
+            f"{config.ZOHO_DESK_URL}/api/v1/tickets/{ticket_id}/comments",
+            headers={
+                "Authorization": f"Zoho-oauthtoken {token}",
+                "orgId":         config.ZOHO_ORG_ID,
+                "Content-Type":  "application/json",
+            },
+            json={
+                "content":     body_html,
+                "contentType": "html",
+                "isPublic":    is_public,
+            },
+        )
+
+    token = await get_access_token()
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await _post(client, token)
+        if r.status_code == 401:
+            _token_cache["value"] = None
+            r = await _post(client, await get_access_token())
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Zoho add_comment failed [{r.status_code}]: {r.text[:300]}"
+            )
+        return r.json()
