@@ -475,6 +475,16 @@ def _build_category_system_prompt(rules: dict) -> str:
             lines.append("  Example messages:")
             for ex in examples[:4]:
                 lines.append(f'    • "{ex}"')
+        # Subject-line keyword anchors from the client's Email-Keywords
+        # sheet. These are short topic phrases that strongly indicate the
+        # category — surfaced to the model as an additional signal on top
+        # of the prose description and example messages. Capped per category
+        # to keep the prompt from ballooning (the long tail adds little once
+        # the model has the representative ones).
+        keywords = cfg.get("keywords") or []
+        if keywords:
+            shown = ", ".join(str(k) for k in keywords[:18])
+            lines.append(f"  Common subject keywords: {shown}")
         lines.append("")
 
     lines.extend([

@@ -44,6 +44,19 @@ categories:
       - "Are there trolly drawers for rooms"
       - "Office chair exchange is possible at pin code 700135?"
       - "Is this available in jamshedpur Jharkhand"
+    # Subject-line keyword anchors from the client's Email-Keywords sheet.
+    # NOTE: door / veneer / plywood / laminate / frame product terms route
+    # to the dedicated doors_veneer_plywood category, NOT here.
+    keywords:
+      - Price Inquiry
+      - Product Catalog
+      - Cost Estimate
+      - Budget Quote
+      - Mattresses with High Quality
+      - exchange option
+      - store availability
+      - sofa availability
+      - chair availability
 
   general_information:
     display_name: General Information
@@ -59,6 +72,13 @@ categories:
       - "Do you have a store near Hyderabad?"
       - "What is your warranty policy?"
       - "How can I contact customer support?"
+    keywords:
+      - Warranty Enquiry
+      - 25 Year Warranty Request
+      - store locator
+      - store timings
+      - contact details
+      - return policy
 
   existing_order_enquiry:
     display_name: Existing Order Enquiry
@@ -75,6 +95,13 @@ categories:
       - "My recliner was supposed to come yesterday, any update?"
       - "Need installation date for the sofa I bought last week"
       - "Tracking for order placed on 14 June"
+    keywords:
+      - Order Placement
+      - order status
+      - delivery update
+      - installation date
+      - dispatch status
+      - tracking
 
   # ── Forward-out: complaints / disputes ──
 
@@ -99,6 +126,38 @@ categories:
       - "Ganda qwality very bad"
       - "Worst products and BRAND, use engineered wood products"
       - "Complaint number 102215, no one is responding"
+    # Client keyword anchors — furniture defect / repair / service-failure
+    # vocabulary. (NOTE: a defective DOOR/veneer/plywood item still routes
+    # to doors_veneer_plywood, which owns enquiries AND complaints for that
+    # product line per the client sheet.)
+    keywords:
+      - Sofa Seat Repair
+      - Sofa Seat Sagging
+      - Sofa Structural Damage
+      - Recliner Leather Peeling
+      - Upholstery Defect
+      - Chair Crack
+      - Table Wobbling
+      - Furniture Damage
+      - Product Defect
+      - Manufacturing Defect
+      - Workmanship Issue
+      - Quality Complaint
+      - Poor Product Quality
+      - Durability Issue
+      - Warranty Claim
+      - Warranty Complaint
+      - Replacement Request
+      - Refund Request
+      - Repair Request
+      - Delayed Service
+      - Repeat Complaint
+      - Unresolved Complaint
+      - Customer Frustration
+      - No Response From Service Team
+      - Poor Installation
+      - Incorrect Assembly
+      - Installation Damage
 
   legal_complaint:
     display_name: Legal Complaint
@@ -120,6 +179,18 @@ categories:
       - "Section 51 of the Copyright Act, 1957 — unauthorized use of copyrighted photographs"
       - "Adv. Rajesh Kumar, Kumar & Associates Advocates"
       - "Will escalate this to consumer court if not resolved"
+    keywords:
+      - legal notice
+      - Legal Complaint Threat
+      - Demand for Replacement / Refund with Compensation
+      - Consumer Forum Escalation
+      - Consumer Court Escalation
+      - National Consumer Helpline
+      - Copyright Infringement
+      - Misrepresentation
+      - Breach Of Commitment
+      - Legal Risk Case
+      - Senior Management Escalation
 
   # ── Forward-out: business / partnership ──
 
@@ -140,6 +211,13 @@ categories:
       - "Looking for dealership opportunity for our existing furniture store"
       - "Authorised reseller terms — what's the investment required?"
       - "Want to start a Durian showroom in our city"
+    keywords:
+      - Franchise Enquiry
+      - Dealership Enquiry
+      - Space Available for Rent
+      - Ground Floor Commercial Space Available for Rent
+      - Installation Partner Enquiry
+      - Business Partnership Enquiry
 
   vendor_supplier_enquiry:
     display_name: Vendor / Supplier Enquiry
@@ -159,6 +237,17 @@ categories:
       - "We provide PU foam — interested in becoming a vendor"
       - "Quotation for our packaging services"
       - "Offering bulk fabric supply for sofa covers"
+    keywords:
+      - Vendor Registration Request
+      - Vendor Onboarding Request
+      - Vendor Registration Enquiry
+      - OEM Authorization
+      - GST Registered Vendor
+      - Service Provider Enquiry
+      - Subcontractor Registration Request
+      - Wooden Furniture Supply
+      - Webbing Supplier
+      - Bulk Availability of PVC Sheets
 
   marketing_advertising:
     display_name: Marketing / Advertising Enquiry
@@ -178,6 +267,12 @@ categories:
       - "Offering print ad space in our home-design magazine"
       - "PR proposal for upcoming launch coverage"
       - "Run influencer marketing campaign for your brand"
+    keywords:
+      - Advertising Proposal
+      - Local Train Digital TV Advertising Proposal
+      - Photography & Video Production
+      - PR proposal
+      - Media Production Services
 
   collaboration_request:
     display_name: Collaboration Request
@@ -197,6 +292,14 @@ categories:
       - "Brand collaboration for our upcoming wedding-season launch"
       - "Joint event proposal — our lifestyle brand × Durian"
       - "Content barter — your sofa, my Instagram reel"
+    keywords:
+      - Brand Collaboration Opportunity
+      - Collaboration Opportunity with Durian
+      - Celebrity Collaborations
+      - Influencer Marketing
+      - Guest Posting or Link Exchange
+      - Export Partnership Opportunity
+      - Music Studio Collaboration
 
   career_job_enquiry:
     display_name: Career / Job Enquiry
@@ -214,6 +317,19 @@ categories:
       - "Interested in interning at Durian — final year MBA student"
       - "Are there any openings for store managers in Mumbai?"
       - "Application for the position of Customer Service Executive"
+    keywords:
+      - Job Application
+      - CV Submission
+      - Candidate Resume Submission
+      - Recruitment Enquiry
+      - Hiring Request
+      - Fresher Job Application
+      - Experienced Candidate Application
+      - Store Manager Application
+      - Software Engineer Application
+      - Career Opportunity
+      - Open Position Enquiry
+      - Work From Home Job Enquiry
 
   project_bulk_order:
     display_name: Project / Bulk Order
@@ -233,6 +349,16 @@ categories:
       - "Builder requirement for 200 apartments — modular kitchens"
       - "Office relocation project — need 80 ergonomic chairs"
       - "Tender enquiry for government department"
+    keywords:
+      - Bulk Order
+      - Request for Quotation
+      - 50 Units
+      - Tender
+      - GeM Authorization
+      - Central Government Supplies
+      - Corporate Supply
+      - Needs Rate for Modular Furniture (bulk)
+      - Project Requirement
 
   full_home_customization:
     display_name: Full Home Customization
@@ -252,6 +378,71 @@ categories:
       - "Need modular kitchen + wardrobes + beds — entire 4BHK"
       - "Want to do up the whole house — what's your design package?"
       - "Full home customisation for my new villa"
+    keywords:
+      - Modular Kitchen Enquiry
+      - Island Kitchen Enquiry
+      - Kitchen Design Consultation
+      - Custom Kitchen Design
+      - 3 BHK Customisation
+      - Turnkey Interior Solution
+      - Home Interior Enquiry
+      - Interior Design Consultation
+      - Modular Wardrobe Requirement
+      - Complete Home Design
+      - Full Home Customisation Enquiry
+
+  # ── Doors / Veneer / Plywood — dedicated product line (Anshu Tiwari) ──
+  # Added per the client's Email-Keywords sheet, which routes ALL door /
+  # veneer / plywood / laminate / frame enquiries AND complaints to a
+  # dedicated owner (Anshu Tiwari), separate from the general
+  # complaint/product flows.
+  doors_veneer_plywood:
+    display_name: Doors / Veneer / Plywood
+    action: forward
+    forward_to: anshu.tiwari@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Any enquiry OR complaint specifically about Durian's doors, door
+      frames, veneers, plywood, or laminates product line — pricing,
+      catalogue, finishes (PU matt/gloss), specific door series (Flush,
+      Herring, Golden Teak), frame options, door installation/replacement,
+      or a defect in a door/veneer/laminate item. This is a dedicated
+      product vertical: even a COMPLAINT about a door routes here (not to
+      the general Complaint category), and even a pre-purchase door
+      enquiry routes here (not to general Product Enquiry).
+    examples:
+      - "Need a quotation for 40 mm flush doors with golden teak veneer"
+      - "What are your standard door sizes and frame options?"
+      - "Price list for decorative laminates and PU gloss finish"
+      - "The veneer door installed last month is peeling at the edges"
+      - "Interested in bulk door requirement for our project"
+    keywords:
+      - Doors
+      - Door Frames
+      - Flush Doors
+      - Veneer Doors
+      - Wooden Doors
+      - Interior Doors
+      - Premium Doors
+      - Laminates
+      - Decorative Laminates
+      - PU Matt Finish
+      - PU Gloss Finish
+      - Golden Teak Veneer
+      - Door Installation
+      - Door Replacement
+      - Door Quotation
+      - Door Catalog
+      - Laminate Catalog
+      - Frame Options
+      - Frame Pricing
+      - 40 mm Flush Door
+      - Herring Door
+      - Bulk Door Requirement
+      - Door Supplier
+      - Interior Door Solutions
 
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
@@ -261,7 +452,7 @@ fallback:
   action: in_channel
   description: |
     Classifier was not confident enough to pick a category, OR the email
-    doesn't fit any of the 12 categories cleanly. Agent decides.
+    doesn't fit any of the 13 categories cleanly. Agent decides.
 
 # Confidence threshold below which we treat the classification as the
 # fallback category. Tune after observing real-world behaviour.
@@ -336,4 +527,5 @@ acknowledgment_template_for:
   career_job_enquiry:       forward_hr
   project_bulk_order:       forward_generic
   full_home_customization:  forward_generic
+  doors_veneer_plywood:     forward_generic
   fallback:                 in_channel
