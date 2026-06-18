@@ -381,7 +381,10 @@ async def _surface_ticket_in_chatwoot(
     #   "auto_high_priority(<level>)"               (Option-D priority)
     #   "auto_team_legal"                           (Option-D legal-team always)
     #   "auto_signal_<sig>(<label>: \"<reason>\")"  (Option-D classifier signal)
+    #   "attached_to_existing(<escalation_label>)"  (ticket-dedup attach path)
     raw = source or ""
+    is_attach = raw.startswith("attached_to_existing")
+
     if raw == "manual_handoff":
         label_source = " (manual handoff)"
     elif raw.startswith("auto_high_priority"):
@@ -400,20 +403,41 @@ async def _surface_ticket_in_chatwoot(
     elif raw.startswith("priority_"):
         level = raw.split("_", 1)[1] if "_" in raw else raw
         label_source = f" (🚨 priority escalation: {level.upper()})"
+    elif is_attach:
+        # Render the inner escalation label via the pretty-name lookup so
+        # the agent reads "Legal / compliance" instead of "team_legal".
+        if "(" in raw and raw.endswith(")"):
+            inner = raw[raw.index("(") + 1: -1]
+        else:
+            inner = ""
+        pretty = _ESCALATION_LABEL_PRETTY.get(inner, inner.replace("_", " ").title())
+        label_source = f" ({pretty})" if pretty else ""
     else:
         label_source = f" ({raw})" if raw else ""
 
-    # 1. Hunt for related tickets (best-effort)
-    related = await zoho.search_tickets(subject, exclude_id=ticket_id, limit=3)
-    if related:
-        print(f"[zoho] found {len(related)} related tickets for conv {conv_id}: "
-              + ", ".join(f"#{r.get('number') or r.get('id')}" for r in related))
+    # Related-ticket search makes sense ONLY when a new ticket was just
+    # created — for the attach path the agent has already picked their
+    # target from the dedup panel, so a "possibly related tickets" list
+    # below would be redundant noise.
+    if is_attach:
+        related = []
     else:
-        print(f"[zoho] no related tickets found for conv {conv_id} "
-              f"(subject={subject[:60]!r})")
+        # 1. Hunt for related tickets (best-effort)
+        related = await zoho.search_tickets(subject, exclude_id=ticket_id, limit=3)
+        if related:
+            print(f"[zoho] found {len(related)} related tickets for conv {conv_id}: "
+                  + ", ".join(f"#{r.get('number') or r.get('id')}" for r in related))
+        else:
+            print(f"[zoho] no related tickets found for conv {conv_id} "
+                  f"(subject={subject[:60]!r})")
 
-    # 2. Compose the private note
-    note = "🎫 **Zoho Desk ticket created**"
+    # 2. Compose the private note. Header differs for the attach path:
+    # the ticket wasn't created just now — the agent linked this conv to
+    # an existing ticket — so saying "ticket created" would be misleading.
+    if is_attach:
+        note = "🔗 **Conversation attached to Zoho Desk ticket**"
+    else:
+        note = "🎫 **Zoho Desk ticket created**"
     if ticket_number:
         note += f" — [#{ticket_number}]({web_url})" if web_url else f" — #{ticket_number}"
     elif ticket_id:
