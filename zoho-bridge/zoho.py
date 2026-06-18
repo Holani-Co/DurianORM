@@ -336,3 +336,146 @@ async def search_tickets(query: str, exclude_id: Optional[str] = None,
             "created_at": t.get("createdTime"),
         })
     return out
+
+
+# ── Open-ticket lookup by contact email ───────────────────────────────────
+# Used by the ticket-dedup feature: when we're about to auto-create a ticket
+# for a contact who already has one or more open tickets, the bridge pauses
+# and asks the agent whether to create-new or attach-to-existing.
+#
+# Zoho stores the email on the CONTACT record, not denormalised onto each
+# ticket — tickets created by create_ticket() carry email=None and link to
+# the contact via contactId. So `/tickets/search?email=` returns nothing.
+# The correct path is two hops:
+#   1. GET /contacts/search?email=  → resolve the Zoho contact id
+#   2. GET /contacts/{id}/tickets   → list that contact's tickets
+# Status filter ("Open" / "On Hold") is applied client-side; a closed ticket
+# isn't a duplicate-risk, it's done.
+async def _resolve_contact_id(client, token, email: str) -> Optional[str]:
+    """Resolve a Zoho Desk contact id from an email. None if not found."""
+    r = await client.get(
+        f"{config.ZOHO_DESK_URL}/api/v1/contacts/search",
+        headers={"Authorization": f"Zoho-oauthtoken {token}",
+                 "orgId": config.ZOHO_ORG_ID},
+        params={"email": email, "limit": "1"},
+    )
+    if r.status_code == 401:
+        _token_cache["value"] = None
+        token = await get_access_token()
+        r = await client.get(
+            f"{config.ZOHO_DESK_URL}/api/v1/contacts/search",
+            headers={"Authorization": f"Zoho-oauthtoken {token}",
+                     "orgId": config.ZOHO_ORG_ID},
+            params={"email": email, "limit": "1"},
+        )
+    if r.status_code == 204 or r.status_code >= 300:
+        return None
+    data = (r.json() or {}).get("data") or []
+    return str(data[0]["id"]) if data and data[0].get("id") else None
+
+
+_OPEN_STATUSES = {"open", "on hold"}
+
+
+async def search_open_tickets_by_email(email: str,
+                                       limit: int = 5,
+                                       exclude_id: Optional[str] = None) -> list[dict]:
+    """Return open / on-hold Zoho Desk tickets for the contact with this email.
+
+    Best-effort: returns [] on any failure (no email, no matching contact,
+    network error, 4xx)."""
+    if not email:
+        return []
+
+    results: list[dict] = []
+    try:
+        token = await get_access_token()
+        async with httpx.AsyncClient(timeout=15) as client:
+            contact_id = await _resolve_contact_id(client, token, email)
+            if not contact_id:
+                return []
+
+            r = await client.get(
+                f"{config.ZOHO_DESK_URL}/api/v1/contacts/{contact_id}/tickets",
+                headers={"Authorization": f"Zoho-oauthtoken {token}",
+                         "orgId": config.ZOHO_ORG_ID},
+                # Pull a generous page; we filter to open statuses client-side
+                # and sort newest-first below.
+                params={"limit": "50"},
+            )
+            if r.status_code == 401:
+                _token_cache["value"] = None
+                token = await get_access_token()
+                r = await client.get(
+                    f"{config.ZOHO_DESK_URL}/api/v1/contacts/{contact_id}/tickets",
+                    headers={"Authorization": f"Zoho-oauthtoken {token}",
+                             "orgId": config.ZOHO_ORG_ID},
+                    params={"limit": "50"},
+                )
+            if r.status_code == 204:
+                return []
+            if r.status_code >= 300:
+                print(f"[zoho] contact tickets lookup non-200 [{r.status_code}] "
+                      f"for {email!r}: {r.text[:300]!r}")
+                return []
+            all_tickets = (r.json() or {}).get("data") or []
+            results = [t for t in all_tickets
+                       if str(t.get("status") or "").lower() in _OPEN_STATUSES]
+            # Newest first by createdTime (string ISO sorts correctly).
+            results.sort(key=lambda t: t.get("createdTime") or "", reverse=True)
+    except Exception as e:
+        print(f"[zoho] search_open_tickets_by_email exception: {type(e).__name__}: {e}")
+        return []
+
+    if exclude_id is not None:
+        results = [t for t in results if str(t.get("id")) != str(exclude_id)]
+
+    out = []
+    for t in results[:limit]:
+        tid = t.get("id")
+        out.append({
+            "id":         tid,
+            "number":     t.get("ticketNumber"),
+            "subject":    t.get("subject") or "",
+            "status":     t.get("status"),
+            "url":        t.get("webUrl") or (
+                f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
+            ),
+            "created_at": t.get("createdTime"),
+        })
+    return out
+
+
+# ── Append a comment on an existing ticket ────────────────────────────────
+# Used when the agent picks "Attach to existing" — we don't create a new
+# ticket; instead we add a comment on the existing one summarising the new
+# conversation, so the existing ticket history stays the source of truth.
+async def add_comment_to_ticket(ticket_id: str, body_html: str,
+                                is_public: bool = False) -> dict:
+    """POST /api/v1/tickets/{id}/comments. Raises on failure."""
+    async def _post(client, token):
+        return await client.post(
+            f"{config.ZOHO_DESK_URL}/api/v1/tickets/{ticket_id}/comments",
+            headers={
+                "Authorization": f"Zoho-oauthtoken {token}",
+                "orgId":         config.ZOHO_ORG_ID,
+                "Content-Type":  "application/json",
+            },
+            json={
+                "content":     body_html,
+                "contentType": "html",
+                "isPublic":    is_public,
+            },
+        )
+
+    token = await get_access_token()
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await _post(client, token)
+        if r.status_code == 401:
+            _token_cache["value"] = None
+            r = await _post(client, await get_access_token())
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Zoho add_comment failed [{r.status_code}]: {r.text[:300]}"
+            )
+        return r.json()

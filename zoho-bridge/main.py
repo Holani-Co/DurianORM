@@ -17,6 +17,7 @@
 import asyncio
 import hashlib
 import hmac
+import html
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -380,7 +381,10 @@ async def _surface_ticket_in_chatwoot(
     #   "auto_high_priority(<level>)"               (Option-D priority)
     #   "auto_team_legal"                           (Option-D legal-team always)
     #   "auto_signal_<sig>(<label>: \"<reason>\")"  (Option-D classifier signal)
+    #   "attached_to_existing(<escalation_label>)"  (ticket-dedup attach path)
     raw = source or ""
+    is_attach = raw.startswith("attached_to_existing")
+
     if raw == "manual_handoff":
         label_source = " (manual handoff)"
     elif raw.startswith("auto_high_priority"):
@@ -399,20 +403,41 @@ async def _surface_ticket_in_chatwoot(
     elif raw.startswith("priority_"):
         level = raw.split("_", 1)[1] if "_" in raw else raw
         label_source = f" (🚨 priority escalation: {level.upper()})"
+    elif is_attach:
+        # Render the inner escalation label via the pretty-name lookup so
+        # the agent reads "Legal / compliance" instead of "team_legal".
+        if "(" in raw and raw.endswith(")"):
+            inner = raw[raw.index("(") + 1: -1]
+        else:
+            inner = ""
+        pretty = _ESCALATION_LABEL_PRETTY.get(inner, inner.replace("_", " ").title())
+        label_source = f" ({pretty})" if pretty else ""
     else:
         label_source = f" ({raw})" if raw else ""
 
-    # 1. Hunt for related tickets (best-effort)
-    related = await zoho.search_tickets(subject, exclude_id=ticket_id, limit=3)
-    if related:
-        print(f"[zoho] found {len(related)} related tickets for conv {conv_id}: "
-              + ", ".join(f"#{r.get('number') or r.get('id')}" for r in related))
+    # Related-ticket search makes sense ONLY when a new ticket was just
+    # created — for the attach path the agent has already picked their
+    # target from the dedup panel, so a "possibly related tickets" list
+    # below would be redundant noise.
+    if is_attach:
+        related = []
     else:
-        print(f"[zoho] no related tickets found for conv {conv_id} "
-              f"(subject={subject[:60]!r})")
+        # 1. Hunt for related tickets (best-effort)
+        related = await zoho.search_tickets(subject, exclude_id=ticket_id, limit=3)
+        if related:
+            print(f"[zoho] found {len(related)} related tickets for conv {conv_id}: "
+                  + ", ".join(f"#{r.get('number') or r.get('id')}" for r in related))
+        else:
+            print(f"[zoho] no related tickets found for conv {conv_id} "
+                  f"(subject={subject[:60]!r})")
 
-    # 2. Compose the private note
-    note = "🎫 **Zoho Desk ticket created**"
+    # 2. Compose the private note. Header differs for the attach path:
+    # the ticket wasn't created just now — the agent linked this conv to
+    # an existing ticket — so saying "ticket created" would be misleading.
+    if is_attach:
+        note = "🔗 **Conversation attached to Zoho Desk ticket**"
+    else:
+        note = "🎫 **Zoho Desk ticket created**"
     if ticket_number:
         note += f" — [#{ticket_number}]({web_url})" if web_url else f" — #{ticket_number}"
     elif ticket_id:
@@ -504,6 +529,279 @@ async def _surface_ticket_in_chatwoot(
         await chatwoot.merge_custom_attributes(conv_id, payload_attrs)
     except Exception as e:
         print(f"[zoho] merge_custom_attributes failed for conv {conv_id}: {e}")
+
+
+# ── Ticket dedup: pause auto-create when contact has open ticket ──────────
+# Flow:
+#   1. handle_message_created decides this conv warrants a Zoho ticket.
+#   2. Before calling zoho.create_ticket, bridge calls
+#      zoho.search_open_tickets_by_email — if any open tickets exist for the
+#      contact, this function sets conversation.custom_attributes.pending_zoho_ticket
+#      (read by PendingTicketDecisionPanel in the sidebar) and posts a
+#      private note. NO ticket gets created until an agent decides.
+#   3. Agent clicks [Attach to #N] or [Create new] in the sidebar.
+#   4. /chatwoot/resolve-ticket-decision (below) acts on that choice.
+#
+# Idempotency: if pending_zoho_ticket is already set on this conv we don't
+# overwrite it — the existing decision context is preserved verbatim so
+# subsequent webhook fires don't add noise.
+async def _pause_for_agent_decision(conv_id: int,
+                                    sender_email: str,
+                                    escalation_label: str,
+                                    candidates: list[dict]) -> None:
+    """Write pending_zoho_ticket onto the conversation + post a private note.
+
+    Best-effort: failure here means an agent might not see the banner, but
+    the bridge will still skip ticket creation — better than blocking the
+    webhook with an exception."""
+    # Read-then-write: if a previous webhook already paused this conv, leave
+    # the existing pending state alone so the candidates list stays stable.
+    try:
+        conv_data = await chatwoot.get_conversation(conv_id)
+        existing = (conv_data.get("custom_attributes") or {}).get("pending_zoho_ticket")
+        if existing:
+            print(f"[zoho-dedup] conv {conv_id}: pending decision already set "
+                  f"({len(existing.get('candidates') or [])} candidates) — leaving as-is")
+            return
+    except Exception as e:
+        print(f"[zoho-dedup] get_conversation failed for {conv_id}: {e} — "
+              f"continuing with fresh pending state")
+
+    pending = {
+        "sender_email":     sender_email,
+        "escalation_label": escalation_label,
+        "candidates":       candidates,
+        "suggested_at":     _now_iso(),
+    }
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_zoho_ticket": pending})
+    except Exception as e:
+        print(f"[zoho-dedup] merge_custom_attributes failed for {conv_id}: {e}")
+
+    # Post a private note so agents notice without watching the sidebar.
+    lines = [
+        "🎫 **Zoho ticket creation paused — agent decision needed**",
+        "",
+        f"This contact ({sender_email}) already has open Zoho tickets that "
+        f"may be related. The bridge would have auto-escalated this conversation "
+        f"as **{escalation_label}**, but to avoid duplicate tickets it's "
+        f"waiting for you to decide.",
+        "",
+        "Existing open tickets:",
+    ]
+    for t in candidates[:5]:
+        num = f"#{t.get('number')}" if t.get("number") else (t.get("id") or "?")
+        subj = (t.get("subject") or "")[:80]
+        url = t.get("url")
+        if url:
+            lines.append(f"- [{num}]({url}) — {subj}")
+        else:
+            lines.append(f"- {num} — {subj}")
+    lines.append("")
+    lines.append("→ Open the **Ticket decision** panel in the sidebar to "
+                 "attach this conversation to one of the above, or create "
+                 "a new ticket.")
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(lines))
+    except Exception as e:
+        print(f"[zoho-dedup] post_private_note failed for {conv_id}: {e}")
+
+
+async def _resolve_ticket_decision(conv_id: int, choice: str,
+                                   target_ticket_id: Optional[str] = None) -> dict:
+    """Execute the agent's choice on a paused ticket. Idempotent on success
+    (clears pending_zoho_ticket regardless of which branch ran). Returns a
+    small JSON-friendly dict for the HTTP endpoint to relay back."""
+    if choice not in ("use_existing", "create_new"):
+        raise ValueError(f"invalid choice: {choice!r}")
+
+    # Pull the paused-decision context off the conversation.
+    conv_data = await chatwoot.get_conversation(conv_id)
+    attrs = conv_data.get("custom_attributes") or {}
+    pending = attrs.get("pending_zoho_ticket") or {}
+    if not pending:
+        return {"resolved": False, "reason": "no_pending_decision"}
+
+    escalation_label = pending.get("escalation_label") or "manual_handoff"
+    candidates       = pending.get("candidates") or []
+
+    # We reconstruct a synthetic webhook payload from the live conversation
+    # so the existing create_ticket + _surface_ticket_in_chatwoot helpers
+    # work unchanged. Cheaper than refactoring those to accept a Conversation
+    # record directly.
+    synthetic_payload = {"conversation": conv_data}
+
+    result: dict = {"resolved": True, "choice": choice}
+
+    if choice == "create_new":
+        try:
+            messages, summary = await _ticket_context(conv_id)
+            ticket = await zoho.create_ticket(
+                synthetic_payload, messages=messages, summary=summary
+            )
+            print(f"[zoho-dedup] conv {conv_id}: agent chose CREATE_NEW → "
+                  f"ticket {ticket.get('id')}")
+            await _surface_ticket_in_chatwoot(
+                conv_id, ticket, source=f"auto_{escalation_label}"
+            )
+            result["ticket_id"] = ticket.get("id")
+        except Exception as e:
+            print(f"[zoho-dedup] create_new path failed for conv {conv_id}: {e}")
+            result["resolved"] = False
+            result["error"]    = str(e)
+
+    elif choice == "use_existing":
+        target = next(
+            (c for c in candidates if str(c.get("id")) == str(target_ticket_id)),
+            None,
+        )
+        if not target:
+            return {"resolved": False, "reason": "target_not_in_candidates"}
+        ticket_id = str(target.get("id"))
+        try:
+            messages, summary = await _ticket_context(conv_id)
+            comment_html = _format_attach_comment(
+                conv_id          = conv_id,
+                escalation_label = escalation_label,
+                summary          = summary,
+                messages         = messages,
+            )
+            # is_public=False keeps the comment internal (the "Private" badge
+            # in Zoho's UI). All agents in the org see it regardless of team;
+            # only the customer is excluded. Public would risk emailing the
+            # customer their own complaint summary back, depending on Zoho's
+            # workflow rules.
+            await zoho.add_comment_to_ticket(ticket_id, comment_html, is_public=False)
+            # Synthesize a ticket-like dict so _surface_ticket_in_chatwoot
+            # can post the standard confirmation + update the sidebar.
+            ticket_for_surface = {
+                "id":           ticket_id,
+                "ticketNumber": target.get("number"),
+                "subject":      target.get("subject") or "",
+                "status":       target.get("status") or "Open",
+                "webUrl":       target.get("url"),
+            }
+            await _surface_ticket_in_chatwoot(
+                conv_id, ticket_for_surface,
+                source=f"attached_to_existing({escalation_label})",
+            )
+            print(f"[zoho-dedup] conv {conv_id}: agent chose USE_EXISTING → "
+                  f"appended comment to ticket {ticket_id}")
+            result["ticket_id"] = ticket_id
+        except Exception as e:
+            print(f"[zoho-dedup] use_existing path failed for conv {conv_id} "
+                  f"ticket {ticket_id}: {e}")
+            result["resolved"] = False
+            result["error"]    = str(e)
+
+    # Clear the pending flag whether or not the action succeeded — leaving
+    # it set would block subsequent webhooks. On error, the agent can still
+    # re-trigger via a manual handoff.
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"pending_zoho_ticket": None}
+        )
+    except Exception as e:
+        print(f"[zoho-dedup] failed to clear pending flag on {conv_id}: {e}")
+
+    return result
+
+
+_ESCALATION_LABEL_PRETTY = {
+    "legal_or_compliance": "Legal / compliance",
+    "hr_sensitive":        "HR-sensitive",
+    "financial_dispute":   "Financial dispute",
+    "brand_or_contract":   "Brand / contract",
+    "team_legal":          "Legal / compliance",
+    "team_hr":             "HR-sensitive",
+    "team_marketing":      "Brand / contract",
+    "team_support":        "Support",
+    "manual_handoff":      "Manual handoff",
+}
+
+
+def _format_attach_comment(conv_id: int,
+                           escalation_label: str,
+                           summary: Optional[dict],
+                           messages: Optional[list]) -> str:
+    """Render the Zoho comment body for the 'attach to existing ticket' path.
+
+    Visual style mirrors the AI-generated summary that already appears as the
+    ticket's first thread — bulleted sections with bold field labels — so an
+    agent reading the ticket sees a consistent layout."""
+    conv_url = (
+        f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
+        f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}"
+    )
+    label_pretty = _ESCALATION_LABEL_PRETTY.get(
+        escalation_label, escalation_label.replace("_", " ").title()
+    )
+
+    parts = [
+        "<p><b>📨 Another conversation attached from Chatwoot</b></p>",
+        "<ul>",
+        f"<li><b>Source:</b> "
+        f"<a href='{html.escape(conv_url)}'>Open conversation #{conv_id} in Chatwoot ↗</a></li>",
+        f"<li><b>Escalation type:</b> {html.escape(label_pretty)}</li>",
+        "</ul>",
+    ]
+
+    if summary and (summary.get("summary") or summary.get("customer_goal") or summary.get("next_step")):
+        parts.append("<p><b>📋 Summary (AI-generated)</b></p><ul>")
+        if summary.get("summary"):
+            parts.append(f"<li><b>What happened:</b> {html.escape(summary['summary'])}</li>")
+        if summary.get("customer_goal"):
+            parts.append(f"<li><b>Customer wants:</b> {html.escape(summary['customer_goal'])}</li>")
+        if summary.get("next_step"):
+            parts.append(f"<li><b>Suggested next step:</b> {html.escape(summary['next_step'])}</li>")
+        parts.append("</ul>")
+
+    if messages:
+        recent = messages[-6:]
+        parts.append("<p><b>💬 Recent messages</b></p>")
+        for m in recent:
+            role = "Customer" if m.get("message_type") in (0, "incoming") else "Agent"
+            body = _format_message_body((m.get("content") or "").strip())
+            if not body:
+                continue
+            # Each message as its own block: bold role on the first line,
+            # then the body (with newlines preserved as <br/>) on the next.
+            # Lighter visual frame via blockquote — Zoho's editor renders it
+            # with a subtle left indent which separates the messages nicely.
+            parts.append(
+                f"<blockquote><b>{role}:</b><br/>{body}</blockquote>"
+            )
+
+    return "\n".join(parts)
+
+
+def _format_message_body(content: str, max_len: int = 1000) -> str:
+    """Render a single message body for the Zoho comment.
+
+    - Strips a leading 'Subject: ...' line that Chatwoot prefixes onto
+      outgoing email replies — that's email metadata, not body content,
+      and embedding it in the comment text reads as noise.
+    - Preserves paragraph breaks (\\n) as <br/> — HTML collapses raw
+      newlines to spaces otherwise, which is what made the original
+      formatting wall-of-text-y.
+    - Truncates at a word boundary near max_len with an ellipsis so we
+      don't cut mid-word.
+    Returns '' for content that is empty after stripping."""
+    s = content.strip()
+    if not s:
+        return ""
+    # Strip a leading "Subject: …\n" line if present.
+    if s.lower().startswith("subject:"):
+        nl = s.find("\n")
+        if nl == -1:
+            # whole content is just a subject — nothing useful for the body
+            return ""
+        s = s[nl + 1:].lstrip()
+    # Truncate cleanly at the nearest space before max_len.
+    if len(s) > max_len:
+        cut = s.rfind(" ", 0, max_len)
+        s = s[:cut if cut > 0 else max_len].rstrip() + "…"
+    return html.escape(s).replace("\n", "<br/>")
 
 
 # ── Document extraction: bills / receipts / order screenshots ─────────────
@@ -870,25 +1168,58 @@ async def handle_message_created(data: dict) -> dict:
           f"escalate={should_escalate} reason={escalation_label}")
 
     zoho_ticket = None
+    pending_decision = None
     if should_escalate:
-        try:
-            messages, summary = await _ticket_context(conv_id)
-            ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
-            zoho_ticket = ticket.get("id")
-            print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
-            await _surface_ticket_in_chatwoot(
-                conv_id, ticket, source=f"auto_{escalation_label}"
+        # ── Ticket dedup pre-check ─────────────────────────────────────────
+        # Before creating a ticket, see whether this contact already has an
+        # open Zoho ticket. If so, *pause* creation and surface a decision
+        # banner in Chatwoot so the agent can choose to either (a) attach
+        # this conversation to the existing ticket as a comment, or
+        # (b) create a new one anyway. This avoids the noise of duplicate
+        # tickets for the same customer issue.
+        open_tickets = []
+        if sender_email:
+            try:
+                open_tickets = await zoho.search_open_tickets_by_email(
+                    sender_email, limit=5
+                )
+            except Exception as e:
+                print(f"[zoho-dedup] open-ticket lookup failed for "
+                      f"{sender_email!r}: {e}")
+
+        if open_tickets:
+            print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open "
+                  f"ticket(s) found for {sender_email!r} — pausing auto-create")
+            await _pause_for_agent_decision(
+                conv_id          = conv_id,
+                sender_email     = sender_email,
+                escalation_label = escalation_label,
+                candidates       = open_tickets,
             )
-        except Exception as e:
-            print(f"[zoho] ERROR creating ticket for conv {conv_id} "
-                  f"(team={team_key}, reason={escalation_label}): {e}")
+            pending_decision = {
+                "candidates": [t["id"] for t in open_tickets],
+                "source":     escalation_label,
+            }
+        else:
+            try:
+                messages, summary = await _ticket_context(conv_id)
+                ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
+                zoho_ticket = ticket.get("id")
+                print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
+                await _surface_ticket_in_chatwoot(
+                    conv_id, ticket, source=f"auto_{escalation_label}"
+                )
+            except Exception as e:
+                print(f"[zoho] ERROR creating ticket for conv {conv_id} "
+                      f"(team={team_key}, reason={escalation_label}): {e}")
 
     return {
-        "classified":           team_key,
-        "assigned_team_id":     team_id,
-        "team_routing_source":  team_routing_source,
-        "zoho_ticket_id":       zoho_ticket,
-        "escalation_reason":    escalation_label if should_escalate else None,
+        "classified":            team_key,
+        "assigned_team_id":      team_id,
+        "team_routing_source":   team_routing_source,
+        "zoho_ticket_id":        zoho_ticket,
+        "escalation_reason":     escalation_label if should_escalate else None,
+        "pending_ticket_choice": pending_decision,
     }
 
 
@@ -951,6 +1282,39 @@ async def chatwoot_webhook(
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+@app.post("/chatwoot/resolve-ticket-decision")
+async def chatwoot_resolve_ticket_decision(request: Request):
+    """Called by the Chatwoot Rails proxy when an agent clicks
+    [Attach to #N] or [Create new] in the Pending Ticket Decision panel.
+
+    Body: {
+      "conversation_id": int,
+      "choice":          "use_existing" | "create_new",
+      "target_ticket_id": str  // required when choice == "use_existing"
+    }
+    """
+    body = await request.json()
+    conv_id          = body.get("conversation_id")
+    choice           = body.get("choice")
+    target_ticket_id = body.get("target_ticket_id")
+    if not conv_id or choice not in ("use_existing", "create_new"):
+        raise HTTPException(400, "missing conversation_id or invalid choice")
+    if choice == "use_existing" and not target_ticket_id:
+        raise HTTPException(400, "target_ticket_id required when choice=use_existing")
+
+    try:
+        result = await _resolve_ticket_decision(
+            conv_id=int(conv_id),
+            choice=choice,
+            target_ticket_id=target_ticket_id,
+        )
+    except Exception as e:
+        print(f"[zoho-dedup] resolve endpoint failed for conv {conv_id}: "
+              f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"resolve failed: {e}")
+    return result
 
 
 # ── Spam-review digest endpoint ───────────────────────────────────────────
