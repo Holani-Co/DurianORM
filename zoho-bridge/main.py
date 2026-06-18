@@ -1104,6 +1104,50 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
 
+    # ── 12-category classifier (Phase 1: observe-only) ───────────────────
+    # Runs the new Durian-specific category classifier from routing_rules.yaml.
+    # Phase 1 RECORDS the decision in custom_attributes + a private note but
+    # does NOT act on it — no forwarding, no acknowledgments. Goal: gather
+    # a week of real-world classifications so we can tune the YAML examples
+    # and confidence threshold before flipping behavioural switches in
+    # Phase 2 (forwarding) and Phase 3 (auto-acknowledgments).
+    try:
+        category_result = await classifier.classify_email_category(
+            content, sender_email=sender_email, subject=real_subject
+        )
+        rule = category_result.pop("rule", None)
+        print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
+              f"confidence={category_result['confidence']} "
+              f"action={category_result['action']!r}")
+
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "email_category_v2": {
+                **category_result,
+                "classified_at": _now_iso(),
+                # Capture WHICH category was picked but stop short of
+                # serialising the full YAML rule (forward_to / cc / bcc)
+                # — Phase 2 will re-resolve it on the fly when forwarding.
+                "display_name": (rule or {}).get("display_name"),
+            },
+        })
+
+        # Audit note so agents can see the classifier's guess at a glance.
+        note_lines = [
+            "📂 **Email category (observe-only):** "
+            f"{(rule or {}).get('display_name') or category_result['category']}",
+            f"_Confidence: {category_result['confidence']:.2f} · "
+            f"Action (Phase 2): {category_result['action']}_",
+        ]
+        if category_result.get("reason"):
+            note_lines.append(f"> {category_result['reason']}")
+        try:
+            await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
+        except Exception as e:
+            print(f"[category-v2] post_private_note failed: {e}")
+    except Exception as e:
+        # Never let the categorizer break the rest of the flow.
+        print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
+
     # Team routing.
     #
     # We ran TWO LLM calls historically: classify_email_type() (which returns

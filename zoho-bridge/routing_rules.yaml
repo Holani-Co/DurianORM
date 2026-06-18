@@ -1,0 +1,268 @@
+# Email category routing rules for the Durian inbox (hello@durian.in).
+# ──────────────────────────────────────────────────────────────────────
+#
+# Two consumers read this file:
+#   1. classifier.classify_email_category — uses `description` + `examples`
+#      to instruct the LLM which category an inbound email falls into.
+#   2. main.py forwarder (Phase 2) — uses `action`, `forward_to`, `cc`,
+#      `bcc`, and `include_customer_in_cc` to decide what to send and
+#      where. Phase 1 (this PR) reads ONLY the classifier-side fields;
+#      forwarding stays a no-op until the action layer is wired in.
+#
+# Editing this file does NOT require a deploy — the bridge re-reads it
+# on startup. Restart the zoho-bridge service after edits.
+#
+# Schema per category:
+#   key:                          (internal id; snake_case)
+#     display_name:               human label used in private notes / Chatwoot UI
+#     action:                     "in_channel" | "forward"
+#     description:                LLM-facing sentence explaining when to pick this
+#     examples:                   list of real customer-message excerpts the LLM uses
+#                                 as few-shot anchors. Keep short (≤200 chars).
+#     forward_to:                 (forward only) primary recipient
+#     cc:                         (forward only) list of additional CC addresses
+#     bcc:                        (forward only) list of BCC addresses
+#     include_customer_in_cc:     (forward only) whether the customer's email goes in CC
+#     acknowledgment_template:    template key (see acknowledgments.yaml; Phase 2)
+
+categories:
+
+  # ── In-channel resolution (resolved by Chatwoot agents on hello@durian.in) ──
+
+  product_enquiry:
+    display_name: Product Enquiry
+    action: in_channel
+    description: |
+      Customer is asking ABOUT a specific product or a category of products
+      before buying — its availability, price, dimensions, materials,
+      colour options, store stock, online link, exchange/upgrade offer, or
+      where to find it. Pre-purchase intent. NOT an existing order.
+    examples:
+      - "Do you have Devansh set 6 by 5 feet"
+      - "Single sitter sofa cum bed available?"
+      - "Garden side table"
+      - "Are there trolly drawers for rooms"
+      - "Office chair exchange is possible at pin code 700135?"
+      - "Is this available in jamshedpur Jharkhand"
+
+  general_information:
+    display_name: General Information
+    action: in_channel
+    description: |
+      Generic question with no product or order context — store hours,
+      store locations, warranty in general, return policy, payment
+      methods, contact details, feedback that isn't a complaint, simple
+      questions about the brand. If it could be answered by a public
+      FAQ page, it's General Information.
+    examples:
+      - "What are your store timings?"
+      - "Do you have a store near Hyderabad?"
+      - "What is your warranty policy?"
+      - "How can I contact customer support?"
+
+  existing_order_enquiry:
+    display_name: Existing Order Enquiry
+    action: in_channel
+    description: |
+      Customer is asking about an order they HAVE ALREADY PLACED — its
+      delivery status, tracking, installation appointment, order number
+      reference, dispatch ETA, post-delivery follow-up. They are NOT
+      complaining about it (that would be Complaint); they're just
+      asking for status / info. Look for order numbers, "my order",
+      "when will it arrive", "tracking", "still waiting for delivery".
+    examples:
+      - "Order #102215 - when will it be delivered?"
+      - "My recliner was supposed to come yesterday, any update?"
+      - "Need installation date for the sofa I bought last week"
+      - "Tracking for order placed on 14 June"
+
+  # ── Forward-out: complaints / disputes ──
+
+  complaint:
+    display_name: Complaint
+    action: forward
+    forward_to: customersupport@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Customer is unhappy about a product they received, a service issue,
+      a defective item, poor experience, damaged delivery, missing parts,
+      or post-sale support failure. Language is frustrated/angry but
+      stops short of legal threats. Strong markers: "defective",
+      "damaged", "not working", "poor quality", "no one responding",
+      complaint numbers being referenced, frustration about service.
+    examples:
+      - "given me a defective product now no one is responding"
+      - "Power issues with our Leather Recliner: service personnel from both Pepperfry & Durian have made 2 or more visits"
+      - "fabric is peeling and charging huge amount to change it within warranty period"
+      - "Ganda qwality very bad"
+      - "Worst products and BRAND, use engineered wood products"
+      - "Complaint number 102215, no one is responding"
+
+  legal_complaint:
+    display_name: Legal Complaint
+    action: forward
+    forward_to: escalation@durian.in
+    cc: [customersupport@durian.in]
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Communication that explicitly invokes legal channels: legal
+      notices from lawyers/advocates, copyright/IP claims, demands for
+      compensation citing Acts/Sections, threats to escalate to consumer
+      court / labour commissioner / regulator, cease-and-desist,
+      privacy/data complaints. Distinct from "Complaint": LEGAL keywords
+      (Act, Section, Notice, advocate, lawyer, demand, escalate to
+      court, lakh/crore claim) are present.
+    examples:
+      - "We hereby demand payment of compensation of Rs 6,36,000 within seven days, failing which our client will initiate legal proceedings"
+      - "Section 51 of the Copyright Act, 1957 — unauthorized use of copyrighted photographs"
+      - "Adv. Rajesh Kumar, Kumar & Associates Advocates"
+      - "Will escalate this to consumer court if not resolved"
+
+  # ── Forward-out: business / partnership ──
+
+  franchise_dealership:
+    display_name: Franchise / Dealership Enquiry
+    action: forward
+    forward_to: nagender.rao@durian.in
+    cc: [sneha.gaikwad@durian.in, sujitha.acharya@durian.in]
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Someone wants to open a Durian franchise / become a dealer /
+      authorised reseller / distributor — asking for franchise terms,
+      dealership opportunities, store-opening proposals, territory
+      availability. They want to SELL Durian products, not buy them.
+    examples:
+      - "Interested in opening a Durian franchise in Pune"
+      - "Looking for dealership opportunity for our existing furniture store"
+      - "Authorised reseller terms — what's the investment required?"
+      - "Want to start a Durian showroom in our city"
+
+  vendor_supplier_enquiry:
+    display_name: Vendor / Supplier Enquiry
+    action: forward
+    forward_to: nagender.rao@durian.in
+    cc: [sujitha.acharya@durian.in]
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Someone wants to SELL TO Durian — raw materials, components,
+      services, manufacturing capacity, packaging, logistics. They are
+      a potential supplier offering their wares to Durian (not a
+      customer). Distinct from Franchise (they want to sell THEIR
+      products, not Durian's).
+    examples:
+      - "Our company manufactures plywood; want to be a supplier"
+      - "We provide PU foam — interested in becoming a vendor"
+      - "Quotation for our packaging services"
+      - "Offering bulk fabric supply for sofa covers"
+
+  marketing_advertising:
+    display_name: Marketing / Advertising Enquiry
+    action: forward
+    forward_to: shilpa@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Agencies or media offering marketing / advertising / PR / digital
+      services to Durian. Influencers offering paid collaboration that
+      is specifically marketing-focused (rather than a brand
+      collaboration request — see Collaboration). Magazines /
+      newspapers offering ad space.
+    examples:
+      - "Our digital agency would like to pitch a campaign for Durian"
+      - "Offering print ad space in our home-design magazine"
+      - "PR proposal for upcoming launch coverage"
+      - "Run influencer marketing campaign for your brand"
+
+  collaboration_request:
+    display_name: Collaboration Request
+    action: forward
+    forward_to: snehal@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Brand-to-brand collaboration, social influencer wanting an unpaid
+      barter / product seeding, content creator wanting Durian products
+      to feature in their content, joint launch or co-branded event
+      requests. Distinct from Marketing/Advertising: the collaboration
+      partner is creative/social/brand-side, not a paid services vendor.
+    examples:
+      - "I'm a home-design influencer with 50k followers, would love to collaborate"
+      - "Brand collaboration for our upcoming wedding-season launch"
+      - "Joint event proposal — our lifestyle brand × Durian"
+      - "Content barter — your sofa, my Instagram reel"
+
+  career_job_enquiry:
+    display_name: Career / Job Enquiry
+    action: forward
+    forward_to: hrcoordinator@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Job application, internship application, resume submission, asking
+      about open positions, asking about career growth at Durian.
+      Sender is looking to JOIN Durian as an employee/intern.
+    examples:
+      - "Please find attached my CV for the marketing role"
+      - "Interested in interning at Durian — final year MBA student"
+      - "Are there any openings for store managers in Mumbai?"
+      - "Application for the position of Customer Service Executive"
+
+  project_bulk_order:
+    display_name: Project / Bulk Order
+    action: forward
+    forward_to: marketing@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Corporate / institutional bulk purchase — hotels, offices,
+      hospitals, builders, real-estate projects, government tenders.
+      Quantity is large (often 10+ units / lakhs of value). The buyer
+      is a business needing furniture in volume, not a household
+      customer.
+    examples:
+      - "Need to furnish 50 hotel rooms in Goa — bulk order quote please"
+      - "Builder requirement for 200 apartments — modular kitchens"
+      - "Office relocation project — need 80 ergonomic chairs"
+      - "Tender enquiry for government department"
+
+  full_home_customization:
+    display_name: Full Home Customization
+    action: forward
+    forward_to: pratik.ojha@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Customer wants Durian's full-home interior / modular design
+      service for their entire home — multiple rooms, end-to-end
+      furniture design including modular kitchen, wardrobes, beds,
+      living-room set. Distinct from a simple product enquiry: they
+      want a DESIGN ENGAGEMENT, not a single product.
+    examples:
+      - "Looking for full home interior service for my 3BHK flat"
+      - "Need modular kitchen + wardrobes + beds — entire 4BHK"
+      - "Want to do up the whole house — what's your design package?"
+      - "Full home customisation for my new villa"
+
+# Fallback when the classifier returns low confidence or hits an unrecognised
+# category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
+# handles manually. Phase 2: same behaviour as in_channel (agent resolves).
+fallback:
+  display_name: Uncategorised
+  action: in_channel
+  description: |
+    Classifier was not confident enough to pick a category, OR the email
+    doesn't fit any of the 12 categories cleanly. Agent decides.
+
+# Confidence threshold below which we treat the classification as the
+# fallback category. Tune after observing real-world behaviour.
+confidence_threshold: 0.6

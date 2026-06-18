@@ -361,3 +361,241 @@ async def classify_email_type(content: str, sender_email: str = "",
         "escalation_signal": parsed["escalation_signal"],
         "escalation_reason": reason,
     }
+
+
+# ─── 12-category email classifier (Durian: hello@durian.in) ───────────────
+#
+# Companion to classify_email_type. Where classify_email_type answers
+# "is this spam / does it need escalation?", classify_email_category answers
+# the next product question: "which of the 12 routing categories does it
+# fall into?". Categories + routing rules + few-shot examples are stored
+# in routing_rules.yaml so non-engineers can tune them without a code
+# change; classifier.py reads the YAML at import time.
+#
+# Phase 1 (this PR): the function is wired into main.handle_message_created
+# AFTER existing routing happens. It records its decision in conversation
+# custom_attributes (email_category_v2) and a private note, but does NOT
+# act on it — no forwarding, no acknowledgments. The intent is to observe
+# classification accuracy on real traffic for a week before flipping any
+# behavioural switches.
+
+import os
+from pathlib import Path
+
+try:
+    import yaml as _yaml
+except ImportError:                                 # pragma: no cover
+    _yaml = None
+
+_ROUTING_PATH = Path(os.getenv(
+    "DURIAN_ROUTING_RULES_PATH",
+    str(Path(__file__).parent / "routing_rules.yaml"),
+))
+
+
+def _load_routing_rules() -> dict:
+    """Read routing_rules.yaml from disk. Returns {} on any failure so a
+    broken/missing config doesn't crash the bridge's main webhook path —
+    the categorizer just silently no-ops."""
+    if _yaml is None:
+        print("[classifier:category] PyYAML not installed — categorizer disabled")
+        return {}
+    try:
+        with open(_ROUTING_PATH, "r", encoding="utf-8") as f:
+            data = _yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        print(f"[classifier:category] routing rules not found at "
+              f"{_ROUTING_PATH} — categorizer disabled")
+        return {}
+    except Exception as e:
+        print(f"[classifier:category] failed to parse routing rules: "
+              f"{type(e).__name__}: {e} — categorizer disabled")
+        return {}
+    return data
+
+
+_ROUTING_RULES = _load_routing_rules()
+_CATEGORY_KEYS = list((_ROUTING_RULES.get("categories") or {}).keys())
+_CONFIDENCE_THRESHOLD = float(_ROUTING_RULES.get("confidence_threshold", 0.6))
+
+
+def _build_category_system_prompt(rules: dict) -> str:
+    """Compose the LLM system prompt from the YAML. The category descriptions
+    + few-shot examples live in the YAML so non-engineers can edit them; we
+    just lay them out into the prompt at startup."""
+    cats = rules.get("categories") or {}
+    lines = [
+        "You are an email-routing classifier for Durian Industries — a "
+        "furniture brand whose customer-support inbox (hello@durian.in) "
+        "receives a mix of customer questions, complaints, business "
+        "enquiries, and outreach. Read the email's subject and body and "
+        "assign it to EXACTLY ONE of the categories below.",
+        "",
+        "Categories:",
+        "",
+    ]
+    for key, cfg in cats.items():
+        desc = (cfg.get("description") or "").strip()
+        lines.append(f"- {key} ({cfg.get('display_name', key)})")
+        for descline in desc.splitlines():
+            lines.append(f"    {descline.strip()}")
+        examples = cfg.get("examples") or []
+        if examples:
+            lines.append("  Example messages:")
+            for ex in examples[:4]:
+                lines.append(f'    • "{ex}"')
+        lines.append("")
+
+    lines.extend([
+        "Rules:",
+        "  • Pick the category that BEST fits the customer's primary "
+        "intent. If a message touches multiple categories, pick the most "
+        "actionable one (complaint > enquiry; legal_complaint > complaint).",
+        "  • Distinguish carefully: 'product_enquiry' is PRE-purchase "
+        "interest; 'existing_order_enquiry' is POST-purchase status; "
+        "'complaint' is dissatisfaction; 'legal_complaint' is when the "
+        "customer cites law / threatens proceedings.",
+        "  • Distinguish 'franchise_dealership' (wants to sell Durian) "
+        "from 'vendor_supplier_enquiry' (wants to sell TO Durian).",
+        "  • Distinguish 'marketing_advertising' (paid services pitch) "
+        "from 'collaboration_request' (brand/influencer barter / co-marketing).",
+        "  • Output a confidence score 0.0-1.0 reflecting how cleanly the "
+        "message matches your chosen category. Use < 0.6 when uncertain.",
+        "  • Brief reason: one sentence, what signal led you to the "
+        "category.",
+    ])
+    return "\n".join(lines)
+
+
+_CATEGORY_SYSTEM_PROMPT = (
+    _build_category_system_prompt(_ROUTING_RULES) if _ROUTING_RULES else ""
+)
+
+_CATEGORY_RESPONSE_SCHEMA = {
+    "name":   "email_category_classification",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": _CATEGORY_KEYS or ["fallback"],
+                "description": "Which of the 12 routing categories this email belongs to.",
+            },
+            "confidence": {
+                "type":        "number",
+                "description": "0.0–1.0 confidence. Below 0.6 → treated as uncategorised.",
+            },
+            "reason": {
+                "type":        "string",
+                "description": "One short sentence: which signal in the email drove the choice.",
+            },
+        },
+        "required": ["category", "confidence", "reason"],
+    },
+}
+
+
+_SAFE_CATEGORY_DEFAULT = {
+    "category":    "fallback",
+    "confidence":  0.0,
+    "reason":      "",
+    "action":      "in_channel",
+    "rule":        None,
+}
+
+
+async def classify_email_category(content: str, sender_email: str = "",
+                                  subject: str = "") -> dict:
+    """Classify an inbound email into one of the 12 Durian routing
+    categories. Returns a dict with:
+      category    – one of the keys in routing_rules.yaml (or 'fallback')
+      confidence  – 0.0–1.0
+      reason      – short LLM-produced explanation
+      action      – 'in_channel' or 'forward' (looked up from the YAML)
+      rule        – the full routing-rule dict for the chosen category
+                    (or None for 'fallback'); main.py uses this in Phase 2
+                    to know where to forward, who to CC, etc.
+
+    Fail-safe: returns _SAFE_CATEGORY_DEFAULT on any failure — empty
+    input, missing config, LLM error, unparseable response. The categorizer
+    can ALWAYS no-op without affecting other routing logic.
+    """
+    if not content or not content.strip() or not _CATEGORY_KEYS:
+        return dict(_SAFE_CATEGORY_DEFAULT)
+
+    ctx_parts = []
+    if subject:
+        ctx_parts.append(f"Subject: {subject}")
+    if sender_email:
+        ctx_parts.append(f"From: {sender_email}")
+    ctx_parts.append(f"Body:\n{content}")
+    user_msg = "\n".join(ctx_parts)
+
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=200,
+            response_format={
+                "type":        "json_schema",
+                "json_schema": _CATEGORY_RESPONSE_SCHEMA,
+            },
+            messages=[
+                {"role": "system", "content": _CATEGORY_SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            name="email-12-category-classification",
+            metadata={
+                "subject_preview": (subject or "")[:80],
+                "langfuse_tags":   ["classifier", "category-v2"],
+            },
+        )
+        raw = r.choices[0].message.content
+    except Exception as e:
+        print(f"[classifier:category] ERROR ({type(e).__name__}): {e} — "
+              f"falling back to fallback category")
+        return dict(_SAFE_CATEGORY_DEFAULT)
+
+    try:
+        parsed = json.loads(raw or "")
+    except Exception as e:
+        print(f"[classifier:category] unparseable response "
+              f"({type(e).__name__}: {e}); content was {raw!r}")
+        return dict(_SAFE_CATEGORY_DEFAULT)
+
+    cat        = parsed.get("category") or "fallback"
+    confidence = float(parsed.get("confidence") or 0)
+    reason     = (parsed.get("reason") or "")[:200]
+
+    # Below threshold → treat as fallback. Phase 1 logs both the
+    # original LLM pick AND the resolved category so we can later
+    # tune the threshold from observed accuracy.
+    if confidence < _CONFIDENCE_THRESHOLD or cat not in _CATEGORY_KEYS:
+        rule_key = "fallback"
+    else:
+        rule_key = cat
+
+    if rule_key == "fallback":
+        fallback_cfg = _ROUTING_RULES.get("fallback") or {}
+        return {
+            "category":   "fallback",
+            "confidence": confidence,
+            "reason":     reason,
+            "action":     fallback_cfg.get("action", "in_channel"),
+            "rule":       None,
+            # Keep the raw LLM pick for auditing — useful for tuning the
+            # threshold later without re-running the LLM on archived
+            # messages.
+            "raw_category": cat,
+        }
+
+    rule = (_ROUTING_RULES["categories"] or {}).get(rule_key) or {}
+    return {
+        "category":   rule_key,
+        "confidence": confidence,
+        "reason":     reason,
+        "action":     rule.get("action", "in_channel"),
+        "rule":       rule,
+    }
