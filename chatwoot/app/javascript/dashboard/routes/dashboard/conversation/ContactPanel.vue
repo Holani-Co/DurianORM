@@ -159,7 +159,7 @@ onMounted(() => {
          without it, those would show "no ticket" in the sidebar even
          though they have one in Zoho. Routed through the single-ticket
          component since the legacy key was always a single ticket. -->
-    <div class="px-2 pt-2">
+    <div class="px-2 pt-3">
       <AccordionItem
         title="Zoho Desk"
         :is-open="isContactSidebarItemOpen('is_zoho_ticket_open')"
@@ -182,7 +182,7 @@ onMounted(() => {
          the attribute after the agent picks Attach or Create-new. -->
     <div
       v-if="conversationCustomAttributes.pending_zoho_ticket"
-      class="px-2 pt-2"
+      class="px-2 pt-3"
     >
       <AccordionItem
         title="Ticket decision needed"
@@ -203,7 +203,7 @@ onMounted(() => {
          already-reported issues at a glance. -->
     <div
       v-if="(conversationCustomAttributes.related_tickets || []).length"
-      class="px-2 pt-2"
+      class="px-2 pt-3"
     >
       <AccordionItem
         title="Related Tickets"
@@ -218,7 +218,7 @@ onMounted(() => {
         />
       </AccordionItem>
     </div>
-    <div class="px-2 pb-8 list-group">
+    <div class="px-2 pt-3 pb-8 list-group">
       <Draggable
         :list="conversationSidebarItems"
         animation="200"
