@@ -266,3 +266,74 @@ fallback:
 # Confidence threshold below which we treat the classification as the
 # fallback category. Tune after observing real-world behaviour.
 confidence_threshold: 0.6
+
+# Acknowledgment templates sent to the customer. {customer_name} is
+# substituted at send time; if the contact has no name on file the
+# substitution renders as "there" (avoiding the "[Customer Name]"
+# placeholder bug we already fixed once in the Copilot prompt). Phase 2A
+# only PREVIEWS these templates in a dry-run private note — nothing is
+# emailed yet. Phase 2B flips the dry-run flag and the bridge actually
+# sends them as outbound messages on the conversation.
+templates:
+
+  in_channel:
+    # Applies to product_enquiry / general_information / existing_order_enquiry.
+    # Verbatim from the client's Executive Detail spreadsheet.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Thank you for contacting Durian. Your enquiry is valuable for us.
+      Our team is currently reviewing your request and will get in
+      touch with you at the earliest within our working business hours.
+
+      Regards,
+      Team Durian
+
+  forward_generic:
+    # Applies to complaint / legal_complaint / franchise_dealership /
+    # vendor_supplier_enquiry / marketing_advertising / collaboration_request /
+    # project_bulk_order / full_home_customization.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Your email has been forwarded to our concerned team for review.
+      A representative from this team will reach out to you with an
+      official update within 24 to 48 business hours.
+
+      Thank you,
+      Team Durian
+
+  forward_hr:
+    # Career-specific variant from the spreadsheet. Same shape as
+    # forward_generic but mentions HR explicitly so applicants get a
+    # consistent next-step signal.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Your email has been forwarded to our concerned team. A
+      representative from our HR team will reach out to you with an
+      official update within 24 to 48 business hours.
+
+      For quick support, you can also write to hrcoordinator@durian.in.
+
+      Thank you,
+      Team Durian
+
+# Which template each category uses. Keep keys in sync with categories above.
+acknowledgment_template_for:
+  product_enquiry:          in_channel
+  general_information:      in_channel
+  existing_order_enquiry:   in_channel
+  complaint:                forward_generic
+  legal_complaint:          forward_generic
+  franchise_dealership:     forward_generic
+  vendor_supplier_enquiry:  forward_generic
+  marketing_advertising:    forward_generic
+  collaboration_request:    forward_generic
+  career_job_enquiry:       forward_hr
+  project_bulk_order:       forward_generic
+  full_home_customization:  forward_generic
+  fallback:                 in_channel

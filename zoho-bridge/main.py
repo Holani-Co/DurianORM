@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import hmac
 import html
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -804,6 +805,119 @@ def _format_message_body(content: str, max_len: int = 1000) -> str:
     return html.escape(s).replace("\n", "<br/>")
 
 
+# ── Phase 2A: dry-run preview of the auto-acknowledge / auto-forward flow ─
+# Phase 2A is the "say what we'd do, don't actually do it" step between the
+# Phase 1 categorizer (observe-only) and the Phase 2B action layer (which
+# actually sends emails). It renders:
+#
+#   - The acknowledgment template that would go to the customer, with
+#     the contact's real name substituted (defeats the [Customer's Name]
+#     placeholder bug we already fixed on the Copilot side).
+#   - For `forward` categories: the routing destination (TO + CC + BCC)
+#     and whether the customer would be CC'd, all from the YAML rule.
+#
+# The result is appended to the categorizer's existing private note so
+# agents can sanity-check the plan on real-world emails before we flip
+# PHASE_2_DRY_RUN=false and the bridge starts sending.
+
+# Hard-coded to True for v1: Phase 2A is dry-run by definition. Becomes
+# env-driven (PHASE_2_DRY_RUN=false) in Phase 2B when we ship the action
+# layer. Kept as a module-level constant so the dry-run branch is visible
+# in code review even before the env switch exists.
+_PHASE_2_DRY_RUN = os.environ.get("PHASE_2_DRY_RUN", "true").lower() != "false"
+
+
+def _resolve_customer_name(sender_name: str, sender_email: str) -> str:
+    """Return a name suitable for substituting into '{customer_name}' in an
+    acknowledgment template. Falls back through name → email-local-part →
+    'there', so we NEVER produce 'Dear [Customer Name],' literally."""
+    name = (sender_name or "").strip()
+    if name:
+        return name
+    if sender_email and "@" in sender_email:
+        local = sender_email.split("@", 1)[0]
+        # Light tidy: a-bc.de → "A-bc De"; keeps it human-ish for greetings.
+        cleaned = local.replace(".", " ").replace("_", " ").strip()
+        if cleaned:
+            return cleaned.title()
+    return "there"
+
+
+def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
+    """Look up which template applies to this category via the YAML's
+    acknowledgment_template_for map. Returns the {subject, body} dict
+    (or None if no template / templates section missing)."""
+    rules     = classifier._ROUTING_RULES or {}
+    templates = rules.get("templates") or {}
+    mapping   = rules.get("acknowledgment_template_for") or {}
+    key       = mapping.get(category) or mapping.get("fallback")
+    if not key:
+        return None
+    return templates.get(key)
+
+
+def _render_phase2_dry_run_preview(category_result: dict,
+                                   rule: Optional[dict],
+                                   sender_name: str,
+                                   sender_email: str,
+                                   original_subject: str) -> list[str]:
+    """Render the dry-run preview as a list of markdown lines, ready to be
+    appended to the categorizer's private note. Returns an empty list when
+    Phase 2A is disabled or when there's nothing to preview."""
+    if not _PHASE_2_DRY_RUN:
+        return []
+
+    cat_key = category_result.get("category") or "fallback"
+    action  = category_result.get("action")   or "in_channel"
+    name    = _resolve_customer_name(sender_name, sender_email)
+    template = _resolve_acknowledgment_template(cat_key)
+
+    lines = ["🧪 **Phase 2A — Dry-run preview** _(no email sent)_"]
+
+    if action == "forward" and rule:
+        forward_to = rule.get("forward_to") or "(unconfigured)"
+        cc_list    = rule.get("cc") or []
+        bcc_list   = rule.get("bcc") or []
+        include_customer = bool(rule.get("include_customer_in_cc"))
+        cc_effective = list(cc_list) + ([sender_email] if include_customer and sender_email else [])
+
+        lines.append("")
+        lines.append("**Would forward the customer's email to:**")
+        lines.append(f"- **To:** `{forward_to}`")
+        if cc_effective:
+            lines.append(f"- **Cc:** `{', '.join(cc_effective)}`")
+        if bcc_list:
+            lines.append(f"- **Bcc:** `{', '.join(bcc_list)}`")
+        if include_customer:
+            lines.append("- Customer is included in Cc (per routing rule)")
+        else:
+            lines.append("- Customer is _not_ Cc'd (per routing rule)")
+
+    if template:
+        subject = (template.get("subject") or "").format(
+            customer_name    = name,
+            original_subject = original_subject or "(no subject)",
+        )
+        body = (template.get("body") or "").format(
+            customer_name    = name,
+            original_subject = original_subject or "(no subject)",
+        )
+        lines.append("")
+        lines.append("**Would acknowledge customer with:**")
+        if subject:
+            lines.append(f"_Subject:_ {subject}")
+        # Quote-block each body line so the agent sees the literal text
+        # the customer would have received.
+        for body_line in body.rstrip().splitlines():
+            lines.append(f"> {body_line}" if body_line else ">")
+    else:
+        lines.append("")
+        lines.append("_(no acknowledgment template mapped for this category — "
+                     "agent will reply manually in Phase 2B)_")
+
+    return lines
+
+
 # ── Document extraction: bills / receipts / order screenshots ─────────────
 # Fire-and-forget task scheduled by handle_message_created for every
 # incoming non-comment message. Gating (attachment types, bill-ish text
@@ -1104,13 +1218,16 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
 
-    # ── 12-category classifier (Phase 1: observe-only) ───────────────────
-    # Runs the new Durian-specific category classifier from routing_rules.yaml.
-    # Phase 1 RECORDS the decision in custom_attributes + a private note but
-    # does NOT act on it — no forwarding, no acknowledgments. Goal: gather
-    # a week of real-world classifications so we can tune the YAML examples
-    # and confidence threshold before flipping behavioural switches in
-    # Phase 2 (forwarding) and Phase 3 (auto-acknowledgments).
+    # ── 12-category classifier + Phase 2A dry-run preview ────────────────
+    # Phase 1: classify into one of 12 routing categories from
+    #          routing_rules.yaml, record on custom_attributes + private note.
+    # Phase 2A (this block, gated by PHASE_2_DRY_RUN env): also render the
+    #          acknowledgment template that WOULD be sent to the customer
+    #          (and for forward categories, the routing destination) as a
+    #          dry-run preview in the same private note. NOTHING is emailed.
+    # Phase 2B: flip PHASE_2_DRY_RUN=false and the dry-run preview becomes
+    #          an actual outbound message on the conversation + a real
+    #          forwarded email to the department address.
     try:
         category_result = await classifier.classify_email_category(
             content, sender_email=sender_email, subject=real_subject
@@ -1131,7 +1248,23 @@ async def handle_message_created(data: dict) -> dict:
             },
         })
 
-        # Audit note so agents can see the classifier's guess at a glance.
+        # Phase 2A: render the dry-run preview of what would be sent /
+        # forwarded. Defensive — any failure here is logged and we still
+        # post the basic Phase-1 note so the agent never loses visibility.
+        try:
+            dry_run_section = _render_phase2_dry_run_preview(
+                category_result   = category_result,
+                rule              = rule,
+                sender_name       = sender.get("name") or "",
+                sender_email      = sender_email,
+                original_subject  = real_subject or "",
+            )
+        except Exception as e:
+            print(f"[category-v2] dry-run render failed: {e}")
+            dry_run_section = []
+
+        # Compose the private note: Phase 1 lines first (category + reason),
+        # then Phase 2A dry-run block.
         note_lines = [
             "📂 **Email category (observe-only):** "
             f"{(rule or {}).get('display_name') or category_result['category']}",
@@ -1140,6 +1273,10 @@ async def handle_message_created(data: dict) -> dict:
         ]
         if category_result.get("reason"):
             note_lines.append(f"> {category_result['reason']}")
+        if dry_run_section:
+            note_lines.append("")
+            note_lines.extend(dry_run_section)
+
         try:
             await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
         except Exception as e:
