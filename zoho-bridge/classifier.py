@@ -393,16 +393,34 @@ _ROUTING_PATH = Path(os.getenv(
 ))
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into a copy of base. Override values win;
+    nested dicts are merged key-by-key (not replaced wholesale). Lists are
+    replaced wholesale — partial-list merging is too ambiguous to be safe."""
+    out = dict(base)
+    for k, v in (override or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 def _load_routing_rules() -> dict:
-    """Read routing_rules.yaml from disk. Returns {} on any failure so a
-    broken/missing config doesn't crash the bridge's main webhook path —
-    the categorizer just silently no-ops."""
+    """Read routing_rules.yaml + optional routing_rules.local.yaml. The base
+    file is the committed source of truth. The .local file is gitignored
+    and used to redirect forward destinations during local testing without
+    editing the prod config; it's merged on top of the base.
+
+    Returns {} on a missing/broken BASE file so the categorizer silently
+    no-ops rather than crashing the webhook path. A missing or broken
+    .local file is reported but never fatal — the base still wins."""
     if _yaml is None:
         print("[classifier:category] PyYAML not installed — categorizer disabled")
         return {}
     try:
         with open(_ROUTING_PATH, "r", encoding="utf-8") as f:
-            data = _yaml.safe_load(f) or {}
+            base = _yaml.safe_load(f) or {}
     except FileNotFoundError:
         print(f"[classifier:category] routing rules not found at "
               f"{_ROUTING_PATH} — categorizer disabled")
@@ -411,7 +429,20 @@ def _load_routing_rules() -> dict:
         print(f"[classifier:category] failed to parse routing rules: "
               f"{type(e).__name__}: {e} — categorizer disabled")
         return {}
-    return data
+
+    local_path = _ROUTING_PATH.with_name("routing_rules.local.yaml")
+    try:
+        with open(local_path, "r", encoding="utf-8") as f:
+            local = _yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return base
+    except Exception as e:
+        print(f"[classifier:category] failed to parse {local_path.name}: "
+              f"{type(e).__name__}: {e} — using base routing only")
+        return base
+    merged = _deep_merge(base, local)
+    print(f"[classifier:category] merged routing override from {local_path.name}")
+    return merged
 
 
 _ROUTING_RULES = _load_routing_rules()

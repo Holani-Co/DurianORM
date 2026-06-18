@@ -820,10 +820,14 @@ def _format_message_body(content: str, max_len: int = 1000) -> str:
 # agents can sanity-check the plan on real-world emails before we flip
 # PHASE_2_DRY_RUN=false and the bridge starts sending.
 
-# Hard-coded to True for v1: Phase 2A is dry-run by definition. Becomes
-# env-driven (PHASE_2_DRY_RUN=false) in Phase 2B when we ship the action
-# layer. Kept as a module-level constant so the dry-run branch is visible
-# in code review even before the env switch exists.
+# Phase 2 behavioural switch.
+#   true  (default) — dry-run: render a private-note preview of what
+#                     would be sent, nothing actually goes out.
+#   false           — Phase 2B: bridge actually sends the customer
+#                     acknowledgment + (for forward categories) the
+#                     forwarded email to the department address. The
+#                     private note shifts to a short "action taken"
+#                     audit summary instead of the dry-run preview.
 _PHASE_2_DRY_RUN = os.environ.get("PHASE_2_DRY_RUN", "true").lower() != "false"
 
 
@@ -854,6 +858,103 @@ def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
     if not key:
         return None
     return templates.get(key)
+
+
+async def _phase2_execute_actions(conv_id: int,
+                                  category_result: dict,
+                                  rule: Optional[dict],
+                                  sender_name: str,
+                                  sender_email: str,
+                                  original_content: str,
+                                  original_subject: str) -> list[str]:
+    """Phase 2B action layer: when PHASE_2_DRY_RUN is off, ACTUALLY send the
+    acknowledgment + (for forward categories) the forwarded email via
+    Chatwoot's outbound channel. Both use the conversation's existing
+    SMTP — no new email credentials anywhere.
+
+    Returns a list of markdown lines to append to the audit private note
+    so the agent sees a short "📤 Sent acknowledgment / 📤 Forwarded to X"
+    summary inline with the categorizer's decision."""
+    cat_key = category_result.get("category") or "fallback"
+    action  = category_result.get("action")   or "in_channel"
+    name    = _resolve_customer_name(sender_name, sender_email)
+    template = _resolve_acknowledgment_template(cat_key)
+    audit: list[str] = []
+
+    # ── Customer acknowledgment ─────────────────────────────────────────
+    # For every category (in-channel, forward, fallback) we send the
+    # customer the template'd "we got it, our team will reach out" email.
+    # Goes via Chatwoot's normal outbound, so the message also lands in
+    # the conversation timeline as an outgoing bubble.
+    if template:
+        ack_body = (template.get("body") or "").format(
+            customer_name    = name,
+            original_subject = original_subject or "",
+        )
+        try:
+            await chatwoot.send_outgoing_message(conv_id, ack_body)
+            audit.append(f"📤 **Sent acknowledgment to** `{sender_email}`")
+        except Exception as e:
+            print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")
+            audit.append(f"⚠️ Acknowledgment send FAILED: `{e}`")
+
+    # ── Forward to the concerned department (forward categories only) ──
+    # Uses Chatwoot's `to_emails` override so the email goes to the
+    # department address (NOT the customer). cc/bcc applied per the YAML
+    # rule; customer optionally Cc'd when the rule says so.
+    if action == "forward" and rule:
+        forward_to = (rule.get("forward_to") or "").strip()
+        cc_list    = list(rule.get("cc") or [])
+        if rule.get("include_customer_in_cc") and sender_email:
+            cc_list.append(sender_email)
+        bcc_list   = list(rule.get("bcc") or [])
+
+        if not forward_to:
+            audit.append("⚠️ Forward skipped: no `forward_to` in routing rule")
+        else:
+            # Compose the forwarded body: original sender / subject / body
+            # quoted, so the department sees what the customer actually
+            # wrote and not just an opaque "Original message" placeholder.
+            fwd_lines = [
+                "This email was auto-forwarded by Chatwoot's Durian "
+                f"routing bridge (category: {(rule or {}).get('display_name') or cat_key}).",
+                "",
+                f"From: {sender_name or '(unknown)'} <{sender_email}>",
+                f"Subject: {original_subject or '(no subject)'}",
+                "",
+                "---",
+                "",
+                original_content.strip(),
+            ]
+            forward_body = "\n".join(fwd_lines)
+            try:
+                await chatwoot.send_outgoing_message(
+                    conv_id,
+                    forward_body,
+                    to_emails  = forward_to,
+                    cc_emails  = ", ".join(cc_list)  if cc_list  else None,
+                    bcc_emails = ", ".join(bcc_list) if bcc_list else None,
+                )
+                audit.append(f"📤 **Forwarded to** `{forward_to}`"
+                             + (f" (Cc `{', '.join(cc_list)}`)" if cc_list else ""))
+            except Exception as e:
+                print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
+                audit.append(f"⚠️ Forward send FAILED: `{e}`")
+
+    # Mark the conversation as Phase-2-handled so subsequent webhook fires
+    # on this conv (e.g. department replies landing as new incoming
+    # messages) don't re-trigger the whole classify-and-forward dance —
+    # those need human handling, not another auto-forward loop.
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "phase2_handled_at": _now_iso(),
+            "phase2_action":     action,
+            "phase2_category":   cat_key,
+        })
+    except Exception as e:
+        print(f"[phase2b] failed to mark phase2_handled_at: {e}")
+
+    return audit
 
 
 def _render_phase2_dry_run_preview(category_result: dict,
@@ -1248,23 +1349,55 @@ async def handle_message_created(data: dict) -> dict:
             },
         })
 
-        # Phase 2A: render the dry-run preview of what would be sent /
-        # forwarded. Defensive — any failure here is logged and we still
-        # post the basic Phase-1 note so the agent never loses visibility.
-        try:
-            dry_run_section = _render_phase2_dry_run_preview(
-                category_result   = category_result,
-                rule              = rule,
-                sender_name       = sender.get("name") or "",
-                sender_email      = sender_email,
-                original_subject  = real_subject or "",
-            )
-        except Exception as e:
-            print(f"[category-v2] dry-run render failed: {e}")
-            dry_run_section = []
+        # Loop guard: if this conv has already been Phase-2-handled, do
+        # NOT execute actions again. Reply lands as a new incoming
+        # message → webhook fires → we'd otherwise re-forward / re-ack
+        # the customer in a tight loop. The phase2_handled_at flag is
+        # the canonical "bot is done with this conv, hand back to human"
+        # marker. (Categorizer still ran so the audit row stays useful;
+        # only the action layer is suppressed.)
+        existing_phase2 = (
+            (await chatwoot.get_conversation(conv_id)).get("custom_attributes") or {}
+        ).get("phase2_handled_at") if not _PHASE_2_DRY_RUN else None
+
+        # Phase 2A (dry-run) preview OR Phase 2B (real send) actions —
+        # mutually exclusive based on the PHASE_2_DRY_RUN env flag.
+        action_section: list[str] = []
+        if _PHASE_2_DRY_RUN:
+            try:
+                action_section = _render_phase2_dry_run_preview(
+                    category_result   = category_result,
+                    rule              = rule,
+                    sender_name       = sender.get("name") or "",
+                    sender_email      = sender_email,
+                    original_subject  = real_subject or "",
+                )
+            except Exception as e:
+                print(f"[category-v2] dry-run render failed: {e}")
+        elif existing_phase2:
+            print(f"[phase2b] conv {conv_id} already handled at "
+                  f"{existing_phase2} — skipping action layer (loop guard)")
+            action_section = [
+                "🔁 _Phase 2 actions already executed for this conversation; "
+                "skipping re-send (loop guard)._"
+            ]
+        else:
+            try:
+                action_section = await _phase2_execute_actions(
+                    conv_id           = conv_id,
+                    category_result   = category_result,
+                    rule              = rule,
+                    sender_name       = sender.get("name") or "",
+                    sender_email      = sender_email,
+                    original_content  = content,
+                    original_subject  = real_subject or "",
+                )
+            except Exception as e:
+                print(f"[phase2b] action layer failed: {e}")
+                action_section = [f"⚠️ Phase 2 action layer error: `{e}`"]
 
         # Compose the private note: Phase 1 lines first (category + reason),
-        # then Phase 2A dry-run block.
+        # then Phase 2A dry-run OR Phase 2B action summary.
         note_lines = [
             "📂 **Email category (observe-only):** "
             f"{(rule or {}).get('display_name') or category_result['category']}",
@@ -1273,9 +1406,9 @@ async def handle_message_created(data: dict) -> dict:
         ]
         if category_result.get("reason"):
             note_lines.append(f"> {category_result['reason']}")
-        if dry_run_section:
+        if action_section:
             note_lines.append("")
-            note_lines.extend(dry_run_section)
+            note_lines.extend(action_section)
 
         try:
             await chatwoot.post_private_note(conv_id, "\n".join(note_lines))

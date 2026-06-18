@@ -1,6 +1,8 @@
 # Chatwoot Application API client. Add more methods here as needed.
 # Docs: https://www.chatwoot.com/developers/api/
 
+from typing import Optional
+
 import httpx
 
 import config
@@ -241,6 +243,48 @@ async def post_private_note(conversation_id: int, content: str) -> dict:
         if r.status_code >= 300:
             raise RuntimeError(
                 f"Chatwoot post_private_note failed [{r.status_code}]: {r.text}"
+            )
+        return r.json()
+
+
+async def send_outgoing_message(conversation_id: int,
+                                content: str,
+                                to_emails:  Optional[str] = None,
+                                cc_emails:  Optional[str] = None,
+                                bcc_emails: Optional[str] = None) -> dict:
+    """Send a real customer-facing outgoing message on the conversation.
+    Uses Chatwoot's existing outbound email channel — no new SMTP creds
+    needed.
+
+    All three address fields are COMMA-SEPARATED STRINGS (not arrays);
+    Chatwoot's MessageBuilder rejects arrays with a cryptic
+    `undefined method 'gsub' for an instance of Array` 422. Pass None
+    (or empty) to omit a field.
+
+    `to_emails` is the key field for forwarding: when set, the email
+    goes there instead of the conversation's contact. The conversation
+    stays linked to the original contact for audit but the actual
+    recipient is overridden. This is how the action layer routes a
+    forward-category email to a department address without spinning up
+    a new conversation."""
+    payload: dict = {
+        "content":      content,
+        "message_type": "outgoing",
+        "private":      False,
+    }
+    if to_emails:  payload["to_emails"]  = to_emails
+    if cc_emails:  payload["cc_emails"]  = cc_emails
+    if bcc_emails: payload["bcc_emails"] = bcc_emails
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"),
+            headers=_headers(),
+            json=payload,
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot send_outgoing_message failed [{r.status_code}]: {r.text}"
             )
         return r.json()
 
