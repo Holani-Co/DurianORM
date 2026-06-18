@@ -27,6 +27,7 @@ import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/Lin
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
+import IdentityMatchPanel from './IdentityMatchPanel.vue';
 
 const props = defineProps({
   conversationId: {
@@ -172,6 +173,30 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Identity matches: duplicate-contact suggestions written by the
+         zoho-bridge sidecar (the same person reaching out on another
+         channel). Confidence-scored with the evidence behind each score;
+         the agent decides whether to merge — the bridge never auto-merges.
+         Only rendered when the bridge found at least one candidate. -->
+    <div
+      v-if="(conversationCustomAttributes.identity_matches || []).length"
+      class="px-2 pt-2"
+    >
+      <AccordionItem
+        title="Possible duplicate contacts"
+        :is-open="isContactSidebarItemOpen('is_identity_matches_open')"
+        compact
+        @toggle="
+          value => toggleSidebarUIState('is_identity_matches_open', value)
+        "
+      >
+        <IdentityMatchPanel
+          :matches="conversationCustomAttributes.identity_matches"
+          :current-contact-id="contactId"
+          :current-contact-name="contact.name"
         />
       </AccordionItem>
     </div>
