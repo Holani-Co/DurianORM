@@ -734,16 +734,50 @@ def _format_attach_comment(conv_id: int,
 
     if messages:
         recent = messages[-6:]
-        parts.append("<p><b>💬 Recent messages</b></p><ul>")
+        parts.append("<p><b>💬 Recent messages</b></p>")
         for m in recent:
             role = "Customer" if m.get("message_type") in (0, "incoming") else "Agent"
-            content = (m.get("content") or "").strip()
-            if not content:
+            body = _format_message_body((m.get("content") or "").strip())
+            if not body:
                 continue
-            parts.append(f"<li><b>{role}:</b> {html.escape(content[:300])}</li>")
-        parts.append("</ul>")
+            # Each message as its own block: bold role on the first line,
+            # then the body (with newlines preserved as <br/>) on the next.
+            # Lighter visual frame via blockquote — Zoho's editor renders it
+            # with a subtle left indent which separates the messages nicely.
+            parts.append(
+                f"<blockquote><b>{role}:</b><br/>{body}</blockquote>"
+            )
 
     return "\n".join(parts)
+
+
+def _format_message_body(content: str, max_len: int = 1000) -> str:
+    """Render a single message body for the Zoho comment.
+
+    - Strips a leading 'Subject: ...' line that Chatwoot prefixes onto
+      outgoing email replies — that's email metadata, not body content,
+      and embedding it in the comment text reads as noise.
+    - Preserves paragraph breaks (\\n) as <br/> — HTML collapses raw
+      newlines to spaces otherwise, which is what made the original
+      formatting wall-of-text-y.
+    - Truncates at a word boundary near max_len with an ellipsis so we
+      don't cut mid-word.
+    Returns '' for content that is empty after stripping."""
+    s = content.strip()
+    if not s:
+        return ""
+    # Strip a leading "Subject: …\n" line if present.
+    if s.lower().startswith("subject:"):
+        nl = s.find("\n")
+        if nl == -1:
+            # whole content is just a subject — nothing useful for the body
+            return ""
+        s = s[nl + 1:].lstrip()
+    # Truncate cleanly at the nearest space before max_len.
+    if len(s) > max_len:
+        cut = s.rfind(" ", 0, max_len)
+        s = s[:cut if cut > 0 else max_len].rstrip() + "…"
+    return html.escape(s).replace("\n", "<br/>")
 
 
 # ── Document extraction: bills / receipts / order screenshots ─────────────
