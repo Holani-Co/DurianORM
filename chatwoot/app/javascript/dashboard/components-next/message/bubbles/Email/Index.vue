@@ -10,19 +10,21 @@ import FormattedContent from 'next/message/bubbles/Text/FormattedContent.vue';
 import BaseBubble from 'next/message/bubbles/Base.vue';
 import AttachmentChips from 'next/message/chips/AttachmentChips.vue';
 import EmailMeta from './EmailMeta.vue';
+import EmailFullscreenModal from './EmailFullscreenModal.vue';
 import TranslationToggle from 'dashboard/components-next/message/TranslationToggle.vue';
 
 import { useMessageContext } from '../../provider.js';
 import { MESSAGE_TYPES } from 'next/message/constants.js';
 import { useTranslations } from 'dashboard/composables/useTranslations';
 
-const { content, contentAttributes, attachments, messageType } =
+const { content, contentAttributes, attachments, messageType, sender } =
   useMessageContext();
 
 const isExpandable = ref(false);
 const isExpanded = ref(false);
 const showQuotedMessage = ref(false);
 const renderOriginal = ref(false);
+const showFullscreen = ref(false);
 const contentContainer = useTemplateRef('contentContainer');
 
 onMounted(() => {
@@ -100,17 +102,55 @@ const translationKeySuffix = computed(() => {
 const handleSeeOriginal = () => {
   renderOriginal.value = !renderOriginal.value;
 };
+
+// Mirror EmailMeta's address resolution here so the fullscreen modal can be
+// fed the same fields without duplicating it through props from the parent.
+const emailMeta = computed(() => contentAttributes?.value?.email || {});
+const subjectForModal = computed(() => emailMeta.value.subject || '');
+const fromEmailForModal = computed(() => (emailMeta.value.from || [])[0] || '');
+const fromNameForModal = computed(() => {
+  // Same rule as EmailMeta: only show the conversation sender's display
+  // name when the per-message "from" matches that sender's email.
+  const senderEmail = sender.value?.email || '';
+  if (fromEmailForModal.value && fromEmailForModal.value === senderEmail) {
+    return sender.value?.name || '';
+  }
+  return '';
+});
+const toEmailsForModal = computed(
+  () => emailMeta.value.to || contentAttributes?.value?.toEmails || []
+);
+const ccEmailsForModal = computed(
+  () => contentAttributes?.value?.ccEmails || emailMeta.value.cc || []
+);
+const bccEmailsForModal = computed(
+  () => contentAttributes?.value?.bccEmails || emailMeta.value.bcc || []
+);
 </script>
 
 <template>
   <BaseBubble
-    class="w-full"
+    class="w-full relative"
     :class="{
       'bg-n-slate-4': isIncoming,
       'bg-n-solid-blue': isOutgoing,
     }"
     data-bubble-name="email"
   >
+    <!-- Pop-out button: opens the email in a fullscreen modal so wide
+         emails (newsletters, marketing templates, long signatures) can
+         be read without horizontal scrolling inside the narrow
+         conversation panel. -->
+    <button
+      v-if="hasEmailContent || messageContent"
+      type="button"
+      class="absolute top-2 right-2 z-10 p-1.5 rounded-md text-n-slate-11 hover:text-n-slate-12 hover:bg-n-alpha-2 transition-colors"
+      :aria-label="$t('EMAIL_HEADER.OPEN_FULLSCREEN')"
+      :title="$t('EMAIL_HEADER.OPEN_FULLSCREEN')"
+      @click="showFullscreen = true"
+    >
+      <Icon icon="i-lucide-maximize-2" class="text-base" />
+    </button>
     <EmailMeta
       class="p-3"
       :class="{
@@ -207,6 +247,18 @@ const handleSeeOriginal = () => {
     >
       <AttachmentChips :attachments="attachments" class="gap-1" />
     </section>
+    <EmailFullscreenModal
+      :show="showFullscreen"
+      :subject="subjectForModal"
+      :from-email="fromEmailForModal"
+      :from-name="fromNameForModal"
+      :to-emails="toEmailsForModal"
+      :cc-emails="ccEmailsForModal"
+      :bcc-emails="bccEmailsForModal"
+      :html-content="fullHTML"
+      :text-content="textToShow"
+      @close="showFullscreen = false"
+    />
   </BaseBubble>
 </template>
 
@@ -275,6 +327,23 @@ const handleSeeOriginal = () => {
   img {
     max-width: 100%;
     height: auto;
+  }
+
+  // Force minimum contrast on body text. Senders routinely author
+  // signatures / footers / addresses in #ccc-ish grey, which becomes
+  // unreadable against our white email canvas (see screenshots: the
+  // Durian "Neha Singh / Customer Support / Goregaon…" block and the
+  // Zoom "© 2026 Zoom" footer both ghost out). !important is needed
+  // because the dim colour is set as an INLINE style attribute on
+  // each element, which beats normal selector specificity.
+  //
+  // Excluded by design: headings (h1-h6) and emphasis (b/strong/em/i)
+  // — those are where senders typically apply intentional brand
+  // colour, and they're usually short enough that a coloured shade
+  // remains readable even when subtle. Anchors are excluded so link
+  // styling continues to follow the sender or our fallback above.
+  p, div, span, td, th, li, blockquote, font, address {
+    color: #1f2937 !important;
   }
 }
 </style>
