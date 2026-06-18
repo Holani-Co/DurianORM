@@ -642,6 +642,11 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
                 summary          = summary,
                 messages         = messages,
             )
+            # is_public=False keeps the comment internal (the "Private" badge
+            # in Zoho's UI). All agents in the org see it regardless of team;
+            # only the customer is excluded. Public would risk emailing the
+            # customer their own complaint summary back, depending on Zoho's
+            # workflow rules.
             await zoho.add_comment_to_ticket(ticket_id, comment_html, is_public=False)
             # Synthesize a ticket-like dict so _surface_ticket_in_chatwoot
             # can post the standard confirmation + update the sidebar.
@@ -678,47 +683,64 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
     return result
 
 
+_ESCALATION_LABEL_PRETTY = {
+    "legal_or_compliance": "Legal / compliance",
+    "hr_sensitive":        "HR-sensitive",
+    "financial_dispute":   "Financial dispute",
+    "brand_or_contract":   "Brand / contract",
+    "team_legal":          "Legal / compliance",
+    "team_hr":             "HR-sensitive",
+    "team_marketing":      "Brand / contract",
+    "team_support":        "Support",
+    "manual_handoff":      "Manual handoff",
+}
+
+
 def _format_attach_comment(conv_id: int,
                            escalation_label: str,
                            summary: Optional[dict],
                            messages: Optional[list]) -> str:
     """Render the Zoho comment body for the 'attach to existing ticket' path.
 
-    Plain-ish HTML — Zoho's comment editor accepts inline tags. We keep it
-    compact so it scans like a forwarded conversation summary, not a wall
-    of text."""
+    Visual style mirrors the AI-generated summary that already appears as the
+    ticket's first thread — bulleted sections with bold field labels — so an
+    agent reading the ticket sees a consistent layout."""
     conv_url = (
         f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
         f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}"
     )
+    label_pretty = _ESCALATION_LABEL_PRETTY.get(
+        escalation_label, escalation_label.replace("_", " ").title()
+    )
+
     parts = [
-        f"<p><b>Conversation attached from Chatwoot</b> "
-        f"— routed as <i>{html.escape(escalation_label)}</i>.<br>"
-        f"<a href='{html.escape(conv_url)}'>🔗 Open conversation #{conv_id} in Chatwoot</a></p>"
+        "<p><b>📨 Another conversation attached from Chatwoot</b></p>",
+        "<ul>",
+        f"<li><b>Source:</b> "
+        f"<a href='{html.escape(conv_url)}'>Open conversation #{conv_id} in Chatwoot ↗</a></li>",
+        f"<li><b>Escalation type:</b> {html.escape(label_pretty)}</li>",
+        "</ul>",
     ]
-    if summary and (summary.get("summary") or summary.get("customer_goal")):
+
+    if summary and (summary.get("summary") or summary.get("customer_goal") or summary.get("next_step")):
+        parts.append("<p><b>📋 Summary (AI-generated)</b></p><ul>")
         if summary.get("summary"):
-            parts.append(f"<p><b>Summary:</b> {html.escape(summary['summary'])}</p>")
+            parts.append(f"<li><b>What happened:</b> {html.escape(summary['summary'])}</li>")
         if summary.get("customer_goal"):
-            parts.append(
-                f"<p><b>Customer goal:</b> {html.escape(summary['customer_goal'])}</p>"
-            )
+            parts.append(f"<li><b>Customer wants:</b> {html.escape(summary['customer_goal'])}</li>")
         if summary.get("next_step"):
-            parts.append(
-                f"<p><b>Suggested next step:</b> {html.escape(summary['next_step'])}</p>"
-            )
+            parts.append(f"<li><b>Suggested next step:</b> {html.escape(summary['next_step'])}</li>")
+        parts.append("</ul>")
 
     if messages:
         recent = messages[-6:]
-        parts.append("<p><b>Recent messages:</b></p><ul>")
+        parts.append("<p><b>💬 Recent messages</b></p><ul>")
         for m in recent:
             role = "Customer" if m.get("message_type") in (0, "incoming") else "Agent"
             content = (m.get("content") or "").strip()
             if not content:
                 continue
-            parts.append(
-                f"<li><b>{role}:</b> {html.escape(content[:300])}</li>"
-            )
+            parts.append(f"<li><b>{role}:</b> {html.escape(content[:300])}</li>")
         parts.append("</ul>")
 
     return "\n".join(parts)
