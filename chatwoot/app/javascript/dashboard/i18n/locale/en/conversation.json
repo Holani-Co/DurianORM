@@ -431,7 +431,9 @@
     "BCC": "Bcc",
     "CC": "Cc",
     "SUBJECT": "Subject",
-    "EXPAND": "Expand email"
+    "EXPAND": "Expand email",
+    "OPEN_FULLSCREEN": "Open email in fullscreen",
+    "CLOSE_FULLSCREEN": "Close fullscreen view"
   },
   "CONVERSATION_PARTICIPANTS": {
     "SIDEBAR_MENU_TITLE": "Participating",
