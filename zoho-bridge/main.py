@@ -693,8 +693,8 @@ def _format_attach_comment(conv_id: int,
     )
     parts = [
         f"<p><b>Conversation attached from Chatwoot</b> "
-        f"(<a href='{html.escape(conv_url)}'>conv #{conv_id}</a>) "
-        f"— routed as <i>{html.escape(escalation_label)}</i>.</p>"
+        f"— routed as <i>{html.escape(escalation_label)}</i>.<br>"
+        f"<a href='{html.escape(conv_url)}'>🔗 Open conversation #{conv_id} in Chatwoot</a></p>"
     ]
     if summary and (summary.get("summary") or summary.get("customer_goal")):
         if summary.get("summary"):
