@@ -1477,28 +1477,30 @@ async def handle_message_created(data: dict) -> dict:
         # Never let the categorizer break the rest of the flow.
         print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
 
-    # ── Decision B: Zoho ticket + team routing only where it matters ─────
-    # A confident category is fully handled by the categorizer above
-    # (acknowledge + forward). We do NOT also run the generic team-routing
-    # and Zoho escalation for it — that produced duplicate "assigned to
-    # team / ticket paused" noise on every auto-handled conversation.
-    # EXCEPTION: complaint + legal_complaint still get a Zoho ticket (for
-    # tracking / SLA), created through the same dedup-aware path.
-    if category_confident:
-        cat = category_result["category"]
-        if cat in ("complaint", "legal_complaint"):
-            await _create_or_pause_zoho_ticket(
-                conv_id, data, sender_email, escalation_label=cat
-            )
+    # ── Decision B: NO Zoho ticket for anything auto-forwarded ───────────
+    # Per ops guidance: when an email is auto-forwarded to a department, we
+    # never create a Zoho ticket — not even for legal/complaint. The
+    # forward IS the handling; the department owns it from there. So a
+    # confident FORWARD category is fully handled by the categorizer above
+    # (acknowledge + forward) and short-circuits here: no ticket, no
+    # generic team-routing.
+    #
+    # IN-CHANNEL categories (product / general / existing-order) stay in
+    # hello@ for an agent. Those fall THROUGH to the existing team-routing
+    # + Zoho escalation, so a ticket is created only when the existing case
+    # rules warrant it (agent-set priority, or a classifier escalation
+    # signal) — i.e. ticket creation "depends on the case", as requested.
+    if category_confident and category_result["action"] == "forward":
         return {
-            "classified":  cat,
-            "action":      category_result["action"],
+            "classified":  category_result["category"],
+            "action":      "forward",
             "handled_by":  "categorizer",
         }
 
-    # ── Fallback path: the categorizer was uncertain (or errored). Fall
-    # through to the original team-routing + Zoho escalation, unchanged —
-    # the safety net for anything the 13-category classifier can't place.
+    # ── Fall through for: in-channel categories, and any uncertain
+    # (fallback) email. The original team-routing + Zoho escalation below
+    # is unchanged — it creates a ticket only when its existing case rules
+    # fire (priority / escalation signal).
 
     # Team routing.
     #
