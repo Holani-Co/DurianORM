@@ -860,6 +860,49 @@ def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
     return templates.get(key)
 
 
+async def _create_or_pause_zoho_ticket(conv_id: int,
+                                       data: dict,
+                                       sender_email: str,
+                                       escalation_label: str) -> tuple[Optional[str], Optional[dict]]:
+    """Dedup-aware Zoho ticket creation. If the contact already has open
+    tickets, pause for an agent decision (the ticket-dedup feature); else
+    create a fresh ticket and surface it in Chatwoot. Returns
+    (zoho_ticket_id, pending_decision). Best-effort — never raises.
+
+    Factored out of handle_message_created so the new 13-category flow can
+    request a ticket for complaint / legal_complaint categories without
+    duplicating the dedup logic."""
+    zoho_ticket = None
+    pending_decision = None
+    open_tickets = []
+    if sender_email:
+        try:
+            open_tickets = await zoho.search_open_tickets_by_email(sender_email, limit=5)
+        except Exception as e:
+            print(f"[zoho-dedup] open-ticket lookup failed for {sender_email!r}: {e}")
+
+    if open_tickets:
+        print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open ticket(s) "
+              f"for {sender_email!r} — pausing auto-create")
+        await _pause_for_agent_decision(
+            conv_id=conv_id, sender_email=sender_email,
+            escalation_label=escalation_label, candidates=open_tickets,
+        )
+        pending_decision = {"candidates": [t["id"] for t in open_tickets],
+                            "source": escalation_label}
+    else:
+        try:
+            messages, summary = await _ticket_context(conv_id)
+            ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
+            zoho_ticket = ticket.get("id")
+            print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
+            await _surface_ticket_in_chatwoot(conv_id, ticket, source=f"auto_{escalation_label}")
+        except Exception as e:
+            print(f"[zoho] ERROR creating ticket for conv {conv_id} "
+                  f"(reason={escalation_label}): {e}")
+    return zoho_ticket, pending_decision
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -1293,8 +1336,31 @@ async def handle_message_created(data: dict) -> dict:
     except Exception as e:
         print(f"[spam] merge_custom_attributes failed: {e}")
 
-    # Confidence-aware actions
-    if email_category == "spam":
+    # ── 13-category classifier (runs ALWAYS, before the spam early-exit) ──
+    # Run the Durian routing classifier up-front so a confident business
+    # category can OVERRIDE a spam/promotional/automated mislabel from the
+    # generic spam classifier ("category wins"). Example: a brand-collab
+    # email reads as "promotional" to the spam filter but is really a
+    # collaboration_request that must be acknowledged + forwarded.
+    category_result = None
+    rule = None
+    try:
+        category_result = await classifier.classify_email_category(
+            content, sender_email=sender_email, subject=real_subject
+        )
+        rule = category_result.pop("rule", None)
+        print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
+              f"confidence={category_result['confidence']} "
+              f"action={category_result['action']!r}")
+    except Exception as e:
+        print(f"[category-v2] classify ERROR ({type(e).__name__}): {e}")
+
+    category_confident = bool(category_result) and \
+        category_result.get("category") != "fallback"
+
+    # ── Decision A: spam/promotional only stops the flow when the
+    # categorizer is ALSO uncertain. A confident business category wins. ──
+    if email_category == "spam" and not category_confident:
         if classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD:
             try:
                 # Snooze (not resolve) so it lands in the Snoozed tab, not
@@ -1314,29 +1380,20 @@ async def handle_message_created(data: dict) -> dict:
             "auto_snoozed":          classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD,
         }
 
-    if email_category in ("promotional", "automated"):
+    if email_category in ("promotional", "automated") and not category_confident:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
 
-    # ── 12-category classifier + Phase 2A dry-run preview ────────────────
-    # Phase 1: classify into one of 12 routing categories from
-    #          routing_rules.yaml, record on custom_attributes + private note.
-    # Phase 2A (this block, gated by PHASE_2_DRY_RUN env): also render the
-    #          acknowledgment template that WOULD be sent to the customer
-    #          (and for forward categories, the routing destination) as a
-    #          dry-run preview in the same private note. NOTHING is emailed.
-    # Phase 2B: flip PHASE_2_DRY_RUN=false and the dry-run preview becomes
-    #          an actual outbound message on the conversation + a real
-    #          forwarded email to the department address.
-    try:
-        category_result = await classifier.classify_email_category(
-            content, sender_email=sender_email, subject=real_subject
-        )
-        rule = category_result.pop("rule", None)
-        print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
-              f"confidence={category_result['confidence']} "
-              f"action={category_result['action']!r}")
+    if email_category in ("spam", "promotional", "automated") and category_confident:
+        print(f"[category-v2] '{email_category}' label overridden — confident "
+              f"category {category_result['category']!r} wins; proceeding with "
+              f"acknowledge/forward")
 
+    # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
+    # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.
+    # Phase 2B (PHASE_2_DRY_RUN=false): actually acknowledge + forward.
+    if category_result is not None:
+      try:
         await chatwoot.merge_custom_attributes(conv_id, {
             "email_category_v2": {
                 **category_result,
@@ -1416,9 +1473,32 @@ async def handle_message_created(data: dict) -> dict:
             await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
         except Exception as e:
             print(f"[category-v2] post_private_note failed: {e}")
-    except Exception as e:
+      except Exception as e:
         # Never let the categorizer break the rest of the flow.
         print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
+
+    # ── Decision B: Zoho ticket + team routing only where it matters ─────
+    # A confident category is fully handled by the categorizer above
+    # (acknowledge + forward). We do NOT also run the generic team-routing
+    # and Zoho escalation for it — that produced duplicate "assigned to
+    # team / ticket paused" noise on every auto-handled conversation.
+    # EXCEPTION: complaint + legal_complaint still get a Zoho ticket (for
+    # tracking / SLA), created through the same dedup-aware path.
+    if category_confident:
+        cat = category_result["category"]
+        if cat in ("complaint", "legal_complaint"):
+            await _create_or_pause_zoho_ticket(
+                conv_id, data, sender_email, escalation_label=cat
+            )
+        return {
+            "classified":  cat,
+            "action":      category_result["action"],
+            "handled_by":  "categorizer",
+        }
+
+    # ── Fallback path: the categorizer was uncertain (or errored). Fall
+    # through to the original team-routing + Zoho escalation, unchanged —
+    # the safety net for anything the 13-category classifier can't place.
 
     # Team routing.
     #
@@ -1486,48 +1566,12 @@ async def handle_message_created(data: dict) -> dict:
     zoho_ticket = None
     pending_decision = None
     if should_escalate:
-        # ── Ticket dedup pre-check ─────────────────────────────────────────
-        # Before creating a ticket, see whether this contact already has an
-        # open Zoho ticket. If so, *pause* creation and surface a decision
-        # banner in Chatwoot so the agent can choose to either (a) attach
-        # this conversation to the existing ticket as a comment, or
-        # (b) create a new one anyway. This avoids the noise of duplicate
-        # tickets for the same customer issue.
-        open_tickets = []
-        if sender_email:
-            try:
-                open_tickets = await zoho.search_open_tickets_by_email(
-                    sender_email, limit=5
-                )
-            except Exception as e:
-                print(f"[zoho-dedup] open-ticket lookup failed for "
-                      f"{sender_email!r}: {e}")
-
-        if open_tickets:
-            print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open "
-                  f"ticket(s) found for {sender_email!r} — pausing auto-create")
-            await _pause_for_agent_decision(
-                conv_id          = conv_id,
-                sender_email     = sender_email,
-                escalation_label = escalation_label,
-                candidates       = open_tickets,
-            )
-            pending_decision = {
-                "candidates": [t["id"] for t in open_tickets],
-                "source":     escalation_label,
-            }
-        else:
-            try:
-                messages, summary = await _ticket_context(conv_id)
-                ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
-                zoho_ticket = ticket.get("id")
-                print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
-                await _surface_ticket_in_chatwoot(
-                    conv_id, ticket, source=f"auto_{escalation_label}"
-                )
-            except Exception as e:
-                print(f"[zoho] ERROR creating ticket for conv {conv_id} "
-                      f"(team={team_key}, reason={escalation_label}): {e}")
+        # Dedup-aware ticket creation (pause if the contact already has
+        # open tickets, else create). Same helper the categorizer path
+        # uses for complaint/legal.
+        zoho_ticket, pending_decision = await _create_or_pause_zoho_ticket(
+            conv_id, data, sender_email, escalation_label=escalation_label
+        )
 
     return {
         "classified":            team_key,
