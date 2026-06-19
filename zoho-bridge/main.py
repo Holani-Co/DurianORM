@@ -893,10 +893,10 @@ async def _phase2_execute_actions(conv_id: int,
         )
         try:
             await chatwoot.send_outgoing_message(conv_id, ack_body)
-            audit.append(f"📤 **Sent acknowledgment to** `{sender_email}`")
+            audit.append(f"✅ Acknowledgment sent to the customer ({sender_email}).")
         except Exception as e:
             print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")
-            audit.append(f"⚠️ Acknowledgment send FAILED: `{e}`")
+            audit.append(f"⚠️ Acknowledgment could not be sent: {e}")
 
     # ── Forward to the concerned department (forward categories only) ──
     # Uses Chatwoot's `to_emails` override so the email goes to the
@@ -941,11 +941,16 @@ async def _phase2_execute_actions(conv_id: int,
                     cc_emails  = ", ".join(cc_list)  if cc_list  else None,
                     bcc_emails = ", ".join(bcc_list) if bcc_list else None,
                 )
-                audit.append(f"📤 **Forwarded to** `{forward_to}`"
-                             + (f" (Cc `{', '.join(cc_list)}`)" if cc_list else ""))
+                audit.append(f"📨 Forwarded to {forward_to}.")
+                if cc_list:
+                    audit.append(f"Cc: {', '.join(cc_list)}")
             except Exception as e:
                 print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
-                audit.append(f"⚠️ Forward send FAILED: `{e}`")
+                audit.append(f"⚠️ Forward could not be sent: {e}")
+    elif action == "in_channel":
+        # In-channel categories aren't forwarded — the conversation stays
+        # open for an agent to handle. Say so plainly in the note.
+        audit.append("This conversation stays here for the team to assist.")
 
     # Mark the conversation as Phase-2-handled so subsequent webhook fires
     # on this conv (e.g. department replies landing as new incoming
@@ -979,48 +984,36 @@ def _render_phase2_dry_run_preview(category_result: dict,
     name    = _resolve_customer_name(sender_name, sender_email)
     template = _resolve_acknowledgment_template(cat_key)
 
-    lines = ["🧪 **Phase 2A — Dry-run preview** _(no email sent)_"]
+    # Review-mode banner — plain language, no "Phase 2A / dry-run" jargon.
+    lines = ["_⏳ Automated handling is in review mode — nothing has been "
+             "sent yet. This is a preview of what would happen:_"]
 
     if action == "forward" and rule:
-        forward_to = rule.get("forward_to") or "(unconfigured)"
+        forward_to = rule.get("forward_to") or "(not configured)"
         cc_list    = rule.get("cc") or []
         bcc_list   = rule.get("bcc") or []
         include_customer = bool(rule.get("include_customer_in_cc"))
         cc_effective = list(cc_list) + ([sender_email] if include_customer and sender_email else [])
 
         lines.append("")
-        lines.append("**Would forward the customer's email to:**")
-        lines.append(f"- **To:** `{forward_to}`")
+        lines.append(f"📨 Would forward to **{forward_to}**.")
         if cc_effective:
-            lines.append(f"- **Cc:** `{', '.join(cc_effective)}`")
+            lines.append(f"Cc: {', '.join(cc_effective)}")
         if bcc_list:
-            lines.append(f"- **Bcc:** `{', '.join(bcc_list)}`")
-        if include_customer:
-            lines.append("- Customer is included in Cc (per routing rule)")
-        else:
-            lines.append("- Customer is _not_ Cc'd (per routing rule)")
+            lines.append(f"Bcc: {', '.join(bcc_list)}")
 
     if template:
-        subject = (template.get("subject") or "").format(
-            customer_name    = name,
-            original_subject = original_subject or "(no subject)",
-        )
         body = (template.get("body") or "").format(
             customer_name    = name,
-            original_subject = original_subject or "(no subject)",
+            original_subject = original_subject or "",
         )
         lines.append("")
-        lines.append("**Would acknowledge customer with:**")
-        if subject:
-            lines.append(f"_Subject:_ {subject}")
-        # Quote-block each body line so the agent sees the literal text
-        # the customer would have received.
+        lines.append("✅ Would acknowledge the customer with:")
         for body_line in body.rstrip().splitlines():
             lines.append(f"> {body_line}" if body_line else ">")
-    else:
+    elif action == "in_channel":
         lines.append("")
-        lines.append("_(no acknowledgment template mapped for this category — "
-                     "agent will reply manually in Phase 2B)_")
+        lines.append("This conversation would stay here for the team to assist.")
 
     return lines
 
@@ -1402,16 +1395,19 @@ async def handle_message_created(data: dict) -> dict:
                 print(f"[phase2b] action layer failed: {e}")
                 action_section = [f"⚠️ Phase 2 action layer error: `{e}`"]
 
-        # Compose the private note: Phase 1 lines first (category + reason),
-        # then Phase 2A dry-run OR Phase 2B action summary.
-        note_lines = [
-            "📂 **Email category (observe-only):** "
-            f"{(rule or {}).get('display_name') or category_result['category']}",
-            f"_Confidence: {category_result['confidence']:.2f} · "
-            f"Action (Phase 2): {category_result['action']}_",
-        ]
+        # Compose the agent-facing note. Professional, jargon-free: the
+        # category, a one-line reason, and what was done. Internal terms
+        # (confidence score, "observe-only", "Phase 2") are kept out — a
+        # low-confidence classification is flagged in plain language
+        # instead, since that's the only case an agent needs to act on.
+        display = (rule or {}).get("display_name") or category_result["category"]
+        note_lines = [f"🗂️ **Auto-classified as: {display}**"]
+        if category_result.get("category") == "fallback":
+            note_lines.append(
+                "_The category wasn't clear — please review and route manually._"
+            )
         if category_result.get("reason"):
-            note_lines.append(f"> {category_result['reason']}")
+            note_lines.append(category_result["reason"])
         if action_section:
             note_lines.append("")
             note_lines.extend(action_section)
