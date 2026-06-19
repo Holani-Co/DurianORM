@@ -912,19 +912,25 @@ async def _phase2_execute_actions(conv_id: int,
         if not forward_to:
             audit.append("⚠️ Forward skipped: no `forward_to` in routing rule")
         else:
-            # Compose the forwarded body: original sender / subject / body
-            # quoted, so the department sees what the customer actually
-            # wrote and not just an opaque "Original message" placeholder.
+            # Compose the forwarded body. Customer-safe wording: the
+            # customer is Cc'd on this email for complaint/legal/doors, so
+            # it must NOT expose internal routing jargon ("auto-forwarded by
+            # routing bridge", category enum, etc.). Reads like a normal
+            # professional internal forward of the customer's message.
             fwd_lines = [
-                "This email was auto-forwarded by Chatwoot's Durian "
-                f"routing bridge (category: {(rule or {}).get('display_name') or cat_key}).",
+                f"Forwarding the message below from {sender_name or sender_email} "
+                "for your review and necessary action.",
                 "",
                 f"From: {sender_name or '(unknown)'} <{sender_email}>",
                 f"Subject: {original_subject or '(no subject)'}",
                 "",
-                "---",
+                "----------------------------------------",
                 "",
                 original_content.strip(),
+                "",
+                "----------------------------------------",
+                "Regards,",
+                "Team Durian",
             ]
             forward_body = "\n".join(fwd_lines)
             try:
