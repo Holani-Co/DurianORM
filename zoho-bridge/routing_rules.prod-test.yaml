@@ -26,35 +26,63 @@
 #   - Customer acknowledgments are gated separately by the
 #     EMAIL_CUSTOMER_ACK_ENABLED env var (default false on the VM), so
 #     no customer email goes out until the client explicitly opts in.
+#
+# Team assignment (added with the prod team reorg): each conversation is
+# assigned to its category's matching Chatwoot team. IDs below match the
+# prod VM's `SELECT id, name FROM teams` listing taken on 2026-06-19;
+# the prod Chatwoot reorged from 4 generic teams (legal/marketing/hr/
+# support) to 13 category-specific teams, one per routing category. The
+# bridge resolves category → team_id from this YAML, so future team
+# changes are a YAML edit + bridge restart — no code change.
 
 categories:
+
+  # ── In-channel categories (no forward; conversation stays for the team) ──
+  product_enquiry:
+    team_id: 6
+  general_information:
+    team_id: 7
+  existing_order_enquiry:
+    team_id: 8
+
+  # ── Forward categories ──
   complaint:
+    team_id: 4
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   legal_complaint:
+    team_id: 2
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   franchise_dealership:
+    team_id: 9
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   vendor_supplier_enquiry:
+    team_id: 10
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   marketing_advertising:
+    team_id: 3
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   collaboration_request:
+    team_id: 11
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   career_job_enquiry:
+    team_id: 1
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   project_bulk_order:
+    team_id: 12
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   full_home_customization:
+    team_id: 13
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
   doors_veneer_plywood:
+    team_id: 14
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]

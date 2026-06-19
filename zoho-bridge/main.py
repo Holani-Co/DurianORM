@@ -1494,34 +1494,51 @@ async def handle_message_created(data: dict) -> dict:
             await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
         except Exception as e:
             print(f"[category-v2] post_private_note failed: {e}")
+
+        # ── Team assignment (categorizer-driven) ─────────────────────
+        # When the YAML rule carries a team_id, assign the conversation
+        # to that team. Replaces the legacy four-team escalation_signal
+        # routing for emails the new categorizer handles — every
+        # category has its own dedicated team on the post-reorg prod
+        # Chatwoot. Dry-run is exempt (we don't mutate prod state in
+        # observe-mode) and so is fallback (no rule to read team_id
+        # from; falls through to the legacy routing below).
+        rule_team_id = (rule or {}).get("team_id") if rule else None
+        if (rule_team_id and not _PHASE_2_DRY_RUN
+            and category_result.get("category") != "fallback"):
+            try:
+                await chatwoot.assign_team(conv_id, int(rule_team_id))
+                print(f"[category-v2] conv {conv_id} assigned to team "
+                      f"{rule_team_id} ({category_result['category']})")
+            except Exception as e:
+                print(f"[category-v2] assign_team({rule_team_id}) failed "
+                      f"for conv {conv_id}: {e}")
       except Exception as e:
         # Never let the categorizer break the rest of the flow.
         print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
 
-    # ── Decision B: NO Zoho ticket for anything auto-forwarded ───────────
-    # Per ops guidance: when an email is auto-forwarded to a department, we
-    # never create a Zoho ticket — not even for legal/complaint. The
-    # forward IS the handling; the department owns it from there. So a
-    # confident FORWARD category is fully handled by the categorizer above
-    # (acknowledge + forward) and short-circuits here: no ticket, no
-    # generic team-routing.
-    #
-    # IN-CHANNEL categories (product / general / existing-order) stay in
-    # hello@ for an agent. Those fall THROUGH to the existing team-routing
-    # + Zoho escalation, so a ticket is created only when the existing case
-    # rules warrant it (agent-set priority, or a classifier escalation
-    # signal) — i.e. ticket creation "depends on the case", as requested.
-    if category_confident and category_result["action"] == "forward":
+    # ── Decision B: handling for confident categories ────────────────────
+    # The categorizer block above already did the right thing for a
+    # confident category:
+    #   • forward category   → acknowledged + forwarded + team-assigned
+    #   • in-channel category → team-assigned (conversation stays in
+    #                          hello@ for the matched team to handle)
+    # Per ops guidance no Zoho ticket is ever created for an auto-handled
+    # email. So a confident category short-circuits here — skip both the
+    # legacy four-team escalation_signal routing AND the Zoho escalation
+    # path below. Only the fallback (uncertain) branch falls through to
+    # the legacy logic as a safety net.
+    if category_confident:
         return {
             "classified":  category_result["category"],
-            "action":      "forward",
+            "action":      category_result["action"],
             "handled_by":  "categorizer",
         }
 
-    # ── Fall through for: in-channel categories, and any uncertain
-    # (fallback) email. The original team-routing + Zoho escalation below
-    # is unchanged — it creates a ticket only when its existing case rules
-    # fire (priority / escalation signal).
+    # ── Fall through for any uncertain (fallback) email. The original
+    # team-routing + Zoho escalation below is unchanged — it creates a
+    # ticket only when its existing case rules fire (priority /
+    # escalation signal).
 
     # Team routing.
     #
