@@ -430,18 +430,33 @@ def _load_routing_rules() -> dict:
               f"{type(e).__name__}: {e} — categorizer disabled")
         return {}
 
-    local_path = _ROUTING_PATH.with_name("routing_rules.local.yaml")
-    try:
-        with open(local_path, "r", encoding="utf-8") as f:
-            local = _yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        return base
-    except Exception as e:
-        print(f"[classifier:category] failed to parse {local_path.name}: "
-              f"{type(e).__name__}: {e} — using base routing only")
-        return base
-    merged = _deep_merge(base, local)
-    print(f"[classifier:category] merged routing override from {local_path.name}")
+    # Two override layers, applied in order on top of the base:
+    #   1. routing_rules.local.yaml — gitignored, for local dev (matches
+    #      the .env / .env.local convention).
+    #   2. Whatever file the DURIAN_ROUTING_OVERRIDE_PATH env var points
+    #      to (e.g. routing_rules.prod-test.yaml on the VM during the
+    #      client's prod testing phase). Committed, so the override
+    #      ships with the bridge and is activated by a one-line env
+    #      change on the VM.
+    # Either layer can be absent — base wins by default. Both are
+    # non-fatal on parse errors; we keep going with what we have.
+    merged = base
+    for label, path in (
+        ("local",        _ROUTING_PATH.with_name("routing_rules.local.yaml")),
+        ("env-override", Path(os.getenv("DURIAN_ROUTING_OVERRIDE_PATH", "") or "/__nonexistent__")),
+    ):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                layer = _yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            print(f"[classifier:category] failed to parse {path.name} ({label}): "
+                  f"{type(e).__name__}: {e} — skipping this layer")
+            continue
+        merged = _deep_merge(merged, layer)
+        print(f"[classifier:category] merged routing override from "
+              f"{path.name} ({label})")
     return merged
 
 

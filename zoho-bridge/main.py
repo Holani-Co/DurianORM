@@ -830,6 +830,17 @@ def _format_message_body(content: str, max_len: int = 1000) -> str:
 #                     audit summary instead of the dry-run preview.
 _PHASE_2_DRY_RUN = os.environ.get("PHASE_2_DRY_RUN", "true").lower() != "false"
 
+# Customer-acknowledgment gate (independent of the dry-run flag above).
+#   true            — bridge sends the templated acknowledgment to the
+#                     customer (the existing behaviour from the spec).
+#   false (default) — bridge SKIPS the acknowledgment entirely. Forwards
+#                     to departments still run when in non-dry-run mode.
+# Set as a separate flag so the prod test phase can run forwards without
+# emailing real customers, then flip ack on later without a redeploy.
+_EMAIL_CUSTOMER_ACK_ENABLED = (
+    os.environ.get("EMAIL_CUSTOMER_ACK_ENABLED", "false").lower() == "true"
+)
+
 
 def _resolve_customer_name(sender_name: str, sender_email: str) -> str:
     """Return a name suitable for substituting into '{customer_name}' in an
@@ -925,17 +936,27 @@ async def _phase2_execute_actions(conv_id: int,
     audit: list[str] = []
 
     # ── Customer acknowledgment ─────────────────────────────────────────
-    # For every category (in-channel, forward, fallback) we send the
-    # customer the template'd "we got it, our team will reach out" email.
-    # Goes via Chatwoot's normal outbound, so the message also lands in
-    # the conversation timeline as an outgoing bubble.
-    if template:
+    # Sent only when EMAIL_CUSTOMER_ACK_ENABLED=true. During the prod test
+    # phase the flag is off — forwards still run, but no customer email
+    # goes out. Flip the env var on the VM when the client is ready.
+    #
+    # Pass the customer email as an EXPLICIT to_emails. Without it,
+    # Chatwoot's defaulting-to-contact behaviour proved unreliable
+    # (the conv 192 incident) — and Chatwoot's mailer reads to_emails
+    # from the latest outgoing message rather than the in-flight one, so
+    # the explicit recipient is what makes the upstream-patched mailer
+    # do the right thing.
+    if not _EMAIL_CUSTOMER_ACK_ENABLED:
+        audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
+    elif template and sender_email:
         ack_body = (template.get("body") or "").format(
             customer_name    = name,
             original_subject = original_subject or "",
         )
         try:
-            await chatwoot.send_outgoing_message(conv_id, ack_body)
+            await chatwoot.send_outgoing_message(
+                conv_id, ack_body, to_emails=sender_email
+            )
             audit.append(f"✅ Acknowledgment sent to the customer ({sender_email}).")
         except Exception as e:
             print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")

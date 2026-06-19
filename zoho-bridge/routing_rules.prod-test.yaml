@@ -1,0 +1,60 @@
+# Prod-test routing override — committed, used on the VM during the
+# client's prod testing phase. Mirrors the gitignored routing_rules.local
+# pattern: only overrides the destination fields; everything else
+# (descriptions, examples, keywords, templates, customer-Cc rules)
+# is inherited from routing_rules.yaml.
+#
+# Activation: bridge points at this file via DURIAN_ROUTING_OVERRIDE_PATH
+# env var (set on the VM). When the env var is unset, the bridge reads
+# only routing_rules.yaml and forwards to the real Durian departments. So
+# flipping back to real-prod routing is a one-line systemd env edit +
+# a bridge restart — no code change.
+#
+# Test plan (per client + senior agreement):
+#   - All 10 forward categories → rachael.rodrigues@durian.in. One
+#     shared inbox lets the client confirm the categorizer + forward
+#     mechanics on real traffic without spamming nine separate execs
+#     during the test phase.
+#   - varsha@durian.in, sushil.k@durian.in, shilpa@durian.in are Cc'd on
+#     every forward — they're the client's observer/oversight team for
+#     the test phase, per the "CC Test" columns in the latest spreadsheet.
+#   - include_customer_in_cc rule (which lives in the base YAML and is
+#     NOT overridden here) still applies: complaint / legal_complaint /
+#     doors_veneer_plywood will Cc the customer ON TOP OF the three
+#     observers above. The other seven forward categories will not Cc
+#     the customer.
+#   - Customer acknowledgments are gated separately by the
+#     EMAIL_CUSTOMER_ACK_ENABLED env var (default false on the VM), so
+#     no customer email goes out until the client explicitly opts in.
+
+categories:
+  complaint:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  legal_complaint:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  franchise_dealership:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  vendor_supplier_enquiry:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  marketing_advertising:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  collaboration_request:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  career_job_enquiry:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  project_bulk_order:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  full_home_customization:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+  doors_veneer_plywood:
+    forward_to: rachael.rodrigues@durian.in
+    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
