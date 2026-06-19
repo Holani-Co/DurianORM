@@ -1,0 +1,531 @@
+# Email category routing rules for the Durian inbox (hello@durian.in).
+# ──────────────────────────────────────────────────────────────────────
+#
+# Two consumers read this file:
+#   1. classifier.classify_email_category — uses `description` + `examples`
+#      to instruct the LLM which category an inbound email falls into.
+#   2. main.py forwarder (Phase 2) — uses `action`, `forward_to`, `cc`,
+#      `bcc`, and `include_customer_in_cc` to decide what to send and
+#      where. Phase 1 (this PR) reads ONLY the classifier-side fields;
+#      forwarding stays a no-op until the action layer is wired in.
+#
+# Editing this file does NOT require a deploy — the bridge re-reads it
+# on startup. Restart the zoho-bridge service after edits.
+#
+# Schema per category:
+#   key:                          (internal id; snake_case)
+#     display_name:               human label used in private notes / Chatwoot UI
+#     action:                     "in_channel" | "forward"
+#     description:                LLM-facing sentence explaining when to pick this
+#     examples:                   list of real customer-message excerpts the LLM uses
+#                                 as few-shot anchors. Keep short (≤200 chars).
+#     forward_to:                 (forward only) primary recipient
+#     cc:                         (forward only) list of additional CC addresses
+#     bcc:                        (forward only) list of BCC addresses
+#     include_customer_in_cc:     (forward only) whether the customer's email goes in CC
+#     acknowledgment_template:    template key (see acknowledgments.yaml; Phase 2)
+
+categories:
+
+  # ── In-channel resolution (resolved by Chatwoot agents on hello@durian.in) ──
+
+  product_enquiry:
+    display_name: Product Enquiry
+    action: in_channel
+    description: |
+      Customer is asking ABOUT a specific product or a category of products
+      before buying — its availability, price, dimensions, materials,
+      colour options, store stock, online link, exchange/upgrade offer, or
+      where to find it. Pre-purchase intent. NOT an existing order.
+    examples:
+      - "Do you have Devansh set 6 by 5 feet"
+      - "Single sitter sofa cum bed available?"
+      - "Garden side table"
+      - "Are there trolly drawers for rooms"
+      - "Office chair exchange is possible at pin code 700135?"
+      - "Is this available in jamshedpur Jharkhand"
+    # Subject-line keyword anchors from the client's Email-Keywords sheet.
+    # NOTE: door / veneer / plywood / laminate / frame product terms route
+    # to the dedicated doors_veneer_plywood category, NOT here.
+    keywords:
+      - Price Inquiry
+      - Product Catalog
+      - Cost Estimate
+      - Budget Quote
+      - Mattresses with High Quality
+      - exchange option
+      - store availability
+      - sofa availability
+      - chair availability
+
+  general_information:
+    display_name: General Information
+    action: in_channel
+    description: |
+      Generic question with no product or order context — store hours,
+      store locations, warranty in general, return policy, payment
+      methods, contact details, feedback that isn't a complaint, simple
+      questions about the brand. If it could be answered by a public
+      FAQ page, it's General Information.
+    examples:
+      - "What are your store timings?"
+      - "Do you have a store near Hyderabad?"
+      - "What is your warranty policy?"
+      - "How can I contact customer support?"
+    keywords:
+      - Warranty Enquiry
+      - 25 Year Warranty Request
+      - store locator
+      - store timings
+      - contact details
+      - return policy
+
+  existing_order_enquiry:
+    display_name: Existing Order Enquiry
+    action: in_channel
+    description: |
+      Customer is asking about an order they HAVE ALREADY PLACED — its
+      delivery status, tracking, installation appointment, order number
+      reference, dispatch ETA, post-delivery follow-up. They are NOT
+      complaining about it (that would be Complaint); they're just
+      asking for status / info. Look for order numbers, "my order",
+      "when will it arrive", "tracking", "still waiting for delivery".
+    examples:
+      - "Order #102215 - when will it be delivered?"
+      - "My recliner was supposed to come yesterday, any update?"
+      - "Need installation date for the sofa I bought last week"
+      - "Tracking for order placed on 14 June"
+    keywords:
+      - Order Placement
+      - order status
+      - delivery update
+      - installation date
+      - dispatch status
+      - tracking
+
+  # ── Forward-out: complaints / disputes ──
+
+  complaint:
+    display_name: Complaint
+    action: forward
+    forward_to: customersupport@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Customer is unhappy about a product they received, a service issue,
+      a defective item, poor experience, damaged delivery, missing parts,
+      or post-sale support failure. Language is frustrated/angry but
+      stops short of legal threats. Strong markers: "defective",
+      "damaged", "not working", "poor quality", "no one responding",
+      complaint numbers being referenced, frustration about service.
+    examples:
+      - "given me a defective product now no one is responding"
+      - "Power issues with our Leather Recliner: service personnel from both Pepperfry & Durian have made 2 or more visits"
+      - "fabric is peeling and charging huge amount to change it within warranty period"
+      - "Ganda qwality very bad"
+      - "Worst products and BRAND, use engineered wood products"
+      - "Complaint number 102215, no one is responding"
+    # Client keyword anchors — furniture defect / repair / service-failure
+    # vocabulary. (NOTE: a defective DOOR/veneer/plywood item still routes
+    # to doors_veneer_plywood, which owns enquiries AND complaints for that
+    # product line per the client sheet.)
+    keywords:
+      - Sofa Seat Repair
+      - Sofa Seat Sagging
+      - Sofa Structural Damage
+      - Recliner Leather Peeling
+      - Upholstery Defect
+      - Chair Crack
+      - Table Wobbling
+      - Furniture Damage
+      - Product Defect
+      - Manufacturing Defect
+      - Workmanship Issue
+      - Quality Complaint
+      - Poor Product Quality
+      - Durability Issue
+      - Warranty Claim
+      - Warranty Complaint
+      - Replacement Request
+      - Refund Request
+      - Repair Request
+      - Delayed Service
+      - Repeat Complaint
+      - Unresolved Complaint
+      - Customer Frustration
+      - No Response From Service Team
+      - Poor Installation
+      - Incorrect Assembly
+      - Installation Damage
+
+  legal_complaint:
+    display_name: Legal Complaint
+    action: forward
+    forward_to: escalation@durian.in
+    cc: [customersupport@durian.in]
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Communication that explicitly invokes legal channels: legal
+      notices from lawyers/advocates, copyright/IP claims, demands for
+      compensation citing Acts/Sections, threats to escalate to consumer
+      court / labour commissioner / regulator, cease-and-desist,
+      privacy/data complaints. Distinct from "Complaint": LEGAL keywords
+      (Act, Section, Notice, advocate, lawyer, demand, escalate to
+      court, lakh/crore claim) are present.
+    examples:
+      - "We hereby demand payment of compensation of Rs 6,36,000 within seven days, failing which our client will initiate legal proceedings"
+      - "Section 51 of the Copyright Act, 1957 — unauthorized use of copyrighted photographs"
+      - "Adv. Rajesh Kumar, Kumar & Associates Advocates"
+      - "Will escalate this to consumer court if not resolved"
+    keywords:
+      - legal notice
+      - Legal Complaint Threat
+      - Demand for Replacement / Refund with Compensation
+      - Consumer Forum Escalation
+      - Consumer Court Escalation
+      - National Consumer Helpline
+      - Copyright Infringement
+      - Misrepresentation
+      - Breach Of Commitment
+      - Legal Risk Case
+      - Senior Management Escalation
+
+  # ── Forward-out: business / partnership ──
+
+  franchise_dealership:
+    display_name: Franchise / Dealership Enquiry
+    action: forward
+    forward_to: nagender.rao@durian.in
+    cc: [sneha.gaikwad@durian.in, sujitha.acharya@durian.in]
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Someone wants to open a Durian franchise / become a dealer /
+      authorised reseller / distributor — asking for franchise terms,
+      dealership opportunities, store-opening proposals, territory
+      availability. They want to SELL Durian products, not buy them.
+    examples:
+      - "Interested in opening a Durian franchise in Pune"
+      - "Looking for dealership opportunity for our existing furniture store"
+      - "Authorised reseller terms — what's the investment required?"
+      - "Want to start a Durian showroom in our city"
+    keywords:
+      - Franchise Enquiry
+      - Dealership Enquiry
+      - Space Available for Rent
+      - Ground Floor Commercial Space Available for Rent
+      - Installation Partner Enquiry
+      - Business Partnership Enquiry
+
+  vendor_supplier_enquiry:
+    display_name: Vendor / Supplier Enquiry
+    action: forward
+    forward_to: nagender.rao@durian.in
+    cc: [sujitha.acharya@durian.in]
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Someone wants to SELL TO Durian — raw materials, components,
+      services, manufacturing capacity, packaging, logistics. They are
+      a potential supplier offering their wares to Durian (not a
+      customer). Distinct from Franchise (they want to sell THEIR
+      products, not Durian's).
+    examples:
+      - "Our company manufactures plywood; want to be a supplier"
+      - "We provide PU foam — interested in becoming a vendor"
+      - "Quotation for our packaging services"
+      - "Offering bulk fabric supply for sofa covers"
+    keywords:
+      - Vendor Registration Request
+      - Vendor Onboarding Request
+      - Vendor Registration Enquiry
+      - OEM Authorization
+      - GST Registered Vendor
+      - Service Provider Enquiry
+      - Subcontractor Registration Request
+      - Wooden Furniture Supply
+      - Webbing Supplier
+      - Bulk Availability of PVC Sheets
+
+  marketing_advertising:
+    display_name: Marketing / Advertising Enquiry
+    action: forward
+    forward_to: shilpa@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Agencies or media offering marketing / advertising / PR / digital
+      services to Durian. Influencers offering paid collaboration that
+      is specifically marketing-focused (rather than a brand
+      collaboration request — see Collaboration). Magazines /
+      newspapers offering ad space.
+    examples:
+      - "Our digital agency would like to pitch a campaign for Durian"
+      - "Offering print ad space in our home-design magazine"
+      - "PR proposal for upcoming launch coverage"
+      - "Run influencer marketing campaign for your brand"
+    keywords:
+      - Advertising Proposal
+      - Local Train Digital TV Advertising Proposal
+      - Photography & Video Production
+      - PR proposal
+      - Media Production Services
+
+  collaboration_request:
+    display_name: Collaboration Request
+    action: forward
+    forward_to: snehal@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Brand-to-brand collaboration, social influencer wanting an unpaid
+      barter / product seeding, content creator wanting Durian products
+      to feature in their content, joint launch or co-branded event
+      requests. Distinct from Marketing/Advertising: the collaboration
+      partner is creative/social/brand-side, not a paid services vendor.
+    examples:
+      - "I'm a home-design influencer with 50k followers, would love to collaborate"
+      - "Brand collaboration for our upcoming wedding-season launch"
+      - "Joint event proposal — our lifestyle brand × Durian"
+      - "Content barter — your sofa, my Instagram reel"
+    keywords:
+      - Brand Collaboration Opportunity
+      - Collaboration Opportunity with Durian
+      - Celebrity Collaborations
+      - Influencer Marketing
+      - Guest Posting or Link Exchange
+      - Export Partnership Opportunity
+      - Music Studio Collaboration
+
+  career_job_enquiry:
+    display_name: Career / Job Enquiry
+    action: forward
+    forward_to: hrcoordinator@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Job application, internship application, resume submission, asking
+      about open positions, asking about career growth at Durian.
+      Sender is looking to JOIN Durian as an employee/intern.
+    examples:
+      - "Please find attached my CV for the marketing role"
+      - "Interested in interning at Durian — final year MBA student"
+      - "Are there any openings for store managers in Mumbai?"
+      - "Application for the position of Customer Service Executive"
+    keywords:
+      - Job Application
+      - CV Submission
+      - Candidate Resume Submission
+      - Recruitment Enquiry
+      - Hiring Request
+      - Fresher Job Application
+      - Experienced Candidate Application
+      - Store Manager Application
+      - Software Engineer Application
+      - Career Opportunity
+      - Open Position Enquiry
+      - Work From Home Job Enquiry
+
+  project_bulk_order:
+    display_name: Project / Bulk Order
+    action: forward
+    forward_to: marketing@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Corporate / institutional bulk purchase — hotels, offices,
+      hospitals, builders, real-estate projects, government tenders.
+      Quantity is large (often 10+ units / lakhs of value). The buyer
+      is a business needing furniture in volume, not a household
+      customer.
+    examples:
+      - "Need to furnish 50 hotel rooms in Goa — bulk order quote please"
+      - "Builder requirement for 200 apartments — modular kitchens"
+      - "Office relocation project — need 80 ergonomic chairs"
+      - "Tender enquiry for government department"
+    keywords:
+      - Bulk Order
+      - Request for Quotation
+      - 50 Units
+      - Tender
+      - GeM Authorization
+      - Central Government Supplies
+      - Corporate Supply
+      - Needs Rate for Modular Furniture (bulk)
+      - Project Requirement
+
+  full_home_customization:
+    display_name: Full Home Customization
+    action: forward
+    forward_to: pratik.ojha@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Customer wants Durian's full-home interior / modular design
+      service for their entire home — multiple rooms, end-to-end
+      furniture design including modular kitchen, wardrobes, beds,
+      living-room set. Distinct from a simple product enquiry: they
+      want a DESIGN ENGAGEMENT, not a single product.
+    examples:
+      - "Looking for full home interior service for my 3BHK flat"
+      - "Need modular kitchen + wardrobes + beds — entire 4BHK"
+      - "Want to do up the whole house — what's your design package?"
+      - "Full home customisation for my new villa"
+    keywords:
+      - Modular Kitchen Enquiry
+      - Island Kitchen Enquiry
+      - Kitchen Design Consultation
+      - Custom Kitchen Design
+      - 3 BHK Customisation
+      - Turnkey Interior Solution
+      - Home Interior Enquiry
+      - Interior Design Consultation
+      - Modular Wardrobe Requirement
+      - Complete Home Design
+      - Full Home Customisation Enquiry
+
+  # ── Doors / Veneer / Plywood — dedicated product line (Anshu Tiwari) ──
+  # Added per the client's Email-Keywords sheet, which routes ALL door /
+  # veneer / plywood / laminate / frame enquiries AND complaints to a
+  # dedicated owner (Anshu Tiwari), separate from the general
+  # complaint/product flows.
+  doors_veneer_plywood:
+    display_name: Doors / Veneer / Plywood
+    action: forward
+    forward_to: anshu.tiwari@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: true
+    description: |
+      Any enquiry OR complaint specifically about Durian's doors, door
+      frames, veneers, plywood, or laminates product line — pricing,
+      catalogue, finishes (PU matt/gloss), specific door series (Flush,
+      Herring, Golden Teak), frame options, door installation/replacement,
+      or a defect in a door/veneer/laminate item. This is a dedicated
+      product vertical: even a COMPLAINT about a door routes here (not to
+      the general Complaint category), and even a pre-purchase door
+      enquiry routes here (not to general Product Enquiry).
+    examples:
+      - "Need a quotation for 40 mm flush doors with golden teak veneer"
+      - "What are your standard door sizes and frame options?"
+      - "Price list for decorative laminates and PU gloss finish"
+      - "The veneer door installed last month is peeling at the edges"
+      - "Interested in bulk door requirement for our project"
+    keywords:
+      - Doors
+      - Door Frames
+      - Flush Doors
+      - Veneer Doors
+      - Wooden Doors
+      - Interior Doors
+      - Premium Doors
+      - Laminates
+      - Decorative Laminates
+      - PU Matt Finish
+      - PU Gloss Finish
+      - Golden Teak Veneer
+      - Door Installation
+      - Door Replacement
+      - Door Quotation
+      - Door Catalog
+      - Laminate Catalog
+      - Frame Options
+      - Frame Pricing
+      - 40 mm Flush Door
+      - Herring Door
+      - Bulk Door Requirement
+      - Door Supplier
+      - Interior Door Solutions
+
+# Fallback when the classifier returns low confidence or hits an unrecognised
+# category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
+# handles manually. Phase 2: same behaviour as in_channel (agent resolves).
+fallback:
+  display_name: Uncategorised
+  action: in_channel
+  description: |
+    Classifier was not confident enough to pick a category, OR the email
+    doesn't fit any of the 13 categories cleanly. Agent decides.
+
+# Confidence threshold below which we treat the classification as the
+# fallback category. Tune after observing real-world behaviour.
+confidence_threshold: 0.6
+
+# Acknowledgment templates sent to the customer. {customer_name} is
+# substituted at send time; if the contact has no name on file the
+# substitution renders as "there" (avoiding the "[Customer Name]"
+# placeholder bug we already fixed once in the Copilot prompt). Phase 2A
+# only PREVIEWS these templates in a dry-run private note — nothing is
+# emailed yet. Phase 2B flips the dry-run flag and the bridge actually
+# sends them as outbound messages on the conversation.
+templates:
+
+  in_channel:
+    # Applies to product_enquiry / general_information / existing_order_enquiry.
+    # Verbatim from the client's Executive Detail spreadsheet.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Thank you for contacting Durian. Your enquiry is valuable for us.
+      Our team is currently reviewing your request and will get in
+      touch with you at the earliest within our working business hours.
+
+      Regards,
+      Team Durian
+
+  forward_generic:
+    # Applies to complaint / legal_complaint / franchise_dealership /
+    # vendor_supplier_enquiry / marketing_advertising / collaboration_request /
+    # project_bulk_order / full_home_customization.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Your email has been forwarded to our concerned team for review.
+      A representative from this team will reach out to you with an
+      official update within 24 to 48 business hours.
+
+      Thank you,
+      Team Durian
+
+  forward_hr:
+    # Career-specific variant from the spreadsheet. Same shape as
+    # forward_generic but mentions HR explicitly so applicants get a
+    # consistent next-step signal.
+    subject: "Re: {original_subject}"
+    body: |
+      Dear {customer_name},
+
+      Your email has been forwarded to our concerned team. A
+      representative from our HR team will reach out to you with an
+      official update within 24 to 48 business hours.
+
+      For quick support, you can also write to hrcoordinator@durian.in.
+
+      Thank you,
+      Team Durian
+
+# Which template each category uses. Keep keys in sync with categories above.
+acknowledgment_template_for:
+  product_enquiry:          in_channel
+  general_information:      in_channel
+  existing_order_enquiry:   in_channel
+  complaint:                forward_generic
+  legal_complaint:          forward_generic
+  franchise_dealership:     forward_generic
+  vendor_supplier_enquiry:  forward_generic
+  marketing_advertising:    forward_generic
+  collaboration_request:    forward_generic
+  career_job_enquiry:       forward_hr
+  project_bulk_order:       forward_generic
+  full_home_customization:  forward_generic
+  doors_veneer_plywood:     forward_generic
+  fallback:                 in_channel

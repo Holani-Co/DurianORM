@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import hmac
 import html
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -804,6 +805,283 @@ def _format_message_body(content: str, max_len: int = 1000) -> str:
     return html.escape(s).replace("\n", "<br/>")
 
 
+# ── Phase 2A: dry-run preview of the auto-acknowledge / auto-forward flow ─
+# Phase 2A is the "say what we'd do, don't actually do it" step between the
+# Phase 1 categorizer (observe-only) and the Phase 2B action layer (which
+# actually sends emails). It renders:
+#
+#   - The acknowledgment template that would go to the customer, with
+#     the contact's real name substituted (defeats the [Customer's Name]
+#     placeholder bug we already fixed on the Copilot side).
+#   - For `forward` categories: the routing destination (TO + CC + BCC)
+#     and whether the customer would be CC'd, all from the YAML rule.
+#
+# The result is appended to the categorizer's existing private note so
+# agents can sanity-check the plan on real-world emails before we flip
+# PHASE_2_DRY_RUN=false and the bridge starts sending.
+
+# Phase 2 behavioural switch.
+#   true  (default) — dry-run: render a private-note preview of what
+#                     would be sent, nothing actually goes out.
+#   false           — Phase 2B: bridge actually sends the customer
+#                     acknowledgment + (for forward categories) the
+#                     forwarded email to the department address. The
+#                     private note shifts to a short "action taken"
+#                     audit summary instead of the dry-run preview.
+_PHASE_2_DRY_RUN = os.environ.get("PHASE_2_DRY_RUN", "true").lower() != "false"
+
+# Customer-acknowledgment gate (independent of the dry-run flag above).
+#   true            — bridge sends the templated acknowledgment to the
+#                     customer (the existing behaviour from the spec).
+#   false (default) — bridge SKIPS the acknowledgment entirely. Forwards
+#                     to departments still run when in non-dry-run mode.
+# Set as a separate flag so the prod test phase can run forwards without
+# emailing real customers, then flip ack on later without a redeploy.
+_EMAIL_CUSTOMER_ACK_ENABLED = (
+    os.environ.get("EMAIL_CUSTOMER_ACK_ENABLED", "false").lower() == "true"
+)
+
+
+def _resolve_customer_name(sender_name: str, sender_email: str) -> str:
+    """Return a name suitable for substituting into '{customer_name}' in an
+    acknowledgment template. Falls back through name → email-local-part →
+    'there', so we NEVER produce 'Dear [Customer Name],' literally."""
+    name = (sender_name or "").strip()
+    if name:
+        return name
+    if sender_email and "@" in sender_email:
+        local = sender_email.split("@", 1)[0]
+        # Light tidy: a-bc.de → "A-bc De"; keeps it human-ish for greetings.
+        cleaned = local.replace(".", " ").replace("_", " ").strip()
+        if cleaned:
+            return cleaned.title()
+    return "there"
+
+
+def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
+    """Look up which template applies to this category via the YAML's
+    acknowledgment_template_for map. Returns the {subject, body} dict
+    (or None if no template / templates section missing)."""
+    rules     = classifier._ROUTING_RULES or {}
+    templates = rules.get("templates") or {}
+    mapping   = rules.get("acknowledgment_template_for") or {}
+    key       = mapping.get(category) or mapping.get("fallback")
+    if not key:
+        return None
+    return templates.get(key)
+
+
+async def _create_or_pause_zoho_ticket(conv_id: int,
+                                       data: dict,
+                                       sender_email: str,
+                                       escalation_label: str) -> tuple[Optional[str], Optional[dict]]:
+    """Dedup-aware Zoho ticket creation. If the contact already has open
+    tickets, pause for an agent decision (the ticket-dedup feature); else
+    create a fresh ticket and surface it in Chatwoot. Returns
+    (zoho_ticket_id, pending_decision). Best-effort — never raises.
+
+    Factored out of handle_message_created so the new 13-category flow can
+    request a ticket for complaint / legal_complaint categories without
+    duplicating the dedup logic."""
+    zoho_ticket = None
+    pending_decision = None
+    open_tickets = []
+    if sender_email:
+        try:
+            open_tickets = await zoho.search_open_tickets_by_email(sender_email, limit=5)
+        except Exception as e:
+            print(f"[zoho-dedup] open-ticket lookup failed for {sender_email!r}: {e}")
+
+    if open_tickets:
+        print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open ticket(s) "
+              f"for {sender_email!r} — pausing auto-create")
+        await _pause_for_agent_decision(
+            conv_id=conv_id, sender_email=sender_email,
+            escalation_label=escalation_label, candidates=open_tickets,
+        )
+        pending_decision = {"candidates": [t["id"] for t in open_tickets],
+                            "source": escalation_label}
+    else:
+        try:
+            messages, summary = await _ticket_context(conv_id)
+            ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
+            zoho_ticket = ticket.get("id")
+            print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
+            await _surface_ticket_in_chatwoot(conv_id, ticket, source=f"auto_{escalation_label}")
+        except Exception as e:
+            print(f"[zoho] ERROR creating ticket for conv {conv_id} "
+                  f"(reason={escalation_label}): {e}")
+    return zoho_ticket, pending_decision
+
+
+async def _phase2_execute_actions(conv_id: int,
+                                  category_result: dict,
+                                  rule: Optional[dict],
+                                  sender_name: str,
+                                  sender_email: str,
+                                  original_content: str,
+                                  original_subject: str) -> list[str]:
+    """Phase 2B action layer: when PHASE_2_DRY_RUN is off, ACTUALLY send the
+    acknowledgment + (for forward categories) the forwarded email via
+    Chatwoot's outbound channel. Both use the conversation's existing
+    SMTP — no new email credentials anywhere.
+
+    Returns a list of markdown lines to append to the audit private note
+    so the agent sees a short "📤 Sent acknowledgment / 📤 Forwarded to X"
+    summary inline with the categorizer's decision."""
+    cat_key = category_result.get("category") or "fallback"
+    action  = category_result.get("action")   or "in_channel"
+    name    = _resolve_customer_name(sender_name, sender_email)
+    template = _resolve_acknowledgment_template(cat_key)
+    audit: list[str] = []
+
+    # ── Customer acknowledgment ─────────────────────────────────────────
+    # Sent only when EMAIL_CUSTOMER_ACK_ENABLED=true. During the prod test
+    # phase the flag is off — forwards still run, but no customer email
+    # goes out. Flip the env var on the VM when the client is ready.
+    #
+    # Pass the customer email as an EXPLICIT to_emails. Without it,
+    # Chatwoot's defaulting-to-contact behaviour proved unreliable
+    # (the conv 192 incident) — and Chatwoot's mailer reads to_emails
+    # from the latest outgoing message rather than the in-flight one, so
+    # the explicit recipient is what makes the upstream-patched mailer
+    # do the right thing.
+    if not _EMAIL_CUSTOMER_ACK_ENABLED:
+        audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
+    elif template and sender_email:
+        ack_body = (template.get("body") or "").format(
+            customer_name    = name,
+            original_subject = original_subject or "",
+        )
+        try:
+            await chatwoot.send_outgoing_message(
+                conv_id, ack_body, to_emails=sender_email
+            )
+            audit.append(f"✅ Acknowledgment sent to the customer ({sender_email}).")
+        except Exception as e:
+            print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")
+            audit.append(f"⚠️ Acknowledgment could not be sent: {e}")
+
+    # ── Forward to the concerned department (forward categories only) ──
+    # Uses Chatwoot's `to_emails` override so the email goes to the
+    # department address (NOT the customer). cc/bcc applied per the YAML
+    # rule; customer optionally Cc'd when the rule says so.
+    if action == "forward" and rule:
+        forward_to = (rule.get("forward_to") or "").strip()
+        cc_list    = list(rule.get("cc") or [])
+        if rule.get("include_customer_in_cc") and sender_email:
+            cc_list.append(sender_email)
+        bcc_list   = list(rule.get("bcc") or [])
+
+        if not forward_to:
+            audit.append("⚠️ Forward skipped: no `forward_to` in routing rule")
+        else:
+            # Compose the forwarded body. Customer-safe wording: the
+            # customer is Cc'd on this email for complaint/legal/doors, so
+            # it must NOT expose internal routing jargon ("auto-forwarded by
+            # routing bridge", category enum, etc.). Reads like a normal
+            # professional internal forward of the customer's message.
+            fwd_lines = [
+                f"Forwarding the message below from {sender_name or sender_email} "
+                "for your review and necessary action.",
+                "",
+                f"From: {sender_name or '(unknown)'} <{sender_email}>",
+                f"Subject: {original_subject or '(no subject)'}",
+                "",
+                "----------------------------------------",
+                "",
+                original_content.strip(),
+                "",
+                "----------------------------------------",
+                "Regards,",
+                "Team Durian",
+            ]
+            forward_body = "\n".join(fwd_lines)
+            try:
+                await chatwoot.send_outgoing_message(
+                    conv_id,
+                    forward_body,
+                    to_emails  = forward_to,
+                    cc_emails  = ", ".join(cc_list)  if cc_list  else None,
+                    bcc_emails = ", ".join(bcc_list) if bcc_list else None,
+                )
+                audit.append(f"📨 Forwarded to {forward_to}.")
+                if cc_list:
+                    audit.append(f"Cc: {', '.join(cc_list)}")
+            except Exception as e:
+                print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
+                audit.append(f"⚠️ Forward could not be sent: {e}")
+    elif action == "in_channel":
+        # In-channel categories aren't forwarded — the conversation stays
+        # open for an agent to handle. Say so plainly in the note.
+        audit.append("This conversation stays here for the team to assist.")
+
+    # Mark the conversation as Phase-2-handled so subsequent webhook fires
+    # on this conv (e.g. department replies landing as new incoming
+    # messages) don't re-trigger the whole classify-and-forward dance —
+    # those need human handling, not another auto-forward loop.
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "phase2_handled_at": _now_iso(),
+            "phase2_action":     action,
+            "phase2_category":   cat_key,
+        })
+    except Exception as e:
+        print(f"[phase2b] failed to mark phase2_handled_at: {e}")
+
+    return audit
+
+
+def _render_phase2_dry_run_preview(category_result: dict,
+                                   rule: Optional[dict],
+                                   sender_name: str,
+                                   sender_email: str,
+                                   original_subject: str) -> list[str]:
+    """Render the dry-run preview as a list of markdown lines, ready to be
+    appended to the categorizer's private note. Returns an empty list when
+    Phase 2A is disabled or when there's nothing to preview."""
+    if not _PHASE_2_DRY_RUN:
+        return []
+
+    cat_key = category_result.get("category") or "fallback"
+    action  = category_result.get("action")   or "in_channel"
+    name    = _resolve_customer_name(sender_name, sender_email)
+    template = _resolve_acknowledgment_template(cat_key)
+
+    # Review-mode banner — plain language, no "Phase 2A / dry-run" jargon.
+    lines = ["_⏳ Automated handling is in review mode — nothing has been "
+             "sent yet. This is a preview of what would happen:_"]
+
+    if action == "forward" and rule:
+        forward_to = rule.get("forward_to") or "(not configured)"
+        cc_list    = rule.get("cc") or []
+        bcc_list   = rule.get("bcc") or []
+        include_customer = bool(rule.get("include_customer_in_cc"))
+        cc_effective = list(cc_list) + ([sender_email] if include_customer and sender_email else [])
+
+        lines.append("")
+        lines.append(f"📨 Would forward to **{forward_to}**.")
+        if cc_effective:
+            lines.append(f"Cc: {', '.join(cc_effective)}")
+        if bcc_list:
+            lines.append(f"Bcc: {', '.join(bcc_list)}")
+
+    if template:
+        body = (template.get("body") or "").format(
+            customer_name    = name,
+            original_subject = original_subject or "",
+        )
+        lines.append("")
+        lines.append("✅ Would acknowledge the customer with:")
+        for body_line in body.rstrip().splitlines():
+            lines.append(f"> {body_line}" if body_line else ">")
+    elif action == "in_channel":
+        lines.append("")
+        lines.append("This conversation would stay here for the team to assist.")
+
+    return lines
+
+
 # ── Document extraction: bills / receipts / order screenshots ─────────────
 # Fire-and-forget task scheduled by handle_message_created for every
 # incoming non-comment message. Gating (attachment types, bill-ish text
@@ -1079,8 +1357,31 @@ async def handle_message_created(data: dict) -> dict:
     except Exception as e:
         print(f"[spam] merge_custom_attributes failed: {e}")
 
-    # Confidence-aware actions
-    if email_category == "spam":
+    # ── 13-category classifier (runs ALWAYS, before the spam early-exit) ──
+    # Run the Durian routing classifier up-front so a confident business
+    # category can OVERRIDE a spam/promotional/automated mislabel from the
+    # generic spam classifier ("category wins"). Example: a brand-collab
+    # email reads as "promotional" to the spam filter but is really a
+    # collaboration_request that must be acknowledged + forwarded.
+    category_result = None
+    rule = None
+    try:
+        category_result = await classifier.classify_email_category(
+            content, sender_email=sender_email, subject=real_subject
+        )
+        rule = category_result.pop("rule", None)
+        print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
+              f"confidence={category_result['confidence']} "
+              f"action={category_result['action']!r}")
+    except Exception as e:
+        print(f"[category-v2] classify ERROR ({type(e).__name__}): {e}")
+
+    category_confident = bool(category_result) and \
+        category_result.get("category") != "fallback"
+
+    # ── Decision A: spam/promotional only stops the flow when the
+    # categorizer is ALSO uncertain. A confident business category wins. ──
+    if email_category == "spam" and not category_confident:
         if classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD:
             try:
                 # Snooze (not resolve) so it lands in the Snoozed tab, not
@@ -1100,9 +1401,127 @@ async def handle_message_created(data: dict) -> dict:
             "auto_snoozed":          classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD,
         }
 
-    if email_category in ("promotional", "automated"):
+    if email_category in ("promotional", "automated") and not category_confident:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
         return {"classified_email_type": email_category, "auto_handled": True}
+
+    if email_category in ("spam", "promotional", "automated") and category_confident:
+        print(f"[category-v2] '{email_category}' label overridden — confident "
+              f"category {category_result['category']!r} wins; proceeding with "
+              f"acknowledge/forward")
+
+    # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
+    # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.
+    # Phase 2B (PHASE_2_DRY_RUN=false): actually acknowledge + forward.
+    if category_result is not None:
+      try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "email_category_v2": {
+                **category_result,
+                "classified_at": _now_iso(),
+                # Capture WHICH category was picked but stop short of
+                # serialising the full YAML rule (forward_to / cc / bcc)
+                # — Phase 2 will re-resolve it on the fly when forwarding.
+                "display_name": (rule or {}).get("display_name"),
+            },
+        })
+
+        # Loop guard: if this conv has already been Phase-2-handled, do
+        # NOT execute actions again. Reply lands as a new incoming
+        # message → webhook fires → we'd otherwise re-forward / re-ack
+        # the customer in a tight loop. The phase2_handled_at flag is
+        # the canonical "bot is done with this conv, hand back to human"
+        # marker. (Categorizer still ran so the audit row stays useful;
+        # only the action layer is suppressed.)
+        existing_phase2 = (
+            (await chatwoot.get_conversation(conv_id)).get("custom_attributes") or {}
+        ).get("phase2_handled_at") if not _PHASE_2_DRY_RUN else None
+
+        # Phase 2A (dry-run) preview OR Phase 2B (real send) actions —
+        # mutually exclusive based on the PHASE_2_DRY_RUN env flag.
+        action_section: list[str] = []
+        if _PHASE_2_DRY_RUN:
+            try:
+                action_section = _render_phase2_dry_run_preview(
+                    category_result   = category_result,
+                    rule              = rule,
+                    sender_name       = sender.get("name") or "",
+                    sender_email      = sender_email,
+                    original_subject  = real_subject or "",
+                )
+            except Exception as e:
+                print(f"[category-v2] dry-run render failed: {e}")
+        elif existing_phase2:
+            print(f"[phase2b] conv {conv_id} already handled at "
+                  f"{existing_phase2} — skipping action layer (loop guard)")
+            action_section = [
+                "🔁 _Phase 2 actions already executed for this conversation; "
+                "skipping re-send (loop guard)._"
+            ]
+        else:
+            try:
+                action_section = await _phase2_execute_actions(
+                    conv_id           = conv_id,
+                    category_result   = category_result,
+                    rule              = rule,
+                    sender_name       = sender.get("name") or "",
+                    sender_email      = sender_email,
+                    original_content  = content,
+                    original_subject  = real_subject or "",
+                )
+            except Exception as e:
+                print(f"[phase2b] action layer failed: {e}")
+                action_section = [f"⚠️ Phase 2 action layer error: `{e}`"]
+
+        # Compose the agent-facing note. Professional, jargon-free: the
+        # category, a one-line reason, and what was done. Internal terms
+        # (confidence score, "observe-only", "Phase 2") are kept out — a
+        # low-confidence classification is flagged in plain language
+        # instead, since that's the only case an agent needs to act on.
+        display = (rule or {}).get("display_name") or category_result["category"]
+        note_lines = [f"🗂️ **Auto-classified as: {display}**"]
+        if category_result.get("category") == "fallback":
+            note_lines.append(
+                "_The category wasn't clear — please review and route manually._"
+            )
+        if category_result.get("reason"):
+            note_lines.append(category_result["reason"])
+        if action_section:
+            note_lines.append("")
+            note_lines.extend(action_section)
+
+        try:
+            await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
+        except Exception as e:
+            print(f"[category-v2] post_private_note failed: {e}")
+      except Exception as e:
+        # Never let the categorizer break the rest of the flow.
+        print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
+
+    # ── Decision B: NO Zoho ticket for anything auto-forwarded ───────────
+    # Per ops guidance: when an email is auto-forwarded to a department, we
+    # never create a Zoho ticket — not even for legal/complaint. The
+    # forward IS the handling; the department owns it from there. So a
+    # confident FORWARD category is fully handled by the categorizer above
+    # (acknowledge + forward) and short-circuits here: no ticket, no
+    # generic team-routing.
+    #
+    # IN-CHANNEL categories (product / general / existing-order) stay in
+    # hello@ for an agent. Those fall THROUGH to the existing team-routing
+    # + Zoho escalation, so a ticket is created only when the existing case
+    # rules warrant it (agent-set priority, or a classifier escalation
+    # signal) — i.e. ticket creation "depends on the case", as requested.
+    if category_confident and category_result["action"] == "forward":
+        return {
+            "classified":  category_result["category"],
+            "action":      "forward",
+            "handled_by":  "categorizer",
+        }
+
+    # ── Fall through for: in-channel categories, and any uncertain
+    # (fallback) email. The original team-routing + Zoho escalation below
+    # is unchanged — it creates a ticket only when its existing case rules
+    # fire (priority / escalation signal).
 
     # Team routing.
     #
@@ -1170,48 +1589,12 @@ async def handle_message_created(data: dict) -> dict:
     zoho_ticket = None
     pending_decision = None
     if should_escalate:
-        # ── Ticket dedup pre-check ─────────────────────────────────────────
-        # Before creating a ticket, see whether this contact already has an
-        # open Zoho ticket. If so, *pause* creation and surface a decision
-        # banner in Chatwoot so the agent can choose to either (a) attach
-        # this conversation to the existing ticket as a comment, or
-        # (b) create a new one anyway. This avoids the noise of duplicate
-        # tickets for the same customer issue.
-        open_tickets = []
-        if sender_email:
-            try:
-                open_tickets = await zoho.search_open_tickets_by_email(
-                    sender_email, limit=5
-                )
-            except Exception as e:
-                print(f"[zoho-dedup] open-ticket lookup failed for "
-                      f"{sender_email!r}: {e}")
-
-        if open_tickets:
-            print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open "
-                  f"ticket(s) found for {sender_email!r} — pausing auto-create")
-            await _pause_for_agent_decision(
-                conv_id          = conv_id,
-                sender_email     = sender_email,
-                escalation_label = escalation_label,
-                candidates       = open_tickets,
-            )
-            pending_decision = {
-                "candidates": [t["id"] for t in open_tickets],
-                "source":     escalation_label,
-            }
-        else:
-            try:
-                messages, summary = await _ticket_context(conv_id)
-                ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
-                zoho_ticket = ticket.get("id")
-                print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
-                await _surface_ticket_in_chatwoot(
-                    conv_id, ticket, source=f"auto_{escalation_label}"
-                )
-            except Exception as e:
-                print(f"[zoho] ERROR creating ticket for conv {conv_id} "
-                      f"(team={team_key}, reason={escalation_label}): {e}")
+        # Dedup-aware ticket creation (pause if the contact already has
+        # open tickets, else create). Same helper the categorizer path
+        # uses for complaint/legal.
+        zoho_ticket, pending_decision = await _create_or_pause_zoho_ticket(
+            conv_id, data, sender_email, escalation_label=escalation_label
+        )
 
     return {
         "classified":            team_key,

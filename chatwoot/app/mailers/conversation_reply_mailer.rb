@@ -181,7 +181,16 @@ class ConversationReplyMailer < ApplicationMailer
   end
 
   def to_emails_from_content_attributes
-    content_attributes = @conversation.messages.outgoing.last&.content_attributes
+    # Use the in-flight message (the one we're delivering RIGHT NOW)
+    # rather than `messages.outgoing.last`. When two outgoing messages are
+    # created back-to-back with different to_emails (e.g. the auto-router
+    # creates an acknowledgment to the customer + a forward to a department),
+    # the older code always read the latest outgoing record's to_emails for
+    # every send job — so the acknowledgment was delivered to whoever the
+    # forward was addressed to. `current_message` already handles the
+    # fallback to `messages.outgoing.last` for legacy callers that don't
+    # set @message (e.g. the batched reply_without_summary path).
+    content_attributes = current_message&.content_attributes
 
     return [] unless content_attributes
     return [] unless content_attributes[:to_emails]

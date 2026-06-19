@@ -1,0 +1,5 @@
+
+# Local routing-rule overrides for development/testing.
+# Allows redirecting forwards to test emails without touching the
+# committed routing_rules.yaml. Merged on top of the base YAML.
+routing_rules.local.yaml
