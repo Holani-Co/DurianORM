@@ -1008,6 +1008,15 @@ async def _phase2_execute_actions(conv_id: int,
                 audit.append(f"📨 Forwarded to {forward_to}.")
                 if cc_list:
                     audit.append(f"Cc: {', '.join(cc_list)}")
+
+                # Tag the conversation so agents can find all auto-forwarded
+                # emails in one place via a Chatwoot saved View filtered by
+                # this label. Best-effort — must not undo the forward.
+                try:
+                    await chatwoot.add_label(conv_id, "auto-forwarded")
+                    audit.append("🏷️ Tagged auto-forwarded.")
+                except Exception as e:
+                    print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
             except Exception as e:
                 print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
                 audit.append(f"⚠️ Forward could not be sent: {e}")
