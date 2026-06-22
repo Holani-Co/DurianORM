@@ -36,12 +36,20 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
 
 
 async def add_label(conversation_id: int, label: str) -> dict:
-    """Optional helper for future use (e.g., tag with classified team name)."""
+    """Append a label to a conversation without removing existing ones."""
     async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            _conv_url(conversation_id, "/labels"),
+            headers=_headers(),
+        )
+        existing = r.json().get("payload", []) if r.status_code < 300 else []
+        if label in existing:
+            return {"labels": existing}
+        merged = existing + [label]
         r = await client.post(
             _conv_url(conversation_id, "/labels"),
             headers=_headers(),
-            json={"labels": [label]},
+            json={"labels": merged},
         )
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot add_label failed [{r.status_code}]: {r.text}")
