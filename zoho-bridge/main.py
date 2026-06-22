@@ -1504,6 +1504,13 @@ async def handle_message_created(data: dict) -> dict:
         except Exception as e:
             print(f"[category-v2] post_private_note failed: {e}")
 
+        # ── Category label ──────────────────────────────────────────
+        cat_label = category_result["category"].replace("_", "-")
+        try:
+            await chatwoot.add_label(conv_id, cat_label)
+        except Exception as e:
+            print(f"[category-v2] add_label({cat_label}) failed for conv {conv_id}: {e}")
+
         # ── Team assignment (categorizer-driven) ─────────────────────
         # When the YAML rule carries a team_id, assign the conversation
         # to that team. Replaces the legacy four-team escalation_signal
