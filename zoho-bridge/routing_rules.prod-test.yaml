@@ -50,10 +50,12 @@ categories:
     team_id: 4
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+    include_customer_in_cc: false
   legal_complaint:
     team_id: 2
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+    include_customer_in_cc: false
   franchise_dealership:
     team_id: 9
     forward_to: rachael.rodrigues@durian.in
@@ -86,3 +88,4 @@ categories:
     team_id: 14
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+    include_customer_in_cc: false
