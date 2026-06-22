@@ -63,10 +63,14 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     def label(m):
         return "Customer" if m.get("message_type") in (0, "incoming") else "Agent/Bot"
 
-    transcript = "\n".join(
-        f"[{label(m)}] {m.get('content', '').strip()}"
-        for m in messages if m.get("content")
-    ) or "(no text messages)"
+    def msg_html(m):
+        content = esc(m.get("content", "").strip())
+        content_html = content.replace("\n", "<br>")
+        return f"<p><b>[{label(m)}]</b><br>{content_html}</p>"
+
+    transcript = "".join(
+        msg_html(m) for m in messages if m.get("content")
+    ) or "<p>(no text messages)</p>"
 
     # Subject priority:
     #   1. AI summary's one-line issue (best — the customer's actual problem)
@@ -119,7 +123,7 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     # Include Chatwoot team in description for context (e.g., "Legal" → Zoho agent
     # knows what kind of ticket this is even before routing inside Zoho)
     team_meta  = (conv.get("meta") or {}).get("team")
-    team_label = f"\n\n— Chatwoot team: {team_meta.get('name')}" if team_meta else ""
+    team_label = f"<p><i>— Chatwoot team: {esc(team_meta.get('name'))}</i></p>" if team_meta else ""
 
     # Ride-along: extracted bill/receipt data (document_extractor pipeline,
     # stored on custom_attributes.extracted_documents). Surfacing it in the
@@ -142,7 +146,7 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
         if d.get("issue_hint"):
             bits.append(f"issue: {d['issue_hint']}")
         doc_lines.append("  • " + " · ".join(bits))
-    docs_label = ("\n\n— Extracted documents:\n" + "\n".join(doc_lines)) if doc_lines else ""
+    docs_label = ("<p><i>— Extracted documents:</i><br>" + "<br>".join(doc_lines) + "</p>") if doc_lines else ""
 
     # Deep-link back to the originating Chatwoot conversation. Lets a Zoho agent
     # jump straight from the ticket into Chatwoot to see the full thread, reply
