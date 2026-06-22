@@ -60,6 +60,9 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     messages = messages if messages is not None else (conv.get("messages") or [])
     summary  = summary or {}
 
+    def esc(text):
+        return html.escape(str(text or ""))
+
     def label(m):
         return "Customer" if m.get("message_type") in (0, "incoming") else "Agent/Bot"
 
@@ -102,12 +105,6 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     # goal, and recommended next step without reading the thread. Rendered
     # as HTML (Zoho Desk renders the description as HTML). Empty when the
     # summariser had nothing usable.
-    # esc() guards the HTML description: the summary fields are model output
-    # derived from customer text and could contain <, >, & — escape so a
-    # stray character can't break the <li> markup or inject.
-    def esc(text):
-        return html.escape(str(text or ""))
-
     summary_block = ""
     if summary.get("summary") or summary.get("customer_goal") or summary.get("next_step"):
         parts = ["<p><b>📋 Summary (AI-generated)</b></p><ul>"]
