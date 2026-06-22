@@ -1544,10 +1544,17 @@ async def handle_message_created(data: dict) -> dict:
             "handled_by":  "categorizer",
         }
 
-    # ── Fall through for any uncertain (fallback) email. The original
-    # team-routing + Zoho escalation below is unchanged — it creates a
-    # ticket only when its existing case rules fire (priority /
-    # escalation signal).
+    # ── Fall through for any uncertain (fallback) email. ──────────────
+    # The new categorizer already posted a "fallback" note telling the
+    # agent to route manually. Skip the legacy 4-team classifier so we
+    # don't assign a stale team (the old IDs no longer match the
+    # post-reorg 13-team setup). Zoho escalation still fires below if
+    # priority/signal warrants it.
+    if category_result and category_result.get("category") == "fallback":
+        print(f"[classify] conv {conv_id} is fallback — skipping legacy "
+              f"team assignment (agent will triage manually)")
+        return {"classified": "fallback", "assigned": False,
+                "handled_by": "categorizer_fallback"}
 
     # Team routing.
     #
