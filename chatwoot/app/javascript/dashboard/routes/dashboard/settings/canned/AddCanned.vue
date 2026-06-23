@@ -6,6 +6,7 @@ import { useAlert } from 'dashboard/composables';
 import NextButton from 'dashboard/components-next/button/Button.vue';
 import Modal from '../../../../components/Modal.vue';
 import WootMessageEditor from 'dashboard/components/widgets/WootWriter/Editor.vue';
+import TemplateNameBuilder from './TemplateNameBuilder.vue';
 
 export default {
   name: 'AddCanned',
@@ -13,6 +14,7 @@ export default {
     NextButton,
     Modal,
     WootMessageEditor,
+    TemplateNameBuilder,
   },
   props: {
     responseContent: {
@@ -37,6 +39,13 @@ export default {
       },
       show: true,
     };
+  },
+  computed: {
+    existingShortCodes() {
+      return (this.$store.getters.getCannedResponses || []).map(
+        c => c.short_code
+      );
+    },
   },
   validations: {
     shortCode: {
@@ -89,6 +98,10 @@ export default {
         :header-content="$t('CANNED_MGMT.ADD.DESC')"
       />
       <form class="flex flex-col w-full" @submit.prevent="addCannedResponse()">
+        <TemplateNameBuilder
+          v-model="shortCode"
+          :existing-short-codes="existingShortCodes"
+        />
         <div class="w-full">
           <label :class="{ error: v$.shortCode.$error }">
             {{ $t('CANNED_MGMT.ADD.FORM.SHORT_CODE.LABEL') }}

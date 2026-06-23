@@ -1,77 +1,155 @@
-# OpenAI-backed review reply drafter, Durian voice, rating-aware.
+# Template-driven AI reply drafter, Durian voice, channel-aware.
+#
+# One drafter for every channel — picks + lightly personalises an APPROVED
+# Durian template (canned response) for the given channel.
 #
 # Returns (reply_text, action) where action ∈ {"auto", "handoff"}.
 #   - "auto"    → safe to post automatically (positive / simple).
 #   - "handoff" → needs a human (complaint, low rating, anything risky).
 #
-# The decision combines a hard star gate with the model's own judgement,
-# mirroring the Instagram-comment bot's HANDOFF convention.
+# Templates live in Chatwoot as canned responses with short_codes like
+# `<channel>_<category>` (review_positive_5star, whatsapp_negative_info_needed,
+# instagram_acknowledge_feedback, …). The team edits them from the UI; we
+# fetch them live here so a UI edit changes the AI's drafts with no code
+# change. The model's only job is to PICK the best-fit template and lightly
+# personalise it (greeting + one specific reference) — never to invent new
+# wording.
 
 import config
+import chatwoot
 from llm_client import client
 
-SYSTEM_PROMPT = """\
-You are the brand voice of Durian, an Indian premium furniture retailer,
-writing a PUBLIC reply to a Google review of one of our showrooms.
+# Display labels + warnings the system prompt weaves into the channel-specific
+# instructions. Keep these short; the model adapts tone from the templates.
+CHANNEL_LABELS = {
+    "review":    "a Google review of one of our showrooms",
+    "whatsapp":  "WhatsApp",
+    "instagram": "Instagram",
+    "facebook":  "Facebook Messenger",
+}
 
-── HARD RULES ───────────────────────────────────────────────────────────
-- Keep it warm, professional, specific, and brief (1–3 sentences).
-- Sign off naturally as Team Durian. Never use hashtags or emojis overload
-  (at most one tasteful emoji, usually none).
-- Use the reviewer's name if given. Reference what they mentioned when natural.
-- NEVER quote prices, promise refunds/replacements, or admit legal fault.
-- If the review is positive (praise, high rating, thanks), reply with a warm
-  on-brand thank-you.
-- If the review is negative, a complaint, mentions a defect/delay/refund/
-  damage/poor service, OR is low-rated, do NOT attempt to resolve it publicly.
-  Respond with EXACTLY the single word: HANDOFF
-- If the review is spam, abusive, or irrelevant, respond with: HANDOFF
-- When unsure, prefer HANDOFF.
+CHANNEL_WARNINGS = {
+    "review":    "This reply is PUBLIC on Google — be extra careful. Never "
+                 "quote prices, promise refunds/replacements, or admit fault.",
+    "whatsapp":  "This reply is a private 1-to-1 WhatsApp message.",
+    "instagram": "This reply is a private Instagram DM.",
+    "facebook":  "This reply is a private Facebook Messenger message.",
+}
 
-Output ONLY the reply text, or the single word HANDOFF. No quotes, no labels.
+
+SYSTEM_PROMPT_FMT = """\
+You are the brand voice of Durian, an Indian premium furniture retailer.
+You are writing a reply to a customer on {channel_label}.
+
+{channel_warning}
+
+You are given a set of APPROVED reply templates (each with a short_code) and
+one customer message. Your job:
+
+1. PICK the single template that best fits the message's sentiment and content.
+2. PERSONALISE it lightly:
+   - Replace "Dear Customer" with the sender's first name if one is given
+     (e.g. "Dear Rajiv,"). If no real name, keep "Dear Customer,".
+   - You MAY weave in ONE short, specific reference to what they mentioned,
+     only where it reads naturally. Keep the template's structure and wording
+     otherwise intact.
+3. Do NOT invent new promises, prices, refunds, or claims. Do NOT add anything
+   the chosen template doesn't already say beyond the light touches above.
+
+── HANDOFF RULE ──────────────────────────────────────────────────────────
+If the message is negative, a complaint, mentions a defect / delay / refund /
+damage / poor service, OR (for reviews) is low-rated, the reply still needs
+a human to review before going out. Still produce the personalised draft from
+the best NEGATIVE template, but set "action" to "handoff".
+Positive / thankful / high-rated messages are "auto".
+If the message is spam, abusive, or irrelevant, set action "handoff" and leave
+"reply" empty.
+
+Respond as STRICT JSON, no markdown:
+{{"short_code": "<chosen template short_code>", "reply": "<final reply text>", "action": "auto" | "handoff"}}
 """
 
 
-async def draft(stars: int, comment: str, reviewer: str, location_title: str):
-    """Return (reply_text, action). Hard-handoff anything at or below the
-    configured star threshold regardless of model output."""
-    # Hard gate: low stars always go to a human.
-    force_human = stars and stars < config.REVIEWS_AUTO_REPLY_MIN_STARS
+def _format_templates(templates: list[dict]) -> str:
+    return "\n\n".join(
+        f"[{t['short_code']}]\n{t['content']}" for t in templates
+    )
+
+
+async def draft(channel: str, message: str, contact_name: str,
+                stars: int = 0, location: str = ""):
+    """Return (reply_text, action). Picks + personalises an approved template
+    for the given channel.
+
+    Args:
+        channel: short_code prefix — "review", "whatsapp", "instagram", "facebook".
+        message: the customer's message (review text, WhatsApp/IG/FB body).
+        contact_name: the customer/reviewer's name (for personalisation).
+        stars: 1-5 review rating (review channel only — used for hard-handoff).
+        location: showroom name (review channel only — for context).
+
+    Reviews additionally hard-handoff below REVIEWS_AUTO_REPLY_MIN_STARS so
+    low-rated reviews always need a human regardless of model output."""
+    import json
+
+    prefix = f"{channel}_"
+    templates = [
+        t for t in await chatwoot.list_canned_responses()
+        if (t.get("short_code") or "").startswith(prefix)
+    ]
+    if not templates:
+        print(f"[template_reply] no {prefix} templates found — handing off")
+        return ("", "handoff")
+
+    # Reviews: low-stars override regardless of model output.
+    force_human = (
+        channel == "review"
+        and stars
+        and stars < config.REVIEWS_AUTO_REPLY_MIN_STARS
+    )
+
+    system_prompt = SYSTEM_PROMPT_FMT.format(
+        channel_label=CHANNEL_LABELS.get(channel, channel),
+        channel_warning=CHANNEL_WARNINGS.get(channel, ""),
+    )
+
+    context_lines = [f"From: {contact_name}"]
+    if channel == "review":
+        context_lines.append(f"Star rating: {stars or 'unknown'}/5")
+        if location:
+            context_lines.append(f"Showroom: {location}")
+    context_lines.append(f"Message: {message or '(empty)'}")
 
     user_msg = (
-        f"Showroom: {location_title}\n"
-        f"Reviewer: {reviewer}\n"
-        f"Star rating: {stars or 'unknown'}/5\n"
-        f"Review text: {comment or '(no text, rating only)'}"
+        f"── APPROVED TEMPLATES ──\n{_format_templates(templates)}\n\n"
+        f"── INCOMING MESSAGE ──\n" + "\n".join(context_lines)
     )
 
     try:
         r = await client.chat.completions.create(
             model=config.OPENAI_MODEL,
-            temperature=0.4,
-            max_tokens=160,
+            temperature=0.3,
+            max_tokens=400,
+            response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
-            name="review-reply",
+            name="template-reply",
             metadata={
+                "channel": channel,
                 "stars": stars,
-                "location": location_title,
-                "langfuse_tags": ["review_reply"],
+                "langfuse_tags": ["template_reply", f"channel_{channel}"],
             },
         )
-        text = r.choices[0].message.content.strip()
+        parsed = json.loads(r.choices[0].message.content)
+        reply = (parsed.get("reply") or "").strip()
+        action = (parsed.get("action") or "handoff").strip().lower()
     except Exception as e:
-        print(f"[review_reply] ERROR ({type(e).__name__}): {e} — handing off")
+        print(f"[template_reply] ERROR ({type(e).__name__}): {e} — handing off")
         return ("", "handoff")
 
-    model_handoff = text.upper().strip().strip(".!") == "HANDOFF"
+    if force_human or action != "auto":
+        return (reply, "handoff")
 
-    if force_human or model_handoff:
-        # Provide a suggested draft for the human even on handoff (unless the
-        # model itself refused). A thank-you template helps the agent start.
-        suggestion = "" if model_handoff else text
-        return (suggestion, "handoff")
-
-    return (text, "auto")
+    return (reply, "auto")

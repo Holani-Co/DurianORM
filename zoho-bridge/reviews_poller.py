@@ -67,8 +67,13 @@ async def _ingest_review(loc: dict, rv: dict):
         source_id=source_id or f"gr_{rv['review_id']}",
         inbox_id=config.REVIEWS_INBOX_ID,
         contact_id=contact_id,
+        # review_comment + reviewer are stashed here so the "Regenerate"
+        # button can re-draft from the original review without re-parsing the
+        # formatted message body.
         additional_attributes={"type": "google_review", "location": title,
-                               "stars": rv["stars"]},
+                               "stars": rv["stars"],
+                               "review_comment": rv["comment"] or "",
+                               "reviewer": rv["reviewer"] or ""},
         custom_attributes={"review_path": rv["reply_path"]},
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
@@ -79,7 +84,13 @@ async def _ingest_review(loc: dict, rv: dict):
         return
 
     # 2. AI draft
-    reply, action = await review_reply.draft(rv["stars"], rv["comment"], rv["reviewer"], title)
+    reply, action = await review_reply.draft(
+        channel="review",
+        message=rv["comment"] or "",
+        contact_name=rv["reviewer"] or "Customer",
+        stars=rv["stars"] or 0,
+        location=title,
+    )
 
     if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
         # 3a. Post to Google, then mirror into Chatwoot (marked) + resolve.
@@ -94,10 +105,17 @@ async def _ingest_review(loc: dict, rv: dict):
         except Exception as e:
             print(f"[reviews] auto-reply failed, handing off: {e}")
 
-    # 3b. Handoff: suggest a draft as a private note, route to a human.
-    note = (reply or "(AI flagged this review for human handling.)") + \
-           "\n\n— AI-suggested draft · edit & send to post to Google"
-    await chatwoot.create_message(conv_id, note, message_type="outgoing", private=True)
+    # 3b. Handoff: post the AI draft as an interactive suggestion card. The
+    # content_attributes marker makes the Chatwoot frontend render it as the
+    # "AI suggested reply" card (edit / regenerate / send / cancel). `content`
+    # holds the plain text too, so it still reads fine if the card doesn't
+    # render (e.g. older frontend).
+    note = reply or "(AI flagged this review for human handling — no draft.)"
+    await chatwoot.create_message(
+        conv_id, note, message_type="outgoing", private=True,
+        content_attributes={"type": "ai_review_suggestion",
+                            "suggestion": reply, "channel": "review"},
+    )
     if config.REVIEWS_TEAM_ID:
         try:
             await chatwoot.assign_team(conv_id, config.REVIEWS_TEAM_ID)

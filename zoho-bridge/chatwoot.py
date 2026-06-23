@@ -36,12 +36,20 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
 
 
 async def add_label(conversation_id: int, label: str) -> dict:
-    """Optional helper for future use (e.g., tag with classified team name)."""
+    """Append a label to a conversation without removing existing ones."""
     async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            _conv_url(conversation_id, "/labels"),
+            headers=_headers(),
+        )
+        existing = r.json().get("payload", []) if r.status_code < 300 else []
+        if label in existing:
+            return {"labels": existing}
+        merged = existing + [label]
         r = await client.post(
             _conv_url(conversation_id, "/labels"),
             headers=_headers(),
-            json={"labels": [label]},
+            json={"labels": merged},
         )
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot add_label failed [{r.status_code}]: {r.text}")
@@ -54,6 +62,24 @@ async def add_label(conversation_id: int, label: str) -> dict:
 
 def _acct_url(suffix: str) -> str:
     return f"{config.CHATWOOT_BASE_URL}/api/v1/accounts/{config.CHATWOOT_ACCOUNT_ID}{suffix}"
+
+
+async def list_canned_responses() -> list[dict]:
+    """Return all canned responses as [{short_code, content}, ...].
+
+    The Durian reply templates live here (seeded by setup_review_templates.py).
+    The team edits them from the Chatwoot UI; the AI suggester reads them live
+    at reply time, so a UI edit changes the AI's drafts with no code change.
+    Returns [] on any failure (best-effort — the suggester falls back to a
+    generic draft)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(_acct_url("/canned_responses"), headers=_headers())
+        if r.status_code >= 300:
+            print(f"[chatwoot] list_canned_responses non-200 "
+                  f"[{r.status_code}]: {r.text[:200]}")
+            return []
+        body = r.json()
+        return body if isinstance(body, list) else body.get("payload", [])
 
 
 async def create_contact(name: str, identifier: str, inbox_id: int,

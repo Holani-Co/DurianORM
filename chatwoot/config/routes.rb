@@ -361,6 +361,7 @@ Rails.application.routes.draw do
             resource :zoho_bridge, controller: 'zoho_bridge', only: [] do
               collection do
                 post :resolve_ticket_decision
+                post :regenerate_review_reply
               end
             end
             resource :shopify, controller: 'shopify', only: [:destroy] do

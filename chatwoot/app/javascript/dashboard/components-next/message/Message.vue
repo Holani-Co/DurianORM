@@ -42,6 +42,7 @@ import FormBubble from './bubbles/Form.vue';
 import VoiceCallBubble from './bubbles/VoiceCall.vue';
 import MultiAttachmentBubble from './bubbles/MultiAttachment.vue';
 import InstagramReelBubble from './bubbles/InstagramReel.vue';
+import AiReviewSuggestionBubble from './bubbles/AiReviewSuggestion.vue';
 
 import MessageError from './MessageError.vue';
 import AiTrace from './AiTrace.vue';
@@ -334,6 +335,12 @@ const componentToRender = computed(() => {
 
   if (props.contentAttributes.type === 'dyte') {
     return DyteBubble;
+  }
+
+  // Durian — interactive AI reply card for Google reviews (posted by the
+  // zoho-bridge as a private note with this content_attributes type).
+  if (props.contentAttributes.type === 'ai_review_suggestion') {
+    return AiReviewSuggestionBubble;
   }
 
   const instagramSharedTypes = [

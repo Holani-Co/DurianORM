@@ -12,13 +12,30 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   def resolve_ticket_decision
     response = HTTParty.post(
       "#{bridge_url}/chatwoot/resolve-ticket-decision",
-      body:    request.raw_post,
+      body: request.raw_post,
       headers: { 'Content-Type' => 'application/json' },
       timeout: 20
     )
     render json: response.parsed_response, status: proxy_status(response.code)
   rescue StandardError => e
     Rails.logger.error("[zoho-bridge proxy] resolve_ticket_decision failed: #{e.message}")
+    render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
+  end
+
+  # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/regenerate_review_reply
+  #   body: { conversation_id }
+  # Asks the bridge for a fresh AI-drafted Google-review reply (Durian
+  # template-based) for the "Regenerate" button on the suggestion card.
+  def regenerate_review_reply
+    response = HTTParty.post(
+      "#{bridge_url}/reviews/regenerate",
+      body: request.raw_post,
+      headers: { 'Content-Type' => 'application/json' },
+      timeout: 30
+    )
+    render json: response.parsed_response, status: proxy_status(response.code)
+  rescue StandardError => e
+    Rails.logger.error("[zoho-bridge proxy] regenerate_review_reply failed: #{e.message}")
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
   end
 
