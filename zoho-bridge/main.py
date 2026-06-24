@@ -244,21 +244,26 @@ async def handle_status_changed(data: dict) -> dict:
     new_status = (conv.get("status") or data.get("status") or "").lower()
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
-    # Comments are handled by the DM bot — never raise a Zoho ticket or post a
-    # DM-style template card on a public comment thread.
-    if _is_comment_conversation(conv):
-        print(f"[handoff] conv {conv_id} is a comment — handled by DM bot")
-        return {"ignored": True, "reason": "comment_conversation"}
 
-    # Social DM (Instagram / Facebook / WhatsApp) handoff: the DM bot just
-    # passed the baton to a human. Post the Durian template-suggestion card so
-    # the agent gets a ready-to-edit reply — NOT a Zoho ticket. Channel comes
-    # from the conversation's meta.channel (one API call, only on handoff).
+    # Fetch the full conversation up front: its meta.channel tells social from
+    # email, and its additional_attributes reliably carry the comment marker
+    # (the webhook payload often omits it). One API call, only on handoff.
     try:
         full_conv = await chatwoot.get_conversation(conv_id)
     except Exception as e:
         print(f"[handoff] could not load conv {conv_id}: {e} — falling back to Zoho")
         full_conv = conv
+
+    # Comments are handled by the DM bot — never raise a Zoho ticket or post a
+    # DM-style template card on a public comment thread. Check both the payload
+    # and the fetched conversation so the marker is never missed.
+    if _is_comment_conversation(full_conv) or _is_comment_conversation(conv):
+        print(f"[handoff] conv {conv_id} is a comment — handled by DM bot")
+        return {"ignored": True, "reason": "comment_conversation"}
+
+    # Social DM (Instagram / Facebook / WhatsApp) handoff: the DM bot just
+    # passed the baton to a human. Post the Durian template-suggestion card so
+    # the agent gets a ready-to-edit reply — NOT a Zoho ticket.
     channel_type   = ((full_conv.get("meta") or {}).get("channel")) or ""
     social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(channel_type)
     if social_channel:
@@ -1604,6 +1609,14 @@ async def handle_message_created(data: dict) -> dict:
               f"team assignment (agent will triage manually)")
         return {"classified": "fallback", "assigned": False,
                 "handled_by": "categorizer_fallback"}
+
+    # Social DMs never run the legacy email team-routing / Zoho escalation —
+    # the DM bot owns them. This only matters if the categorizer errored
+    # (category_result is None) and we'd otherwise fall through here.
+    if is_social:
+        print(f"[classify] conv {conv_id} is social — skipping legacy "
+              f"email routing / Zoho (handled by DM bot)")
+        return {"ignored": True, "reason": "social_no_legacy_routing"}
 
     # Team routing.
     #
