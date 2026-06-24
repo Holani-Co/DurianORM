@@ -1261,17 +1261,27 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[msg] ignoring — reviews inbox (handled by reviews poller)")
         return {"ignored": True, "reason": "reviews_inbox"}
 
-    # WhatsApp / Instagram / Facebook DMs are owned by the in-Chatwoot DM bot
-    # (it replies in Durian's voice). We still let the categorizer LABEL the
-    # intent (the "Auto-classified as …" note + team), but the email action
+    # WhatsApp / Instagram / Facebook DMs. We still let the categorizer LABEL
+    # the intent (the "Auto-classified as …" note + team), but the email action
     # layer — customer acknowledgment + auto-forwarding — must NOT run on
-    # social: those are email-only features, and the DM bot handles customer
-    # replies. `is_social` gates the action layer further down.
+    # social: those are email-only features. `is_social` gates the action layer
+    # further down.
     is_social = inbox_type in TEMPLATE_CHANNEL_FOR_INBOX_TYPE
+    social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(inbox_type)
 
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
+
+    # Prod-test phase: the DM bot is OFF (so no customer ever sees a bot
+    # message), but the team still wants the Durian template-suggestion card on
+    # every incoming social DM so they can review and send the reply manually.
+    # When DM_BOT_AUTO_REPLY_ENABLED=true (bot back on), the card waits for
+    # handoff as before. Comments are skipped — they're handled separately.
+    bot_off = os.environ.get("DM_BOT_AUTO_REPLY_ENABLED", "false").lower() != "true"
+    if (is_social and bot_off and not _is_comment_conversation(conv)):
+        full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
+        return await handle_template_suggest(full_conv, social_channel)
 
     # Comment conversations belong to the in-Chatwoot DM bot, which replies
     # with a comment-specific prompt. The bridge must not run the spam/team

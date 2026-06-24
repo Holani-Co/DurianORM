@@ -51,10 +51,24 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   # manually resolved it. For comments we drop the pending gate so EVERY
   # comment gets a reply. DMs keep the gate (a human taking over a DM should
   # stop the bot).
+  # Kill switch for the DM-bot auto-reply, for the prod-test phase on real
+  # Instagram/Facebook accounts: the team wants to see incoming messages and
+  # decide whether to send the AI-suggested template reply themselves, instead
+  # of the bot auto-replying to customers. Set DM_BOT_AUTO_REPLY_ENABLED=true
+  # to turn the bot back on; default is OFF so no customer ever gets a bot
+  # message while testing. Comments are auto-replied separately and gated on
+  # DM_BOT_COMMENT_AUTO_REPLY_ENABLED (same default).
   def should_run_processor?(message)
     return if message.private?
     return unless processable_message?(message)
-    return true if comment_conversation?
+
+    if comment_conversation?
+      return false unless ENV.fetch('DM_BOT_COMMENT_AUTO_REPLY_ENABLED', 'false') == 'true'
+
+      return true
+    end
+
+    return unless ENV.fetch('DM_BOT_AUTO_REPLY_ENABLED', 'false') == 'true'
     return unless conversation.pending?
 
     true
