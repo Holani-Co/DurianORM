@@ -1732,23 +1732,41 @@ def _latest_incoming(messages: list) -> str:
 
 
 async def handle_template_suggest(conv: dict, channel: str) -> dict:
-    """Post a Durian-template AI reply suggestion as a private note when a
-    social DM is handed off to a human. The agent gets the best-matching
-    Durian template (edit / regenerate / send) instead of a blank reply box.
-    Idempotent via `custom_attributes.template_suggestion_posted`."""
+    """Post a Durian-template AI reply suggestion as a private note for a
+    social DM. The agent gets the best-matching Durian template
+    (edit / regenerate / send) instead of a blank reply box.
+
+    Dedup rule: post a fresh card on every customer message that lands AFTER
+    the team's last reply (or on the very first message). If a previous card
+    is still pending (the team hasn't sent/cancelled it yet), do NOT stack
+    another — that handles a customer firing off 2-3 messages in quick
+    succession. Once the team sends or cancels, the next customer message
+    gets a brand-new card."""
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
 
-    if (conv.get("custom_attributes") or {}).get("template_suggestion_posted"):
-        return {"ignored": True, "reason": "already_suggested"}
-
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
-    messages = await chatwoot.get_conversation_messages(conv_id)
-    message  = _latest_incoming(messages)
+    # Fetch ALL messages including private notes — get_conversation_messages
+    # strips private ones (cards are private), which would defeat the dedup
+    # check below. Inline fetch with no filter.
+    all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
+    message = _latest_incoming(all_messages)
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
+
+    # If the latest outgoing message is itself a pending suggestion card, skip
+    # — the team hasn't actioned it yet. The Send flow deletes the card and
+    # creates a public reply, the Cancel flow deletes it outright, so once
+    # actioned the next customer message correctly gets a fresh card.
+    last_out = next(
+        (m for m in reversed(all_messages) if m.get("message_type") in (1, "outgoing")),
+        None,
+    )
+    if last_out and (last_out.get("content_attributes") or {}).get("type") == "ai_review_suggestion":
+        print(f"[template-suggest] conv {conv_id} — card already pending, skipping")
+        return {"ignored": True, "reason": "card_already_pending"}
 
     try:
         drafted = await review_reply.draft(
@@ -1759,16 +1777,6 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
         return {"ignored": True, "reason": "draft_failed"}
 
     reply, action = drafted["reply"], drafted["action"]
-
-    # Mark handled either way so we don't re-suggest if the conversation
-    # bounces back to open again later.
-    try:
-        await chatwoot.merge_custom_attributes(
-            conv_id, {"template_suggestion_posted": True}
-        )
-    except Exception:
-        pass
-
     if not reply:
         return {"ignored": True, "reason": "no_draft"}
 

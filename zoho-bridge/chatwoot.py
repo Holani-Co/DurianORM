@@ -329,6 +329,27 @@ async def get_conversation(conversation_id: int) -> dict:
         return r.json() or {}
 
 
+async def get_conversation_messages_raw(conversation_id: int) -> list[dict]:
+    """Like get_conversation_messages but RETAINS private notes — needed by
+    the template-suggestion dedup check (the card is a private note, so the
+    filtered helper hides it from the dedup logic). Oldest-first. Returns []
+    on any failure."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(_conv_url(conversation_id, "/messages"),
+                                  headers=_headers())
+            if r.status_code >= 300:
+                return []
+            body = r.json() or {}
+            payload = body.get("payload")
+            if payload is None:
+                payload = (body.get("data") or {}).get("payload") or []
+            return payload or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] get messages (raw) error for conv {conversation_id}: {e}")
+        return []
+
+
 async def get_conversation_messages(conversation_id: int) -> list[dict]:
     """Fetch the full message list for a conversation, oldest-first.
 
