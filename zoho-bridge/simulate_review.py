@@ -57,10 +57,15 @@ async def main():
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
 
-    reply, action = await review_reply.draft(stars, comment, reviewer, location)
+    drafted = await review_reply.draft(
+        channel="review", message=comment, contact_name=reviewer,
+        stars=stars, location=location,
+    )
+    reply, action = drafted["reply"], drafted["action"]
     await chatwoot.create_message(
         conv_id, reply or "(no draft)", message_type="outgoing", private=True,
-        content_attributes={"type": "ai_review_suggestion", "suggestion": reply},
+        content_attributes={"type": "ai_review_suggestion", "suggestion": reply,
+                            "channel": "review", "ai_trace": drafted["trace"]},
     )
     if config.REVIEWS_TEAM_ID:
         try:

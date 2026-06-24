@@ -84,13 +84,14 @@ async def _ingest_review(loc: dict, rv: dict):
         return
 
     # 2. AI draft
-    reply, action = await review_reply.draft(
+    drafted = await review_reply.draft(
         channel="review",
         message=rv["comment"] or "",
         contact_name=rv["reviewer"] or "Customer",
         stars=rv["stars"] or 0,
         location=title,
     )
+    reply, action = drafted["reply"], drafted["action"]
 
     if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
         # 3a. Post to Google, then mirror into Chatwoot (marked) + resolve.
@@ -114,7 +115,8 @@ async def _ingest_review(loc: dict, rv: dict):
     await chatwoot.create_message(
         conv_id, note, message_type="outgoing", private=True,
         content_attributes={"type": "ai_review_suggestion",
-                            "suggestion": reply, "channel": "review"},
+                            "suggestion": reply, "channel": "review",
+                            "ai_trace": drafted["trace"]},
     )
     if config.REVIEWS_TEAM_ID:
         try:

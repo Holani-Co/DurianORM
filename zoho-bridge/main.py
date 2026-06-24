@@ -244,10 +244,27 @@ async def handle_status_changed(data: dict) -> dict:
     new_status = (conv.get("status") or data.get("status") or "").lower()
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
-    # Comments are handled by the DM bot — never raise a Zoho ticket for them.
+    # Comments are handled by the DM bot — never raise a Zoho ticket or post a
+    # DM-style template card on a public comment thread.
     if _is_comment_conversation(conv):
-        print(f"[handoff] conv {conv_id} is a comment — handled by DM bot, no Zoho ticket")
+        print(f"[handoff] conv {conv_id} is a comment — handled by DM bot")
         return {"ignored": True, "reason": "comment_conversation"}
+
+    # Social DM (Instagram / Facebook / WhatsApp) handoff: the DM bot just
+    # passed the baton to a human. Post the Durian template-suggestion card so
+    # the agent gets a ready-to-edit reply — NOT a Zoho ticket. Channel comes
+    # from the conversation's meta.channel (one API call, only on handoff).
+    try:
+        full_conv = await chatwoot.get_conversation(conv_id)
+    except Exception as e:
+        print(f"[handoff] could not load conv {conv_id}: {e} — falling back to Zoho")
+        full_conv = conv
+    channel_type   = ((full_conv.get("meta") or {}).get("channel")) or ""
+    social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(channel_type)
+    if social_channel:
+        return await handle_template_suggest(full_conv, social_channel)
+
+    # Email handoff → Zoho ticket (unchanged).
     try:
         messages, summary = await _ticket_context(conv_id)
         ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
@@ -1239,12 +1256,13 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[msg] ignoring — reviews inbox (handled by reviews poller)")
         return {"ignored": True, "reason": "reviews_inbox"}
 
-    # WhatsApp / Instagram / Facebook → template-suggestion flow instead of
-    # the email pipeline. They reuse the same drafter + the same suggestion
-    # card on the frontend, just with their own channel-prefixed templates.
-    template_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(inbox_type)
-    if template_channel:
-        return await handle_template_suggest(data, template_channel)
+    # WhatsApp / Instagram / Facebook DMs are owned by the in-Chatwoot DM bot
+    # (it replies in Durian's voice). We still let the categorizer LABEL the
+    # intent (the "Auto-classified as …" note + team), but the email action
+    # layer — customer acknowledgment + auto-forwarding — must NOT run on
+    # social: those are email-only features, and the DM bot handles customer
+    # replies. `is_social` gates the action layer further down.
+    is_social = inbox_type in TEMPLATE_CHANNEL_FOR_INBOX_TYPE
 
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
@@ -1468,7 +1486,12 @@ async def handle_message_created(data: dict) -> dict:
         # Phase 2A (dry-run) preview OR Phase 2B (real send) actions —
         # mutually exclusive based on the PHASE_2_DRY_RUN env flag.
         action_section: list[str] = []
-        if _PHASE_2_DRY_RUN:
+        if is_social:
+            # Social DM: classify + label + team only. No customer
+            # acknowledgment, no auto-forwarding (email-only features).
+            print(f"[category-v2] conv {conv_id} is social — classify + label "
+                  f"only (no acknowledgment / forward)")
+        elif _PHASE_2_DRY_RUN:
             try:
                 action_section = _render_phase2_dry_run_preview(
                     category_result   = category_result,
@@ -1665,75 +1688,79 @@ async def handle_message_created(data: dict) -> dict:
     }
 
 
-# ── Generic template-suggestion handler (WhatsApp / IG / FB) ──────────────
-# Chatwoot's `inbox.channel_type` → our template-channel prefix. Reviews
-# aren't here because they're handled by the reviews poller, not by the
-# message_created webhook.
+# ── Social DM handoff → template-suggestion card ──────────────────────────
+# Chatwoot inbox channel_type → our template-channel prefix. Instagram and
+# Facebook share Durian's `social_*` templates (the sheet is "FB & IG DM").
+# Reviews aren't here — they're handled by the reviews poller.
 TEMPLATE_CHANNEL_FOR_INBOX_TYPE = {
-    "Channel::Whatsapp":    "whatsapp",
-    "Channel::Instagram":   "instagram",
-    "Channel::FacebookPage": "facebook",
+    "Channel::Instagram":    "social",
+    "Channel::FacebookPage": "social",
+    "Channel::Whatsapp":     "whatsapp",
 }
 
 
-async def handle_template_suggest(data: dict, channel: str) -> dict:
-    """Post a Durian-template AI reply suggestion as a private note on the
-    first incoming WhatsApp/Instagram/Facebook message of a conversation.
-    Idempotent via `custom_attributes.template_suggestion_posted` — won't
-    re-post on subsequent customer messages, so we don't spam the agent."""
-    conv    = data.get("conversation") or {}
+def _latest_incoming(messages: list) -> str:
+    """The customer's most recent text message — the context that triggered
+    the handoff (e.g. the complaint the DM bot couldn't resolve)."""
+    for m in reversed(messages or []):
+        if m.get("message_type") in (0, "incoming") and (m.get("content") or "").strip():
+            return m["content"].strip()
+    return ""
+
+
+async def handle_template_suggest(conv: dict, channel: str) -> dict:
+    """Post a Durian-template AI reply suggestion as a private note when a
+    social DM is handed off to a human. The agent gets the best-matching
+    Durian template (edit / regenerate / send) instead of a blank reply box.
+    Idempotent via `custom_attributes.template_suggestion_posted`."""
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
 
-    # IG/FB DMs vs comments use different bots — leave comment threads alone.
-    if _is_comment_conversation(conv):
-        print(f"[template-suggest] conv {conv_id} is a comment — skipping")
-        return {"ignored": True, "reason": "comment_conversation"}
-
-    existing_attrs = conv.get("custom_attributes") or {}
-    if existing_attrs.get("template_suggestion_posted"):
+    if (conv.get("custom_attributes") or {}).get("template_suggestion_posted"):
         return {"ignored": True, "reason": "already_suggested"}
 
-    contact      = (conv.get("meta") or {}).get("sender") or {}
-    contact_name = contact.get("name") or "Customer"
-    message      = (data.get("content") or "").strip()
+    contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
+        or "Customer"
+    messages = await chatwoot.get_conversation_messages(conv_id)
+    message  = _latest_incoming(messages)
     if not message:
-        return {"ignored": True, "reason": "empty_message"}
+        return {"ignored": True, "reason": "no_customer_message"}
 
     try:
-        reply, action = await review_reply.draft(
+        drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
         return {"ignored": True, "reason": "draft_failed"}
 
+    reply, action = drafted["reply"], drafted["action"]
+
+    # Mark handled either way so we don't re-suggest if the conversation
+    # bounces back to open again later.
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"template_suggestion_posted": True}
+        )
+    except Exception:
+        pass
+
     if not reply:
-        # No template matched / model bailed → nothing useful to suggest.
-        # Mark the flag anyway so we don't keep retrying on every message.
-        try:
-            await chatwoot.merge_custom_attributes(
-                conv_id, {"template_suggestion_posted": True}
-            )
-        except Exception:
-            pass
         return {"ignored": True, "reason": "no_draft"}
 
     try:
         await chatwoot.create_message(
             conv_id, reply, message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion",
-                                "suggestion": reply, "channel": channel},
-        )
-        await chatwoot.merge_custom_attributes(
-            conv_id, {"template_suggestion_posted": True}
+                                "suggestion": reply, "channel": channel,
+                                "ai_trace": drafted["trace"]},
         )
     except Exception as e:
         print(f"[template-suggest] post failed for conv {conv_id}: {e}")
         return {"ignored": True, "reason": "post_failed"}
 
-    print(f"[template-suggest] {channel} draft posted on conv {conv_id} ({action})")
+    print(f"[template-suggest] {channel} card posted on conv {conv_id} ({action})")
     return {"posted": True, "channel": channel, "action": action}
 
 
@@ -1827,7 +1854,7 @@ async def reviews_regenerate(request: Request):
     if channel == "review":
         # The poller stashed the raw review payload on additional_attributes
         # so regenerate doesn't need to re-parse the formatted message body.
-        reply, action = await review_reply.draft(
+        drafted = await review_reply.draft(
             channel="review",
             message=add.get("review_comment") or "",
             contact_name=add.get("reviewer") or contact_name,
@@ -1835,20 +1862,16 @@ async def reviews_regenerate(request: Request):
             location=add.get("location") or "",
         )
     else:
-        # For WhatsApp/IG/FB, the customer's first incoming message is the
-        # context — fetch it from the transcript.
+        # For social DMs, the customer's latest incoming message is the context
+        # (the message that triggered the handoff).
         messages = await chatwoot.get_conversation_messages(conv_id)
-        first_incoming = next(
-            (m for m in messages
-             if m.get("message_type") in (0, "incoming") and m.get("content")),
-            {},
-        )
-        reply, action = await review_reply.draft(
+        drafted = await review_reply.draft(
             channel=channel,
-            message=first_incoming.get("content") or "",
+            message=_latest_incoming(messages),
             contact_name=contact_name,
         )
-    return {"suggestion": reply, "action": action}
+    return {"suggestion": drafted["reply"], "action": drafted["action"],
+            "ai_trace": drafted["trace"]}
 
 
 @app.post("/chatwoot/resolve-ticket-decision")

@@ -66,8 +66,15 @@ If the message is spam, abusive, or irrelevant, set action "handoff" and leave
 "reply" empty.
 
 Respond as STRICT JSON, no markdown:
-{{"short_code": "<chosen template short_code>", "reply": "<final reply text>", "action": "auto" | "handoff"}}
+{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff"}}
 """
+
+# Human-friendly channel names for the chain-of-thought trace.
+_CHANNEL_LABELS = {
+    "review":   "Google review",
+    "social":   "Instagram / Facebook DM",
+    "whatsapp": "WhatsApp",
+}
 
 
 def _format_templates(templates: list[dict]) -> str:
@@ -76,10 +83,34 @@ def _format_templates(templates: list[dict]) -> str:
     )
 
 
+def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> list[dict]:
+    """An AI chain-of-thought trace (same shape the DM bot emits) so agents see
+    WHY this template was suggested. Rendered by the AiTrace.vue component when
+    attached to a message's content_attributes.ai_trace."""
+    chan = _CHANNEL_LABELS.get(channel, channel)
+    steps = [
+        {"type": "policy", "source": "system", "visibility": "internal",
+         "label": "Channel", "detail": f"{chan} — Durian template suggestion"},
+        {"type": "decision", "source": "rule", "visibility": "internal",
+         "label": "Template chosen", "rule": short_code or "fallback",
+         "detail": reasoning or "Best match for the customer's message."},
+        {"type": "answer", "source": "model", "visibility": "public",
+         "label": "Reply drafted",
+         "detail": "Auto — safe to send" if action == "auto"
+                   else "Flagged for human review before sending"},
+    ]
+    for i, s in enumerate(steps):
+        s["i"] = i + 1
+    return steps
+
+
 async def draft(channel: str, message: str, contact_name: str,
                 stars: int = 0, location: str = ""):
-    """Return (reply_text, action). Picks + personalises an approved template
-    for the given channel.
+    """Pick + personalise an approved template for the given channel.
+
+    Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
+    AI chain-of-thought (AiTrace.vue shape) explaining which template was chosen
+    and why — attach it to the card message's content_attributes.ai_trace.
 
     Args:
         channel: short_code prefix — "review", "whatsapp", "instagram", "facebook".
@@ -92,6 +123,13 @@ async def draft(channel: str, message: str, contact_name: str,
     low-rated reviews always need a human regardless of model output."""
     import json
 
+    def result(reply, action, short_code="", reasoning=""):
+        return {
+            "reply": reply, "action": action,
+            "short_code": short_code, "reasoning": reasoning,
+            "trace": build_trace(channel, short_code, reasoning, action),
+        }
+
     prefix = f"{channel}_"
     templates = [
         t for t in await chatwoot.list_canned_responses()
@@ -99,7 +137,7 @@ async def draft(channel: str, message: str, contact_name: str,
     ]
     if not templates:
         print(f"[template_reply] no {prefix} templates found — handing off")
-        return ("", "handoff")
+        return result("", "handoff")
 
     # Reviews: low-stars override regardless of model output.
     force_human = (
@@ -145,11 +183,13 @@ async def draft(channel: str, message: str, contact_name: str,
         parsed = json.loads(r.choices[0].message.content)
         reply = (parsed.get("reply") or "").strip()
         action = (parsed.get("action") or "handoff").strip().lower()
+        short_code = (parsed.get("short_code") or "").strip()
+        reasoning = (parsed.get("reasoning") or "").strip()
     except Exception as e:
         print(f"[template_reply] ERROR ({type(e).__name__}): {e} — handing off")
-        return ("", "handoff")
+        return result("", "handoff")
 
     if force_human or action != "auto":
-        return (reply, "handoff")
+        return result(reply, "handoff", short_code, reasoning)
 
-    return (reply, "auto")
+    return result(reply, "auto", short_code, reasoning)
