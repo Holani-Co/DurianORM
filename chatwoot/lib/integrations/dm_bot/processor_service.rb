@@ -68,11 +68,26 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     # On option selection the content is the submitted value string
     if event_name == 'message.updated'
       handle_option_selection(content)
-    elsif first_message?
+    elsif first_message? && bare_greeting?(content)
+      # Only show the quick-options menu when the very first message is a bare
+      # greeting ("hi", "hello"). If the customer opens with a real question or
+      # complaint, skip the menu and let the AI reply greet + address it in
+      # context — a generic "how can we help?" on top of an order complaint
+      # reads badly.
       :welcome_menu
     else
       ai_reply(content)
     end
+  end
+
+  # A first message with no real content beyond a greeting — "hi", "hello",
+  # "hey there", "namaste 👋". Anything carrying a question/complaint/keyword
+  # falls through to the AI reply so it's handled in context.
+  def bare_greeting?(content)
+    text = content.to_s.strip.downcase.gsub(/[[:punct:]]|[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/, '').strip
+    return false if text.empty? || text.length > 25
+
+    text.match?(/\A(hi|hello|hey|yo|namaste|hii+|helloo+|good (morning|afternoon|evening)|gm|hey there|hello there)\z/)
   end
 
   def comment_conversation?
@@ -178,11 +193,47 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     return :no_reply if result[:reply].blank? && !result[:handoff]
 
     reply = result[:reply].presence || 'Let me connect you with a teammate who can help! 🙏'
-    { content: reply, content_attributes: { ai_trace: result[:trace] }, handoff: result[:handoff] }
+    { content: reply, content_attributes: { ai_trace: result[:trace] },
+      handoff: gated_handoff(result) }
   rescue StandardError => e
     Rails.logger.error("DmBot AI error: #{e.message}")
     send_failure_message(event_data[:message])
     :handoff
+  end
+
+  # The model's handoff request, gated by the order-issue collect-first rule:
+  # the prompt asks the bot to collect order details BEFORE handing off, but the
+  # model often escalates a complaint on the first message anyway. Hold the
+  # handoff until the customer has actually shared order details.
+  def gated_handoff(result)
+    result[:handoff] && !suppress_order_handoff?(result[:trace])
+  end
+
+  # Keyed on the CUSTOMER'S words, not the model's self-reported rule (which it
+  # picks unreliably). Suppress a handoff when the message is an order issue and
+  # the customer hasn't shared order details yet — so the bot collects them
+  # first. Genuinely serious messages (legal/abuse/fraud) are never suppressed.
+  ORDER_ISSUE_RE = /\b(order|deliver(?:y|ed)?|delay(?:ed)?|damaged|broken|defect|received|
+                      refund|replace(?:ment)?|warranty|installation|missing|wrong)\b/ix
+  SERIOUS_RE     = /\b(sue|lawyer|legal|court|fraud|scam|cheat(?:ed)?|police|consumer)\b/i
+
+  def suppress_order_handoff?(trace)
+    return false unless trace.any? { |s| s[:tool] == 'handoff' }
+
+    text = event_data[:message].content.to_s
+    return false if text.match?(SERIOUS_RE)        # serious → hand off immediately
+    return false unless text.match?(ORDER_ISSUE_RE) # not an order issue → don't hold
+
+    !conversation_has_order_details?
+  end
+
+  # Heuristic: a 10-digit phone number or an explicit order number in the
+  # customer's messages means they've given the team enough to follow up.
+  def conversation_has_order_details?
+    text = event_data[:message].conversation.messages.incoming
+                               .where(content_type: 'text').pluck(:content).join(' ')
+    text.match?(/\b\d{10}\b/) || text.match?(/order\s*#\s*[a-z0-9]{3,}/i) ||
+      text.match?(/\b(order|ref(?:erence)?)\s*(no|number|id)?\.?\s*[:#]?\s*[a-z]{0,3}\d{3,}/i)
   end
 
   # ── Deterministic DM guardrails (independent of the model) ─────────────────
@@ -463,6 +514,14 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
       We sell across four verticals: Furniture, Doors, Wardrobes, and Full Home
       Customisation (FHC — modular kitchens & complete home interiors).
 
+      ── FIRST CONTACT ──────────────────────────────────────────────────────
+      On your FIRST reply in a conversation, open with a brief, warm welcome
+      ("Hello! 👋 Welcome to Durian") and then immediately address what the
+      customer actually said — in the SAME message. Never reply with a generic
+      "how can we help you today?" when the customer has already told you what
+      they need (a product, a complaint, an order issue). Read their message and
+      respond to it.
+
       ── HOW DURIAN HANDLES DMs (IMPORTANT) ─────────────────────────────────
       Durian does NOT sell, price, take orders, or track orders over DM. Your
       job is to ENQUIRE → SHARE THE RIGHT LINK → INVITE CONTACT DETAILS so a
@@ -497,13 +556,32 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
         • Appreciation / thanks / praise: thank them warmly and invite them to
           visit again. No tool.
 
-      ── HAND OFF TO A HUMAN (call the `handoff` tool) ──────────────────────
-      Call `handoff` for anything you genuinely can't resolve with the above:
-        • complaints, defects, damaged/wrong/delayed delivery, poor service
-        • refunds, payments, billing, order/delivery status for an existing order
-        • fraud/scam accusations, legal threats, abuse, or anything serious
-      When you call it, set `reply` to a brief, warm line that a teammate will
-      follow up shortly, and (where natural) point them to:
+      ── ORDER ISSUES / COMPLAINTS (collect details FIRST, then hand off) ───
+      This covers a complaint, defect, damaged/wrong/delayed delivery, poor
+      service, or a question about an existing order's status. Handle it in TWO
+      turns — do not collapse them:
+
+      • TURN 1 — details NOT yet shared: Look at the conversation. If the
+        customer has NOT yet given an order ID / order number AND a registered
+        mobile number, then your reply MUST (a) briefly apologise for the
+        inconvenience, and (b) ask them to share their order ID / order number
+        and the mobile number the order was placed under.
+        DO NOT call the `handoff` tool on this turn. DO NOT say "a teammate will
+        follow up" yet — you first need their details.
+
+      • TURN 2 — details now shared: ONLY once the order ID / mobile number
+        actually appear in the conversation, thank them, tell them our team will
+        get back to them shortly, AND call the `handoff` tool — so the human
+        team picks up with the order details already in the thread.
+
+      If the customer explicitly refuses or says they can't share details after
+      you've asked once, then apologise and call `handoff` anyway.
+
+      ── HAND OFF IMMEDIATELY (call `handoff` right away) ───────────────────
+      For fraud/scam accusations, legal threats, abuse, or anything genuinely
+      serious or outside everything above — call `handoff` on the first message.
+      Set `reply` to a brief, warm line that a teammate will follow up shortly,
+      and where natural point them to:
         📧 #{b::SUPPORT_EMAIL}  ·  📱 WhatsApp: #{b::WHATSAPP}  ·  📞 #{b::SUPPORT_PHONE}
       For every tool call, fill `reason` with one short sentence explaining why.
 
