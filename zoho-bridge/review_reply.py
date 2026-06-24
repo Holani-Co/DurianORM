@@ -83,6 +83,19 @@ def _format_templates(templates: list[dict]) -> str:
     )
 
 
+def _unescape_newlines(text: str) -> str:
+    """Defensive: the model sometimes double-escapes its `\\n` in the JSON
+    output, so json.loads produces literal '\\n' substrings instead of real
+    newline characters — and the card renders the raw text "Hello\\n\\nThank…"
+    verbatim. Normalise the common whitespace escapes back to real characters.
+    A legitimate reply never contains the visible string '\\n', so this is
+    safe."""
+    return (text
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t"))
+
+
 def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> list[dict]:
     """An AI chain-of-thought trace (same shape the DM bot emits) so agents see
     WHY this template was suggested. Rendered by the AiTrace.vue component when
@@ -181,7 +194,7 @@ async def draft(channel: str, message: str, contact_name: str,
             },
         )
         parsed = json.loads(r.choices[0].message.content)
-        reply = (parsed.get("reply") or "").strip()
+        reply = _unescape_newlines((parsed.get("reply") or "").strip())
         action = (parsed.get("action") or "handoff").strip().lower()
         short_code = (parsed.get("short_code") or "").strip()
         reasoning = (parsed.get("reasoning") or "").strip()
