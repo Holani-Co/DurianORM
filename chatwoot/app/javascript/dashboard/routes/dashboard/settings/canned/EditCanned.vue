@@ -6,6 +6,7 @@ import { useAlert } from 'dashboard/composables';
 import WootMessageEditor from 'dashboard/components/widgets/WootWriter/Editor.vue';
 import NextButton from 'dashboard/components-next/button/Button.vue';
 import Modal from '../../../../components/Modal.vue';
+import { parseShortCode, channelMeta } from 'dashboard/helper/templateTaxonomy';
 
 export default {
   components: {
@@ -45,6 +46,10 @@ export default {
   computed: {
     pageTitle() {
       return `${this.$t('CANNED_MGMT.EDIT.TITLE')} - ${this.edshortCode}`;
+    },
+    parsedCode() {
+      const { channel, category } = parseShortCode(this.shortCode || '');
+      return { channelLabel: channelMeta(channel).label, category };
     },
   },
   methods: {
@@ -103,6 +108,21 @@ export default {
               @input="v$.shortCode.$touch"
             />
           </label>
+          <div v-if="shortCode" class="flex flex-wrap gap-2 mt-1 mb-2">
+            <span
+              class="px-2 py-0.5 text-xs rounded-md bg-n-solid-3 text-n-slate-11"
+            >
+              {{ $t('CANNED_MGMT.NAME_BUILDER.CHANNEL_CHIP') }}
+              {{ parsedCode.channelLabel }}
+            </span>
+            <span
+              v-if="parsedCode.category"
+              class="px-2 py-0.5 text-xs rounded-md bg-n-solid-3 text-n-slate-11"
+            >
+              {{ $t('CANNED_MGMT.NAME_BUILDER.CATEGORY_CHIP') }}
+              {{ parsedCode.category }}
+            </span>
+          </div>
         </div>
 
         <div class="w-full">

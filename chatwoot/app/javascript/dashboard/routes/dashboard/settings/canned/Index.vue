@@ -2,8 +2,10 @@
 import { useAlert } from 'dashboard/composables';
 import AddCanned from './AddCanned.vue';
 import EditCanned from './EditCanned.vue';
+import ChannelFilterTabs from './ChannelFilterTabs.vue';
 import SettingsLayout from '../SettingsLayout.vue';
 import BaseSettingsHeader from '../components/BaseSettingsHeader.vue';
+import { parseShortCode } from 'dashboard/helper/templateTaxonomy';
 import { computed, onMounted, ref, defineOptions } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useStoreGetters, useStore } from 'dashboard/composables/store';
@@ -37,15 +39,25 @@ const cannedResponseAPI = ref({ message: '' });
 
 const sortOrder = ref('asc');
 const searchQuery = ref('');
+const selectedChannel = ref('all');
 
 const records = computed(() =>
   getters.getSortedCannedResponses.value(sortOrder.value)
 );
 
+// Narrow by the selected channel (derived from each short_code's prefix),
+// then apply the existing free-text search on top.
+const channelRecords = computed(() => {
+  if (selectedChannel.value === 'all') return records.value;
+  return records.value.filter(
+    r => parseShortCode(r.short_code || '').channel === selectedChannel.value
+  );
+});
+
 const filteredRecords = computed(() => {
   const query = searchQuery.value.trim();
-  if (!query) return records.value;
-  return picoSearch(records.value, query, [
+  if (!query) return channelRecords.value;
+  return picoSearch(channelRecords.value, query, [
     { name: 'short_code', weight: 4 },
     'content',
   ]);
@@ -170,6 +182,11 @@ const tableHeaders = computed(() => {
     </template>
 
     <template #body>
+      <ChannelFilterTabs
+        v-if="records.length"
+        v-model="selectedChannel"
+        :records="records"
+      />
       <BaseTable
         :headers="tableHeaders"
         :items="filteredRecords"

@@ -64,6 +64,24 @@ def _acct_url(suffix: str) -> str:
     return f"{config.CHATWOOT_BASE_URL}/api/v1/accounts/{config.CHATWOOT_ACCOUNT_ID}{suffix}"
 
 
+async def list_canned_responses() -> list[dict]:
+    """Return all canned responses as [{short_code, content}, ...].
+
+    The Durian reply templates live here (seeded by setup_review_templates.py).
+    The team edits them from the Chatwoot UI; the AI suggester reads them live
+    at reply time, so a UI edit changes the AI's drafts with no code change.
+    Returns [] on any failure (best-effort — the suggester falls back to a
+    generic draft)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(_acct_url("/canned_responses"), headers=_headers())
+        if r.status_code >= 300:
+            print(f"[chatwoot] list_canned_responses non-200 "
+                  f"[{r.status_code}]: {r.text[:200]}")
+            return []
+        body = r.json()
+        return body if isinstance(body, list) else body.get("payload", [])
+
+
 async def create_contact(name: str, identifier: str, inbox_id: int,
                          custom_attributes: dict | None = None) -> tuple[int, str]:
     """Create (or return existing) a contact on an inbox. Returns (contact_id, source_id).
@@ -309,6 +327,27 @@ async def get_conversation(conversation_id: int) -> dict:
                 f"Chatwoot get conversation failed [{r.status_code}]: {r.text}"
             )
         return r.json() or {}
+
+
+async def get_conversation_messages_raw(conversation_id: int) -> list[dict]:
+    """Like get_conversation_messages but RETAINS private notes — needed by
+    the template-suggestion dedup check (the card is a private note, so the
+    filtered helper hides it from the dedup logic). Oldest-first. Returns []
+    on any failure."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(_conv_url(conversation_id, "/messages"),
+                                  headers=_headers())
+            if r.status_code >= 300:
+                return []
+            body = r.json() or {}
+            payload = body.get("payload")
+            if payload is None:
+                payload = (body.get("data") or {}).get("payload") or []
+            return payload or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] get messages (raw) error for conv {conversation_id}: {e}")
+        return []
 
 
 async def get_conversation_messages(conversation_id: int) -> list[dict]:
