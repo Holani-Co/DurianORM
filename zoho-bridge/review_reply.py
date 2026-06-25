@@ -83,6 +83,52 @@ def _format_templates(templates: list[dict]) -> str:
     )
 
 
+# Star-rating → review template short_code. For rating-only reviews (no text)
+# the AI has nothing to read, so we pick deterministically from the rating.
+# The team still sees the suggestion card and decides to send.
+_STAR_TEMPLATE_FALLBACK = {
+    5: "review_positive_5star",
+    4: "review_positive_can_improve",
+    3: "review_acknowledge_feedback",
+    2: "review_negative_will_work_on_it",
+    1: "review_issue_not_resolved",
+}
+
+
+def _first_name(name: str) -> str:
+    """First non-empty token of `name`, used for the 'Dear …' personalisation
+    on rating-only review templates. Falls back to empty when the name is
+    blank or looks like an auto-generated identifier."""
+    parts = (name or "").strip().split()
+    return parts[0] if parts and parts[0].lower() not in {"customer", "google", "user"} else ""
+
+
+def _personalise(content: str, contact_name: str) -> str:
+    """Swap the template's "Dear Customer," opening for "Dear <FirstName>,"
+    when a real name is given. No-op otherwise so the template's wording
+    stays exactly as the team approved it."""
+    fn = _first_name(contact_name)
+    if not fn:
+        return content
+    return content.replace("Dear Customer,", f"Dear {fn},", 1)
+
+
+def _star_template_fallback(stars: int, contact_name: str,
+                            templates: list[dict]) -> tuple[str, str, str]:
+    """Pick a review template directly from the star rating (no LLM). Returns
+    (reply, short_code, reasoning). Empty reply if no matching template
+    exists in Chatwoot's canned responses — caller falls back to handoff."""
+    code = _STAR_TEMPLATE_FALLBACK.get(stars or 0,
+                                       "review_acknowledge_feedback")
+    match = next((t for t in templates if t.get("short_code") == code), None)
+    if not match:
+        return "", "", ""
+    reply = _personalise(match.get("content") or "", contact_name)
+    reasoning = (f"Rating-only review ({stars or 'no'}★) — picked the "
+                 f"matching star template directly (no AI call needed).")
+    return reply, code, reasoning
+
+
 def _unescape_newlines(text: str) -> str:
     """Defensive: the model sometimes double-escapes its `\\n` in the JSON
     output, so json.loads produces literal '\\n' substrings instead of real
@@ -152,12 +198,24 @@ async def draft(channel: str, message: str, contact_name: str,
         print(f"[template_reply] no {prefix} templates found — handing off")
         return result("", "handoff")
 
-    # Reviews: low-stars override regardless of model output.
-    force_human = (
-        channel == "review"
-        and stars
-        and stars < config.REVIEWS_AUTO_REPLY_MIN_STARS
-    )
+    # Rating-only review (Google review with stars but no text): the AI has
+    # nothing to read, so pick a template deterministically from the rating
+    # and skip the LLM call entirely. Cheaper, faster, and avoids the
+    # "(no draft)" empty-card UX. Reviews always go to the card (handoff)
+    # regardless of star count.
+    if channel == "review" and not (message or "").strip():
+        reply, code, reasoning = _star_template_fallback(
+            stars or 0, contact_name, templates)
+        if reply:
+            print(f"[template_reply] rating-only review ({stars}★) → "
+                  f"{code} (no AI call)")
+            return result(reply, "handoff", code, reasoning)
+        # Fall through (no template matched) → handoff with no draft.
+        return result("", "handoff")
+
+    # Reviews: ALWAYS go to the card — the team reviews every reply before
+    # it posts to Google. Nothing auto-sends regardless of star count.
+    force_human = channel == "review"
 
     system_prompt = SYSTEM_PROMPT_FMT.format(
         channel_label=CHANNEL_LABELS.get(channel, channel),
