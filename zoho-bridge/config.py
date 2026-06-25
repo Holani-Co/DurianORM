@@ -192,3 +192,12 @@ PRIORITY_ESCALATION_LEVELS = _csv("PRIORITY_ESCALATION_LEVELS", "urgent,high")
 PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
     1, int(os.environ.get("PRIORITY_ESCALATION_COOLDOWN_MINUTES", "60"))
 )
+
+# ── Human-in-the-loop Zoho ticket approval ─────────────────────────────────
+# When true (DEFAULT), the bridge NEVER auto-creates a Zoho ticket. Every
+# escalation path (categorizer complaint/legal, priority bump, manual handoff,
+# Option-D signal) instead pauses and asks an agent to Approve / Attach-to-
+# existing / Reject via the Pending Ticket Decision panel in the sidebar.
+# Set ZOHO_TICKET_REQUIRE_APPROVAL=false to restore fully-automatic ticket
+# creation (e.g. once out of the prod-test phase).
+ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")

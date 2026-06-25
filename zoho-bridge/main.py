@@ -269,7 +269,11 @@ async def handle_status_changed(data: dict) -> dict:
     if social_channel:
         return await handle_template_suggest(full_conv, social_channel)
 
-    # Email handoff → Zoho ticket (unchanged).
+    # Email handoff → Zoho ticket. With the approval gate on, pause for an
+    # agent decision instead of auto-creating.
+    sender_email = ((full_conv.get("meta") or {}).get("sender") or {}).get("email") or ""
+    if config.ZOHO_TICKET_REQUIRE_APPROVAL:
+        return await _pause_ticket_for_approval(conv_id, sender_email, "manual_handoff")
     try:
         messages, summary = await _ticket_context(conv_id)
         ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
@@ -335,6 +339,12 @@ async def handle_conversation_updated(data: dict) -> dict:
         return {"ignored": True, "reason": "recent_priority_escalation"}
 
     print(f"[priority] conv {conv_id} flagged {priority.upper()} — escalating to Zoho")
+
+    # Approval gate: pause for an agent decision instead of auto-creating.
+    if config.ZOHO_TICKET_REQUIRE_APPROVAL:
+        sender_email = ((conv.get("meta") or {}).get("sender") or {}).get("email") or ""
+        return await _pause_ticket_for_approval(
+            conv_id, sender_email, f"priority_{priority}")
 
     sla_hours = config.PRIORITY_SLA_HOURS.get(priority, 24)
     now    = datetime.now(timezone.utc)
@@ -569,6 +579,28 @@ async def _surface_ticket_in_chatwoot(
 # Idempotency: if pending_zoho_ticket is already set on this conv we don't
 # overwrite it — the existing decision context is preserved verbatim so
 # subsequent webhook fires don't add noise.
+async def _pause_ticket_for_approval(conv_id: int, sender_email: str,
+                                     escalation_label: str) -> dict:
+    """Look up any open tickets for the contact, then pause for an agent
+    decision (Approve / Attach-to-existing / Reject). Used by the direct-create
+    escalation paths (manual handoff, priority bump) when
+    ZOHO_TICKET_REQUIRE_APPROVAL is on, so no ticket is created without a human.
+    Returns a small JSON-friendly dict for the handler to relay back."""
+    candidates = []
+    if sender_email:
+        try:
+            candidates = await zoho.search_open_tickets_by_email(sender_email, limit=5)
+        except Exception as e:
+            print(f"[zoho] open-ticket lookup failed for {sender_email!r}: {e}")
+    await _pause_for_agent_decision(
+        conv_id=conv_id, sender_email=sender_email,
+        escalation_label=escalation_label, candidates=candidates,
+    )
+    return {"created": False, "awaiting_approval": True,
+            "candidates": [t.get("id") for t in candidates],
+            "escalation_label": escalation_label}
+
+
 async def _pause_for_agent_decision(conv_id: int,
                                     sender_email: str,
                                     escalation_label: str,
@@ -602,29 +634,34 @@ async def _pause_for_agent_decision(conv_id: int,
     except Exception as e:
         print(f"[zoho-dedup] merge_custom_attributes failed for {conv_id}: {e}")
 
-    # Post a private note so agents notice without watching the sidebar.
+    # Post a private note so agents notice without watching the sidebar. The
+    # wording differs for the two pause reasons: a possible duplicate (open
+    # tickets exist) vs. the approval gate (no duplicate, just needs sign-off).
     lines = [
         "🎫 **Zoho ticket creation paused — agent decision needed**",
         "",
-        f"This contact ({sender_email}) already has open Zoho tickets that "
-        f"may be related. The bridge would have auto-escalated this conversation "
-        f"as **{escalation_label}**, but to avoid duplicate tickets it's "
-        f"waiting for you to decide.",
-        "",
-        "Existing open tickets:",
     ]
-    for t in candidates[:5]:
-        num = f"#{t.get('number')}" if t.get("number") else (t.get("id") or "?")
-        subj = (t.get("subject") or "")[:80]
-        url = t.get("url")
-        if url:
-            lines.append(f"- [{num}]({url}) — {subj}")
-        else:
-            lines.append(f"- {num} — {subj}")
-    lines.append("")
-    lines.append("→ Open the **Ticket decision** panel in the sidebar to "
-                 "attach this conversation to one of the above, or create "
-                 "a new ticket.")
+    if candidates:
+        lines.append(
+            f"This contact ({sender_email}) already has open Zoho tickets that "
+            f"may be related. The bridge would have escalated this conversation "
+            f"as **{escalation_label}**, but it's waiting for you to decide.")
+        lines.append("")
+        lines.append("Existing open tickets:")
+        for t in candidates[:5]:
+            num = f"#{t.get('number')}" if t.get("number") else (t.get("id") or "?")
+            subj = (t.get("subject") or "")[:80]
+            url = t.get("url")
+            lines.append(f"- [{num}]({url}) — {subj}" if url else f"- {num} — {subj}")
+        lines.append("")
+        lines.append("→ Open the **Ticket decision** panel in the sidebar to "
+                     "attach to one of the above, create a new ticket, or reject.")
+    else:
+        lines.append(
+            f"This conversation was flagged for a Zoho ticket "
+            f"(**{escalation_label}**). No ticket has been created — open the "
+            f"**Ticket decision** panel in the sidebar to **Approve** (create "
+            f"the ticket) or **Reject**.")
     try:
         await chatwoot.post_private_note(conv_id, "\n".join(lines))
     except Exception as e:
@@ -636,7 +673,7 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
     """Execute the agent's choice on a paused ticket. Idempotent on success
     (clears pending_zoho_ticket regardless of which branch ran). Returns a
     small JSON-friendly dict for the HTTP endpoint to relay back."""
-    if choice not in ("use_existing", "create_new"):
+    if choice not in ("use_existing", "create_new", "reject"):
         raise ValueError(f"invalid choice: {choice!r}")
 
     # Pull the paused-decision context off the conversation.
@@ -657,7 +694,21 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 
     result: dict = {"resolved": True, "choice": choice}
 
-    if choice == "create_new":
+    if choice == "reject":
+        # Agent declined the ticket — create nothing, just record the decision.
+        print(f"[zoho] conv {conv_id}: agent REJECTED ticket creation "
+              f"({escalation_label})")
+        try:
+            await chatwoot.post_private_note(
+                conv_id,
+                "🚫 **Zoho ticket creation rejected** — no ticket was created "
+                "for this conversation.",
+            )
+        except Exception as e:
+            print(f"[zoho] reject note failed for conv {conv_id}: {e}")
+        result["rejected"] = True
+
+    elif choice == "create_new":
         try:
             messages, summary = await _ticket_context(conv_id)
             ticket = await zoho.create_ticket(
@@ -915,9 +966,10 @@ async def _create_or_pause_zoho_ticket(conv_id: int,
         except Exception as e:
             print(f"[zoho-dedup] open-ticket lookup failed for {sender_email!r}: {e}")
 
-    if open_tickets:
-        print(f"[zoho-dedup] conv {conv_id}: {len(open_tickets)} open ticket(s) "
-              f"for {sender_email!r} — pausing auto-create")
+    if open_tickets or config.ZOHO_TICKET_REQUIRE_APPROVAL:
+        why = "approval required" if config.ZOHO_TICKET_REQUIRE_APPROVAL \
+            else f"{len(open_tickets)} open ticket(s) for {sender_email!r}"
+        print(f"[zoho] conv {conv_id}: pausing auto-create ({why})")
         await _pause_for_agent_decision(
             conv_id=conv_id, sender_email=sender_email,
             escalation_label=escalation_label, candidates=open_tickets,
@@ -1908,11 +1960,12 @@ async def reviews_regenerate(request: Request):
 @app.post("/chatwoot/resolve-ticket-decision")
 async def chatwoot_resolve_ticket_decision(request: Request):
     """Called by the Chatwoot Rails proxy when an agent clicks
-    [Attach to #N] or [Create new] in the Pending Ticket Decision panel.
+    [Approve / Create new], [Attach to #N], or [Reject] in the Pending Ticket
+    Decision panel.
 
     Body: {
       "conversation_id": int,
-      "choice":          "use_existing" | "create_new",
+      "choice":          "use_existing" | "create_new" | "reject",
       "target_ticket_id": str  // required when choice == "use_existing"
     }
     """
@@ -1920,7 +1973,7 @@ async def chatwoot_resolve_ticket_decision(request: Request):
     conv_id          = body.get("conversation_id")
     choice           = body.get("choice")
     target_ticket_id = body.get("target_ticket_id")
-    if not conv_id or choice not in ("use_existing", "create_new"):
+    if not conv_id or choice not in ("use_existing", "create_new", "reject"):
         raise HTTPException(400, "missing conversation_id or invalid choice")
     if choice == "use_existing" and not target_ticket_id:
         raise HTTPException(400, "target_ticket_id required when choice=use_existing")

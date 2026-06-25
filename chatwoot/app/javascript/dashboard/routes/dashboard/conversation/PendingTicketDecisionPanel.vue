@@ -6,7 +6,6 @@
 import { computed, ref } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
-const axios = window.axios;
 
 // Renders when zoho-bridge has PAUSED Zoho ticket creation because the
 // contact already has one or more open tickets. Lets the agent decide
@@ -32,14 +31,23 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['resolved']);
+
+const axios = window.axios;
 const store = useStore();
 const accountId = useMapGetter('getCurrentAccountId');
 
-const submittingChoice = ref(null); // null | 'create_new' | <ticket_id>
+const submittingChoice = ref(null); // null | 'create_new' | 'reject' | <ticket_id>
 
 const candidates = computed(() => props.pending?.candidates || []);
+const hasCandidates = computed(() => candidates.value.length > 0);
 const escalationLabel = computed(() => props.pending?.escalation_label || '');
 const senderEmail = computed(() => props.pending?.sender_email || '');
+
+const ALERTS = {
+  create_new: 'Zoho ticket created.',
+  use_existing: 'Conversation attached to existing ticket.',
+  reject: 'Ticket creation rejected — no ticket was created.',
+};
 
 const formatLabel = label => {
   if (!label) return '';
@@ -56,7 +64,7 @@ const formatStatus = status => (status === 'On Hold' ? 'On Hold' : 'Open');
 
 async function resolve(choice, targetTicketId = null) {
   if (submittingChoice.value) return;
-  submittingChoice.value = choice === 'use_existing' ? targetTicketId : 'create_new';
+  submittingChoice.value = targetTicketId ?? choice;
   try {
     await axios.post(
       `/api/v1/accounts/${accountId.value}/integrations/zoho_bridge/resolve_ticket_decision`,
@@ -74,11 +82,7 @@ async function resolve(choice, targetTicketId = null) {
       conversationId: Number(props.conversationId),
       customAttributes: { pending_zoho_ticket: null },
     });
-    useAlert(
-      choice === 'create_new'
-        ? 'New Zoho ticket created.'
-        : 'Conversation attached to existing ticket.'
-    );
+    useAlert(ALERTS[choice] || 'Done.');
     emit('resolved', { choice, target_ticket_id: targetTicketId });
   } catch (e) {
     useAlert(
@@ -95,9 +99,15 @@ async function resolve(choice, targetTicketId = null) {
 <template>
   <div class="flex flex-col gap-2">
     <div class="px-1 text-xs text-n-slate-11">
-      Bridge paused ticket creation —
-      <span v-if="escalationLabel" class="text-n-slate-12">
-        {{ formatLabel(escalationLabel) }}
+      <span class="text-n-slate-12">
+        {{
+          hasCandidates
+            ? 'Possible duplicate — approve, attach, or reject'
+            : 'Zoho ticket needs your approval'
+        }}
+      </span>
+      <span v-if="escalationLabel" class="text-n-slate-10">
+        · {{ formatLabel(escalationLabel) }}
       </span>
       <span v-if="senderEmail" class="text-n-slate-10">
         · {{ senderEmail }}
@@ -142,23 +152,37 @@ async function resolve(choice, targetTicketId = null) {
       >
         <span class="i-ph-arrows-merge align-middle" />
         {{
-          submittingChoice === ticket.id ? 'Attaching…' : 'Attach this conversation'
+          submittingChoice === ticket.id
+            ? 'Attaching…'
+            : 'Attach this conversation'
         }}
       </button>
     </div>
 
-    <!-- Always-available fallback: create a new ticket anyway. -->
-    <div class="flex items-center justify-between gap-2 px-1 pt-1">
-      <span class="text-xs text-n-slate-10">
-        Not a duplicate?
-      </span>
+    <!-- Approve (create the ticket) / Reject (create nothing). -->
+    <div class="flex items-center gap-2 px-1 pt-1">
       <button
         type="button"
-        class="text-xs font-medium text-n-slate-11 hover:text-n-slate-12 disabled:opacity-50"
+        class="flex-1 px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="submittingChoice !== null"
         @click="resolve('create_new')"
       >
-        {{ submittingChoice === 'create_new' ? 'Creating…' : 'Create new ticket' }}
+        <span class="i-ph-check-circle align-middle" />
+        {{
+          submittingChoice === 'create_new'
+            ? 'Creating…'
+            : hasCandidates
+              ? 'Create new ticket'
+              : 'Approve & create ticket'
+        }}
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-11 hover:text-n-ruby-11 disabled:opacity-50"
+        :disabled="submittingChoice !== null"
+        @click="resolve('reject')"
+      >
+        {{ submittingChoice === 'reject' ? 'Rejecting…' : 'Reject' }}
       </button>
     </div>
   </div>
