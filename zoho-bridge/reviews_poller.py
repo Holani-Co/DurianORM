@@ -12,12 +12,17 @@
 # Locations are discovered once and cached for the process lifetime.
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import config
 import chatwoot
 import google_reviews as gr
 import review_reply
 import reviews_state as state
+
+# India Standard Time — Durian's locations are all in India, so reviews always
+# render in the showroom's local time, not UTC.
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 # content_attributes marker so the Chatwoot webhook can tell an auto-reply
 # (already posted to Google) apart from a human reply (needs posting).
@@ -28,6 +33,25 @@ _locations_cache: list[dict] = []
 
 def _stars_bar(stars: int) -> str:
     return "★" * stars + "☆" * (5 - stars) if stars else "(rating unknown)"
+
+
+def _format_review_time(iso: str) -> str:
+    """Google returns the review timestamp as ISO 8601 UTC (e.g.
+    `2022-06-08T12:47:48.747377Z`) — readable to a machine but ugly in the
+    Chatwoot card. Render as IST in a friendly form, e.g. "8 Jun 2022, 6:17 PM".
+    Falls back to the raw value if parsing fails (don't break the card)."""
+    if not iso:
+        return ""
+    try:
+        # Python's fromisoformat handles "...+00:00" but not the "Z" suffix
+        # until 3.11 — normalise manually for portability.
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(_IST)
+        # %d / %I pad with leading zeros on every platform; strip both manually
+        # for a cleaner "8 Jun 2022, 6:17 PM IST" instead of "08 ... 06:17 PM".
+        return (f"{dt.day} {dt.strftime('%b %Y')}, "
+                f"{dt.hour % 12 or 12}:{dt.strftime('%M %p')} IST")
+    except Exception:
+        return iso
 
 
 async def _discover_locations() -> list[dict]:
@@ -52,7 +76,7 @@ async def _ingest_review(loc: dict, rv: dict):
     body = (
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
         f"📍 {title}\n"
-        f"🗓 {rv['create_time']}\n\n"
+        f"🗓 {_format_review_time(rv['create_time'])}\n\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
 
