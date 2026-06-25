@@ -95,6 +95,12 @@ REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEA
 REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
 REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
 REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "4"))
+# Cap on how many NEW reviews one sweep will ingest. Mainly protects the
+# Chatwoot inbox from a flood on the very first sweep after enabling the
+# poller (years of historical reviews × dozens of locations). Subsequent
+# sweeps catch the rest, paced by REVIEWS_POLL_INTERVAL_SECONDS. Set to 0
+# to disable the cap entirely.
+REVIEWS_MAX_PER_SWEEP         = max(0, int(os.environ.get("REVIEWS_MAX_PER_SWEEP", "20")))
 
 
 # ── Spam-classifier safeguards ────────────────────────────────────────────
