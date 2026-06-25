@@ -128,9 +128,14 @@ async def _ingest_review(loc: dict, rv: dict):
 
 
 async def poll_once():
-    """One sweep across all locations."""
+    """One sweep across all locations. Bounded by REVIEWS_MAX_PER_SWEEP so the
+    first run after enabling the poller doesn't flood the inbox with the
+    location's entire historical backlog — the rest gets picked up on
+    subsequent sweeps, paced by REVIEWS_POLL_INTERVAL_SECONDS."""
     locations = await _discover_locations()
+    cap = config.REVIEWS_MAX_PER_SWEEP
     new_count = 0
+    skipped_for_cap = 0
     for loc in locations:
         try:
             reviews = await gr.list_reviews(loc["account_id"], loc["location_id"])
@@ -140,13 +145,20 @@ async def poll_once():
         for rv in reviews:
             if state.is_seen(rv["review_id"]):
                 continue
+            if cap and new_count >= cap:
+                skipped_for_cap += 1
+                continue
             try:
                 await _ingest_review(loc, rv)
                 new_count += 1
             except Exception as e:
                 print(f"[reviews] ingest failed ({rv['review_id']}): {e}")
     if new_count:
-        print(f"[reviews] ingested {new_count} new review(s)")
+        msg = f"[reviews] ingested {new_count} new review(s)"
+        if skipped_for_cap:
+            msg += (f"; {skipped_for_cap} held back by "
+                    f"REVIEWS_MAX_PER_SWEEP={cap} (next sweep)")
+        print(msg)
 
 
 async def run_forever():
