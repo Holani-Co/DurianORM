@@ -102,12 +102,9 @@ async def _ingest_review(loc: dict, rv: dict):
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
 
-    # If the review already has a reply on Google, just record it — no action.
-    if rv["has_reply"]:
-        state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=True)
-        return
-
-    # 2. AI draft
+    # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
+    # even when Google already has a reply on this review. The has_reply flag
+    # below only gates auto-posting (we won't re-post to Google), not the card.
     drafted = await review_reply.draft(
         channel="review",
         message=rv["comment"] or "",
@@ -117,7 +114,7 @@ async def _ingest_review(loc: dict, rv: dict):
     )
     reply, action = drafted["reply"], drafted["action"]
 
-    if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
+    if action == "auto" and config.REVIEWS_AUTO_REPLY and reply and not rv["has_reply"]:
         # 3a. Post to Google, then mirror into Chatwoot (marked) + resolve.
         try:
             await gr.post_reply(rv["reply_path"], reply)
