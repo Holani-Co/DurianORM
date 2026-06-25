@@ -35,8 +35,13 @@ def _parse_cutoff(arg: str | None):
 
 
 async def main():
-    if not config.GOOGLE_REVIEWS_ENABLED:
-        print("GOOGLE_REVIEWS_ENABLED is false — nothing to seed.")
+    # NOTE: this script is a one-time seeder typically run BEFORE the poller
+    # is enabled, so it does NOT gate on GOOGLE_REVIEWS_ENABLED. It only needs
+    # the OAuth credentials to be set.
+    if not (config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET
+            and config.GOOGLE_REFRESH_TOKEN):
+        print("Google OAuth creds missing (GOOGLE_CLIENT_ID / "
+              "GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN) — cannot seed.")
         return
 
     cutoff = _parse_cutoff(sys.argv[1] if len(sys.argv) > 1 else None)
