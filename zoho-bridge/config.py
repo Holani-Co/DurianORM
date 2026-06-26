@@ -217,3 +217,10 @@ ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 # change. Note: this is a HIGHER bar than the classifier's own
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
 CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
+
+# How many subject-keyword anchors per category to feed the classifier prompt.
+# The client's Email-Keywords sheet has up to ~160 per category; default 200
+# effectively includes them ALL so the model weighs the full list when scoring
+# confidence. Lower it (e.g. =40) to trim prompt size/cost if needed. Applied
+# at startup — restart the bridge after changing.
+CATEGORY_KEYWORDS_IN_PROMPT = int(os.environ.get("CATEGORY_KEYWORDS_IN_PROMPT", "200"))

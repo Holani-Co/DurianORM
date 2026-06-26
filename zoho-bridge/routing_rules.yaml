@@ -158,6 +158,145 @@ categories:
       - Poor Installation
       - Incorrect Assembly
       - Installation Damage
+      - Repair
+      - Senior Management Escalation
+      - Seat Sagging
+      - Structural Damage
+      - Frame Damage
+      - Noise Issue
+      - Clicking Sound
+      - Cracking Sound
+      - Leather Peeling
+      - Leather Scraping
+      - Leather Damage
+      - Wood Peeling
+      - Stitching Issue
+      - Crack
+      - Tilted
+      - Damage
+      - Loose Drawer Handle
+      - Drawer Repair
+      - Defect
+      - Finishing Issue
+      - Mismatch
+      - Fungal Infection
+      - Rotten Material
+      - Bad Odour
+      - Premium Quality Concern
+      - Hygiene Issue
+      - Used Product Appearance
+      - Delayed Repair
+      - Delayed Replacement
+      - Pending Inspection
+      - No Update After Inspection
+      - Multiple Follow Ups
+      - Complaint Reopened
+      - Escalated Complaint
+      - Technician Visit
+      - Unauthorized Installer
+      - Service
+      - Quality Issue
+      - After Sales Service Issue
+      - Warranty
+      - Defective Product Under Warranty
+      - Urgent Resolution
+      - Immediate Action Required
+      - Senior Management Intervention
+      - Written Confirmation Request
+      - Customer Dissatisfaction
+      - Lack Of Communication
+      - Order Concern
+      - Brand Trust Concern
+      - Mental Stress
+      - Customer Inconvenience
+      - Social Media Escalation
+      - Misrepresentation
+      - Breach Of Commitment
+      - Deficient Service
+      - Brand Reputation Risk
+      - High Priority Case
+      - Aging Complaint
+      - Replacement Pending
+      - Customer Retention Risk
+      - Legal Risk Case
+      - Product Defects & Damage
+      - Product Failure
+      - Broken Part
+      - Bent Frame
+      - Surface Damage
+      - Scratch Marks
+      - Dent
+      - Chipped Material
+      - Color Fading
+      - Color Mismatch
+      - Fabric Damage
+      - Fabric Tearing
+      - Cushion Deformation
+      - Cushion Hardness Issue
+      - Cushion Softness Issue
+      - Foam Collapse
+      - Joint Failure
+      - Wheel/Caster Issue
+      - Recliner Mechanism Issue
+      - Locking Mechanism Failure
+      - Hydraulic Failure
+      - Handle Damage
+      - Door Alignment Issue
+      - Drawer Alignment Issue
+      - Storage Unit Defect
+      - Delivery & Logistics
+      - Delayed Delivery
+      - Wrong Product Delivered
+      - Missing Parts
+      - Incomplete Delivery
+      - Transit Damage
+      - Packaging Damage
+      - Delivery Rescheduling Issue
+      - Delivery Coordination Issue
+      - Installation Delay
+      - Product Not Delivered
+      - Lost Shipment
+      - Dispatch Delay
+      - Installation & Assembly
+      - Assembly Error
+      - Incomplete Installation
+      - Installation Quality Issue
+      - Improper Product Setup
+      - Technician Delay
+      - Repeat Technician Visit Required
+      - Installation Appointment Issue
+      - Service & Support
+      - Poor Customer Service
+      - Service Delay
+      - Service Request Pending
+      - Service Ticket Open
+      - Service Ticket Closure Dispute
+      - Inadequate Resolution
+      - Unsatisfactory Service
+      - Follow-Up Failure
+      - Callback Not Received
+      - Incorrect Information Provided
+      - Customer Support Escalation
+      - Service Commitment Not Met
+      - Lack of Ownership
+      - Poor Coordination
+      - Replacement & Refund
+      - Replacement Delay
+      - Replacement Rejected
+      - Incorrect Replacement
+      - Refund Delay
+      - Refund Not Received
+      - Partial Refund Dispute
+      - Return Request
+      - Return Rejected
+      - Exchange Request
+      - Exchange Delay
+      - Warranty & Policy
+      - Warranty Claim Rejected
+      - Warranty Clarification Required
+      - Warranty Coverage Dispute
+      - Extended Warranty Concern
+      - Policy Miscommunication
 
   legal_complaint:
     display_name: Legal Complaint
@@ -191,6 +330,16 @@ categories:
       - Breach Of Commitment
       - Legal Risk Case
       - Senior Management Escalation
+      - Legal Counsel
+      - Refund of Purchase Amount
+      - Unauthorized Use and Infringement of Copyrighted Works
+      - Refund with Compensation
+      - Consumer Court
+      - Case Filed
+      - Demand for Immediate Cessation
+      - Payment of Damages
+      - Public Apology
+      - Removal of Infringing Material
 
   # ── Forward-out: business / partnership ──
 
@@ -218,6 +367,14 @@ categories:
       - Ground Floor Commercial Space Available for Rent
       - Installation Partner Enquiry
       - Business Partnership Enquiry
+      - Commercial Space
+      - Franchise
+      - Manufacturer
+      - Dealership
+      - Rent
+      - Wooden Furniture Supply
+      - Lease
+      - Business Enquiries
 
   vendor_supplier_enquiry:
     display_name: Vendor / Supplier Enquiry
@@ -248,6 +405,8 @@ categories:
       - Wooden Furniture Supply
       - Webbing Supplier
       - Bulk Availability of PVC Sheets
+      - Vendor
+      - Supplier
 
   marketing_advertising:
     display_name: Marketing / Advertising Enquiry
@@ -273,6 +432,12 @@ categories:
       - Photography & Video Production
       - PR proposal
       - Media Production Services
+      - Magazine
+      - Newsletter
+      - Website Collaboration
+      - Print & Digital Cover Edition
+      - E-commerce
+      - B2B
 
   collaboration_request:
     display_name: Collaboration Request
@@ -300,6 +465,40 @@ categories:
       - Guest Posting or Link Exchange
       - Export Partnership Opportunity
       - Music Studio Collaboration
+      - Collaboration Opportunity
+      - Sponsored content
+      - Brand Partners
+      - Digital TV Advertising Proposal
+      - Creative influencer marketing
+      - Digital Media
+      - Social Media Promotion
+      - Video Production
+      - Brand Endorsement
+      - Product photography
+      - Influencers Collaboration
+      - Barter Deals
+      - Art & Creative Community Collaboration
+      - Seasonal/ festive Marketing
+      - Freelancers -Graphics, Photography,content
+      - Vendor Collaborations for Marketing Items- Gifting, POSM etc
+      - AI Creators for Content, Graphics, Videos
+      - PR Tieups
+      - Ad Agencies
+      - Any Marketing Automation Tools
+      - Podcast
+      - Real Estate Developer Partnerships
+      - UGC Pcreators
+      - Gifting Partners
+      - POSM Vendors
+      - Printing Vendors
+      - Event Fabrication Vendors
+      - Exhibition Partners
+      - Packaging Vendors
+      - Signage Vendors
+      - Creator Meetups
+      - Home Decor Exhibitions
+      - Architecture Conferences
+      - Interior Design Events
 
   career_job_enquiry:
     display_name: Career / Job Enquiry
@@ -330,6 +529,49 @@ categories:
       - Career Opportunity
       - Open Position Enquiry
       - Work From Home Job Enquiry
+      - Job
+      - Employment Enquiry
+      - Recruitment
+      - Vacancy
+      - Candidate Application
+      - Customer Support Executive Application
+      - Profile Sharing
+      - Resume Forwarded
+      - Candidate Referral Request
+      - Job Seeking Assistance
+      - Employment Opportunity
+      - Interview Availability
+      - Immediate Joiner
+      - Candidate Verification Request
+      - Job Posting Verification
+      - Recruitment Authenticity Check
+      - Fake Job Alert Verification
+      - Job Search Assistance
+      - Third Party Recruitment Enquiry
+      - HR Services Proposal
+      - Recruitment Partnership Proposal
+      - Placement Agency Proposal
+      - Staffing Services Offer
+      - Manpower Consultancy Enquiry
+      - Vendor Recruitment Proposal
+      - Bulk Recruitment Services
+      - Talent Acquisition Support
+      - Job Opportunity Request
+      - Career Opportunity Request
+      - Employment Support Request
+      - Professional Networking Request
+      - Job Referral Request
+      - Candidate Availability
+      - Experienced Professional Application
+      - Fresher Candidate Application
+      - Hiring Status Enquiry
+      - Recruitment Related Query
+      - Careers Department Enquiry
+      - HR Department Enquiry
+      - Job Lead Request
+      - Employment Verification Query
+      - LinkedIn Job Application
+      - Email Job Application
 
   project_bulk_order:
     display_name: Project / Bulk Order
@@ -359,6 +601,10 @@ categories:
       - Corporate Supply
       - Needs Rate for Modular Furniture (bulk)
       - Project Requirement
+      - Cabinet Supply
+      - Quotation for Bulk Order/ Ongoing Project
+      - GeM Portal
+      - OEM Authorization
 
   full_home_customization:
     display_name: Full Home Customization
@@ -390,6 +636,41 @@ categories:
       - Modular Wardrobe Requirement
       - Complete Home Design
       - Full Home Customisation Enquiry
+      - Modular Furniture Installation
+      - Modular Kitchen Installation
+      - Customize Wardrobe
+      - Vanity Unit
+      - Crockery Unit
+      - Utility Unit
+      - Home Furniture Assembly
+      - Modular Kitchen
+      - Island Kitchen
+      - Kitchen Layout Consultation
+      - Kitchen Size Feasibility
+      - Full Home Customisation
+      - Kitchen Renovation
+      - Home Interior
+      - Residential Interior Project
+      - BHK Customisation
+      - New Home Furnishing
+      - Flat Interior Project
+      - Residential Project Lead
+      - Interior Project Planning
+      - Design And Build Enquiry
+      - Home Renovation Enquiry
+      - Customisation Project Lead
+      - Premium Interior Solution
+      - Modular Wardrobe
+      - Modular TV Unit / Entertainment Unit
+      - Modular Crockery Unit
+      - Modular Bar Unit
+      - Modular Study Unit
+      - Customized Design Consultation
+      - Residential Modular Solutions
+      - End-to-End Residential Design Solutions
+      - Design Coordination
+      - Project Management Consultation
+      - Installation Supervision
 
   # ── Doors / Veneer / Plywood — dedicated product line (Anshu Tiwari) ──
   # Added per the client's Email-Keywords sheet, which routes ALL door /
@@ -443,6 +724,17 @@ categories:
       - Bulk Door Requirement
       - Door Supplier
       - Interior Door Solutions
+      - Veneer
+      - Wooden Frame
+      - Fringe Frame
+      - Verve Frame
+      - Helix Frame
+      - Door After-Sales Service
+      - Purchase Doors
+      - Buy Doors
+      - New Door Installation
+      - Door and Frame Package
+      - Door Bulk Order
 
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
