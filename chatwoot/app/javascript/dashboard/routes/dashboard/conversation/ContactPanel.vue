@@ -28,6 +28,7 @@ import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 import PendingTicketDecisionPanel from './PendingTicketDecisionPanel.vue';
+import PendingCategoryDecisionPanel from './PendingCategoryDecisionPanel.vue';
 
 const props = defineProps({
   conversationId: {
@@ -194,6 +195,27 @@ onMounted(() => {
       >
         <PendingTicketDecisionPanel
           :pending="conversationCustomAttributes.pending_zoho_ticket"
+          :conversation-id="conversationId"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Pending category decision: written by zoho-bridge when it classified
+         an email with LOW confidence and did NOT auto-forward. The agent
+         confirms the category; the bridge then forwards + routes. -->
+    <div
+      v-if="conversationCustomAttributes.pending_category_decision"
+      class="px-2 pt-3"
+    >
+      <AccordionItem
+        title="Category decision needed"
+        :is-open="isContactSidebarItemOpen('is_category_decision_open')"
+        compact
+        @toggle="
+          value => toggleSidebarUIState('is_category_decision_open', value)
+        "
+      >
+        <PendingCategoryDecisionPanel
+          :pending="conversationCustomAttributes.pending_category_decision"
           :conversation-id="conversationId"
         />
       </AccordionItem>

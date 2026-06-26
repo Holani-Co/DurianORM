@@ -39,6 +39,23 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
   end
 
+  # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_category_decision
+  #   body: { conversation_id, category }
+  # Agent confirmed a category on the low-confidence Category Decision card;
+  # the bridge then runs the real forward/route for that category.
+  def resolve_category_decision
+    response = HTTParty.post(
+      "#{bridge_url}/chatwoot/resolve-category-decision",
+      body: request.raw_post,
+      headers: { 'Content-Type' => 'application/json' },
+      timeout: 30
+    )
+    render json: response.parsed_response, status: proxy_status(response.code)
+  rescue StandardError => e
+    Rails.logger.error("[zoho-bridge proxy] resolve_category_decision failed: #{e.message}")
+    render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
+  end
+
   private
 
   def set_conversation

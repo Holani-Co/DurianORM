@@ -207,3 +207,20 @@ PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
 # Set ZOHO_TICKET_REQUIRE_APPROVAL=false to restore fully-automatic ticket
 # creation (e.g. once out of the prod-test phase).
 ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
+
+# ── Human-in-the-loop email categorisation ─────────────────────────────────
+# The categoriser auto-acts (forward + label + team) ONLY when its confidence
+# is at or above this bar. Below it, the email is NOT forwarded — instead a
+# "Category decision" card is posted in the conversation showing the AI's best
+# guess + alternatives, and an agent confirms the category before any action.
+# 0.9 = 90%. Tune on the VM (e.g. CATEGORY_AUTO_CONFIDENCE=0.8) without a code
+# change. Note: this is a HIGHER bar than the classifier's own
+# `confidence_threshold` (0.6) which only decides fallback vs a real category.
+CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
+
+# How many subject-keyword anchors per category to feed the classifier prompt.
+# The client's Email-Keywords sheet has up to ~160 per category; default 200
+# effectively includes them ALL so the model weighs the full list when scoring
+# confidence. Lower it (e.g. =40) to trim prompt size/cost if needed. Applied
+# at startup — restart the bridge after changing.
+CATEGORY_KEYWORDS_IN_PROMPT = int(os.environ.get("CATEGORY_KEYWORDS_IN_PROMPT", "200"))
