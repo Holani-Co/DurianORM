@@ -791,6 +791,12 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 # /chatwoot/resolve-category-decision → _resolve_category_decision, which
 # then runs the real forward/route action for the chosen category.
 
+# Label applied to low-confidence emails awaiting an agent's category
+# decision. Colour it red in Chatwoot → Settings → Labels so these stand
+# out in the conversation list. Removed automatically once confirmed.
+NEEDS_REVIEW_LABEL = "needs-category-review"
+
+
 def _first_incoming_content(messages: list) -> str:
     for m in messages or []:
         if m.get("message_type") in (0, "incoming") and (m.get("content") or "").strip():
@@ -860,6 +866,13 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
     except Exception as e:
         print(f"[category-decision] post_private_note failed: {e}")
 
+    # Visible flag in the conversation list so agents can spot these at a
+    # glance. Colour it red in Chatwoot → Settings → Labels.
+    try:
+        await chatwoot.add_label(conv_id, NEEDS_REVIEW_LABEL)
+    except Exception as e:
+        print(f"[category-decision] add_label({NEEDS_REVIEW_LABEL}) failed: {e}")
+
     print(f"[category-decision] conv {conv_id}: card posted "
           f"(suggested={suggested!r} conf={conf})")
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
@@ -912,6 +925,7 @@ async def _resolve_category_decision(conv_id: int, category: str) -> dict:
     try:
         await chatwoot.post_private_note(conv_id, "\n".join(note))
         await chatwoot.add_label(conv_id, category.replace("_", "-"))
+        await chatwoot.remove_label(conv_id, NEEDS_REVIEW_LABEL)  # resolved
         team_id = rule.get("team_id")
         if team_id:
             await chatwoot.assign_team(conv_id, int(team_id))

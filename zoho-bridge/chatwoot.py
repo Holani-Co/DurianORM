@@ -56,6 +56,28 @@ async def add_label(conversation_id: int, label: str) -> dict:
         return r.json()
 
 
+async def remove_label(conversation_id: int, label: str) -> dict:
+    """Remove a single label from a conversation, leaving the rest intact.
+    No-op if the label isn't present."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            _conv_url(conversation_id, "/labels"),
+            headers=_headers(),
+        )
+        existing = r.json().get("payload", []) if r.status_code < 300 else []
+        if label not in existing:
+            return {"labels": existing}
+        kept = [l for l in existing if l != label]
+        r = await client.post(
+            _conv_url(conversation_id, "/labels"),
+            headers=_headers(),
+            json={"labels": kept},
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(f"Chatwoot remove_label failed [{r.status_code}]: {r.text}")
+        return r.json()
+
+
 # ── API-channel helpers (used by the Google Reviews ingest) ────────────────
 # An API-channel inbox lets us push arbitrary external messages (reviews) in as
 # conversations. Flow: create/find contact → create conversation → add message.
