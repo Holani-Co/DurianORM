@@ -102,6 +102,15 @@ async def _ingest_review(loc: dict, rv: dict):
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
 
+    # Star-rating label so agents can filter by ★ in Chatwoot's sidebar
+    # (Labels → review-5star, review-1star, …). Labels auto-create on first
+    # use server-side. Best-effort: a failure here doesn't block ingestion.
+    star_label = f"review-{rv['stars']}star" if rv['stars'] else "review-unrated"
+    try:
+        await chatwoot.add_label(conv_id, star_label)
+    except Exception as e:
+        print(f"[reviews] add_label({star_label}) failed for conv {conv_id}: {e}")
+
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag
     # below only gates auto-posting (we won't re-post to Google), not the card.
