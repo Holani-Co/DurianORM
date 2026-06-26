@@ -465,6 +465,23 @@ _CATEGORY_KEYS = list((_ROUTING_RULES.get("categories") or {}).keys())
 _CONFIDENCE_THRESHOLD = float(_ROUTING_RULES.get("confidence_threshold", 0.6))
 
 
+def category_choices() -> list[dict]:
+    """[{category, display_name}] for every routing category — used to build
+    the dropdown on the human-in-the-loop Category decision card."""
+    cats = _ROUTING_RULES.get("categories") or {}
+    return [
+        {"category": key,
+         "display_name": (cfg or {}).get("display_name") or key.replace("_", " ").title()}
+        for key, cfg in cats.items()
+    ]
+
+
+def category_display_name(category: str) -> str:
+    """Human label for a category key (falls back to a title-cased key)."""
+    cfg = (_ROUTING_RULES.get("categories") or {}).get(category) or {}
+    return cfg.get("display_name") or (category or "").replace("_", " ").title()
+
+
 def _build_category_system_prompt(rules: dict) -> str:
     """Compose the LLM system prompt from the YAML. The category descriptions
     + few-shot examples live in the YAML so non-engineers can edit them; we
@@ -519,6 +536,10 @@ def _build_category_system_prompt(rules: dict) -> str:
         "message matches your chosen category. Use < 0.6 when uncertain.",
         "  • Brief reason: one sentence, what signal led you to the "
         "category.",
+        "  • alternatives: the 2 NEXT most likely categories (after your top "
+        "pick), each with its own 0.0-1.0 confidence, most-likely first. These "
+        "help a human pick the right one when your top confidence is low. "
+        "Omit categories that clearly don't apply — fewer is fine.",
     ])
     return "\n".join(lines)
 
@@ -547,8 +568,21 @@ _CATEGORY_RESPONSE_SCHEMA = {
                 "type":        "string",
                 "description": "One short sentence: which signal in the email drove the choice.",
             },
+            "alternatives": {
+                "type": "array",
+                "description": "Up to 2 next-most-likely categories, most likely first.",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "category":   {"type": "string", "enum": _CATEGORY_KEYS or ["fallback"]},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["category", "confidence"],
+                },
+            },
         },
-        "required": ["category", "confidence", "reason"],
+        "required": ["category", "confidence", "reason", "alternatives"],
     },
 }
 
@@ -624,6 +658,13 @@ async def classify_email_category(content: str, sender_email: str = "",
     cat        = parsed.get("category") or "fallback"
     confidence = float(parsed.get("confidence") or 0)
     reason     = (parsed.get("reason") or "")[:200]
+    # Top alternatives the LLM ranked below its pick — kept valid + deduped so
+    # the human-in-the-loop card can show "other likely categories".
+    alternatives = [
+        {"category": a.get("category"), "confidence": float(a.get("confidence") or 0)}
+        for a in (parsed.get("alternatives") or [])
+        if a.get("category") in _CATEGORY_KEYS and a.get("category") != cat
+    ][:3]
 
     # Below threshold → treat as fallback. Phase 1 logs both the
     # original LLM pick AND the resolved category so we can later
@@ -645,6 +686,7 @@ async def classify_email_category(content: str, sender_email: str = "",
             # threshold later without re-running the LLM on archived
             # messages.
             "raw_category": cat,
+            "alternatives": alternatives,
         }
 
     rule = (_ROUTING_RULES["categories"] or {}).get(rule_key) or {}
@@ -654,4 +696,5 @@ async def classify_email_category(content: str, sender_email: str = "",
         "reason":     reason,
         "action":     rule.get("action", "in_channel"),
         "rule":       rule,
+        "alternatives": alternatives,
     }

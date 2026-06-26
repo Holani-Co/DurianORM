@@ -782,6 +782,152 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
     return result
 
 
+# ── Human-in-the-loop email category decision ─────────────────────────────
+# When the categoriser's confidence is below CATEGORY_AUTO_CONFIDENCE, the
+# bridge does NOT forward. It writes `pending_category_decision` onto the
+# conversation + posts a private note. The sidebar Category Decision panel
+# reads that attribute and lets an agent confirm the AI's pick (or choose
+# another from the dropdown). The choice POSTs to the Rails proxy →
+# /chatwoot/resolve-category-decision → _resolve_category_decision, which
+# then runs the real forward/route action for the chosen category.
+
+def _first_incoming_content(messages: list) -> str:
+    for m in messages or []:
+        if m.get("message_type") in (0, "incoming") and (m.get("content") or "").strip():
+            return m["content"].strip()
+    return ""
+
+
+async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
+    """Write the pending decision + post the agent-facing card. Idempotent."""
+    try:
+        existing = (await chatwoot.get_conversation(conv_id)).get(
+            "custom_attributes", {}).get("pending_category_decision")
+    except Exception:
+        existing = None
+    if existing:
+        return {"ignored": True, "reason": "category_decision_already_pending"}
+
+    cat = category_result.get("category")
+    # On the fallback band the classifier overwrites its pick with "fallback"
+    # but keeps the original guess in raw_category — show that to the agent.
+    suggested = category_result.get("raw_category") if cat == "fallback" else cat
+    conf   = float(category_result.get("confidence") or 0)
+    reason = category_result.get("reason") or ""
+    alts = [
+        {"category": a["category"],
+         "display_name": classifier.category_display_name(a["category"]),
+         "confidence": round(float(a.get("confidence") or 0), 2)}
+        for a in (category_result.get("alternatives") or [])
+        if a.get("category")
+    ]
+
+    pending = {
+        "suggested":         suggested,
+        "suggested_display": classifier.category_display_name(suggested) if suggested else "",
+        "confidence":        round(conf, 2),
+        "reason":            reason,
+        "alternatives":      alts,
+        "categories":        classifier.category_choices(),   # full dropdown
+        "suggested_at":      _now_iso(),
+    }
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"pending_category_decision": pending})
+    except Exception as e:
+        print(f"[category-decision] merge_custom_attributes failed: {e}")
+
+    pct = int(round(conf * 100))
+    lines = [
+        "🤔 **Low-confidence classification — needs your confirmation**",
+        "",
+        f"Best guess: **{pending['suggested_display']}** ({pct}% confident). "
+        f"That's below the auto-forward bar, so nothing has been sent yet.",
+    ]
+    if reason:
+        lines.append(f"_{reason}_")
+    if alts:
+        lines.append("")
+        lines.append("Other possibilities: " + ", ".join(
+            f"{a['display_name']} ({int(round(a['confidence'] * 100))}%)" for a in alts))
+    lines += [
+        "",
+        "→ Open the **Category decision** panel in the sidebar to confirm the "
+        "category (or pick another). It'll then be forwarded and routed.",
+    ]
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(lines))
+    except Exception as e:
+        print(f"[category-decision] post_private_note failed: {e}")
+
+    print(f"[category-decision] conv {conv_id}: card posted "
+          f"(suggested={suggested!r} conf={conf})")
+    return {"category_decision": True, "suggested": suggested, "confidence": conf}
+
+
+async def _resolve_category_decision(conv_id: int, category: str) -> dict:
+    """Agent confirmed a category — run the real forward/route action for it
+    and clear the pending flag. Returns a JSON-friendly dict for the endpoint."""
+    conv = await chatwoot.get_conversation(conv_id)
+    if not (conv.get("custom_attributes") or {}).get("pending_category_decision"):
+        return {"resolved": False, "reason": "no_pending_category_decision"}
+
+    rule = (classifier._ROUTING_RULES.get("categories") or {}).get(category)
+    if not rule:
+        return {"resolved": False, "reason": f"unknown_category:{category}"}
+
+    sender       = (conv.get("meta") or {}).get("sender") or {}
+    sender_email = sender.get("email") or ""
+    sender_name  = sender.get("name") or ""
+    messages     = await chatwoot.get_conversation_messages(conv_id)
+    content      = _first_incoming_content(messages)
+    additional   = conv.get("additional_attributes") or {}
+    subject      = (additional.get("mail_subject") or additional.get("subject")
+                    or content[:80])
+
+    category_result = {
+        "category":   category,
+        "action":     rule.get("action", "in_channel"),
+        "confidence": 1.0,
+        "reason":     "Confirmed by agent.",
+        "rule":       rule,
+    }
+
+    action_section = []
+    try:
+        action_section = await _phase2_execute_actions(
+            conv_id=conv_id, category_result=category_result, rule=rule,
+            sender_name=sender_name, sender_email=sender_email,
+            original_content=content, original_subject=subject or "",
+        )
+    except Exception as e:
+        print(f"[category-decision] action layer failed for conv {conv_id}: {e}")
+        action_section = [f"⚠️ Action layer error: `{e}`"]
+
+    display = rule.get("display_name") or category
+    note = [f"✅ **Category confirmed by agent: {display}**"]
+    if action_section:
+        note.append("")
+        note.extend(action_section)
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(note))
+        await chatwoot.add_label(conv_id, category.replace("_", "-"))
+        team_id = rule.get("team_id")
+        if team_id:
+            await chatwoot.assign_team(conv_id, int(team_id))
+    except Exception as e:
+        print(f"[category-decision] post-confirm surfacing failed: {e}")
+
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"pending_category_decision": None})
+    except Exception as e:
+        print(f"[category-decision] failed to clear pending flag: {e}")
+
+    print(f"[category-decision] conv {conv_id}: confirmed → {category}")
+    return {"resolved": True, "category": category}
+
+
 _ESCALATION_LABEL_PRETTY = {
     "legal_or_compliance": "Legal / compliance",
     "hr_sensitive":        "HR-sensitive",
@@ -1492,6 +1638,13 @@ async def handle_message_created(data: dict) -> dict:
     category_confident = bool(category_result) and \
         category_result.get("category") != "fallback"
 
+    # AUTO bar: the categoriser only forwards/acts on its own when confidence
+    # is at/above CATEGORY_AUTO_CONFIDENCE (default 0.9). Below it — including
+    # the fallback band — a human confirms the category first (decision card).
+    _conf = (category_result or {}).get("confidence", 0) or 0
+    category_auto = (category_confident
+                     and _conf >= config.CATEGORY_AUTO_CONFIDENCE)
+
     # ── Decision A: spam/promotional only stops the flow when the
     # categorizer is ALSO uncertain. A confident business category wins. ──
     if email_category == "spam" and not category_confident:
@@ -1522,6 +1675,15 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[category-v2] '{email_category}' label overridden — confident "
               f"category {category_result['category']!r} wins; proceeding with "
               f"acknowledge/forward")
+
+    # ── Human-in-the-loop gate ───────────────────────────────────────────
+    # Classifier ran but isn't confident enough to auto-act → DON'T forward.
+    # Post a Category decision card (AI's best guess + alternatives + a
+    # dropdown of all categories) and wait for an agent to confirm. Dry-run
+    # keeps its preview behaviour; social DMs are handled elsewhere.
+    if (category_result is not None and not category_auto
+            and not _PHASE_2_DRY_RUN and not is_social):
+        return await _post_category_decision(conv_id, category_result)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
     # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.
@@ -1989,6 +2151,26 @@ async def chatwoot_resolve_ticket_decision(request: Request):
               f"{type(e).__name__}: {e}")
         raise HTTPException(500, f"resolve failed: {e}")
     return result
+
+
+@app.post("/chatwoot/resolve-category-decision")
+async def chatwoot_resolve_category_decision(request: Request):
+    """Called by the Chatwoot Rails proxy when an agent confirms a category in
+    the Category Decision panel. Runs the real forward/route for that category.
+
+    Body: { "conversation_id": int, "category": "<category_key>" }
+    """
+    body     = await request.json()
+    conv_id  = body.get("conversation_id")
+    category = body.get("category")
+    if not conv_id or not category:
+        raise HTTPException(400, "missing conversation_id or category")
+    try:
+        return await _resolve_category_decision(int(conv_id), category)
+    except Exception as e:
+        print(f"[category-decision] resolve endpoint failed for conv {conv_id}: "
+              f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"resolve failed: {e}")
 
 
 # ── Spam-review digest endpoint ───────────────────────────────────────────
