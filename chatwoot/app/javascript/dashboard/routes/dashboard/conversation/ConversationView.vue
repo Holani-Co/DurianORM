@@ -121,9 +121,37 @@ export default {
     this.$watch('chatList.length', () => {
       this.setActiveChat();
     });
+    emitter.on(BUS_EVENTS.OPEN_CONTACT_SIDEBAR_PANEL, this.openSidebarPanel);
+  },
+
+  beforeUnmount() {
+    emitter.off(BUS_EVENTS.OPEN_CONTACT_SIDEBAR_PANEL, this.openSidebarPanel);
   },
 
   methods: {
+    // Reveal the contact sidebar and expand the requested accordion section.
+    // Triggered by `#cw-panel/<section>` links in private notes so agents
+    // don't have to open the panel manually.
+    openSidebarPanel(section) {
+      const SECTION_TO_UI_KEY = {
+        'ticket-decision': 'is_ticket_decision_open',
+        'category-decision': 'is_category_decision_open',
+        'zoho-tickets': 'is_zoho_ticket_open',
+      };
+      const uiKey = SECTION_TO_UI_KEY[section];
+      if (!uiKey) return;
+      this.updateUISettings({
+        is_contact_sidebar_open: true,
+        [uiKey]: true,
+      });
+      // The sidebar mounts asynchronously after it's revealed — wait a beat,
+      // then scroll the section into view.
+      setTimeout(() => {
+        document
+          .getElementById(`sidebar-section-${section}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 200);
+    },
     onConversationLoad() {
       this.fetchConversationIfUnavailable();
     },

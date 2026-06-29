@@ -50,8 +50,6 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
                        summary: dict | None = None) -> dict:
     conv     = payload.get("conversation") or payload
     contact  = (conv.get("meta") or {}).get("sender") or {}
-    inbox    = (conv.get("inbox") or {}).get("name") \
-               or payload.get("inbox", {}).get("name", "Chatwoot")
     # Prefer the FULL transcript fetched from the API (passed in by the
     # caller); fall back to the sparse messages on the webhook payload.
     # The payload's array is often just the single triggering message — on a
@@ -64,7 +62,8 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
         return html.escape(str(text or ""))
 
     def label(m):
-        return "Customer" if m.get("message_type") in (0, "incoming") else "Agent/Bot"
+        return "Customer" if m.get("message_type") in (0, "incoming") \
+            else config.AI_AGENT_NAME
 
     def msg_html(m):
         content = esc(m.get("content", "").strip())
@@ -99,7 +98,9 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
             first_msg = next(
                 (m.get("content", "") for m in messages if m.get("content")), ""
             )
-    subject = f"[{inbox}] {first_msg[:80] or 'New conversation'}"
+    # Brand the subject with the product name (not the inbox name) so every
+    # ticket reads "[DurianORM] …" in Zoho's list view.
+    subject = f"[{config.PRODUCT_NAME}] {first_msg[:80] or 'New conversation'}"
 
     # AI summary block — headlines the ticket so the agent sees the issue,
     # goal, and recommended next step without reading the thread. Rendered
@@ -199,7 +200,7 @@ async def create_ticket(payload: dict, priority: str | None = None,
 
     Optional kwargs:
       priority: Chatwoot priority level ("urgent" / "high" / "medium" / "low").
-                Mapped to Zoho enum: urgent → "Highest", others by name.
+                Mapped to Zoho enum (High/Medium/Low): urgent + high → "High".
                 Also prefixes the subject so it stands out in Zoho's list view.
       due_at:   datetime → Zoho's `dueDate`. Adds an SLA-style deadline.
       messages: full conversation transcript fetched from the Chatwoot API
@@ -211,11 +212,25 @@ async def create_ticket(payload: dict, priority: str | None = None,
     body = _build_ticket_body(payload, messages=messages, summary=summary)
 
     if priority:
-        pmap = {"urgent": "Highest", "high": "High",
-                "medium": "Medium",  "low":  "Low"}
+        # Zoho Desk only has High / Medium / Low — it has no "Highest", so
+        # sending that silently falls back to Medium. Map urgent → High.
+        pmap = {"urgent": "High", "high": "High",
+                "medium": "Medium", "low": "Low"}
         body["priority"] = pmap.get(priority.lower(), body.get("priority") or "Medium")
         if not body.get("subject", "").startswith(f"[{priority.upper()}]"):
             body["subject"] = f"[{priority.upper()}] {body['subject']}"
+
+    # Always headline the ticket with WHY it exists (priority) and WHO owned the
+    # conversation in Chatwoot — so the priority shows on EVERY ticket (not just
+    # escalations) and the Zoho agent sees the handling agent. Unassigned
+    # conversations were handled by the bridge itself → credit the AI agent.
+    conv_meta  = (payload.get("conversation") or payload).get("meta") or {}
+    handled_by = (conv_meta.get("assignee") or {}).get("name") or config.AI_AGENT_NAME
+    meta_html = (
+        f"<p><b>Priority:</b> {html.escape(body.get('priority') or 'Medium')}"
+        f"<br><b>Handled by:</b> {html.escape(handled_by)}</p><hr/>"
+    )
+    body["description"] = meta_html + (body.get("description") or "")
 
     if due_at is not None:
         try:

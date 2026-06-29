@@ -4,6 +4,7 @@
 // Importing the raw 'axios' package would skip those headers — every
 // request would land with 401 Unauthorized.
 import { computed, ref } from 'vue';
+import { format } from 'date-fns';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 
@@ -62,6 +63,14 @@ const formatLabel = label => {
 
 const formatStatus = status => (status === 'On Hold' ? 'On Hold' : 'Open');
 
+// Zoho `createdTime` (ISO) → readable stamp; '' when missing/unparseable.
+const formatCreatedAt = ticket => {
+  if (!ticket?.created_at) return '';
+  const date = new Date(ticket.created_at);
+  if (Number.isNaN(date.getTime())) return '';
+  return format(date, 'MMM d, yyyy · h:mm a');
+};
+
 async function resolve(choice, targetTicketId = null) {
   if (submittingChoice.value) return;
   submittingChoice.value = targetTicketId ?? choice;
@@ -114,6 +123,37 @@ async function resolve(choice, targetTicketId = null) {
       </span>
     </div>
 
+    <!-- Primary actions up top: Approve/Create new + Reject. -->
+    <div class="flex items-center gap-2 px-1">
+      <button
+        type="button"
+        class="flex-1 px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
+        :disabled="submittingChoice !== null"
+        @click="resolve('create_new')"
+      >
+        <span class="i-ph-check-circle align-middle" />
+        {{
+          submittingChoice === 'create_new'
+            ? 'Creating…'
+            : hasCandidates
+              ? 'Create new ticket'
+              : 'Approve & create ticket'
+        }}
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1.5 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-11 hover:text-n-ruby-11 disabled:opacity-50"
+        :disabled="submittingChoice !== null"
+        @click="resolve('reject')"
+      >
+        {{ submittingChoice === 'reject' ? 'Rejecting…' : 'Reject' }}
+      </button>
+    </div>
+
+    <div v-if="hasCandidates" class="px-1 pt-1 text-xs text-n-slate-10">
+      …or attach to an existing ticket:
+    </div>
+
     <div
       v-for="ticket in candidates"
       :key="ticket.id"
@@ -143,6 +183,11 @@ async function resolve(choice, targetTicketId = null) {
         {{ ticket.subject }}
       </div>
 
+      <!-- Created date -->
+      <div v-if="formatCreatedAt(ticket)" class="text-xs text-n-slate-10">
+        Created {{ formatCreatedAt(ticket) }}
+      </div>
+
       <!-- Attach button -->
       <button
         type="button"
@@ -156,33 +201,6 @@ async function resolve(choice, targetTicketId = null) {
             ? 'Attaching…'
             : 'Attach this conversation'
         }}
-      </button>
-    </div>
-
-    <!-- Approve (create the ticket) / Reject (create nothing). -->
-    <div class="flex items-center gap-2 px-1 pt-1">
-      <button
-        type="button"
-        class="flex-1 px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
-        :disabled="submittingChoice !== null"
-        @click="resolve('create_new')"
-      >
-        <span class="i-ph-check-circle align-middle" />
-        {{
-          submittingChoice === 'create_new'
-            ? 'Creating…'
-            : hasCandidates
-              ? 'Create new ticket'
-              : 'Approve & create ticket'
-        }}
-      </button>
-      <button
-        type="button"
-        class="px-3 py-1.5 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-11 hover:text-n-ruby-11 disabled:opacity-50"
-        :disabled="submittingChoice !== null"
-        @click="resolve('reject')"
-      >
-        {{ submittingChoice === 'reject' ? 'Rejecting…' : 'Reject' }}
       </button>
     </div>
   </div>

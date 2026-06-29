@@ -381,6 +381,16 @@ async def handle_conversation_updated(data: dict) -> dict:
     }
 
 
+def _priority_from_label(label: Optional[str]) -> Optional[str]:
+    """If an escalation label encodes a Chatwoot priority ("priority_<level>"),
+    return that level ("urgent"/"high"/…) so create_ticket can map it onto the
+    Zoho ticket. Returns None for non-priority escalations (complaint, legal,
+    etc.) — those keep the default Medium."""
+    if label and label.startswith("priority_"):
+        return label.split("_", 1)[1] or None
+    return None
+
+
 # ── Helper: visible bubble + sidebar pane data after ticket creation ──────
 async def _surface_ticket_in_chatwoot(
     conv_id: Optional[int],
@@ -446,6 +456,15 @@ async def _surface_ticket_in_chatwoot(
             inner = ""
         pretty = _ESCALATION_LABEL_PRETTY.get(inner, inner.replace("_", " ").title())
         label_source = f" ({pretty})" if pretty else ""
+    elif raw.startswith("auto_priority_"):
+        level = raw[len("auto_priority_"):]
+        label_source = f" (🚨 auto-escalated: {level.upper()} priority)"
+    elif raw.startswith("auto_"):
+        # Generic auto-escalation (auto_complaint, auto_legal_complaint, …) —
+        # prettify the inner label instead of dumping the raw enum.
+        inner = raw[len("auto_"):]
+        pretty = _ESCALATION_LABEL_PRETTY.get(inner, inner.replace("_", " ").title())
+        label_source = f" (auto-escalated: {pretty})"
     else:
         label_source = f" ({raw})" if raw else ""
 
@@ -469,9 +488,9 @@ async def _surface_ticket_in_chatwoot(
     # the ticket wasn't created just now — the agent linked this conv to
     # an existing ticket — so saying "ticket created" would be misleading.
     if is_attach:
-        note = "🔗 **Conversation attached to Zoho Desk ticket**"
+        note = f"🔗 **{config.PRODUCT_NAME} — conversation attached to Zoho Desk ticket**"
     else:
-        note = "🎫 **Zoho Desk ticket created**"
+        note = f"🎫 **{config.PRODUCT_NAME} — Zoho Desk ticket created**"
     if ticket_number:
         note += f" — [#{ticket_number}]({web_url})" if web_url else f" — #{ticket_number}"
     elif ticket_id:
@@ -638,7 +657,7 @@ async def _pause_for_agent_decision(conv_id: int,
     # wording differs for the two pause reasons: a possible duplicate (open
     # tickets exist) vs. the approval gate (no duplicate, just needs sign-off).
     lines = [
-        "🎫 **Zoho ticket creation paused — agent decision needed**",
+        f"🎫 **{config.PRODUCT_NAME} — Zoho ticket creation paused, agent decision needed**",
         "",
     ]
     if candidates:
@@ -654,14 +673,16 @@ async def _pause_for_agent_decision(conv_id: int,
             url = t.get("url")
             lines.append(f"- [{num}]({url}) — {subj}" if url else f"- {num} — {subj}")
         lines.append("")
-        lines.append("→ Open the **Ticket decision** panel in the sidebar to "
-                     "attach to one of the above, create a new ticket, or reject.")
+        lines.append("Attach to one of the above, create a new ticket, or reject:")
+        lines.append("")
+        lines.append("[**Open the Ticket decision panel →**](#cw-panel/ticket-decision)")
     else:
         lines.append(
             f"This conversation was flagged for a Zoho ticket "
-            f"(**{escalation_label}**). No ticket has been created — open the "
-            f"**Ticket decision** panel in the sidebar to **Approve** (create "
-            f"the ticket) or **Reject**.")
+            f"(**{escalation_label}**). No ticket has been created yet — "
+            f"approve to create it, or reject:")
+        lines.append("")
+        lines.append("[**Open the Ticket decision panel →**](#cw-panel/ticket-decision)")
     try:
         await chatwoot.post_private_note(conv_id, "\n".join(lines))
     except Exception as e:
@@ -712,7 +733,8 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
         try:
             messages, summary = await _ticket_context(conv_id)
             ticket = await zoho.create_ticket(
-                synthetic_payload, messages=messages, summary=summary
+                synthetic_payload, messages=messages, summary=summary,
+                priority=_priority_from_label(escalation_label),
             )
             print(f"[zoho-dedup] conv {conv_id}: agent chose CREATE_NEW → "
                   f"ticket {ticket.get('id')}")
@@ -858,8 +880,9 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
             f"{a['display_name']} ({int(round(a['confidence'] * 100))}%)" for a in alts))
     lines += [
         "",
-        "→ Open the **Category decision** panel in the sidebar to confirm the "
-        "category (or pick another). It'll then be forwarded and routed.",
+        "Confirm the category (or pick another) and it'll be forwarded and routed:",
+        "",
+        "[**Open the Category decision panel →**](#cw-panel/category-decision)",
     ]
     try:
         await chatwoot.post_private_note(conv_id, "\n".join(lines))
@@ -1139,7 +1162,10 @@ async def _create_or_pause_zoho_ticket(conv_id: int,
     else:
         try:
             messages, summary = await _ticket_context(conv_id)
-            ticket = await zoho.create_ticket(data, messages=messages, summary=summary)
+            ticket = await zoho.create_ticket(
+                data, messages=messages, summary=summary,
+                priority=_priority_from_label(escalation_label),
+            )
             zoho_ticket = ticket.get("id")
             print(f"[zoho] ticket created for conv {conv_id}: {zoho_ticket}")
             await _surface_ticket_in_chatwoot(conv_id, ticket, source=f"auto_{escalation_label}")

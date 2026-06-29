@@ -72,7 +72,8 @@ def _format_transcript(messages: list[dict], limit: int = 40) -> str:
         if not content:
             continue
         # message_type: 0 incoming (customer), 1 outgoing (agent/bot).
-        who = "Customer" if m.get("message_type") in (0, "incoming") else "Agent/Bot"
+        who = "Customer" if m.get("message_type") in (0, "incoming") \
+            else config.AI_AGENT_NAME
         lines.append(f"{who}: {content}")
     return "\n".join(lines)
 
