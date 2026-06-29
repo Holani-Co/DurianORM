@@ -826,8 +826,13 @@ def _first_incoming_content(messages: list) -> str:
     return ""
 
 
-async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
-    """Write the pending decision + post the agent-facing card. Idempotent."""
+async def _post_category_decision(conv_id: int, category_result: dict,
+                                  sector_review_only: bool = False) -> dict:
+    """Write the pending decision + post the agent-facing card. Idempotent.
+
+    sector_review_only: the category is already confident (project_bulk_order)
+    but the buyer sector (government/private) is uncertain — the card is shown
+    so the agent confirms the sector before it forwards."""
     try:
         existing = (await chatwoot.get_conversation(conv_id)).get(
             "custom_attributes", {}).get("pending_category_decision")
@@ -859,6 +864,15 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
         "categories":        classifier.category_choices(),   # full dropdown
         "suggested_at":      _now_iso(),
     }
+    # Bulk orders also need the buyer sector (government/private). Surface the
+    # AI's sector guess so the same card can show a sector picker; the panel
+    # offers the two sector choices itself.
+    if suggested == "project_bulk_order" and (category_result.get("rule") or {}).get("sector_routing"):
+        pending["needs_sector"]      = True
+        pending["sector_suggested"]  = category_result.get("sector")
+        pending["sector_confidence"] = round(float(category_result.get("sector_confidence") or 0), 2)
+        pending["sector_reason"]     = category_result.get("sector_reason") or ""
+        pending["sector_review_only"] = bool(sector_review_only)
     try:
         await chatwoot.merge_custom_attributes(
             conv_id, {"pending_category_decision": pending})
@@ -866,21 +880,35 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
         print(f"[category-decision] merge_custom_attributes failed: {e}")
 
     pct = int(round(conf * 100))
-    lines = [
-        "🤔 **Low-confidence classification — needs your confirmation**",
-        "",
-        f"Best guess: **{pending['suggested_display']}** ({pct}% confident). "
-        f"That's below the auto-forward bar, so nothing has been sent yet.",
-    ]
-    if reason:
-        lines.append(f"_{reason}_")
-    if alts:
-        lines.append("")
-        lines.append("Other possibilities: " + ", ".join(
-            f"{a['display_name']} ({int(round(a['confidence'] * 100))}%)" for a in alts))
+    if sector_review_only:
+        ssec  = pending.get("sector_suggested") or "unknown"
+        sspct = int(round(float(pending.get("sector_confidence") or 0) * 100))
+        lines = [
+            "🏛️ **Bulk order — confirm the buyer sector**",
+            "",
+            f"This is clearly a **Project / Bulk Order**, but I'm not sure whether "
+            f"the buyer is **government** or **private** (best guess: **{ssec}**, "
+            f"{sspct}% confident). They route to different handlers, so nothing "
+            f"has been forwarded yet.",
+        ]
+        if pending.get("sector_reason"):
+            lines.append(f"_{pending['sector_reason']}_")
+    else:
+        lines = [
+            "🤔 **Low-confidence classification — needs your confirmation**",
+            "",
+            f"Best guess: **{pending['suggested_display']}** ({pct}% confident). "
+            f"That's below the auto-forward bar, so nothing has been sent yet.",
+        ]
+        if reason:
+            lines.append(f"_{reason}_")
+        if alts:
+            lines.append("")
+            lines.append("Other possibilities: " + ", ".join(
+                f"{a['display_name']} ({int(round(a['confidence'] * 100))}%)" for a in alts))
     lines += [
         "",
-        "Confirm the category (or pick another) and it'll be forwarded and routed:",
+        "Confirm in the panel and it'll be forwarded and routed:",
         "",
         "[**Open the Category decision panel →**](#cw-panel/category-decision)",
     ]
@@ -901,42 +929,8 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
 
 
-NEEDS_SECTOR_REVIEW_LABEL = "needs-sector-review"
-
-
-async def _post_bulk_sector_review(conv_id: int, category_result: dict) -> dict:
-    """Bulk order whose buyer sector (government/private) is uncertain. Don't
-    forward to a guessed handler — post a note with the best guess + reasoning
-    and a visible label so an agent confirms the sector and routes it."""
-    sector = category_result.get("sector") or "unknown"
-    sconf  = int(round(float(category_result.get("sector_confidence") or 0) * 100))
-    reason = category_result.get("sector_reason") or ""
-    lines = [
-        "🏛️ **Bulk order — buyer sector needs confirmation**",
-        "",
-        f"This is a **project / bulk order**, but I'm not sure whether the buyer "
-        f"is **government** or **private** (best guess: **{sector}**, {sconf}% "
-        f"confident). Government and private bulk orders go to different handlers, "
-        f"so it has **not** been forwarded yet.",
-    ]
-    if reason:
-        lines.append(f"_{reason}_")
-    lines += ["", "→ Confirm the buyer's sector and forward it to the right "
-              "handler (or reply / route manually)."]
-    try:
-        await chatwoot.post_private_note(conv_id, "\n".join(lines))
-    except Exception as e:
-        print(f"[bulk-sector] post_private_note failed for conv {conv_id}: {e}")
-    try:
-        await chatwoot.add_label(conv_id, NEEDS_SECTOR_REVIEW_LABEL)
-    except Exception as e:
-        print(f"[bulk-sector] add_label failed for conv {conv_id}: {e}")
-    print(f"[bulk-sector] conv {conv_id}: sector uncertain "
-          f"({sector} {sconf}%) — flagged for agent review")
-    return {"classified_email_type": "project_bulk_order", "sector_review": True}
-
-
-async def _resolve_category_decision(conv_id: int, category: str) -> dict:
+async def _resolve_category_decision(conv_id: int, category: str,
+                                     sector: Optional[str] = None) -> dict:
     """Agent confirmed a category — run the real forward/route action for it
     and clear the pending flag. Returns a JSON-friendly dict for the endpoint."""
     conv = await chatwoot.get_conversation(conv_id)
@@ -946,6 +940,18 @@ async def _resolve_category_decision(conv_id: int, category: str) -> dict:
     rule = (classifier._ROUTING_RULES.get("categories") or {}).get(category)
     if not rule:
         return {"resolved": False, "reason": f"unknown_category:{category}"}
+
+    # Bulk orders: the agent also picked the buyer sector → point the forward at
+    # that sector's handler (copy the rule so the shared rules dict is untouched).
+    chosen_sector = None
+    if category == "project_bulk_order" and sector in ("government", "private"):
+        sroute = (rule.get("sector_routing") or {}).get(sector) or {}
+        rule = {
+            **rule,
+            "forward_to": sroute.get("forward_to") or rule.get("forward_to"),
+            "cc":         sroute.get("cc") or rule.get("cc") or [],
+        }
+        chosen_sector = sector
 
     sender       = (conv.get("meta") or {}).get("sender") or {}
     sender_email = sender.get("email") or ""
@@ -963,6 +969,10 @@ async def _resolve_category_decision(conv_id: int, category: str) -> dict:
         "reason":     "Confirmed by agent.",
         "rule":       rule,
     }
+    if chosen_sector:
+        category_result["sector"] = chosen_sector
+        category_result["sector_confidence"] = 1.0
+        category_result["sector_reason"] = "Confirmed by agent."
 
     action_section = []
     try:
@@ -1789,7 +1799,8 @@ async def handle_message_created(data: dict) -> dict:
             and (category_result.get("rule") or {}).get("sector_routing")
             and not _PHASE_2_DRY_RUN and not is_social):
         if float(category_result.get("sector_confidence") or 0) < config.BULK_SECTOR_AUTO_CONFIDENCE:
-            return await _post_bulk_sector_review(conv_id, category_result)
+            return await _post_category_decision(conv_id, category_result,
+                                                 sector_review_only=True)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
     # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.
@@ -2269,10 +2280,11 @@ async def chatwoot_resolve_category_decision(request: Request):
     body     = await request.json()
     conv_id  = body.get("conversation_id")
     category = body.get("category")
+    sector   = body.get("sector")  # bulk orders only: government | private
     if not conv_id or not category:
         raise HTTPException(400, "missing conversation_id or category")
     try:
-        return await _resolve_category_decision(int(conv_id), category)
+        return await _resolve_category_decision(int(conv_id), category, sector)
     except Exception as e:
         print(f"[category-decision] resolve endpoint failed for conv {conv_id}: "
               f"{type(e).__name__}: {e}")
