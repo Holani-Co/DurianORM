@@ -230,8 +230,12 @@ CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9
 # Bulk orders are sub-classified into government vs private buyers and routed to
 # different handlers. At/above this bar the sector is auto-routed; below it the
 # email is flagged for an agent to confirm the sector before forwarding (so an
-# ambiguous buyer never auto-routes to the wrong handler).
-BULK_SECTOR_AUTO_CONFIDENCE = float(os.environ.get("BULK_SECTOR_AUTO_CONFIDENCE", "0.8"))
+# ambiguous buyer never auto-routes to the wrong handler). Defaults to 0.9 to
+# stay conservative — anything the LLM isn't very sure about (Trust, Society,
+# Co-operative, ambiguous .ac.in, etc.) drops to the sector picker. The .gov.in
+# / .nic.in domain shortcut stays at 0.99, so confirmed government emails still
+# auto-route. Lower only if too much is being held for review in practice.
+BULK_SECTOR_AUTO_CONFIDENCE = float(os.environ.get("BULK_SECTOR_AUTO_CONFIDENCE", "0.9"))
 
 # How many subject-keyword anchors per category to feed the classifier prompt.
 # The client's Email-Keywords sheet has up to ~160 per category; default 200

@@ -753,8 +753,12 @@ def _build_bulk_sector_prompt(sector_routing: dict) -> str:
         "'Corporation'/'Limited'. A private company CAN run a formal tender, so "
         "the org name tells you WHO they are; the process (tender/GeM/EMD) does "
         "not.\n\n"
-        "Output: sector (government|private), a 0.0-1.0 confidence (use < 0.8 "
-        "when genuinely unsure), and a one-sentence reason naming the signal."
+        "Output: sector (government|private), a 0.0-1.0 confidence, and a "
+        "one-sentence reason naming the signal. Be conservative: use < 0.9 "
+        "whenever the org name is ambiguous (Foundation/Trust/Society/NGO/Co-"
+        "operative/University-without-clear-public-or-private-prefix/plain "
+        "Corporation/Bank) or you're inferring from weak signals (free mailbox "
+        "domain + thin org name). It's better to ask an agent than to guess."
     )
 
 
