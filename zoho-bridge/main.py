@@ -1322,6 +1322,17 @@ async def _phase2_execute_actions(conv_id: int,
                     audit.append("🏷️ Tagged auto-forwarded.")
                 except Exception as e:
                     print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
+
+                # Bulk orders also get a sector label (bulk-government /
+                # bulk-private) so agents can see + filter the buyer sector at a
+                # glance, not just read it in the note.
+                if category_result.get("sector"):
+                    sec_label = f"bulk-{category_result['sector']}"
+                    try:
+                        await chatwoot.add_label(conv_id, sec_label)
+                        audit.append(f"🏷️ Tagged {sec_label}.")
+                    except Exception as e:
+                        print(f"[phase2b] sector add_label failed for conv {conv_id}: {e}")
             except Exception as e:
                 print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
                 audit.append(f"⚠️ Forward could not be sent: {e}")
