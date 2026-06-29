@@ -42,6 +42,17 @@ const emit = defineEmits([
 // (minus 'legitimate', which doesn't get a label).
 const CLASSIFIER_MANAGED_LABELS = ['spam', 'promotional', 'automated'];
 
+// Permanent "Email handling" sidebar group — the AI email router's output.
+// Always shown (not gated on the label existing), so the team has a fixed,
+// un-removable place for auto-sent and human-in-the-loop emails — unlike a
+// saved Folder. Each maps to the existing label-filtered conversation view;
+// kept out of the generic "Labels" group so they don't appear twice.
+const EMAIL_HANDLING_LABELS = [
+  'auto-forwarded',
+  'needs-review',
+  'needs-category-review',
+];
+
 const { accountScopedRoute, isOnChatwootCloud } = useAccount();
 const store = useStore();
 const searchShortcut = useKbd([`$mod`, 'k']);
@@ -261,6 +272,39 @@ const menuItems = computed(() => {
           label: t('SIDEBAR.UNATTENDED_CONVERSATIONS'),
           to: accountScopedRoute('conversation_unattended'),
         },
+        // Email handling: always-on views for the AI email router — auto-sent
+        // (auto-forwarded) and human-in-the-loop (needs-category-review).
+        // Hard-coded so they're permanent; no agent can remove them.
+        {
+          name: 'EmailHandling',
+          label: 'Email handling',
+          icon: 'i-lucide-mail-check',
+          activeOn: ['conversations_through_label'],
+          children: [
+            {
+              name: 'email-auto-forwarded',
+              label: 'Auto-forwarded',
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: '#2e7d32' },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: 'auto-forwarded',
+              }),
+            },
+            {
+              name: 'email-needs-review',
+              label: 'Needs review',
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: '#e5484d' },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: 'needs-review',
+              }),
+            },
+          ],
+        },
         {
           name: 'Folders',
           label: t('SIDEBAR.CUSTOM_VIEWS_FOLDER'),
@@ -285,26 +329,24 @@ const menuItems = computed(() => {
           label: 'Spam Bin',
           icon: 'i-lucide-shield-alert',
           activeOn: ['conversations_through_label'],
-          children: CLASSIFIER_MANAGED_LABELS
-            .filter(name =>
-              labels.value.some(l => l.title?.toLowerCase() === name)
-            )
-            .map(name => {
-              const label = labels.value.find(
-                l => l.title?.toLowerCase() === name
-              );
-              return {
-                name: `spambin-${name}`,
-                label: name.charAt(0).toUpperCase() + name.slice(1),
-                icon: h('span', {
-                  class: 'size-[8px] rounded-sm',
-                  style: { backgroundColor: label?.color || '#94a3b8' },
-                }),
-                to: accountScopedRoute('label_conversations', {
-                  label: name,
-                }),
-              };
-            }),
+          children: CLASSIFIER_MANAGED_LABELS.filter(name =>
+            labels.value.some(l => l.title?.toLowerCase() === name)
+          ).map(name => {
+            const label = labels.value.find(
+              l => l.title?.toLowerCase() === name
+            );
+            return {
+              name: `spambin-${name}`,
+              label: name.charAt(0).toUpperCase() + name.slice(1),
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: label?.color || '#94a3b8' },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: name,
+              }),
+            };
+          }),
         },
         {
           name: 'Teams',
@@ -346,7 +388,10 @@ const menuItems = computed(() => {
           children: labels.value
             .filter(
               label =>
-                !CLASSIFIER_MANAGED_LABELS.includes(label.title?.toLowerCase())
+                ![
+                  ...CLASSIFIER_MANAGED_LABELS,
+                  ...EMAIL_HANDLING_LABELS,
+                ].includes(label.title?.toLowerCase())
             )
             .map(label => ({
               name: `${label.title}-${label.id}`,
