@@ -160,7 +160,7 @@ onMounted(() => {
          without it, those would show "no ticket" in the sidebar even
          though they have one in Zoho. Routed through the single-ticket
          component since the legacy key was always a single ticket. -->
-    <div class="px-2 pt-3">
+    <div id="sidebar-section-zoho-tickets" class="px-2 pt-3">
       <AccordionItem
         title="Zoho Desk"
         :is-open="isContactSidebarItemOpen('is_zoho_ticket_open')"
@@ -183,6 +183,7 @@ onMounted(() => {
          the attribute after the agent picks Attach or Create-new. -->
     <div
       v-if="conversationCustomAttributes.pending_zoho_ticket"
+      id="sidebar-section-ticket-decision"
       class="px-2 pt-3"
     >
       <AccordionItem
@@ -204,6 +205,7 @@ onMounted(() => {
          confirms the category; the bridge then forwards + routes. -->
     <div
       v-if="conversationCustomAttributes.pending_category_decision"
+      id="sidebar-section-category-decision"
       class="px-2 pt-3"
     >
       <AccordionItem

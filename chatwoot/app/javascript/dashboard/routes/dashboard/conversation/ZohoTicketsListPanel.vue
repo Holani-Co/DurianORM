@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { format } from 'date-fns';
 
 // Multi-ticket sidebar panel. Renders the FULL `custom_attributes.zoho_tickets`
 // array — one card per ticket, newest first — written by the zoho-bridge
@@ -52,9 +53,31 @@ const ticketLabel = t => {
 const statusColorClass = status => {
   const s = String(status || '').toLowerCase();
   if (s === 'closed' || s === 'resolved') return 'bg-n-slate-9';
-  if (s === 'on hold' || s === 'on_hold' || s === 'waiting') return 'bg-amber-500';
+  if (s === 'on hold' || s === 'on_hold' || s === 'waiting')
+    return 'bg-amber-500';
   return 'bg-emerald-500'; // open / unknown
 };
+
+// Format the bridge-written ISO `created_at` (e.g. "2026-06-26T12:39:00+05:30")
+// into a readable stamp. Returns '' for missing/unparseable values so the row
+// just omits the date rather than showing "Invalid Date".
+const createdAtLabel = ticket => {
+  if (!ticket?.created_at) return '';
+  const date = new Date(ticket.created_at);
+  if (Number.isNaN(date.getTime())) return '';
+  return format(date, 'MMM d, yyyy · h:mm a');
+};
+
+// Newest first. The bridge already prepends new tickets, but legacy/backfilled
+// conversations may not be ordered — sort defensively by created_at desc.
+// Entries without a valid date sink to the bottom.
+const sortedTickets = computed(() => {
+  const toMs = t => {
+    const ms = t?.created_at ? new Date(t.created_at).getTime() : NaN;
+    return Number.isNaN(ms) ? -Infinity : ms;
+  };
+  return [...(props.tickets || [])].sort((a, b) => toMs(b) - toMs(a));
+});
 
 const headerCount = computed(() => props.tickets?.length || 0);
 </script>
@@ -65,7 +88,7 @@ const headerCount = computed(() => props.tickets?.length || 0);
       {{ headerCount }} ticket{{ headerCount === 1 ? '' : 's' }}
     </div>
     <div
-      v-for="(ticket, idx) in tickets"
+      v-for="(ticket, idx) in sortedTickets"
       :key="ticket.id || ticket.number || idx"
       class="flex flex-col gap-2 p-3 rounded-md bg-n-alpha-1"
     >
@@ -98,8 +121,13 @@ const headerCount = computed(() => props.tickets?.length || 0);
       >
         {{ ticket.subject }}
       </div>
-      <div class="text-xs text-n-slate-10">
-        {{ sourceLabel(ticket.source) }}
+      <div
+        class="flex items-center justify-between gap-2 text-xs text-n-slate-10"
+      >
+        <span>{{ sourceLabel(ticket.source) }}</span>
+        <span v-if="createdAtLabel(ticket)" class="shrink-0">
+          {{ createdAtLabel(ticket) }}
+        </span>
       </div>
     </div>
   </div>

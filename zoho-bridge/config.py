@@ -44,6 +44,15 @@ CHATWOOT_API_TOKEN      = _required("CHATWOOT_API_TOKEN")
 CHATWOOT_ACCOUNT_ID     = int(os.environ.get("CHATWOOT_ACCOUNT_ID", "1"))
 CHATWOOT_WEBHOOK_SECRET = os.environ.get("CHATWOOT_WEBHOOK_SECRET", "")
 
+# ── Branding ──────────────────────────────────────────────────────────────
+# PRODUCT_NAME: shown in Zoho ticket subjects ("[DurianORM] …") and in the
+#   bridge's Chatwoot private notes, instead of the inbox name ("Chatwoot").
+# AI_AGENT_NAME: the bridge's own identity — used to label its auto-replies in
+#   the Zoho ticket transcript ("MiracleAI" instead of "Agent/Bot"). Keep this
+#   in sync with the Chatwoot User the bridge posts as (rename that user too).
+PRODUCT_NAME  = os.environ.get("PRODUCT_NAME", "DurianORM")
+AI_AGENT_NAME = os.environ.get("AI_AGENT_NAME", "MiracleAI")
+
 # ── OpenAI (used for team classification) ─────────────────────────────────
 OPENAI_API_KEY = _required("OPENAI_API_KEY")
 OPENAI_MODEL   = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")

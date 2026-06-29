@@ -13,4 +13,7 @@ export const BUS_EVENTS = {
   NEW_CONVERSATION_MODAL: 'newConversationModal',
   INSERT_INTO_RICH_EDITOR: 'insertIntoRichEditor',
   INSERT_INTO_NORMAL_EDITOR: 'insertIntoNormalEditor',
+  // Emitted when a private-note link like `#cw-panel/<section>` is clicked,
+  // so the conversation view can reveal the matching sidebar accordion.
+  OPEN_CONTACT_SIDEBAR_PANEL: 'OPEN_CONTACT_SIDEBAR_PANEL',
 };
