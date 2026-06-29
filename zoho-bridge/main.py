@@ -901,6 +901,41 @@ async def _post_category_decision(conv_id: int, category_result: dict) -> dict:
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
 
 
+NEEDS_SECTOR_REVIEW_LABEL = "needs-sector-review"
+
+
+async def _post_bulk_sector_review(conv_id: int, category_result: dict) -> dict:
+    """Bulk order whose buyer sector (government/private) is uncertain. Don't
+    forward to a guessed handler — post a note with the best guess + reasoning
+    and a visible label so an agent confirms the sector and routes it."""
+    sector = category_result.get("sector") or "unknown"
+    sconf  = int(round(float(category_result.get("sector_confidence") or 0) * 100))
+    reason = category_result.get("sector_reason") or ""
+    lines = [
+        "🏛️ **Bulk order — buyer sector needs confirmation**",
+        "",
+        f"This is a **project / bulk order**, but I'm not sure whether the buyer "
+        f"is **government** or **private** (best guess: **{sector}**, {sconf}% "
+        f"confident). Government and private bulk orders go to different handlers, "
+        f"so it has **not** been forwarded yet.",
+    ]
+    if reason:
+        lines.append(f"_{reason}_")
+    lines += ["", "→ Confirm the buyer's sector and forward it to the right "
+              "handler (or reply / route manually)."]
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(lines))
+    except Exception as e:
+        print(f"[bulk-sector] post_private_note failed for conv {conv_id}: {e}")
+    try:
+        await chatwoot.add_label(conv_id, NEEDS_SECTOR_REVIEW_LABEL)
+    except Exception as e:
+        print(f"[bulk-sector] add_label failed for conv {conv_id}: {e}")
+    print(f"[bulk-sector] conv {conv_id}: sector uncertain "
+          f"({sector} {sconf}%) — flagged for agent review")
+    return {"classified_email_type": "project_bulk_order", "sector_review": True}
+
+
 async def _resolve_category_decision(conv_id: int, category: str) -> dict:
     """Agent confirmed a category — run the real forward/route action for it
     and clear the pending flag. Returns a JSON-friendly dict for the endpoint."""
@@ -1267,6 +1302,15 @@ async def _phase2_execute_actions(conv_id: int,
                     bcc_emails = ", ".join(bcc_list) if bcc_list else None,
                 )
                 audit.append(f"📨 Forwarded to {forward_to}.")
+                # For bulk orders, show which sector (government/private) drove
+                # the destination so the agent sees the routing decision.
+                if category_result.get("sector"):
+                    _sec = category_result["sector"]
+                    _sc  = int(round(float(category_result.get("sector_confidence") or 0) * 100))
+                    audit.append(
+                        f"🏛️ Buyer sector: **{_sec}** ({_sc}% confident)"
+                        + (f" — {category_result['sector_reason']}"
+                           if category_result.get("sector_reason") else ""))
                 if cc_list:
                     audit.append(f"Cc: {', '.join(cc_list)}")
 
@@ -1724,6 +1768,17 @@ async def handle_message_created(data: dict) -> dict:
     if (category_result is not None and not category_auto
             and not _PHASE_2_DRY_RUN and not is_social):
         return await _post_category_decision(conv_id, category_result)
+
+    # ── Bulk-order sector gate ───────────────────────────────────────────
+    # The category is confident, but bulk orders ALSO need the buyer sector
+    # (government vs private) to pick the handler. If the sector is uncertain,
+    # don't auto-forward to a guessed handler — flag it for an agent to confirm.
+    if (category_result is not None and category_auto
+            and category_result.get("category") == "project_bulk_order"
+            and (category_result.get("rule") or {}).get("sector_routing")
+            and not _PHASE_2_DRY_RUN and not is_social):
+        if float(category_result.get("sector_confidence") or 0) < config.BULK_SECTOR_AUTO_CONFIDENCE:
+            return await _post_bulk_sector_review(conv_id, category_result)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
     # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.

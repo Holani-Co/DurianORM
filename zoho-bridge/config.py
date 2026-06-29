@@ -227,6 +227,12 @@ ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
 CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
 
+# Bulk orders are sub-classified into government vs private buyers and routed to
+# different handlers. At/above this bar the sector is auto-routed; below it the
+# email is flagged for an agent to confirm the sector before forwarding (so an
+# ambiguous buyer never auto-routes to the wrong handler).
+BULK_SECTOR_AUTO_CONFIDENCE = float(os.environ.get("BULK_SECTOR_AUTO_CONFIDENCE", "0.8"))
+
 # How many subject-keyword anchors per category to feed the classifier prompt.
 # The client's Email-Keywords sheet has up to ~160 per category; default 200
 # effectively includes them ALL so the model weighs the full list when scoring

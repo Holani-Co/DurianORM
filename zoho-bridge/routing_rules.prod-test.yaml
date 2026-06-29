@@ -80,6 +80,15 @@ categories:
     team_id: 12
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+    # Government/private sub-routing also funnels to the test inbox during the
+    # test phase — otherwise the sector handlers would receive real forwards.
+    sector_routing:
+      government:
+        forward_to: rachael.rodrigues@durian.in
+        cc: []
+      private:
+        forward_to: rachael.rodrigues@durian.in
+        cc: []
   full_home_customization:
     team_id: 13
     forward_to: rachael.rodrigues@durian.in

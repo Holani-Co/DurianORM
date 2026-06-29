@@ -605,6 +605,172 @@ categories:
       - Quotation for Bulk Order/ Ongoing Project
       - GeM Portal
       - OEM Authorization
+    # Bulk orders come from two kinds of buyer — government/public-sector vs
+    # private companies — and route to different handlers. When this category
+    # is chosen, classifier.classify_bulk_sector decides the sector (email
+    # domain first: .gov.in/.nic.in → government; then the keyword lists below),
+    # and the forward goes to that sector's `forward_to`. If the sector can't be
+    # determined confidently, an agent confirms it (human-in-the-loop card)
+    # before anything forwards.
+    sector_routing:
+      government:
+        # TODO: set the government / public-sector bulk-order handler address.
+        forward_to: marketing@durian.in
+        cc: []
+        keywords:
+          - Ministry
+          - Department
+          - Directorate
+          - Bureau
+          - Secretariat
+          - Office of the
+          - Government of
+          - Govt. of
+          - Govt of India
+          - State Government
+          - Municipal Corporation
+          - Municipality
+          - Nagar Nigam
+          - Nagar Palika
+          - Panchayat
+          - Zilla Parishad
+          - Gram Panchayat
+          - Collectorate
+          - District Office
+          - Tehsil
+          - Block Office
+          - Sub-Divisional
+          - Council
+          - Board
+          - Commission
+          - Authority
+          - BSNL
+          - ONGC
+          - NTPC
+          - SAIL
+          - GAIL
+          - BHEL
+          - LIC
+          - Coal India
+          - FCI
+          - NABARD
+          - SIDBI
+          - RBI
+          - Reserve Bank
+          - Bhavan
+          - Bhawan
+          - Sadan
+          - Karyalaya
+          - AIIMS
+          - IIT
+          - IIM
+          - NIT
+          - IISc
+          - ICAR
+          - ISRO
+          - DRDO
+          - CSIR
+          - Kendriya Vidyalaya
+          - Navodaya
+          - Vidyalaya
+          - Vidyapeeth
+          - Police
+          - Defence
+          - Army
+          - Navy
+          - Air Force
+          - Cantonment
+          - CRPF
+          - CISF
+          - BSF
+          - Ordnance
+          - Railways
+          - Indian Railways
+          - Metro Rail
+          - High Court
+          - District Court
+          - Tribunal
+          - Bar Council
+          - ESI
+          - Mission
+          - Yojana
+          - Samiti
+          - Parishad
+          - Sabha
+          - Ayog
+          - Mandal
+          - Nigam
+          - Vibhag
+          - Raj Bhavan
+          - Vidhan Sabha
+          - Lok Sabha
+          - Rajya Sabha
+          - Assembly
+          - Legislature
+          - .gov.in
+          - .nic.in
+      private:
+        forward_to: marketing@durian.in
+        cc: []
+        keywords:
+          - Pvt. Ltd.
+          - Private Limited
+          - LLP
+          - "& Co."
+          - "& Sons"
+          - "& Associates"
+          - Enterprises
+          - Ventures
+          - Holdings
+          - Ltd.
+          - Limited
+          - Inc.
+          - Corp.
+          - GmbH
+          - Pte. Ltd.
+          - Solutions
+          - Technologies
+          - Systems
+          - Software
+          - Labs
+          - Digital
+          - Infotech
+          - Consulting
+          - Consultancy
+          - Services
+          - Group
+          - Industries
+          - Manufacturing
+          - Mills
+          - Works
+          - Trading
+          - Exports
+          - Imports
+          - Traders
+          - Realty
+          - Builders
+          - Developers
+          - Estates
+          - Infra
+          - Construction
+          - Properties
+          - Studio
+          - Designs
+          - Architects
+          - Interiors
+          - Creatives
+          - Media
+          - Agency
+          - Hospitality
+          - Hotels
+          - Resorts
+          - Retail
+          - Mart
+          - Stores
+          - Bazaar
+          - Clinic
+          - Nursing Home
+          - Diagnostics
 
   full_home_customization:
     display_name: Full Home Customization
