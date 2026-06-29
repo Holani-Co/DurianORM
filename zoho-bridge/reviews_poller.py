@@ -12,6 +12,7 @@
 # Locations are discovered once and cached for the process lifetime.
 
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 
 import config
@@ -33,6 +34,38 @@ _locations_cache: list[dict] = []
 
 def _stars_bar(stars: int) -> str:
     return "★" * stars + "☆" * (5 - stars) if stars else "(rating unknown)"
+
+
+def _store_label(title: str) -> str:
+    """Filterable label for the showroom a review came from, e.g.
+    'Durian - Koramangala' → 'store-durian-koramangala'. Slugified so it's a
+    clean, stable Chatwoot label agents can filter the conversation list by."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return f"store-{slug}" if slug else "store-unknown"
+
+
+# Rating labels get a traffic-light colour so the Settings → Labels list and
+# the sidebar chips read at a glance; stores share a neutral blue.
+_LABEL_COLORS = {
+    "review-1star": "#d7263d", "review-2star": "#f46036",
+    "review-3star": "#f5a623", "review-4star": "#7cb342",
+    "review-5star": "#2e7d32", "review-unrated": "#8a8a8a",
+}
+
+# Labels added to a conversation are taggings; they only become filterable
+# (dropdowns / Settings → Labels) once a Label record exists. Ensure that once
+# per process per label.
+_ensured_labels: set = set()
+
+
+async def _ensure_label_once(title: str) -> None:
+    if title in _ensured_labels:
+        return
+    try:
+        await chatwoot.ensure_label(title, _LABEL_COLORS.get(title, "#1f93ff"))
+    except Exception as e:
+        print(f"[reviews] ensure_label({title}) failed: {e}")
+    _ensured_labels.add(title)
 
 
 def _format_review_time(iso: str) -> str:
@@ -105,11 +138,18 @@ async def _ingest_review(loc: dict, rv: dict):
     # Star-rating label so agents can filter by ★ in Chatwoot's sidebar
     # (Labels → review-5star, review-1star, …). Labels auto-create on first
     # use server-side. Best-effort: a failure here doesn't block ingestion.
+    # Star + store labels so agents can filter reviews by rating and showroom
+    # (the Google Reviews inbox dropdowns / Settings → Labels). ensure_label
+    # creates the Label record so it's selectable; add_label merges, so the
+    # two labels coexist on the conversation.
     star_label = f"review-{rv['stars']}star" if rv['stars'] else "review-unrated"
-    try:
-        await chatwoot.add_label(conv_id, star_label)
-    except Exception as e:
-        print(f"[reviews] add_label({star_label}) failed for conv {conv_id}: {e}")
+    store_label = _store_label(title)
+    for lbl in (star_label, store_label):
+        await _ensure_label_once(lbl)
+        try:
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[reviews] add_label({lbl}) failed for conv {conv_id}: {e}")
 
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag

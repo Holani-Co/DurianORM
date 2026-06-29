@@ -35,6 +35,25 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
         return r.json()
 
 
+async def ensure_label(title: str, color: str = "#1f93ff") -> None:
+    """Create a Label record for `title` if one doesn't exist yet.
+
+    Conversation labels added via add_label are stored as taggings; they only
+    show up in Settings → Labels and the conversation-filter pickers once a
+    Label record also exists. The reviews poller calls this for its store /
+    star labels so they're filterable. Idempotent: a 'title already taken'
+    (422) response is treated as success."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"{config.CHATWOOT_BASE_URL}/api/v1/accounts/"
+            f"{config.CHATWOOT_ACCOUNT_ID}/labels",
+            headers=_headers(),
+            json={"title": title, "color": color, "show_on_sidebar": True},
+        )
+        if r.status_code not in (200, 422):
+            raise RuntimeError(f"Chatwoot ensure_label failed [{r.status_code}]: {r.text}")
+
+
 async def add_label(conversation_id: int, label: str) -> dict:
     """Append a label to a conversation without removing existing ones."""
     async with httpx.AsyncClient(timeout=10) as client:
