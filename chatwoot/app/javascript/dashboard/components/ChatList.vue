@@ -8,6 +8,7 @@ import {
 } from 'dashboard/composables/store.js';
 
 import ChatListHeader from './ChatListHeader.vue';
+import ReviewInboxFilters from './widgets/conversation/ReviewInboxFilters.vue';
 import ConversationList from './ConversationList.vue';
 import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
 import ConversationFilter from 'next/filter/ConversationFilter.vue';
@@ -568,6 +569,88 @@ function resetAndFetchData() {
   fetchConversations();
 }
 
+// ── Google Reviews: store + star-rating dropdown filters ──────────────────
+// Shown only in the reviews inbox. Each review carries `store-<name>` and
+// `review-<n>star` labels (applied by the bridge's reviews poller); selecting
+// a store/rating server-side-filters the list by those labels (kept scoped to
+// this inbox via an inbox_id condition).
+const reviewStoreFilter = ref('');
+const reviewRatingFilter = ref('');
+
+const isReviewsInbox = computed(() => inbox.value?.name === 'Google Reviews');
+
+const storeFilterOptions = computed(() =>
+  (labels.value || [])
+    .filter(label => label.title?.startsWith('store-'))
+    .map(label => ({
+      value: label.title,
+      label: label.title
+        .replace(/^store-/, '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, char => char.toUpperCase()),
+    }))
+);
+
+function reviewLabelCondition(labelTitle) {
+  return {
+    attributeKey: 'labels',
+    attributeModel: 'standard',
+    filterOperator: 'equal_to',
+    values: [{ id: labelTitle, name: labelTitle }],
+    queryOperator: 'and',
+    customAttributeType: '',
+  };
+}
+
+function onReviewFilterChange() {
+  const selectedLabels = [
+    reviewStoreFilter.value,
+    reviewRatingFilter.value,
+  ].filter(Boolean);
+
+  if (!selectedLabels.length) {
+    resetAndFetchData();
+    return;
+  }
+
+  const payload = [
+    {
+      attributeKey: 'inbox_id',
+      attributeModel: 'standard',
+      filterOperator: 'equal_to',
+      // Number(): the route gives conversationInbox as a string, but
+      // matchesFilters strict-compares against conversation.inbox_id (a
+      // number), so "6" would never match 6.
+      values: [
+        { id: Number(props.conversationInbox), name: inbox.value?.name },
+      ],
+      queryOperator: 'and',
+      customAttributeType: '',
+    },
+    ...selectedLabels.map(reviewLabelCondition),
+  ];
+
+  // setConversationFilters expects snake_case (matches ConversationFilter.vue);
+  // onApplyFilter takes the camelCase payload and snake-cases it itself.
+  store.dispatch(
+    'setConversationFilters',
+    useSnakeCase(JSON.parse(JSON.stringify(payload)))
+  );
+  onApplyFilter(payload);
+}
+
+// Keep the dropdowns in sync if filters get cleared elsewhere (e.g. the
+// header's reset button).
+watch(
+  () => appliedFilters.value.length,
+  count => {
+    if (count === 0) {
+      reviewStoreFilter.value = '';
+      reviewRatingFilter.value = '';
+    }
+  }
+);
+
 function loadMoreConversations() {
   if (hasCurrentPageEndReached.value || chatListLoading.value) {
     return;
@@ -884,6 +967,14 @@ watch(conversationFilters, (newVal, oldVal) => {
       @filters-modal="onToggleAdvanceFiltersModal"
       @reset-filters="resetAndFetchData"
       @basic-filter-change="onBasicFilterChange"
+    />
+
+    <ReviewInboxFilters
+      v-if="isReviewsInbox"
+      v-model:store="reviewStoreFilter"
+      v-model:rating="reviewRatingFilter"
+      :store-options="storeFilterOptions"
+      @change="onReviewFilterChange"
     />
 
     <TeleportWithDirection

@@ -20,6 +20,7 @@ import sys
 import config
 import chatwoot
 import review_reply
+from reviews_poller import _store_label, _ensure_label_once
 
 
 async def main():
@@ -56,6 +57,16 @@ async def main():
         custom_attributes={"review_path": review_path},
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
+
+    # Labels — mirror reviews_poller._ingest_review so the simulator exercises
+    # the same star + store segregation the real poller applies.
+    star_label = f"review-{stars}star" if stars else "review-unrated"
+    for lbl in (star_label, _store_label(location)):
+        await _ensure_label_once(lbl)
+        try:
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"add_label({lbl}) skipped: {e}")
 
     drafted = await review_reply.draft(
         channel="review", message=comment, contact_name=reviewer,
