@@ -37,8 +37,28 @@ const reason = computed(() => props.pending?.reason || '');
 const alternatives = computed(() => props.pending?.alternatives || []);
 const categories = computed(() => props.pending?.categories || []);
 
+// Bulk orders also need the buyer sector (government/private) → show a sector
+// picker whenever the category being confirmed is project_bulk_order.
+const BULK_CATEGORY = 'project_bulk_order';
+const SECTOR_OPTIONS = [
+  { value: 'government', label: 'Government / Public-sector' },
+  { value: 'private', label: 'Private company' },
+];
+const selectedSector = ref(props.pending?.sector_suggested || 'private');
+const sectorReason = computed(() => props.pending?.sector_reason || '');
+const sectorConfidencePct = computed(() =>
+  Math.round((props.pending?.sector_confidence || 0) * 100)
+);
+const showSectorPicker = computed(
+  () => props.pending?.needs_sector || selected.value === BULK_CATEGORY
+);
+
 async function confirm(category) {
   if (submitting.value || !category) return;
+  if (category === BULK_CATEGORY && !selectedSector.value) {
+    useAlert('Pick the buyer sector (government or private) first.');
+    return;
+  }
   submitting.value = true;
   try {
     await axios.post(
@@ -46,6 +66,7 @@ async function confirm(category) {
       {
         conversation_id: Number(props.conversationId),
         category,
+        ...(category === BULK_CATEGORY ? { sector: selectedSector.value } : {}),
       }
     );
     // Bridge clears pending_category_decision server-side; mirror locally so
@@ -79,6 +100,39 @@ async function confirm(category) {
     <p v-if="reason" class="px-1 text-xs text-n-slate-11 italic">
       {{ reason }}
     </p>
+
+    <!-- Buyer sector (bulk orders only). Sent with the confirm when the chosen
+         category is Project / Bulk Order, routing to that sector's handler. -->
+    <div
+      v-if="showSectorPicker"
+      class="flex flex-col gap-1.5 p-2.5 rounded-md bg-n-alpha-1"
+    >
+      <span class="text-xs font-medium text-n-slate-12">
+        Buyer sector
+        <span v-if="sectorConfidencePct" class="font-normal text-n-slate-10">
+          · AI guess {{ sectorConfidencePct }}%
+        </span>
+      </span>
+      <p v-if="sectorReason" class="text-xs text-n-slate-11 italic">
+        {{ sectorReason }}
+      </p>
+      <div class="flex items-center gap-2">
+        <button
+          v-for="opt in SECTOR_OPTIONS"
+          :key="opt.value"
+          type="button"
+          class="flex-1 px-2 py-1.5 text-xs font-medium rounded-md border"
+          :class="
+            selectedSector === opt.value
+              ? 'bg-n-brand text-white border-n-brand'
+              : 'bg-n-background text-n-slate-12 border-n-weak hover:bg-n-alpha-2'
+          "
+          @click="selectedSector = opt.value"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+    </div>
 
     <!-- AI's top pick + ranked alternatives as one-click buttons -->
     <div class="flex flex-col gap-2">

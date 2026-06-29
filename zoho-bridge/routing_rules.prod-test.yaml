@@ -1,51 +1,24 @@
-# Prod-test routing override — committed, used on the VM during the
-# client's prod testing phase. Mirrors the gitignored routing_rules.local
-# pattern: only overrides the destination fields; everything else
-# (descriptions, examples, keywords, templates, customer-Cc rules)
-# is inherited from routing_rules.yaml.
+# Partial-production routing override.
 #
-# Activation: bridge points at this file via DURIAN_ROUTING_OVERRIDE_PATH
-# env var (set on the VM). When the env var is unset, the bridge reads
-# only routing_rules.yaml and forwards to the real Durian departments. So
-# flipping back to real-prod routing is a one-line systemd env edit +
-# a bridge restart — no code change.
+# Activation: bridge points at this file via DURIAN_ROUTING_OVERRIDE_PATH.
+# Categories below keep ONLY their team_id, so their forward_to / cc /
+# include_customer_in_cc come from base routing_rules.yaml (= the REAL
+# handlers, including the doors location-routing and bulk sector/region
+# routing). The two exceptions, complaint + legal_complaint, are still
+# funnelled to the shared test inbox and get no customer acknowledgment.
 #
-# Test plan (per client + senior agreement):
-#   - All 10 forward categories → rachael.rodrigues@durian.in. One
-#     shared inbox lets the client confirm the categorizer + forward
-#     mechanics on real traffic without spamming nine separate execs
-#     during the test phase.
-#   - varsha@durian.in, sushil.k@durian.in, shilpa@durian.in are Cc'd on
-#     every forward — they're the client's observer/oversight team for
-#     the test phase, per the "CC Test" columns in the latest spreadsheet.
-#   - include_customer_in_cc rule (which lives in the base YAML and is
-#     NOT overridden here) still applies: complaint / legal_complaint /
-#     doors_veneer_plywood will Cc the customer ON TOP OF the three
-#     observers above. The other seven forward categories will not Cc
-#     the customer.
-#   - Customer acknowledgments are gated separately by the
-#     EMAIL_CUSTOMER_ACK_ENABLED env var (default false on the VM), so
-#     no customer email goes out until the client explicitly opts in.
-#
-# Team assignment (added with the prod team reorg): each conversation is
-# assigned to its category's matching Chatwoot team. IDs below match the
-# prod VM's `SELECT id, name FROM teams` listing taken on 2026-06-19;
-# the prod Chatwoot reorged from 4 generic teams (legal/marketing/hr/
-# support) to 13 category-specific teams, one per routing category. The
-# bridge resolves category → team_id from this YAML, so future team
-# changes are a YAML edit + bridge restart — no code change.
+# Customer acknowledgments are globally on via EMAIL_CUSTOMER_ACK_ENABLED=true;
+# the acknowledgment_template_for block below disables them for the two
+# test-funnelled categories only (must be a NON-template word like 'disabled'
+# — null / ~ / off silently fall back to sending an ack).
 
 categories:
+  # In-channel (no forward) — team only
+  product_enquiry:        { team_id: 6 }
+  general_information:    { team_id: 7 }
+  existing_order_enquiry: { team_id: 8 }
 
-  # ── In-channel categories (no forward; conversation stays for the team) ──
-  product_enquiry:
-    team_id: 6
-  general_information:
-    team_id: 7
-  existing_order_enquiry:
-    team_id: 8
-
-  # ── Forward categories ──
+  # Still test-funnelled: complaint + legal_complaint
   complaint:
     team_id: 4
     forward_to: rachael.rodrigues@durian.in
@@ -56,36 +29,19 @@ categories:
     forward_to: rachael.rodrigues@durian.in
     cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
     include_customer_in_cc: false
-  franchise_dealership:
-    team_id: 9
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  vendor_supplier_enquiry:
-    team_id: 10
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  marketing_advertising:
-    team_id: 3
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  collaboration_request:
-    team_id: 11
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  career_job_enquiry:
-    team_id: 1
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  project_bulk_order:
-    team_id: 12
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  full_home_customization:
-    team_id: 13
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-  doors_veneer_plywood:
-    team_id: 14
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-    include_customer_in_cc: false
+
+  # LIVE — team_id only; base supplies the real forward_to + cc + customer-cc
+  # (doors → location routing; project_bulk_order → sector + region routing).
+  franchise_dealership:    { team_id: 9 }
+  vendor_supplier_enquiry: { team_id: 10 }
+  marketing_advertising:   { team_id: 3 }
+  collaboration_request:   { team_id: 11 }
+  career_job_enquiry:      { team_id: 1 }
+  project_bulk_order:      { team_id: 12 }
+  full_home_customization: { team_id: 13 }
+  doors_veneer_plywood:    { team_id: 14 }
+
+# Suppress acks for complaint/legal only.
+acknowledgment_template_for:
+  complaint:       disabled
+  legal_complaint: disabled

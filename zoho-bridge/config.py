@@ -227,6 +227,23 @@ ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
 CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
 
+# Bulk orders are sub-classified into government vs private buyers and routed to
+# different handlers. At/above this bar the sector is auto-routed; below it the
+# email is flagged for an agent to confirm the sector before forwarding (so an
+# ambiguous buyer never auto-routes to the wrong handler). Defaults to 0.9 to
+# stay conservative — anything the LLM isn't very sure about (Trust, Society,
+# Co-operative, ambiguous .ac.in, etc.) drops to the sector picker. The .gov.in
+# / .nic.in domain shortcut stays at 0.99, so confirmed government emails still
+# auto-route. Lower only if too much is being held for review in practice.
+BULK_SECTOR_AUTO_CONFIDENCE = float(os.environ.get("BULK_SECTOR_AUTO_CONFIDENCE", "0.9"))
+
+# Private bulk orders route by the customer's state/region to a region-specific
+# handler. At/above this bar AND when the region is one we have a handler for,
+# it auto-forwards; otherwise (region unclear, or a state with no configured
+# handler) the conversation is left in-channel for an agent to decide — we
+# never guess a region handler.
+BULK_REGION_AUTO_CONFIDENCE = float(os.environ.get("BULK_REGION_AUTO_CONFIDENCE", "0.9"))
+
 # How many subject-keyword anchors per category to feed the classifier prompt.
 # The client's Email-Keywords sheet has up to ~160 per category; default 200
 # effectively includes them ALL so the model weighs the full list when scoring

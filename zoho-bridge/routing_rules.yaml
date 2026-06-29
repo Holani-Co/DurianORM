@@ -605,6 +605,239 @@ categories:
       - Quotation for Bulk Order/ Ongoing Project
       - GeM Portal
       - OEM Authorization
+    # Bulk orders come from two kinds of buyer — government/public-sector vs
+    # private companies — and route to different handlers. When this category
+    # is chosen, classifier.classify_bulk_sector decides the sector (email
+    # domain first: .gov.in/.nic.in → government; then the keyword lists below),
+    # and the forward goes to that sector's `forward_to`. If the sector can't be
+    # determined confidently, an agent confirms it (human-in-the-loop card)
+    # before anything forwards.
+    sector_routing:
+      government:
+        # Government bulk orders route by the customer's city/state. Only the
+        # locations listed in region_routing have a handler; any other location
+        # or an unclear region is left in-channel for an agent (we never guess).
+        # forward_to below is only a fallback if region resolution fails.
+        # NOTE: rows in the client sheet without a city/state are intentionally
+        # omitted until the client fills them in. Cities with two handlers
+        # (Mumbai, Bhopal) forward to the first and Cc the second.
+        forward_to: marketing@durian.in
+        cc: []
+        region_routing:
+          guwahati:
+            forward_to: chayan.sengupta@durian.in
+            cc: []
+          patna:
+            forward_to: patna@durian.in
+            cc: []
+          mumbai:
+            forward_to: prabhat.sharma@durian.in
+            cc: [mitesh@durian.in]
+          bhubaneshwar:
+            forward_to: sangram.das@durian.in
+            cc: []
+          chennai:
+            forward_to: thota.rao@durian.in
+            cc: []
+          coimbatore:
+            forward_to: gunasundari@durian.in
+            cc: []
+          rajasthan:
+            forward_to: saket.sanadhya@durian.in
+            cc: []
+          ranchi:
+            forward_to: ranchi@durian.in
+            cc: []
+          ahmedabad:
+            forward_to: vikash.jha@durian.in
+            cc: []
+          pune:
+            forward_to: nikhil.suryawanshi@durian.in
+            cc: []
+          bhopal:
+            forward_to: shaishav.khare@durian.in
+            cc: [mohit.swami@durian.in]
+          indore:
+            forward_to: gajendrasingh.mourya@durian.in
+            cc: []
+          noida:
+            forward_to: durian.noida@durian.in
+            cc: []
+          kolkata:
+            forward_to: rakibul.haque@durian.in
+            cc: []
+        keywords:
+          - Ministry
+          - Department
+          - Directorate
+          - Bureau
+          - Secretariat
+          - Office of the
+          - Government of
+          - Govt. of
+          - Govt of India
+          - State Government
+          - Municipal Corporation
+          - Municipality
+          - Nagar Nigam
+          - Nagar Palika
+          - Panchayat
+          - Zilla Parishad
+          - Gram Panchayat
+          - Collectorate
+          - District Office
+          - Tehsil
+          - Block Office
+          - Sub-Divisional
+          - Council
+          - Board
+          - Commission
+          - Authority
+          - BSNL
+          - ONGC
+          - NTPC
+          - SAIL
+          - GAIL
+          - BHEL
+          - LIC
+          - Coal India
+          - FCI
+          - NABARD
+          - SIDBI
+          - RBI
+          - Reserve Bank
+          - Bhavan
+          - Bhawan
+          - Sadan
+          - Karyalaya
+          - AIIMS
+          - IIT
+          - IIM
+          - NIT
+          - IISc
+          - ICAR
+          - ISRO
+          - DRDO
+          - CSIR
+          - Kendriya Vidyalaya
+          - Navodaya
+          - Vidyalaya
+          - Vidyapeeth
+          - Police
+          - Defence
+          - Army
+          - Navy
+          - Air Force
+          - Cantonment
+          - CRPF
+          - CISF
+          - BSF
+          - Ordnance
+          - Railways
+          - Indian Railways
+          - Metro Rail
+          - High Court
+          - District Court
+          - Tribunal
+          - Bar Council
+          - ESI
+          - Mission
+          - Yojana
+          - Samiti
+          - Parishad
+          - Sabha
+          - Ayog
+          - Mandal
+          - Nigam
+          - Vibhag
+          - Raj Bhavan
+          - Vidhan Sabha
+          - Lok Sabha
+          - Rajya Sabha
+          - Assembly
+          - Legislature
+          - .gov.in
+          - .nic.in
+      private:
+        # Private bulk orders route by the customer's STATE to a regional
+        # handler (classifier.classify_bulk_region). Only the states listed in
+        # region_routing have a handler; any other state, or an unclear region,
+        # is left in-channel for an agent to route (we never guess). forward_to
+        # below is only a fallback if region resolution fails entirely.
+        forward_to: marketing@durian.in
+        cc: []
+        region_routing:
+          karnataka:
+            forward_to: sunil.m@durian.in
+            cc: []
+          delhi:
+            forward_to: anubhav.singh@durian.in
+            cc: []
+          telangana:
+            forward_to: hyder.shaffi@gmail.com
+            cc: []
+          maharashtra:
+            forward_to: tushar.gajare@durian.in
+            cc: []
+        keywords:
+          - Pvt. Ltd.
+          - Private Limited
+          - LLP
+          - "& Co."
+          - "& Sons"
+          - "& Associates"
+          - Enterprises
+          - Ventures
+          - Holdings
+          - Ltd.
+          - Limited
+          - Inc.
+          - Corp.
+          - GmbH
+          - Pte. Ltd.
+          - Solutions
+          - Technologies
+          - Systems
+          - Software
+          - Labs
+          - Digital
+          - Infotech
+          - Consulting
+          - Consultancy
+          - Services
+          - Group
+          - Industries
+          - Manufacturing
+          - Mills
+          - Works
+          - Trading
+          - Exports
+          - Imports
+          - Traders
+          - Realty
+          - Builders
+          - Developers
+          - Estates
+          - Infra
+          - Construction
+          - Properties
+          - Studio
+          - Designs
+          - Architects
+          - Interiors
+          - Creatives
+          - Media
+          - Agency
+          - Hospitality
+          - Hotels
+          - Resorts
+          - Retail
+          - Mart
+          - Stores
+          - Bazaar
+          - Clinic
+          - Nursing Home
+          - Diagnostics
 
   full_home_customization:
     display_name: Full Home Customization
@@ -680,8 +913,14 @@ categories:
   doors_veneer_plywood:
     display_name: Doors / Veneer / Plywood
     action: forward
-    forward_to: anshu.tiwari@durian.in
-    cc: []
+    # Doors split by customer location: Bangalore → the local Bangalore desk;
+    # everywhere else → Rohit + Anshu. The top-level values below are the
+    # non-Bangalore ("other") default — used directly if location can't be
+    # resolved. classifier.classify_doors_location picks the bucket and
+    # location_routing (further down) supplies the destination. Customer is
+    # always Cc'd and always acknowledged, for both buckets.
+    forward_to: rohit.kanoujia@durian.in
+    cc: [anshu.tiwari@durian.in]
     bcc: []
     include_customer_in_cc: true
     description: |
@@ -735,6 +974,19 @@ categories:
       - New Door Installation
       - Door and Frame Package
       - Door Bulk Order
+    # Location-based routing for doors. classifier.classify_doors_location
+    # decides 'bangalore' vs 'other' from the email (city mentioned, "based in
+    # Bengaluru", a Bangalore locality, etc.). Customer is Cc'd + acknowledged
+    # in both buckets.
+    location_routing:
+      bangalore:
+        forward_to: bangalore@durian.in
+        cc: []
+        include_customer_in_cc: true
+      other:
+        forward_to: rohit.kanoujia@durian.in
+        cc: [anshu.tiwari@durian.in]
+        include_customer_in_cc: true
 
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
