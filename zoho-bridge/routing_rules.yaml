@@ -614,9 +614,58 @@ categories:
     # before anything forwards.
     sector_routing:
       government:
-        # TODO: set the government / public-sector bulk-order handler address.
+        # Government bulk orders route by the customer's city/state. Only the
+        # locations listed in region_routing have a handler; any other location
+        # or an unclear region is left in-channel for an agent (we never guess).
+        # forward_to below is only a fallback if region resolution fails.
+        # NOTE: rows in the client sheet without a city/state are intentionally
+        # omitted until the client fills them in. Cities with two handlers
+        # (Mumbai, Bhopal) forward to the first and Cc the second.
         forward_to: marketing@durian.in
         cc: []
+        region_routing:
+          guwahati:
+            forward_to: chayan.sengupta@durian.in
+            cc: []
+          patna:
+            forward_to: patna@durian.in
+            cc: []
+          mumbai:
+            forward_to: prabhat.sharma@durian.in
+            cc: [mitesh@durian.in]
+          bhubaneshwar:
+            forward_to: sangram.das@durian.in
+            cc: []
+          chennai:
+            forward_to: thota.rao@durian.in
+            cc: []
+          coimbatore:
+            forward_to: gunasundari@durian.in
+            cc: []
+          rajasthan:
+            forward_to: saket.sanadhya@durian.in
+            cc: []
+          ranchi:
+            forward_to: ranchi@durian.in
+            cc: []
+          ahmedabad:
+            forward_to: vikash.jha@durian.in
+            cc: []
+          pune:
+            forward_to: nikhil.suryawanshi@durian.in
+            cc: []
+          bhopal:
+            forward_to: shaishav.khare@durian.in
+            cc: [mohit.swami@durian.in]
+          indore:
+            forward_to: gajendrasingh.mourya@durian.in
+            cc: []
+          noida:
+            forward_to: durian.noida@durian.in
+            cc: []
+          kolkata:
+            forward_to: rakibul.haque@durian.in
+            cc: []
         keywords:
           - Ministry
           - Department
@@ -710,8 +759,26 @@ categories:
           - .gov.in
           - .nic.in
       private:
+        # Private bulk orders route by the customer's STATE to a regional
+        # handler (classifier.classify_bulk_region). Only the states listed in
+        # region_routing have a handler; any other state, or an unclear region,
+        # is left in-channel for an agent to route (we never guess). forward_to
+        # below is only a fallback if region resolution fails entirely.
         forward_to: marketing@durian.in
         cc: []
+        region_routing:
+          karnataka:
+            forward_to: sunil.m@durian.in
+            cc: []
+          delhi:
+            forward_to: anubhav.singh@durian.in
+            cc: []
+          telangana:
+            forward_to: hyder.shaffi@gmail.com
+            cc: []
+          maharashtra:
+            forward_to: tushar.gajare@durian.in
+            cc: []
         keywords:
           - Pvt. Ltd.
           - Private Limited
@@ -846,8 +913,14 @@ categories:
   doors_veneer_plywood:
     display_name: Doors / Veneer / Plywood
     action: forward
-    forward_to: anshu.tiwari@durian.in
-    cc: []
+    # Doors split by customer location: Bangalore → the local Bangalore desk;
+    # everywhere else → Rohit + Anshu. The top-level values below are the
+    # non-Bangalore ("other") default — used directly if location can't be
+    # resolved. classifier.classify_doors_location picks the bucket and
+    # location_routing (further down) supplies the destination. Customer is
+    # always Cc'd and always acknowledged, for both buckets.
+    forward_to: rohit.kanoujia@durian.in
+    cc: [anshu.tiwari@durian.in]
     bcc: []
     include_customer_in_cc: true
     description: |
@@ -901,6 +974,19 @@ categories:
       - New Door Installation
       - Door and Frame Package
       - Door Bulk Order
+    # Location-based routing for doors. classifier.classify_doors_location
+    # decides 'bangalore' vs 'other' from the email (city mentioned, "based in
+    # Bengaluru", a Bangalore locality, etc.). Customer is Cc'd + acknowledged
+    # in both buckets.
+    location_routing:
+      bangalore:
+        forward_to: bangalore@durian.in
+        cc: []
+        include_customer_in_cc: true
+      other:
+        forward_to: rohit.kanoujia@durian.in
+        cc: [anshu.tiwari@durian.in]
+        include_customer_in_cc: true
 
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent

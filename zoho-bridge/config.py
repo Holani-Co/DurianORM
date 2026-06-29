@@ -237,6 +237,13 @@ CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9
 # auto-route. Lower only if too much is being held for review in practice.
 BULK_SECTOR_AUTO_CONFIDENCE = float(os.environ.get("BULK_SECTOR_AUTO_CONFIDENCE", "0.9"))
 
+# Private bulk orders route by the customer's state/region to a region-specific
+# handler. At/above this bar AND when the region is one we have a handler for,
+# it auto-forwards; otherwise (region unclear, or a state with no configured
+# handler) the conversation is left in-channel for an agent to decide — we
+# never guess a region handler.
+BULK_REGION_AUTO_CONFIDENCE = float(os.environ.get("BULK_REGION_AUTO_CONFIDENCE", "0.9"))
+
 # How many subject-keyword anchors per category to feed the classifier prompt.
 # The client's Email-Keywords sheet has up to ~160 per category; default 200
 # effectively includes them ALL so the model weighs the full list when scoring

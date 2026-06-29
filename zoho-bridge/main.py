@@ -929,6 +929,40 @@ async def _post_category_decision(conv_id: int, category_result: dict,
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
 
 
+NEEDS_REGION_REVIEW_LABEL = "needs-region-review"
+
+
+async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
+    """Private bulk order whose state/region is unclear (or a state with no
+    configured handler). Don't forward to a guessed regional desk — leave it
+    in-channel with a note + label so an agent routes it."""
+    region = category_result.get("region") or "unclear"
+    rconf  = int(round(float(category_result.get("region_confidence") or 0) * 100))
+    reason = category_result.get("region_reason") or ""
+    lines = [
+        "📍 **Private bulk order — region needs an agent decision**",
+        "",
+        "This is a **private project / bulk order**, but I couldn't confidently "
+        "place the customer's state among the regions we route automatically "
+        "(Karnataka, Delhi, Telangana, Maharashtra). It has **not** been "
+        f"forwarded — best guess was **{region}** ({rconf}%).",
+    ]
+    if reason:
+        lines.append(f"_{reason}_")
+    lines += ["", "→ Please route this to the right regional team manually."]
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(lines))
+    except Exception as e:
+        print(f"[bulk-region] post_private_note failed for conv {conv_id}: {e}")
+    try:
+        await chatwoot.add_label(conv_id, NEEDS_REGION_REVIEW_LABEL)
+    except Exception as e:
+        print(f"[bulk-region] add_label failed for conv {conv_id}: {e}")
+    print(f"[bulk-region] conv {conv_id}: region unclear "
+          f"({region} {rconf}%) — left in-channel for agent")
+    return {"classified_email_type": "project_bulk_order", "region_review": True}
+
+
 async def _resolve_category_decision(conv_id: int, category: str,
                                      sector: Optional[str] = None) -> dict:
     """Agent confirmed a category — run the real forward/route action for it
@@ -1321,6 +1355,22 @@ async def _phase2_execute_actions(conv_id: int,
                         f"🏛️ Buyer sector: **{_sec}** ({_sc}% confident)"
                         + (f" — {category_result['sector_reason']}"
                            if category_result.get("sector_reason") else ""))
+                # For private bulk orders, show the region that drove routing.
+                if category_result.get("region"):
+                    _rg = category_result["region"]
+                    _rc = int(round(float(category_result.get("region_confidence") or 0) * 100))
+                    audit.append(
+                        f"🗺️ Region: **{_rg}** ({_rc}% confident)"
+                        + (f" — {category_result['region_reason']}"
+                           if category_result.get("region_reason") else ""))
+                # For doors, show which location bucket drove the destination.
+                if category_result.get("doors_location"):
+                    _loc = category_result["doors_location"]
+                    _lc  = int(round(float(category_result.get("doors_location_confidence") or 0) * 100))
+                    audit.append(
+                        f"📍 Doors location: **{_loc}** ({_lc}% confident)"
+                        + (f" — {category_result['doors_location_reason']}"
+                           if category_result.get("doors_location_reason") else ""))
                 if cc_list:
                     audit.append(f"Cc: {', '.join(cc_list)}")
 
@@ -1343,6 +1393,24 @@ async def _phase2_execute_actions(conv_id: int,
                         audit.append(f"🏷️ Tagged {sec_label}.")
                     except Exception as e:
                         print(f"[phase2b] sector add_label failed for conv {conv_id}: {e}")
+
+                # Private bulk orders also get a region label (region-karnataka …).
+                if category_result.get("region") and category_result.get("region") != "other":
+                    rg_label = f"region-{category_result['region']}"
+                    try:
+                        await chatwoot.add_label(conv_id, rg_label)
+                        audit.append(f"🏷️ Tagged {rg_label}.")
+                    except Exception as e:
+                        print(f"[phase2b] region add_label failed for conv {conv_id}: {e}")
+
+                # Doors get a location label (doors-bangalore / doors-other).
+                if category_result.get("doors_location"):
+                    loc_label = f"doors-{category_result['doors_location']}"
+                    try:
+                        await chatwoot.add_label(conv_id, loc_label)
+                        audit.append(f"🏷️ Tagged {loc_label}.")
+                    except Exception as e:
+                        print(f"[phase2b] doors add_label failed for conv {conv_id}: {e}")
             except Exception as e:
                 print(f"[phase2b] forward send failed for conv {conv_id}: {e}")
                 audit.append(f"⚠️ Forward could not be sent: {e}")
@@ -1801,6 +1869,15 @@ async def handle_message_created(data: dict) -> dict:
         if float(category_result.get("sector_confidence") or 0) < config.BULK_SECTOR_AUTO_CONFIDENCE:
             return await _post_category_decision(conv_id, category_result,
                                                  sector_review_only=True)
+
+    # ── Bulk-order region gate (private only) ────────────────────────────
+    # A confident PRIVATE bulk order routes by the customer's state. If the
+    # region is unclear or a state we have no handler for, don't guess — leave
+    # the conversation in-channel for an agent to route.
+    if (category_result is not None and category_auto
+            and category_result.get("region_uncertain")
+            and not _PHASE_2_DRY_RUN and not is_social):
+        return await _post_bulk_region_review(conv_id, category_result)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
     # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.

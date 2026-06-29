@@ -709,10 +709,55 @@ async def classify_email_category(content: str, sender_email: str = "",
         result["sector"]            = sec["sector"]
         result["sector_confidence"] = sec["confidence"]
         result["sector_reason"]     = sec["reason"]
+        # Default: route to the sector handler.
         result["rule"] = {
             **rule,
             "forward_to": sroute.get("forward_to") or rule.get("forward_to"),
             "cc":         sroute.get("cc") or rule.get("cc") or [],
+        }
+        # Whichever sector (private or government) defines region_routing, route
+        # further by the customer's location — but only once the sector itself
+        # is confident (else the sector card handles it first).
+        region_routing = (
+            sroute.get("region_routing")
+            if sec["confidence"] >= config.BULK_SECTOR_AUTO_CONFIDENCE
+            else None
+        )
+        if region_routing:
+            reg = await classify_region(content, sender_email, subject,
+                                        list(region_routing.keys()))
+            result["region"]            = reg["region"]
+            result["region_confidence"] = reg["confidence"]
+            result["region_reason"]     = reg["reason"]
+            rr = region_routing.get(reg["region"])
+            if rr and reg["confidence"] >= config.BULK_REGION_AUTO_CONFIDENCE:
+                result["rule"] = {
+                    **rule,
+                    "forward_to": rr.get("forward_to") or sroute.get("forward_to"),
+                    "cc":         rr.get("cc") or [],
+                }
+            else:
+                # Region unclear, or a location we have no handler for → don't
+                # guess. main.py leaves it in-channel for an agent to route.
+                result["region_uncertain"] = True
+
+    # Doors split by customer location → Bangalore desk vs Rohit+Anshu. Same
+    # rule-copy approach; 'other' is the safe default bucket, so this never
+    # withholds a forward — it just picks the right handler.
+    if rule_key == "doors_veneer_plywood" and rule.get("location_routing"):
+        loc = await classify_doors_location(content, sender_email, subject)
+        lroute = (rule["location_routing"].get(loc["location"])
+                  or rule["location_routing"].get("other") or {})
+        result["doors_location"]            = loc["location"]
+        result["doors_location_confidence"] = loc["confidence"]
+        result["doors_location_reason"]     = loc["reason"]
+        result["rule"] = {
+            **rule,
+            "forward_to": lroute.get("forward_to") or rule.get("forward_to"),
+            "cc":         lroute.get("cc") if lroute.get("cc") is not None
+                          else (rule.get("cc") or []),
+            "include_customer_in_cc": lroute.get(
+                "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
         }
     return result
 
@@ -809,5 +854,156 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
     if sector not in ("government", "private"):
         return default
     return {"sector":     sector,
+            "confidence": float(parsed.get("confidence") or 0),
+            "reason":     (parsed.get("reason") or "")[:200]}
+
+
+# ── Bulk-order region sub-classifier (location → regional handler) ─────────
+# Generic + data-driven: the candidate regions come from the YAML's
+# region_routing keys, so private (states) and government (cities) share one
+# engine and the client can extend the sheet with a YAML edit only. 'other'
+# always means "not one of the configured regions / unclear" → in-channel.
+async def classify_region(content: str, sender_email: str = "",
+                          subject: str = "", region_keys: "list[str]" = None) -> dict:
+    """Map the customer's location to ONE of region_keys (city/state names) or
+    'other'. Defaults to 'other' on any error / empty keys so an unclear region
+    is never auto-routed to the wrong handler."""
+    region_keys = list(region_keys or [])
+    default = {"region": "other", "confidence": 0.0, "reason": ""}
+    if not region_keys:
+        return default
+
+    options = region_keys + ["other"]
+    schema = {
+        "name":   "bulk_order_region",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "region":     {"type": "string", "enum": options},
+                "confidence": {"type": "number"},
+                "reason":     {"type": "string"},
+            },
+            "required": ["region", "confidence", "reason"],
+        },
+    }
+    pretty = ", ".join(k.replace("_", " ").title() for k in region_keys)
+    prompt = (
+        "A bulk / project furniture order has come in. Identify the customer's "
+        "location (city or state) from the email and map it to the SINGLE "
+        f"best-matching region from this list: {pretty}. A city maps to a "
+        "region that names its state or that city itself (e.g. a Maharashtra "
+        "city → a 'Maharashtra'/'Mumbai'/'Pune' option if present). Use 'other' "
+        "for any location NOT clearly in the list, or when none is given — it's "
+        "better to leave it for an agent than to guess. Output: region (one of "
+        "the options), a 0.0-1.0 confidence, and a one-sentence reason."
+    )
+    ctx = []
+    if subject:
+        ctx.append(f"Subject: {subject}")
+    if sender_email:
+        ctx.append(f"From: {sender_email}")
+    ctx.append(f"Body:\n{content}")
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=120,
+            response_format={"type": "json_schema", "json_schema": schema},
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user",   "content": "\n".join(ctx)},
+            ],
+            name="bulk-order-region-classification",
+            metadata={"langfuse_tags": ["classifier", "bulk-region"]},
+        )
+        parsed = json.loads(r.choices[0].message.content or "")
+    except Exception as e:
+        print(f"[classifier:bulk-region] ERROR ({type(e).__name__}): {e}")
+        return default
+
+    region = parsed.get("region")
+    if region not in options:
+        region = "other"
+    return {"region":     region,
+            "confidence": float(parsed.get("confidence") or 0),
+            "reason":     (parsed.get("reason") or "")[:200]}
+
+
+# ── Doors location sub-classifier (Bangalore vs everywhere else) ───────────
+# A few obvious Bangalore signals get a cheap keyword fast-path; anything else
+# (localities, "based in Bengaluru", an address line) falls to the LLM. 'other'
+# is the safe default, so a missing/unclear location still routes correctly.
+_BLR_KEYWORDS = ("bangalore", "bengaluru", "bangaluru")
+
+_DOORS_LOCATION_SCHEMA = {
+    "name":   "doors_location",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "location":   {"type": "string", "enum": ["bangalore", "other"]},
+            "confidence": {"type": "number"},
+            "reason":     {"type": "string"},
+        },
+        "required": ["location", "confidence", "reason"],
+    },
+}
+
+_DOORS_LOCATION_PROMPT = (
+    "A doors / veneer / plywood enquiry has come in. Decide whether the "
+    "customer is in / from BANGALORE (Bengaluru, Karnataka) or somewhere ELSE, "
+    "so it routes to the right desk.\n\n"
+    "Say 'bangalore' if the email names Bangalore/Bengaluru, a Bangalore "
+    "locality (Whitefield, Koramangala, Indiranagar, Jayanagar, HSR, "
+    "Electronic City, Marathahalli, Hebbal, Yelahanka, etc.), or a clearly "
+    "Bangalore address/pincode (560xxx).\n"
+    "Say 'other' for any other city/state, or when no location is given at all "
+    "(the general desk is the default).\n\n"
+    "Output: location (bangalore|other), a 0.0-1.0 confidence, and a "
+    "one-sentence reason naming the signal."
+)
+
+
+async def classify_doors_location(content: str, sender_email: str = "",
+                                  subject: str = "") -> dict:
+    """For a doors_veneer_plywood email, decide bangalore vs other. Returns
+    {location, confidence, reason}. Defaults to 'other' (the catch-all desk)
+    on any error — never blocks the forward."""
+    text = f"{subject}\n{content}".lower()
+    if any(kw in text for kw in _BLR_KEYWORDS):
+        return {"location": "bangalore", "confidence": 0.97,
+                "reason": "Email mentions Bangalore / Bengaluru."}
+
+    ctx = []
+    if subject:
+        ctx.append(f"Subject: {subject}")
+    if sender_email:
+        ctx.append(f"From: {sender_email}")
+    ctx.append(f"Body:\n{content}")
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=120,
+            response_format={"type": "json_schema", "json_schema": _DOORS_LOCATION_SCHEMA},
+            messages=[
+                {"role": "system", "content": _DOORS_LOCATION_PROMPT},
+                {"role": "user",   "content": "\n".join(ctx)},
+            ],
+            name="doors-location-classification",
+            metadata={"langfuse_tags": ["classifier", "doors-location"]},
+        )
+        parsed = json.loads(r.choices[0].message.content or "")
+    except Exception as e:
+        print(f"[classifier:doors-location] ERROR ({type(e).__name__}): {e}")
+        return {"location": "other", "confidence": 0.0, "reason": ""}
+
+    location = parsed.get("location")
+    if location not in ("bangalore", "other"):
+        location = "other"
+    return {"location":   location,
             "confidence": float(parsed.get("confidence") or 0),
             "reason":     (parsed.get("reason") or "")[:200]}
