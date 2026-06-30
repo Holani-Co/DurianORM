@@ -973,9 +973,15 @@ async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
 
 
 async def _resolve_category_decision(conv_id: int, category: str,
-                                     sector: Optional[str] = None) -> dict:
+                                     sector: Optional[str] = None,
+                                     agent_name: str = "") -> dict:
     """Agent confirmed a category — run the real forward/route action for it
-    and clear the pending flag. Returns a JSON-friendly dict for the endpoint."""
+    and clear the pending flag. Returns a JSON-friendly dict for the endpoint.
+
+    `agent_name` (the agent who confirmed, supplied by the Rails proxy from
+    Current.user) is recorded in the audit note and the send is tagged
+    `manually-sent` (not `auto-forwarded`) so agent-actioned conversations are
+    distinguishable from fully-automatic ones."""
     conv = await chatwoot.get_conversation(conv_id)
     if not (conv.get("custom_attributes") or {}).get("pending_category_decision"):
         return {"resolved": False, "reason": "no_pending_category_decision"}
@@ -1023,19 +1029,25 @@ async def _resolve_category_decision(conv_id: int, category: str,
             conv_id=conv_id, category_result=category_result, rule=rule,
             sender_name=sender_name, sender_email=sender_email,
             original_content=content, original_subject=subject or "",
+            manual=True,
         )
     except Exception as e:
         print(f"[category-decision] action layer failed for conv {conv_id}: {e}")
         action_section = [f"⚠️ Action layer error: `{e}`"]
 
     display = rule.get("display_name") or category
-    note = [f"✅ **Category confirmed by agent: {display}**"]
+    by = agent_name.strip() if agent_name and agent_name.strip() else "an agent"
+    note = [f"✅ **Marked as {display} by {by}**"]
     if action_section:
         note.append("")
         note.extend(action_section)
     try:
         await chatwoot.post_private_note(conv_id, "\n".join(note))
         await chatwoot.add_label(conv_id, category.replace("_", "-"))
+        # Agent-actioned → goes in the "Manually sent" sidebar view (not
+        # auto-forwarded). Applied here too so in-channel categories (which
+        # don't forward) still land in the view.
+        await chatwoot.add_label(conv_id, "manually-sent")
         await chatwoot.remove_label(conv_id, NEEDS_REVIEW_LABEL)  # resolved
         await chatwoot.remove_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)
         team_id = rule.get("team_id")
@@ -1206,6 +1218,12 @@ def _is_no_reply_sender(email: str) -> bool:
     return any(tag in local for tag in _NO_REPLY_SENDER_TAGS)
 
 
+# Categories we never send a customer acknowledgment for. general_information
+# is a pure FYI — the customer isn't waiting on a routed reply, so a "we've
+# received your message" ack adds noise without value.
+_NO_ACK_CATEGORIES = {"general_information"}
+
+
 def _resolve_customer_name(sender_name: str, sender_email: str) -> str:
     """Return a name suitable for substituting into '{customer_name}' in an
     acknowledgment template. Falls back through name → email-local-part →
@@ -1289,7 +1307,8 @@ async def _phase2_execute_actions(conv_id: int,
                                   sender_email: str,
                                   original_content: str,
                                   original_subject: str,
-                                  email_category: str = "") -> list[str]:
+                                  email_category: str = "",
+                                  manual: bool = False) -> list[str]:
     """Phase 2B action layer: when PHASE_2_DRY_RUN is off, ACTUALLY send the
     acknowledgment + (for forward categories) the forwarded email via
     Chatwoot's outbound channel. Both use the conversation's existing
@@ -1317,6 +1336,13 @@ async def _phase2_execute_actions(conv_id: int,
     # do the right thing.
     if not _EMAIL_CUSTOMER_ACK_ENABLED:
         audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
+    elif cat_key in _NO_ACK_CATEGORIES:
+        # General-information (and similar FYI categories) don't warrant an
+        # acknowledgment — the customer isn't waiting on a routed reply.
+        audit.append(
+            f"ℹ️ Acknowledgment skipped — '{cat_key}' is a no-acknowledgment "
+            f"category."
+        )
     elif email_category == "automated" or _is_no_reply_sender(sender_email):
         # Automated / OTP / third-party no-reply mail has no human recipient —
         # never acknowledge it (the forward, if any, still runs below).
@@ -1410,12 +1436,15 @@ async def _phase2_execute_actions(conv_id: int,
                 if cc_list:
                     audit.append(f"Cc: {', '.join(cc_list)}")
 
-                # Tag the conversation so agents can find all auto-forwarded
-                # emails in one place via a Chatwoot saved View filtered by
-                # this label. Best-effort — must not undo the forward.
+                # Tag the conversation so agents can find these emails in one
+                # place via the sidebar's Email-handling views. An agent-confirmed
+                # send (manual=True) is tagged `manually-sent`; a fully automatic
+                # forward is tagged `auto-forwarded`. Best-effort — must not undo
+                # the forward.
+                fwd_label = "manually-sent" if manual else "auto-forwarded"
                 try:
-                    await chatwoot.add_label(conv_id, "auto-forwarded")
-                    audit.append("🏷️ Tagged auto-forwarded.")
+                    await chatwoot.add_label(conv_id, fwd_label)
+                    audit.append(f"🏷️ Tagged {fwd_label}.")
                 except Exception as e:
                     print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
 
@@ -2391,14 +2420,16 @@ async def chatwoot_resolve_category_decision(request: Request):
 
     Body: { "conversation_id": int, "category": "<category_key>" }
     """
-    body     = await request.json()
-    conv_id  = body.get("conversation_id")
-    category = body.get("category")
-    sector   = body.get("sector")  # bulk orders only: government | private
+    body       = await request.json()
+    conv_id    = body.get("conversation_id")
+    category   = body.get("category")
+    sector     = body.get("sector")      # bulk orders only: government | private
+    agent_name = body.get("agent_name")  # injected by the Rails proxy (Current.user)
     if not conv_id or not category:
         raise HTTPException(400, "missing conversation_id or category")
     try:
-        return await _resolve_category_decision(int(conv_id), category, sector)
+        return await _resolve_category_decision(int(conv_id), category, sector,
+                                                agent_name=agent_name or "")
     except Exception as e:
         print(f"[category-decision] resolve endpoint failed for conv {conv_id}: "
               f"{type(e).__name__}: {e}")
