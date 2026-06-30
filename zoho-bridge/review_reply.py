@@ -291,15 +291,22 @@ async def draft(channel: str, message: str, contact_name: str,
     # Rating-only review (Google review with stars but no text): the AI has
     # nothing to read, so pick a template deterministically from the rating
     # and skip the LLM call entirely. Cheaper, faster, and avoids the
-    # "(no draft)" empty-card UX. Reviews always go to the card (handoff)
-    # regardless of star count.
+    # "(no draft)" empty-card UX.
+    #
+    # AUTO vs HANDOFF for rating-only: with no text there is no sentiment to
+    # misread, so a high rating (>= REVIEWS_AUTO_REPLY_MIN_STARS, default 4★)
+    # is unambiguously positive — auto-reply directly, no LLM positivity check
+    # needed. A bare 1-3★ still goes to the agent card. (The master switch
+    # REVIEWS_AUTO_REPLY is enforced by the caller/poller before posting.)
     if channel == "review" and not (message or "").strip():
         reply, code, reasoning = _star_template_fallback(
             stars or 0, contact_name, templates)
         if reply:
+            rating_only_auto = (stars or 0) >= config.REVIEWS_AUTO_REPLY_MIN_STARS
+            action = "auto" if rating_only_auto else "handoff"
             print(f"[template_reply] rating-only review ({stars}★) → "
-                  f"{code} (no AI call)")
-            return result(reply, "handoff", code, reasoning)
+                  f"{code} ({action}, no AI call)")
+            return result(reply, action, code, reasoning)
         # Fall through (no template matched) → handoff with no draft.
         return result("", "handoff")
 
