@@ -6,8 +6,8 @@
 #   2. draft an AI reply in Durian voice (rating-aware)
 #   3. if "auto"  → post the reply to Google AND record it in Chatwoot
 #                   (marked so the webhook doesn't re-post), then resolve.
-#      if "handoff" → leave the AI suggestion as a PRIVATE note, assign the
-#                     reviews team, and leave it open for a human.
+#      if "handoff" → leave the AI suggestion as a PRIVATE note and leave it
+#                     open in the reviews inbox for an agent (no team assign).
 #
 # Locations are discovered once and cached for the process lifetime.
 
@@ -188,11 +188,9 @@ async def _ingest_review(loc: dict, rv: dict):
                             "suggestion": reply, "channel": "review",
                             "ai_trace": drafted["trace"]},
     )
-    if config.REVIEWS_TEAM_ID:
-        try:
-            await chatwoot.assign_team(conv_id, config.REVIEWS_TEAM_ID)
-        except Exception as e:
-            print(f"[reviews] team assign failed: {e}")
+    # No team assignment for reviews — teams exist for email routing and a team
+    # box on every review is just noise. The conversation stays in the reviews
+    # inbox (unassigned, open) for an agent to pick up directly.
     state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=False)
     print(f"[reviews] handoff {rv['stars']}★ @ {title} → human")
 

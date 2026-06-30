@@ -86,16 +86,13 @@ async def main():
         print(f"Done. Conversation #{conv_id} — AUTO-REPLIED + resolved.")
     else:
         # Handoff → leave the AI draft as the interactive suggestion card.
+        # No team assignment — reviews stay in the reviews inbox for an agent
+        # to pick up directly (teams are an email-routing concept).
         await chatwoot.create_message(
             conv_id, reply or "(no draft)", message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion", "suggestion": reply,
                                 "channel": "review", "ai_trace": drafted["trace"]},
         )
-        if config.REVIEWS_TEAM_ID:
-            try:
-                await chatwoot.assign_team(conv_id, config.REVIEWS_TEAM_ID)
-            except Exception as e:
-                print(f"team assign skipped: {e}")
         print(f"Done. Conversation #{conv_id} — handoff (agent card).")
     print(f"Open: {config.CHATWOOT_PUBLIC_URL}/app/accounts/"
           f"{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")
