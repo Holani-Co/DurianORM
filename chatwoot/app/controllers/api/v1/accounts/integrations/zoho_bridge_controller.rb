@@ -44,9 +44,18 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   # Agent confirmed a category on the low-confidence Category Decision card;
   # the bridge then runs the real forward/route for that category.
   def resolve_category_decision
+    # Inject the acting agent's name so the bridge can attribute the decision
+    # ("Marked as <category> by <agent>") and tag it `manually-sent`.
+    payload = begin
+      JSON.parse(request.raw_post)
+    rescue JSON::ParserError
+      {}
+    end
+    payload['agent_name'] = Current.user&.name
+
     response = HTTParty.post(
       "#{bridge_url}/chatwoot/resolve-category-decision",
-      body: request.raw_post,
+      body: payload.to_json,
       headers: { 'Content-Type' => 'application/json' },
       timeout: 30
     )

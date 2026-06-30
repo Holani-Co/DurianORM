@@ -49,6 +49,7 @@ const CLASSIFIER_MANAGED_LABELS = ['spam', 'promotional', 'automated'];
 // kept out of the generic "Labels" group so they don't appear twice.
 const EMAIL_HANDLING_LABELS = [
   'auto-forwarded',
+  'manually-sent',
   'needs-review',
   'needs-category-review',
 ];
@@ -290,6 +291,17 @@ const menuItems = computed(() => {
               }),
               to: accountScopedRoute('label_conversations', {
                 label: 'auto-forwarded',
+              }),
+            },
+            {
+              name: 'email-manually-sent',
+              label: 'Manually sent',
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: '#0091ff' },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: 'manually-sent',
               }),
             },
             {
