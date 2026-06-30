@@ -172,7 +172,14 @@ class ConversationReplyMailer < ApplicationMailer
   end
 
   def cc_bcc_emails
-    content_attributes = @conversation.messages.outgoing.last&.content_attributes
+    # Use the in-flight message (the one being delivered RIGHT NOW), not
+    # `messages.outgoing.last` — same fix as `to_emails_from_content_attributes`
+    # below. When the auto-router creates an acknowledgment to the customer +
+    # a forward to a department back-to-back, reading the latest outgoing
+    # record meant the acknowledgment inherited the FORWARD's cc (the internal
+    # team), leaking internal addresses to the customer. `current_message`
+    # falls back to `messages.outgoing.last` for legacy callers without @message.
+    content_attributes = current_message&.content_attributes
 
     return [] unless content_attributes
     return [] unless content_attributes[:cc_emails] || content_attributes[:bcc_emails]
