@@ -22,8 +22,33 @@ const axios = window.axios;
 const store = useStore();
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
+const currentUser = useMapGetter('getCurrentUser');
 
 const { id, content, contentAttributes, conversationId } = useMessageContext();
+
+// Once approved, the card transforms into an "Approved & sent by <agent>" line
+// in place (persisted on the note's content_attributes) — no soft-delete, so
+// no "message deleted" tombstone. Initialised from the persisted flag so the
+// sent state survives reload.
+// `localSent` flips this card to the sent state immediately for the acting
+// agent; `contentAttributes.sent` is the persisted flag (survives reload and
+// shows for other agents). Either makes the card render the "sent by" line.
+const localSent = ref(false);
+const localSentBy = ref('');
+const isSent = computed(
+  () => localSent.value || contentAttributes.value?.sent || false
+);
+const sentByName = computed(
+  () => contentAttributes.value?.sent_by || localSentBy.value || ''
+);
+
+const sentLine = computed(() =>
+  sentByName.value
+    ? t('CONVERSATION.AI_REVIEW_SUGGESTION.APPROVED_SENT_BY', {
+        agent: sentByName.value,
+      })
+    : t('CONVERSATION.AI_REVIEW_SUGGESTION.APPROVED_SENT')
+);
 
 // channel comes from the bridge (review / whatsapp / instagram / facebook).
 // Default to "review" so older review cards posted before this field existed
@@ -115,11 +140,20 @@ const send = async () => {
       message: draft.value.trim(),
       private: false,
     });
-    // The outgoing reply is the record now — drop the suggestion note.
-    await store.dispatch('deleteMessage', {
-      conversationId: Number(conversationId.value),
-      messageId: id.value,
-    });
+    // Transform the card in place into "Approved & sent by <agent>" instead of
+    // soft-deleting it (which left a "message deleted" tombstone).
+    try {
+      const { data } = await axios.post(
+        `/api/v1/accounts/${accountId.value}/conversations/${Number(
+          conversationId.value
+        )}/messages/${id.value}/mark_suggestion_sent`
+      );
+      localSentBy.value = data?.content_attributes?.sent_by || currentUser.value?.name || '';
+    } catch (e) {
+      // Non-fatal: the reply was sent regardless; fall back to local attribution.
+      localSentBy.value = currentUser.value?.name || '';
+    }
+    localSent.value = true;
     useAlert(sentToast.value);
   } catch (e) {
     useAlert(t('CONVERSATION.AI_REVIEW_SUGGESTION.SEND_ERROR'));
@@ -143,7 +177,17 @@ const cancel = async () => {
 </script>
 
 <template>
+  <!-- Approved → the card transforms into a compact "sent by <agent>" line. -->
   <div
+    v-if="isSent"
+    class="flex items-center gap-1.5 w-full max-w-2xl px-3 py-2 text-xs font-medium border rounded-xl bg-n-solid-3 border-n-weak text-n-slate-11"
+  >
+    <span class="i-ph-check-circle-fill text-n-teal-10" />
+    {{ sentLine }}
+  </div>
+
+  <div
+    v-else
     class="flex flex-col w-full max-w-2xl gap-2 p-3 border rounded-xl bg-n-solid-iris border-n-strong"
   >
     <div class="flex items-center gap-1.5 text-xs font-medium text-n-slate-12">

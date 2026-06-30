@@ -36,7 +36,9 @@
       "CONFIRM_BUTTON": "Post to Google",
       "CONFIRM_TITLE_GENERIC": "Send this reply?",
       "CONFIRM_BODY_GENERIC": "This will send your reply to the customer. Please make sure it reads the way you want before sending.",
-      "CONFIRM_BUTTON_GENERIC": "Send reply"
+      "CONFIRM_BUTTON_GENERIC": "Send reply",
+      "APPROVED_SENT_BY": "Approved & sent by {agent}",
+      "APPROVED_SENT": "Approved & sent"
     },
     "EMPTY_STATE": {
       "CMD_BAR": "to open command menu",
