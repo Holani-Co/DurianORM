@@ -73,19 +73,30 @@ async def main():
         stars=stars, location=location,
     )
     reply, action = drafted["reply"], drafted["action"]
-    await chatwoot.create_message(
-        conv_id, reply or "(no draft)", message_type="outgoing", private=True,
-        content_attributes={"type": "ai_review_suggestion", "suggestion": reply,
-                            "channel": "review", "ai_trace": drafted["trace"]},
-    )
-    if config.REVIEWS_TEAM_ID:
-        try:
-            await chatwoot.assign_team(conv_id, config.REVIEWS_TEAM_ID)
-        except Exception as e:
-            print(f"team assign skipped: {e}")
 
-    print(f"Done. Conversation #{conv_id} created in inbox "
-          f"{config.REVIEWS_INBOX_ID} (drafted as '{action}').")
+    if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
+        # Genuinely-positive high-star review → mirror the auto-reply into the
+        # conversation as a PUBLIC outgoing message + resolve, exactly like the
+        # poller does (minus the real Google post, which this simulator skips).
+        await chatwoot.create_message(
+            conv_id, reply, message_type="outgoing",
+            content_attributes={"source": "google_auto_reply"},
+        )
+        await chatwoot.toggle_status(conv_id, "resolved")
+        print(f"Done. Conversation #{conv_id} — AUTO-REPLIED + resolved.")
+    else:
+        # Handoff → leave the AI draft as the interactive suggestion card.
+        await chatwoot.create_message(
+            conv_id, reply or "(no draft)", message_type="outgoing", private=True,
+            content_attributes={"type": "ai_review_suggestion", "suggestion": reply,
+                                "channel": "review", "ai_trace": drafted["trace"]},
+        )
+        if config.REVIEWS_TEAM_ID:
+            try:
+                await chatwoot.assign_team(conv_id, config.REVIEWS_TEAM_ID)
+            except Exception as e:
+                print(f"team assign skipped: {e}")
+        print(f"Done. Conversation #{conv_id} — handoff (agent card).")
     print(f"Open: {config.CHATWOOT_PUBLIC_URL}/app/accounts/"
           f"{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")
 

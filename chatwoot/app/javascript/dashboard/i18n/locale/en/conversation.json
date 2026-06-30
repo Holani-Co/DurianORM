@@ -30,7 +30,13 @@
       "SEND_ERROR": "Could not send the reply. Please try again.",
       "REGENERATE_ERROR": "Could not regenerate the reply. Please try again.",
       "NO_SUGGESTION": "No new suggestion could be generated.",
-      "CANCEL_ERROR": "Could not dismiss the suggestion."
+      "CANCEL_ERROR": "Could not dismiss the suggestion.",
+      "CONFIRM_TITLE": "Post this reply to Google?",
+      "CONFIRM_BODY": "This will publicly post your reply on the customer's Google review. Please make sure it reads the way you want before posting.",
+      "CONFIRM_BUTTON": "Post to Google",
+      "CONFIRM_TITLE_GENERIC": "Send this reply?",
+      "CONFIRM_BODY_GENERIC": "This will send your reply to the customer. Please make sure it reads the way you want before sending.",
+      "CONFIRM_BUTTON_GENERIC": "Send reply"
     },
     "EMPTY_STATE": {
       "CMD_BAR": "to open command menu",

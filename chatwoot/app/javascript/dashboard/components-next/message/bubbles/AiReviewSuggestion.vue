@@ -16,6 +16,7 @@ import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 import { useI18n } from 'vue-i18n';
 import { useMessageContext } from '../provider.js';
+import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
 
 const axios = window.axios;
 const store = useStore();
@@ -37,8 +38,33 @@ const draft = ref(initialText.value);
 const isEditing = ref(false);
 const isRegenerating = ref(false);
 const isSending = ref(false);
+const confirmSendDialog = ref(null);
 
 const busy = computed(() => isRegenerating.value || isSending.value);
+
+// Confirmation dialog text — channel-aware (Google review vs other channels).
+const isReview = computed(() => channel.value === 'review');
+const confirmTitle = computed(() =>
+  isReview.value
+    ? t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_TITLE')
+    : t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_TITLE_GENERIC')
+);
+const confirmBody = computed(() =>
+  isReview.value
+    ? t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_BODY')
+    : t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_BODY_GENERIC')
+);
+const confirmButton = computed(() =>
+  isReview.value
+    ? t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_BUTTON')
+    : t('CONVERSATION.AI_REVIEW_SUGGESTION.CONFIRM_BUTTON_GENERIC')
+);
+
+// Send button opens the confirmation dialog instead of sending directly.
+const requestSend = () => {
+  if (busy.value || !draft.value.trim()) return;
+  confirmSendDialog.value?.open();
+};
 
 const sendLabel = computed(() =>
   channel.value === 'review'
@@ -99,6 +125,7 @@ const send = async () => {
     useAlert(t('CONVERSATION.AI_REVIEW_SUGGESTION.SEND_ERROR'));
   } finally {
     isSending.value = false;
+    confirmSendDialog.value?.close();
   }
 };
 
@@ -168,7 +195,7 @@ const cancel = async () => {
         type="button"
         class="px-3 py-1 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="busy || !draft.trim()"
-        @click="send"
+        @click="requestSend"
       >
         <span class="i-ph-paper-plane-tilt-fill align-middle" />
         {{
@@ -184,5 +211,15 @@ const cancel = async () => {
         {{ t('CONVERSATION.AI_REVIEW_SUGGESTION.CANCEL') }}
       </button>
     </div>
+
+    <!-- Confirmation before the reply is published (Google review / channel). -->
+    <Dialog
+      ref="confirmSendDialog"
+      type="alert"
+      :title="confirmTitle"
+      :description="confirmBody"
+      :confirm-button-label="confirmButton"
+      @confirm="send"
+    />
   </div>
 </template>
