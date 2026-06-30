@@ -17,7 +17,9 @@
 
 import config
 import chatwoot
-from llm_client import client
+# Reviews run in the poller's background task, where the Langfuse-instrumented
+# client throws an async-context error — use the plain (un-instrumented) client.
+from llm_client import raw_client as client
 
 # Display labels + warnings the system prompt weaves into the channel-specific
 # instructions. Keep these short; the model adapts tone from the templates.
@@ -241,8 +243,6 @@ async def classify_review_positive(message: str, stars: int = 0) -> dict:
                 {"role": "system", "content": _REVIEW_POSITIVE_PROMPT},
                 {"role": "user",   "content": f"Star rating: {stars or '?'}/5\nReview: {message}"},
             ],
-            name="review-positivity",
-            metadata={"langfuse_tags": ["review", "positivity"]},
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:
@@ -347,12 +347,6 @@ async def draft(channel: str, message: str, contact_name: str,
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
-            name="template-reply",
-            metadata={
-                "channel": channel,
-                "stars": stars,
-                "langfuse_tags": ["template_reply", f"channel_{channel}"],
-            },
         )
         parsed = json.loads(r.choices[0].message.content)
         reply = _unescape_newlines((parsed.get("reply") or "").strip())
