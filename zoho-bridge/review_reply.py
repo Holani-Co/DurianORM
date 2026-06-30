@@ -56,12 +56,23 @@ one customer message. Your job:
 3. Do NOT invent new promises, prices, refunds, or claims. Do NOT add anything
    the chosen template doesn't already say beyond the light touches above.
 
-── HANDOFF RULE ──────────────────────────────────────────────────────────
-If the message is negative, a complaint, mentions a defect / delay / refund /
-damage / poor service, OR (for reviews) is low-rated, the reply still needs
-a human to review before going out. Still produce the personalised draft from
-the best NEGATIVE template, but set "action" to "handoff".
-Positive / thankful / high-rated messages are "auto".
+── AUTO vs HANDOFF ────────────────────────────────────────────────────────
+"action" decides whether this reply is safe to send WITHOUT a human. The
+deciding question is simply: does the text contain ANY criticism or complaint?
+- "auto"    → the message expresses satisfaction (praise, thanks, a happy
+              experience) and contains NO complaint or criticism. Brief or mild
+              praise still counts — e.g. "good furniture, happy with my
+              purchase" or "nice showroom, satisfied" are "auto".
+- "handoff" → the text contains ANY complaint or criticism: a mention of a
+              defect / delay / refund / damage / poor service, dissatisfaction,
+              sarcasm, or a mixed "good BUT…" remark; OR (for reviews) a low
+              rating. Still produce the personalised draft from the best
+              NEGATIVE template, but set "action" to "handoff".
+
+IMPORTANT for reviews — judge the TEXT, not just the star count. A high star
+rating (4-5★) whose text criticizes or complains is a MISMATCH → "handoff".
+A high rating with simple, criticism-free, positive text → "auto".
+
 If the message is spam, abusive, or irrelevant, set action "handoff" and leave
 "reply" empty.
 
@@ -171,6 +182,77 @@ def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> l
     return steps
 
 
+# ── Review auto-reply gate ─────────────────────────────────────────────────
+# A focused, temperature-0 classifier that decides whether a high-star review
+# is GENUINELY positive — satisfaction with no complaint/criticism — so its
+# reply can be auto-posted. Kept separate from the template picker because the
+# auto-post is an outward, public action and needs a clean, consistent yes/no,
+# not the noisier action field the template call produces.
+_REVIEW_POSITIVE_SCHEMA = {
+    "name":   "review_positivity",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "positive":   {"type": "boolean"},
+            "confidence": {"type": "number"},
+            "reason":     {"type": "string"},
+        },
+        "required": ["positive", "confidence", "reason"],
+    },
+}
+
+_REVIEW_POSITIVE_PROMPT = (
+    "You are validating whether a customer review can receive an AUTOMATED "
+    "thank-you reply. Set positive=true ONLY when the review TEXT actually says "
+    "something GOOD — it expresses praise, satisfaction, or thanks about the "
+    "product, service, or experience. Brief or mild praise counts (e.g. 'good "
+    "furniture, happy with my purchase' or 'nice showroom, satisfied').\n\n"
+    "Set positive=false when the text:\n"
+    "  • contains ANY complaint or criticism — a defect / delay / refund / "
+    "damage / poor service, dissatisfaction, sarcasm, or a mixed 'good BUT…' "
+    "remark — EVEN IF the star rating is high (a 4-5★ rating whose text "
+    "complains is a mismatch); OR\n"
+    "  • says nothing genuinely positive — it is neutral, purely factual, or "
+    "empty (e.g. 'received the order', 'visited the store', 'ok'). A high star "
+    "rating ALONE is not enough; the TEXT itself must contain real praise.\n\n"
+    "When genuinely unsure, set positive=false. Output: positive (bool), a "
+    "0.0-1.0 confidence, and a one-sentence reason."
+)
+
+
+async def classify_review_positive(message: str, stars: int = 0) -> dict:
+    """Return {positive, confidence, reason} for a review. Conservative: any
+    criticism, mixed sentiment, or uncertainty → positive=false. Fail-safe:
+    returns positive=false on empty input / error so we never auto-post on a
+    failed check."""
+    import json
+    default = {"positive": False, "confidence": 0.0, "reason": ""}
+    if not (message or "").strip():
+        return default
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=120,
+            response_format={"type": "json_schema", "json_schema": _REVIEW_POSITIVE_SCHEMA},
+            messages=[
+                {"role": "system", "content": _REVIEW_POSITIVE_PROMPT},
+                {"role": "user",   "content": f"Star rating: {stars or '?'}/5\nReview: {message}"},
+            ],
+            name="review-positivity",
+            metadata={"langfuse_tags": ["review", "positivity"]},
+        )
+        parsed = json.loads(r.choices[0].message.content or "")
+    except Exception as e:
+        print(f"[review-positivity] ERROR ({type(e).__name__}): {e}")
+        return default
+    return {"positive":   bool(parsed.get("positive")),
+            "confidence": float(parsed.get("confidence") or 0),
+            "reason":     (parsed.get("reason") or "")[:200]}
+
+
 async def draft(channel: str, message: str, contact_name: str,
                 stars: int = 0, location: str = ""):
     """Pick + personalise an approved template for the given channel.
@@ -221,9 +303,15 @@ async def draft(channel: str, message: str, contact_name: str,
         # Fall through (no template matched) → handoff with no draft.
         return result("", "handoff")
 
-    # Reviews: ALWAYS go to the card — the team reviews every reply before
-    # it posts to Google. Nothing auto-sends regardless of star count.
-    force_human = channel == "review"
+    # Reviews auto-reply ONLY for genuinely positive high-star reviews:
+    # the rating must be >= REVIEWS_AUTO_REPLY_MIN_STARS (default 4) AND the
+    # model must judge the TEXT genuinely positive (action == "auto" below).
+    # A 4-5★ rating whose text criticizes falls back to "handoff" via the
+    # action check; anything below the star bar always goes to the card.
+    force_human = (
+        channel == "review"
+        and (stars or 0) < config.REVIEWS_AUTO_REPLY_MIN_STARS
+    )
 
     system_prompt = SYSTEM_PROMPT_FMT.format(
         channel_label=CHANNEL_LABELS.get(channel, channel),
@@ -279,6 +367,20 @@ async def draft(channel: str, message: str, contact_name: str,
                   f"{fb_code}")
             reply, short_code = fb_reply, fb_code
             reasoning = reasoning or fb_reason
+
+    # Reviews at/above the star bar: the AUTO decision is made by the dedicated
+    # positivity classifier (clean, temperature-0), NOT the noisy template
+    # action — so a 4-5★ review only auto-posts when its TEXT is genuinely
+    # positive. Below the bar, force_human already routes it to the card.
+    if channel == "review" and not force_human and reply:
+        pos = await classify_review_positive(message, stars)
+        if pos["positive"] and pos["confidence"] >= config.REVIEW_AUTO_REPLY_MIN_CONFIDENCE:
+            action = "auto"
+        else:
+            action = "handoff"
+            print(f"[template_reply] {stars}★ review held for a human — "
+                  f"text not clearly positive (conf {pos['confidence']:.2f}): "
+                  f"{pos['reason']}")
 
     if force_human or action != "auto":
         return result(reply, "handoff", short_code, reasoning)

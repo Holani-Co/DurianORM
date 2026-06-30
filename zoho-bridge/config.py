@@ -104,6 +104,10 @@ REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEA
 REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
 REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
 REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "4"))
+# A high-star review only auto-replies when the positivity classifier is at
+# least this confident the text is genuinely positive (no complaint/criticism).
+# Below it, the review goes to the agent's template card instead.
+REVIEW_AUTO_REPLY_MIN_CONFIDENCE = float(os.environ.get("REVIEW_AUTO_REPLY_MIN_CONFIDENCE", "0.8"))
 # Cap on how many NEW reviews one sweep will ingest. Mainly protects the
 # Chatwoot inbox from a flood on the very first sweep after enabling the
 # poller (years of historical reviews × dozens of locations). Subsequent
