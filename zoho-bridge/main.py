@@ -1187,6 +1187,24 @@ _EMAIL_CUSTOMER_ACK_ENABLED = (
     os.environ.get("EMAIL_CUSTOMER_ACK_ENABLED", "false").lower() == "true"
 )
 
+# Sender local-parts that mark machine-generated / transactional mail (OTPs,
+# shipping/security notifications, third-party system emails). There's no human
+# on the other end, so we must NEVER send a customer acknowledgment back to
+# them (it's pointless and can bounce or loop). Used as a deterministic backstop
+# alongside the classifier's "automated" label — it catches no-reply senders the
+# LLM occasionally mislabels as legitimate.
+_NO_REPLY_SENDER_TAGS = (
+    "no-reply", "noreply", "no_reply", "donotreply", "do-not-reply", "do_not_reply",
+    "mailer-daemon", "mailerdaemon", "postmaster", "bounce", "notification",
+    "notifications", "alerts", "no.reply", "automated", "auto-confirm", "otp",
+)
+
+
+def _is_no_reply_sender(email: str) -> bool:
+    """True when the sender address looks like an automated / no-reply mailbox."""
+    local = (email or "").split("@", 1)[0].lower()
+    return any(tag in local for tag in _NO_REPLY_SENDER_TAGS)
+
 
 def _resolve_customer_name(sender_name: str, sender_email: str) -> str:
     """Return a name suitable for substituting into '{customer_name}' in an
@@ -1270,7 +1288,8 @@ async def _phase2_execute_actions(conv_id: int,
                                   sender_name: str,
                                   sender_email: str,
                                   original_content: str,
-                                  original_subject: str) -> list[str]:
+                                  original_subject: str,
+                                  email_category: str = "") -> list[str]:
     """Phase 2B action layer: when PHASE_2_DRY_RUN is off, ACTUALLY send the
     acknowledgment + (for forward categories) the forwarded email via
     Chatwoot's outbound channel. Both use the conversation's existing
@@ -1298,6 +1317,13 @@ async def _phase2_execute_actions(conv_id: int,
     # do the right thing.
     if not _EMAIL_CUSTOMER_ACK_ENABLED:
         audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
+    elif email_category == "automated" or _is_no_reply_sender(sender_email):
+        # Automated / OTP / third-party no-reply mail has no human recipient —
+        # never acknowledge it (the forward, if any, still runs below).
+        audit.append(
+            f"ℹ️ Acknowledgment skipped — automated / no-reply sender "
+            f"({sender_email})."
+        )
     elif template and sender_email:
         ack_body = (template.get("body") or "").format(
             customer_name    = name,
@@ -1952,6 +1978,7 @@ async def handle_message_created(data: dict) -> dict:
                     sender_email      = sender_email,
                     original_content  = content,
                     original_subject  = real_subject or "",
+                    email_category    = email_category,
                 )
             except Exception as e:
                 print(f"[phase2b] action layer failed: {e}")
