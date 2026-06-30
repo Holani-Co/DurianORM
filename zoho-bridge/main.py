@@ -818,6 +818,12 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 # out in the conversation list. Removed automatically once confirmed.
 NEEDS_REVIEW_LABEL = "needs-category-review"
 
+# Umbrella label applied on EVERY human-in-the-loop case (category/sector
+# confirmation AND region review) on top of the specific label. The permanent
+# "Needs review" sidebar view filters on this one, so it catches all review
+# types with no future sidebar edits when new review kinds are added.
+NEEDS_REVIEW_UMBRELLA_LABEL = "needs-review"
+
 
 def _first_incoming_content(messages: list) -> str:
     for m in messages or []:
@@ -918,11 +924,13 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         print(f"[category-decision] post_private_note failed: {e}")
 
     # Visible flag in the conversation list so agents can spot these at a
-    # glance. Colour it red in Chatwoot → Settings → Labels.
-    try:
-        await chatwoot.add_label(conv_id, NEEDS_REVIEW_LABEL)
-    except Exception as e:
-        print(f"[category-decision] add_label({NEEDS_REVIEW_LABEL}) failed: {e}")
+    # glance. Colour it red in Chatwoot → Settings → Labels. The umbrella
+    # `needs-review` label backs the permanent "Needs review" sidebar view.
+    for lbl in (NEEDS_REVIEW_LABEL, NEEDS_REVIEW_UMBRELLA_LABEL):
+        try:
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[category-decision] add_label({lbl}) failed: {e}")
 
     print(f"[category-decision] conv {conv_id}: card posted "
           f"(suggested={suggested!r} conf={conf})")
@@ -954,10 +962,11 @@ async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
         await chatwoot.post_private_note(conv_id, "\n".join(lines))
     except Exception as e:
         print(f"[bulk-region] post_private_note failed for conv {conv_id}: {e}")
-    try:
-        await chatwoot.add_label(conv_id, NEEDS_REGION_REVIEW_LABEL)
-    except Exception as e:
-        print(f"[bulk-region] add_label failed for conv {conv_id}: {e}")
+    for lbl in (NEEDS_REGION_REVIEW_LABEL, NEEDS_REVIEW_UMBRELLA_LABEL):
+        try:
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[bulk-region] add_label({lbl}) failed for conv {conv_id}: {e}")
     print(f"[bulk-region] conv {conv_id}: region unclear "
           f"({region} {rconf}%) — left in-channel for agent")
     return {"classified_email_type": "project_bulk_order", "region_review": True}
@@ -1028,6 +1037,7 @@ async def _resolve_category_decision(conv_id: int, category: str,
         await chatwoot.post_private_note(conv_id, "\n".join(note))
         await chatwoot.add_label(conv_id, category.replace("_", "-"))
         await chatwoot.remove_label(conv_id, NEEDS_REVIEW_LABEL)  # resolved
+        await chatwoot.remove_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)
         team_id = rule.get("team_id")
         if team_id:
             await chatwoot.assign_team(conv_id, int(team_id))
