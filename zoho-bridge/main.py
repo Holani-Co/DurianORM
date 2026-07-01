@@ -2580,6 +2580,193 @@ async def chatwoot_resolve_category_decision(request: Request):
         raise HTTPException(500, f"resolve failed: {e}")
 
 
+# ── CRM Lead / Deal creation endpoints ────────────────────────────────────
+# Called by the Chatwoot Rails proxy when the agent clicks "Create Lead" or
+# "Create Deal" in the CRM sidebar panel. Idempotent — a re-click on an
+# already-linked conversation just returns the existing id.
+
+def _conv_sender(conv: dict) -> tuple[str, str]:
+    """Pull (name, email) from a Chatwoot conversation dict."""
+    sender = (conv.get("meta") or {}).get("sender") or {}
+    return (sender.get("name") or ""), (sender.get("email") or "")
+
+
+def _conv_first_incoming_body(messages: list) -> tuple[str, str]:
+    """Return (subject, body) from the first incoming message in the thread."""
+    for m in messages:
+        if m.get("message_type") in (0, "incoming"):
+            content = (m.get("content") or "").strip()
+            attrs   = (m.get("content_attributes") or {}).get("email") or {}
+            subject = attrs.get("subject") or ""
+            return subject, content
+    return "", ""
+
+
+async def _ensure_crm_contact(conv_id: int, conv: dict) -> str:
+    """Return the crm_contact_id for this conversation, creating one if needed.
+    Reuses the crm_contact_id stashed by the auto path (Phase A) so we don't
+    create a duplicate."""
+    custom = conv.get("custom_attributes") or {}
+    if custom.get("crm_contact_id"):
+        return str(custom["crm_contact_id"])
+    name, email = _conv_sender(conv)
+    if not email:
+        raise HTTPException(400, "conversation has no sender email — cannot key a CRM Contact")
+    contact_id, created = await zoho_crm.find_or_create_contact(email, name)
+    if not contact_id:
+        raise HTTPException(500, "CRM Contact could not be created")
+    if created:
+        try:
+            await chatwoot.merge_custom_attributes(
+                conv_id, {"crm_contact_id": contact_id})
+        except Exception as e:
+            print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
+    return contact_id
+
+
+@app.post("/chatwoot/crm/create-lead")
+async def chatwoot_crm_create_lead(request: Request):
+    """Create a CRM Lead for this conversation (idempotent via crm_lead_id)."""
+    if not config.ZOHO_CRM_ENABLED:
+        raise HTTPException(503, "CRM not configured")
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    if not conv_id:
+        raise HTTPException(400, "missing conversation_id")
+    try:
+        conv     = await chatwoot.get_conversation(int(conv_id))
+        messages = await chatwoot.get_conversation_messages(int(conv_id))
+    except Exception as e:
+        raise HTTPException(500, f"could not read conversation: {e}")
+
+    custom = conv.get("custom_attributes") or {}
+    if custom.get("crm_lead_id"):
+        # Already linked — nothing to do, return the existing id.
+        return {"lead_id": custom["crm_lead_id"], "created": False,
+                "url": zoho_crm.lead_url(str(custom["crm_lead_id"]))}
+
+    name, email = _conv_sender(conv)
+    subject, body_text = _conv_first_incoming_body(messages)
+    category_display = (custom.get("email_category_v2") or {}).get("display_name") \
+                       or (custom.get("email_category_v2") or {}).get("category") \
+                       or "Chatwoot enquiry"
+
+    if config.ZOHO_CRM_DRY_RUN:
+        return {"lead_id": "", "created": False, "dry_run": True,
+                "message": f"[dry-run] would create Lead for {email} ({category_display})"}
+
+    description = (
+        f"Category: {category_display}\n"
+        f"From: {name or email} <{email}>\n"
+        f"Subject: {subject or '(no subject)'}\n\n"
+        f"{body_text or '(no body)'}"
+    )
+    try:
+        lead = await zoho_crm.create_lead(
+            sender_email=email, sender_name=name,
+            description=description, source="Chatwoot",
+        )
+    except Exception as e:
+        raise HTTPException(500, f"CRM create_lead failed: {e}")
+
+    lead_id = str(lead.get("id") or "")
+    try:
+        await chatwoot.merge_custom_attributes(
+            int(conv_id), {"crm_lead_id": lead_id})
+    except Exception as e:
+        print(f"[crm] merge crm_lead_id failed for conv {conv_id}: {e}")
+
+    # Audit note — surfaces in the conversation thread like other automations.
+    try:
+        agent_name = body.get("agent_name") or "an agent"
+        await chatwoot.post_private_note(
+            int(conv_id),
+            f"✅ CRM Lead created by {agent_name} — [{lead_id}]"
+            f"({zoho_crm.lead_url(lead_id)})",
+        )
+    except Exception as e:
+        print(f"[crm] Lead audit note failed for conv {conv_id}: {e}")
+
+    return {"lead_id": lead_id, "created": True,
+            "url": zoho_crm.lead_url(lead_id),
+            "duplicate": bool(lead.get("duplicate"))}
+
+
+@app.post("/chatwoot/crm/create-deal")
+async def chatwoot_crm_create_deal(request: Request):
+    """Create a CRM Deal linked to the CRM Contact for this conversation.
+    Idempotent via crm_deal_id."""
+    if not config.ZOHO_CRM_ENABLED:
+        raise HTTPException(503, "CRM not configured")
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    if not conv_id:
+        raise HTTPException(400, "missing conversation_id")
+    try:
+        conv     = await chatwoot.get_conversation(int(conv_id))
+        messages = await chatwoot.get_conversation_messages(int(conv_id))
+    except Exception as e:
+        raise HTTPException(500, f"could not read conversation: {e}")
+
+    custom = conv.get("custom_attributes") or {}
+    if custom.get("crm_deal_id"):
+        return {"deal_id": custom["crm_deal_id"], "created": False,
+                "url": zoho_crm.deal_url(str(custom["crm_deal_id"]))}
+
+    name, email = _conv_sender(conv)
+    subject, body_text = _conv_first_incoming_body(messages)
+    category_display = (custom.get("email_category_v2") or {}).get("display_name") \
+                       or (custom.get("email_category_v2") or {}).get("category") \
+                       or "Chatwoot Deal"
+
+    if config.ZOHO_CRM_DRY_RUN:
+        return {"deal_id": "", "created": False, "dry_run": True,
+                "message": f"[dry-run] would create Deal for {email} ({category_display})"}
+
+    # Deal needs a linked Contact. If none yet, create/find one first.
+    try:
+        contact_id = await _ensure_crm_contact(int(conv_id), conv)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"CRM Contact resolve failed: {e}")
+
+    description = (
+        f"Category: {category_display}\n"
+        f"From: {name or email} <{email}>\n"
+        f"Subject: {subject or '(no subject)'}\n\n"
+        f"{body_text or '(no body)'}"
+    )
+    deal_name = f"{name or email} — {category_display}"[:255]
+    try:
+        deal = await zoho_crm.create_deal(
+            contact_id=contact_id, deal_name=deal_name,
+            description=description, source="Chatwoot",
+        )
+    except Exception as e:
+        raise HTTPException(500, f"CRM create_deal failed: {e}")
+
+    deal_id = str(deal.get("id") or "")
+    try:
+        await chatwoot.merge_custom_attributes(
+            int(conv_id), {"crm_deal_id": deal_id})
+    except Exception as e:
+        print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
+
+    try:
+        agent_name = body.get("agent_name") or "an agent"
+        await chatwoot.post_private_note(
+            int(conv_id),
+            f"✅ CRM Deal created by {agent_name} — [{deal_id}]"
+            f"({zoho_crm.deal_url(deal_id)})",
+        )
+    except Exception as e:
+        print(f"[crm] Deal audit note failed for conv {conv_id}: {e}")
+
+    return {"deal_id": deal_id, "created": True,
+            "url": zoho_crm.deal_url(deal_id)}
+
+
 # ── Spam-review digest endpoint ───────────────────────────────────────────
 # Hit this daily (manually, via Task Scheduler / cron, or a CI cron). Pulls
 # every conversation currently SNOOZED + labelled "spam" and either returns

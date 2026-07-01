@@ -220,12 +220,77 @@ async def create_note(parent_module: str, parent_id: str,
     return entry.get("details") or {}
 
 
+# ── Lead ──────────────────────────────────────────────────────────────────
+async def create_lead(sender_email: str, sender_name: str,
+                      description: str, company: str = "",
+                      phone: str = "", source: str = "Chatwoot") -> dict:
+    """Create a CRM Lead from an incoming enquiry. Zoho requires Last_Name +
+    Company on Leads (unlike Contacts). Returns the created record's details."""
+    first, last = _split_name(sender_name, sender_email)
+    record = {
+        "Last_Name":   last,
+        "First_Name":  first,
+        "Email":       sender_email,
+        "Company":     company or "(unknown)",  # Zoho hard-requires Company on Leads
+        "Lead_Source": source,
+        "Description": (description or "")[:NOTE_CONTENT_MAX],
+    }
+    if phone:
+        record["Phone"] = phone
+    resp = await _crm_request("POST", "/Leads", json_body={"data": [record]})
+    entry = (resp.get("data") or [{}])[0]
+    if entry.get("code") != "SUCCESS":
+        # Reconcile DUPLICATE_DATA the same way Contact does — a re-click on
+        # the button shouldn't spam CRM with duplicate leads.
+        dup = (entry.get("details") or {}).get("duplicate_record") or {}
+        if entry.get("code") == "DUPLICATE_DATA" and dup.get("id"):
+            return {"id": str(dup["id"]), "duplicate": True}
+        raise RuntimeError(f"Zoho CRM create_lead failed: {entry}")
+    return entry.get("details") or {}
+
+
+# ── Deal ──────────────────────────────────────────────────────────────────
+async def create_deal(contact_id: str, deal_name: str,
+                      description: str, stage: str = "",
+                      source: str = "Chatwoot") -> dict:
+    """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
+    Stage falls back to config.ZOHO_CRM_DEAL_DEFAULT_STAGE — set that to your
+    pipeline's first stage (e.g. 'Qualification'). If the stage doesn't exist
+    in your CRM you get a clear INVALID_DATA error identifying the field."""
+    record = {
+        "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
+        "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
+        "Lead_Source": source,
+        "Description": (description or "")[:NOTE_CONTENT_MAX],
+    }
+    if contact_id:
+        # Link the Deal to the Contact — Zoho's "Contact_Name" field on Deals
+        # is a lookup (accepts {"id": "..."} shape).
+        record["Contact_Name"] = {"id": contact_id}
+    resp = await _crm_request("POST", "/Deals", json_body={"data": [record]})
+    entry = (resp.get("data") or [{}])[0]
+    if entry.get("code") != "SUCCESS":
+        raise RuntimeError(f"Zoho CRM create_deal failed: {entry}")
+    return entry.get("details") or {}
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
-def contact_url(contact_id: str) -> str:
-    """Deep-link into a Contact record in Zoho CRM. Uses the region-appropriate
-    UI domain (derived from ZOHO_CRM_API_DOMAIN)."""
+def _ui_base() -> str:
+    """CRM UI domain derived from the API domain (prod or sandbox aware)."""
     api = config.ZOHO_CRM_API_DOMAIN.rstrip("/")
     # www.zohoapis.in → crm.zoho.in ; sandbox.zohoapis.in → crmsandbox.zoho.in
-    ui = (api.replace("://www.zohoapis.", "://crm.zoho.")
-             .replace("://sandbox.zohoapis.", "://crmsandbox.zoho."))
-    return f"{ui}/crm/tab/Contacts/{contact_id}" if contact_id else ""
+    return (api.replace("://www.zohoapis.", "://crm.zoho.")
+              .replace("://sandbox.zohoapis.", "://crmsandbox.zoho."))
+
+
+def contact_url(contact_id: str) -> str:
+    """Deep-link into a Contact record in Zoho CRM."""
+    return f"{_ui_base()}/crm/tab/Contacts/{contact_id}" if contact_id else ""
+
+
+def lead_url(lead_id: str) -> str:
+    return f"{_ui_base()}/crm/tab/Leads/{lead_id}" if lead_id else ""
+
+
+def deal_url(deal_id: str) -> str:
+    return f"{_ui_base()}/crm/tab/Potentials/{deal_id}" if deal_id else ""

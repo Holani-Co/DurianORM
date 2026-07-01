@@ -40,6 +40,28 @@ ZOHO_CRM_AUTO_CATEGORIES = tuple(
         "product_enquiry,general_information,existing_order_enquiry",
     ).split(",") if c.strip()
 )
+# Categories that show the "Create Lead" button in the CRM sidebar panel.
+ZOHO_CRM_LEAD_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_LEAD_CATEGORIES",
+        "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+# Categories that show the "Create Deal" button. Includes the Lead ones so an
+# agent can pick Lead OR Deal for the same enquiry (per product decision).
+ZOHO_CRM_DEAL_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_DEAL_CATEGORIES",
+        "project_bulk_order,doors_veneer_plywood,"
+        "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+# First-stage name in your Deals pipeline. If unset or wrong, Zoho returns
+# INVALID_DATA on Stage; check Setup → Customization → Pipelines → Deals to find
+# yours. Common defaults: 'Qualification', 'Enquiry Received', 'New'.
+ZOHO_CRM_DEAL_DEFAULT_STAGE = os.environ.get(
+    "ZOHO_CRM_DEAL_DEFAULT_STAGE", "Qualification"
+)
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the

@@ -26,6 +26,7 @@ import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/I
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
+import ZohoCrmPanel from './ZohoCrmPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 import PendingTicketDecisionPanel from './PendingTicketDecisionPanel.vue';
 import PendingCategoryDecisionPanel from './PendingCategoryDecisionPanel.vue';
@@ -174,6 +175,23 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Zoho CRM panel — Contact / Lead / Deal ids + Create buttons.
+         Always rendered; the panel itself decides which rows and buttons
+         to show based on custom_attributes + email category. -->
+    <div id="sidebar-section-zoho-crm" class="px-2 pt-3">
+      <AccordionItem
+        title="Zoho CRM"
+        :is-open="isContactSidebarItemOpen('is_zoho_crm_open')"
+        compact
+        @toggle="value => toggleSidebarUIState('is_zoho_crm_open', value)"
+      >
+        <ZohoCrmPanel
+          v-if="currentChat && currentChat.id"
+          :conversation-id="currentChat.id"
+          :custom-attributes="conversationCustomAttributes"
         />
       </AccordionItem>
     </div>
