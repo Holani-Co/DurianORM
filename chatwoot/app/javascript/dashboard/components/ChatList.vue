@@ -615,11 +615,26 @@ const reviewAgentFilter = ref('');
 // filters — it only reorders the displayed list (see conversationList).
 const reviewSort = ref('');
 
-// "Replied by <agent>" options — value is the `replied-by-<id>` label the
-// mark_suggestion_sent endpoint tags when an agent approves a review reply.
+// Slugify an agent's display name for the `replied-by-<slug>` label. Mirrors
+// the bridge's reviews_poller.agent_name_slug + the Rails messages_controller
+// replied_by_slug — keep the three in sync so the filter matches labels the
+// backend actually writes.
+const repliedBySlug = agent => {
+  const raw = String(agent?.available_name || agent?.name || '').trim();
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '');
+  return slug || String(agent?.id || '');
+};
+
+// "Replied by <agent>" dropdown — value is the `replied-by-<slug>` label the
+// mark_suggestion_sent endpoint / bridge writes when an agent replies to a
+// review. Slug (e.g. `replied-by-aditya`) instead of raw id — the label chip
+// on the conversation card is human-readable.
 const agentFilterOptions = computed(() =>
   (agentList.value || []).map(a => ({
-    value: `replied-by-${a.id}`,
+    value: `replied-by-${repliedBySlug(a)}`,
     label: a.name,
   }))
 );

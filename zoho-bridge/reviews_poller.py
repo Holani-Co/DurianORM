@@ -44,6 +44,20 @@ def _store_label(title: str) -> str:
     return f"store-{slug}" if slug else "store-unknown"
 
 
+def agent_name_slug(name: str, email: str = "", agent_id=None) -> str:
+    """Slug used in the `replied-by-<slug>` label. Falls back through name →
+    email-local-part → id so we NEVER produce an empty slug (the label would
+    otherwise be `replied-by-` and match no conversations). Kept alongside
+    _store_label so all bridge-managed slug labels share one rule."""
+    raw = (name or "").strip()
+    if not raw and email:
+        raw = email.split("@", 1)[0]
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    if slug:
+        return slug
+    return str(agent_id) if agent_id else ""
+
+
 # Rating labels get a traffic-light colour so the Settings → Labels list and
 # the sidebar chips read at a glance; stores share a neutral blue.
 _LABEL_COLORS = {
