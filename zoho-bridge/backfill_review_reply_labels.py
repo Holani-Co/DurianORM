@@ -62,7 +62,15 @@ async def _labels_for(client: httpx.AsyncClient, conv_id: int) -> list[str]:
            for m in outgoing):
         return [rp.LBL_REPLIED, rp.LBL_AUTO_REPLIED]
     if outgoing:
-        return [rp.LBL_REPLIED, rp.LBL_MANUALLY_REPLIED]
+        labels = [rp.LBL_REPLIED, rp.LBL_MANUALLY_REPLIED]
+        # Tag the agent who replied (sender of the latest public outgoing) so
+        # the "replied by <agent>" filter works on the historical backlog too.
+        for m in reversed(outgoing):
+            sid = (m.get("sender") or {}).get("id")
+            if sid:
+                labels.append(f"replied-by-{sid}")
+                break
+        return labels
     return [rp.LBL_UNREPLIED]
 
 
