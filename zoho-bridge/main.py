@@ -31,6 +31,7 @@ import classifier
 import document_extractor
 import summarizer
 import zoho
+import zoho_crm
 import google_reviews as gr
 import review_reply
 import reviews_poller
@@ -1305,6 +1306,108 @@ async def _create_or_pause_zoho_ticket(conv_id: int,
     return zoho_ticket, pending_decision
 
 
+# ── Zoho CRM Contact + Note ──────────────────────────────────────────────
+def _crm_note_body(sender_name: str, sender_email: str,
+                   subject: str, message_body: str,
+                   category_display: str, conv_id: int,
+                   ack_sent: bool) -> tuple[str, str]:
+    """Build (title, body) for the Note attached to the CRM Contact.
+
+    Sales reads notes in a compact side-panel; keep it human-readable, cite
+    the source (Chatwoot), and always link back to the conversation so a
+    salesperson can open the full thread with one click."""
+    title = f"Enquiry: {(subject or '(no subject)').strip()[:120]}"
+    link  = (f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
+             f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")
+    lines = [
+        f"Source:   Chatwoot ({category_display or 'Uncategorised'})",
+        f"From:     {sender_name or sender_email or 'Unknown'} <{sender_email}>",
+        f"Subject:  {subject or '(no subject)'}",
+        f"Link:     {link}",
+        "",
+        "--- Customer message ---",
+        (message_body or "").strip() or "(empty body)",
+    ]
+    if ack_sent:
+        lines += ["", "--- Auto-acknowledgment sent ---",
+                  "The customer has already received our standard "
+                  "acknowledgment email."]
+    return title, "\n".join(lines)
+
+
+async def _push_contact_and_note(conv_id: int, sender_name: str,
+                                 sender_email: str, subject: str,
+                                 message_body: str, category_key: str,
+                                 category_display: str,
+                                 ack_sent: bool) -> str:
+    """Best-effort: find/create the CRM Contact and attach a Note with the
+    enquiry summary. Returns an audit line describing what happened.
+
+    Idempotent via Chatwoot custom_attributes: once crm_contact_id is set on
+    the conversation we skip contact creation but still attach a Note for
+    the new message. Failures NEVER raise — CRM is downstream of the ack +
+    forward path and must not block them."""
+    if not config.ZOHO_CRM_ENABLED:
+        return ""
+    if not sender_email:
+        return "ℹ️ CRM push skipped — no sender email to key a Contact on."
+    if config.ZOHO_CRM_DRY_RUN:
+        return (f"🔍 CRM dry-run: would upsert Contact for {sender_email} + "
+                f"attach a Note (category: {category_display or category_key}).")
+
+    try:
+        conv = await chatwoot.get_conversation(conv_id)
+    except Exception as e:
+        return f"⚠️ CRM push skipped — could not read conversation: {e}"
+
+    custom_attrs = conv.get("custom_attributes") or {}
+    existing_id  = custom_attrs.get("crm_contact_id") or ""
+
+    # Contact — reuse existing if we've already pushed this conversation.
+    contact_id = existing_id
+    created    = False
+    if not contact_id:
+        try:
+            contact_id, created = await zoho_crm.find_or_create_contact(
+                sender_email, sender_name)
+        except Exception as e:
+            print(f"[crm] find_or_create_contact failed for {sender_email}: {e}")
+            return f"⚠️ CRM Contact push failed: {e}"
+        if not contact_id:
+            return "⚠️ CRM Contact push skipped — no contact id returned."
+
+    # Note — always attach a fresh one so the salesperson sees the LATEST
+    # enquiry summary alongside any previous notes.
+    title, body = _crm_note_body(sender_name, sender_email, subject,
+                                 message_body, category_display, conv_id,
+                                 ack_sent)
+    try:
+        await zoho_crm.create_note("Contacts", contact_id, title, body)
+    except Exception as e:
+        print(f"[crm] create_note failed for contact {contact_id}: {e}")
+        # Contact still succeeded — record what we managed to do.
+        if created:
+            await _remember_crm_contact_id(conv_id, contact_id)
+        return f"⚠️ CRM Note attach failed (contact {contact_id} created): {e}"
+
+    if created:
+        await _remember_crm_contact_id(conv_id, contact_id)
+    link = zoho_crm.contact_url(contact_id)
+    action = "created" if created else "reused"
+    return (f"✅ CRM Contact {action} + note attached "
+            f"([{contact_id}]({link})).")
+
+
+async def _remember_crm_contact_id(conv_id: int, contact_id: str):
+    """Stash crm_contact_id on the conversation so re-runs reuse it
+    (idempotency for the auto path + eventual PR B lookup for buttons)."""
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"crm_contact_id": contact_id})
+    except Exception as e:
+        print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -1488,6 +1591,33 @@ async def _phase2_execute_actions(conv_id: int,
         # In-channel categories aren't forwarded — the conversation stays
         # open for an agent to handle. Say so plainly in the note.
         audit.append("This conversation stays here for the team to assist.")
+
+    # ── Zoho CRM Contact + Note (qualifying categories only) ────────────
+    # Fires for product enquiries / general info / existing-order — the
+    # sales-shaped categories. Manual "Push to CRM as Lead/Deal" buttons
+    # (PR B) reuse the crm_contact_id we stash here. Best-effort: any CRM
+    # failure produces an audit line but doesn't affect ack/forward above.
+    if cat_key in config.ZOHO_CRM_AUTO_CATEGORIES:
+        ack_sent = any(line.startswith("✅ Acknowledgment sent") for line in audit)
+        category_display = (rule or {}).get("display_name") or cat_key
+        try:
+            crm_line = await _push_contact_and_note(
+                conv_id           = conv_id,
+                sender_name       = sender_name,
+                sender_email      = sender_email,
+                subject           = original_subject,
+                message_body      = original_content,
+                category_key      = cat_key,
+                category_display  = category_display,
+                ack_sent          = ack_sent,
+            )
+            if crm_line:
+                audit.append(crm_line)
+        except Exception as e:
+            # find_or_create_contact / create_note already handle their own
+            # errors; this catch is for anything unexpected higher up.
+            print(f"[crm] unexpected error for conv {conv_id}: {e}")
+            audit.append(f"⚠️ CRM push errored unexpectedly: {e}")
 
     # Mark the conversation as Phase-2-handled so subsequent webhook fires
     # on this conv (e.g. department replies landing as new incoming

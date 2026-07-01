@@ -22,6 +22,25 @@ ZOHO_DEPARTMENT_ID = _required("ZOHO_DEPARTMENT_ID")
 ZOHO_ACCOUNTS_URL  = os.environ.get("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.in")
 ZOHO_DESK_URL      = os.environ.get("ZOHO_DESK_URL", "https://desk.zoho.in")
 
+# ── Zoho CRM ──────────────────────────────────────────────────────────────
+# Uses a SEPARATE refresh token from Desk so a CRM-side auth issue can't
+# knock out ticket creation. Client ID/secret are shared (same Self Client).
+# Optional — if not set, CRM features silently no-op (safe for staging where
+# CRM isn't configured yet).
+ZOHO_CRM_REFRESH_TOKEN = os.environ.get("ZOHO_CRM_REFRESH_TOKEN", "")
+ZOHO_CRM_API_DOMAIN    = os.environ.get("ZOHO_CRM_API_DOMAIN", "https://www.zohoapis.in")
+ZOHO_CRM_ENABLED       = bool(ZOHO_CRM_REFRESH_TOKEN)
+# Dry-run: log CRM calls without executing them. Useful for pointing the
+# bridge at prod without accidentally pushing test data into the real CRM.
+ZOHO_CRM_DRY_RUN       = os.environ.get("ZOHO_CRM_DRY_RUN", "false").lower() == "true"
+# Categories that trigger auto Contact+Note. Comma-separated, override via env.
+ZOHO_CRM_AUTO_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_AUTO_CATEGORIES",
+        "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
 # Chatwoot API. On a single-VM deployment this is `http://localhost:3000`
