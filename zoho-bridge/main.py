@@ -1023,13 +1023,18 @@ async def _resolve_category_decision(conv_id: int, category: str,
         category_result["sector_confidence"] = 1.0
         category_result["sector_reason"] = "Confirmed by agent."
 
+    # Carry the spam/intent label (automated / promotional / …) through so the
+    # action layer can suppress the customer acknowledgment for automated mail
+    # on the agent-confirmed path too — not just the auto path.
+    email_category = (conv.get("custom_attributes") or {}).get("email_category") or ""
+
     action_section = []
     try:
         action_section = await _phase2_execute_actions(
             conv_id=conv_id, category_result=category_result, rule=rule,
             sender_name=sender_name, sender_email=sender_email,
             original_content=content, original_subject=subject or "",
-            manual=True,
+            manual=True, email_category=email_category,
         )
     except Exception as e:
         print(f"[category-decision] action layer failed for conv {conv_id}: {e}")
