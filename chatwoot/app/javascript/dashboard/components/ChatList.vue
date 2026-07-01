@@ -335,6 +335,17 @@ const conversationList = computed(() => {
     });
   }
 
+  // Reviews inbox: optional client-side sort by the review's ACTUAL date
+  // (newest first) instead of ingestion order. Only reorders the currently
+  // loaded conversations — as more load on scroll they re-sort within the set.
+  if (reviewSort.value === 'review_date' && isReviewsInbox.value) {
+    localConversationList = [...localConversationList].sort((a, b) => {
+      const da = Date.parse(a.additional_attributes?.review_created_at) || 0;
+      const db = Date.parse(b.additional_attributes?.review_created_at) || 0;
+      return db - da;
+    });
+  }
+
   return localConversationList;
 });
 
@@ -401,6 +412,27 @@ function fetchSavedFilteredConversations(payload) {
 
 function onApplyFilter(payload) {
   payload = useSnakeCase(payload);
+  // Channel-scoping: when viewing a specific inbox, keep filters scoped to it
+  // so results don't leak in conversations from other inboxes/channels. Only
+  // inject when not already present (the review dropdowns add their own).
+  if (
+    props.conversationInbox &&
+    !payload.some(c => c.attribute_key === 'inbox_id')
+  ) {
+    payload = [
+      {
+        attribute_key: 'inbox_id',
+        attribute_model: 'standard',
+        filter_operator: 'equal_to',
+        values: [
+          { id: Number(props.conversationInbox), name: inbox.value?.name },
+        ],
+        query_operator: 'and',
+        custom_attribute_type: '',
+      },
+      ...payload,
+    ];
+  }
   resetBulkActions();
   foldersQuery.value = filterQueryGenerator(payload);
   store.dispatch('conversationPage/reset');
@@ -576,6 +608,21 @@ function resetAndFetchData() {
 // this inbox via an inbox_id condition).
 const reviewStoreFilter = ref('');
 const reviewRatingFilter = ref('');
+const reviewReplyFilter = ref('');
+const reviewAgentFilter = ref('');
+// Client-side sort selector for the reviews inbox ('' = default/ingested order,
+// 'review_date' = by the review's actual Google date). Independent of the label
+// filters — it only reorders the displayed list (see conversationList).
+const reviewSort = ref('');
+
+// "Replied by <agent>" options — value is the `replied-by-<id>` label the
+// mark_suggestion_sent endpoint tags when an agent approves a review reply.
+const agentFilterOptions = computed(() =>
+  (agentList.value || []).map(a => ({
+    value: `replied-by-${a.id}`,
+    label: a.name,
+  }))
+);
 
 const isReviewsInbox = computed(() => inbox.value?.name === 'Google Reviews');
 
@@ -606,6 +653,8 @@ function onReviewFilterChange() {
   const selectedLabels = [
     reviewStoreFilter.value,
     reviewRatingFilter.value,
+    reviewReplyFilter.value,
+    reviewAgentFilter.value,
   ].filter(Boolean);
 
   if (!selectedLabels.length) {
@@ -644,10 +693,30 @@ function onReviewFilterChange() {
 watch(
   () => appliedFilters.value.length,
   count => {
-    if (count === 0) {
-      reviewStoreFilter.value = '';
-      reviewRatingFilter.value = '';
+    if (count !== 0) return;
+    // Keep the review filter sticky: if a selection is still active in the
+    // reviews inbox (and not a folder view), re-apply it instead of clearing
+    // when a list refresh / status-tab change wiped the applied filters. The
+    // re-apply pushes the count back above 0, so this doesn't loop.
+    const hasReviewFilter = [
+      reviewStoreFilter,
+      reviewRatingFilter,
+      reviewReplyFilter,
+      reviewAgentFilter,
+    ].some(r => r.value);
+    if (
+      isReviewsInbox.value &&
+      hasReviewFilter &&
+      !hasActiveFolders.value &&
+      !props.foldersId
+    ) {
+      onReviewFilterChange();
+      return;
     }
+    reviewStoreFilter.value = '';
+    reviewRatingFilter.value = '';
+    reviewReplyFilter.value = '';
+    reviewAgentFilter.value = '';
   }
 );
 
@@ -973,7 +1042,11 @@ watch(conversationFilters, (newVal, oldVal) => {
       v-if="isReviewsInbox"
       v-model:store="reviewStoreFilter"
       v-model:rating="reviewRatingFilter"
+      v-model:reply="reviewReplyFilter"
+      v-model:agent="reviewAgentFilter"
+      v-model:sort="reviewSort"
       :store-options="storeFilterOptions"
+      :agent-options="agentFilterOptions"
       @change="onReviewFilterChange"
     />
 

@@ -7,11 +7,29 @@
 defineProps({
   // [{ value: 'store-koramangala', label: 'Koramangala' }, …]
   storeOptions: { type: Array, default: () => [] },
+  // [{ value: 'replied-by-3', label: 'Aditya' }, …]
+  agentOptions: { type: Array, default: () => [] },
   store: { type: String, default: '' },
   rating: { type: String, default: '' },
+  reply: { type: String, default: '' },
+  agent: { type: String, default: '' },
+  sort: { type: String, default: '' },
 });
 
-const emit = defineEmits(['update:store', 'update:rating', 'change']);
+const emit = defineEmits([
+  'update:store',
+  'update:rating',
+  'update:reply',
+  'update:agent',
+  'update:sort',
+  'change',
+]);
+
+// Client-side sort of the loaded list (no server round-trip → no 'change').
+const SORT_OPTIONS = [
+  { value: '', label: 'Sort: Latest ingested' },
+  { value: 'review_date', label: 'Sort: Review date' },
+];
 
 const ALL_STORES_LABEL = 'All stores';
 
@@ -25,6 +43,16 @@ const RATING_OPTIONS = [
   { value: 'review-unrated', label: 'Unrated' },
 ];
 
+// Reply-status / reply-type — backed by the `review-*` labels the bridge
+// applies (reviews_poller.tag_reply_status).
+const REPLY_OPTIONS = [
+  { value: '', label: 'All replies' },
+  { value: 'review-unreplied', label: 'Unreplied' },
+  { value: 'review-replied', label: 'Replied (any)' },
+  { value: 'review-auto-replied', label: 'Auto-replied' },
+  { value: 'review-manually-replied', label: 'Manually replied' },
+];
+
 const onStore = e => {
   emit('update:store', e.target.value);
   emit('change');
@@ -33,13 +61,24 @@ const onRating = e => {
   emit('update:rating', e.target.value);
   emit('change');
 };
+const onReply = e => {
+  emit('update:reply', e.target.value);
+  emit('change');
+};
+const onAgent = e => {
+  emit('update:agent', e.target.value);
+  emit('change');
+};
+const onSort = e => {
+  emit('update:sort', e.target.value);
+};
 
 const selectClass =
-  'flex-1 min-w-0 px-2 py-1 text-sm rounded-md cursor-pointer bg-n-alpha-2 text-n-slate-12 border border-n-weak focus:outline-none focus:border-n-brand';
+  'w-full min-w-0 px-2 py-1 text-sm rounded-md cursor-pointer bg-n-alpha-2 text-n-slate-12 border border-n-weak focus:outline-none focus:border-n-brand';
 </script>
 
 <template>
-  <div class="flex items-center gap-2 px-3 py-2">
+  <div class="grid grid-cols-2 gap-2 px-3 py-2">
     <select :value="store" :class="selectClass" @change="onStore">
       <option value="">{{ ALL_STORES_LABEL }}</option>
       <option v-for="opt in storeOptions" :key="opt.value" :value="opt.value">
@@ -50,6 +89,30 @@ const selectClass =
       <option
         v-for="opt in RATING_OPTIONS"
         :key="opt.value || 'all'"
+        :value="opt.value"
+      >
+        {{ opt.label }}
+      </option>
+    </select>
+    <select :value="reply" :class="selectClass" @change="onReply">
+      <option
+        v-for="opt in REPLY_OPTIONS"
+        :key="opt.value || 'all-replies'"
+        :value="opt.value"
+      >
+        {{ opt.label }}
+      </option>
+    </select>
+    <select :value="agent" :class="selectClass" @change="onAgent">
+      <option value="">All agents</option>
+      <option v-for="opt in agentOptions" :key="opt.value" :value="opt.value">
+        {{ opt.label }}
+      </option>
+    </select>
+    <select :value="sort" :class="[selectClass, 'col-span-2']" @change="onSort">
+      <option
+        v-for="opt in SORT_OPTIONS"
+        :key="opt.value || 'default-sort'"
         :value="opt.value"
       >
         {{ opt.label }}

@@ -35,6 +35,9 @@ class Api::V1::Accounts::Conversations::MessagesController < Api::V1::Accounts::
 
     message.update!(content_attributes: attrs.merge('sent' => true,
                                                     'sent_by' => Current.user&.available_name.presence || Current.user&.name))
+    # Tag who replied so the reviews inbox can filter "replied by <agent>".
+    # add_labels adds a tagging (no Label record) — filterable, no sidebar clutter.
+    message.conversation.add_labels(["replied-by-#{Current.user.id}"]) if Current.user
     @message = message
   end
 
