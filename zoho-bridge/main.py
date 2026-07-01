@@ -1386,11 +1386,15 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
     except Exception as e:
         print(f"[crm] create_note failed for contact {contact_id}: {e}")
         # Contact still succeeded — record what we managed to do.
-        if created:
+        if str(existing_id or "") != str(contact_id):
             await _remember_crm_contact_id(conv_id, contact_id)
         return f"⚠️ CRM Note attach failed (contact {contact_id} created): {e}"
 
-    if created:
+    # Always stash the id — even when we REUSED an existing Contact — so the
+    # CRM sidebar panel sees it. Previously we only stashed on create, which
+    # meant conversations whose sender was already in CRM never got the id
+    # written to Chatwoot and the panel showed "No CRM Contact linked yet".
+    if str(existing_id or "") != str(contact_id):
         await _remember_crm_contact_id(conv_id, contact_id)
     link = zoho_crm.contact_url(contact_id)
     action = "created" if created else "reused"

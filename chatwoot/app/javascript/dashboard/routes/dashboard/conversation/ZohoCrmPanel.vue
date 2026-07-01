@@ -37,11 +37,17 @@ const contactId = computed(() => String(props.customAttributes.crm_contact_id ||
 const leadId    = computed(() => String(props.customAttributes.crm_lead_id    || ''));
 const dealId    = computed(() => String(props.customAttributes.crm_deal_id    || ''));
 
-// Category — drives which buttons show. The bridge stashes the full
-// classifier result on email_category_v2.
-const categoryKey = computed(
-  () => (props.customAttributes.email_category_v2 || {}).category || ''
-);
+// Category — drives which buttons show. Try email_category_v2 first (auto
+// path writes the full classifier result there); fall back to phase2_category
+// (the plain string _phase2_execute_actions writes on BOTH auto AND agent-
+// confirmed paths). Otherwise a conversation resolved via the decision card
+// wouldn't show the Create buttons.
+const categoryKey = computed(() => {
+  const attrs = props.customAttributes || {};
+  return (attrs.email_category_v2 || {}).category
+      || attrs.phase2_category
+      || '';
+});
 
 // Same lists as ZOHO_CRM_LEAD_CATEGORIES / ZOHO_CRM_DEAL_CATEGORIES in
 // config.py — kept in sync so the UI matches what the bridge will accept.
