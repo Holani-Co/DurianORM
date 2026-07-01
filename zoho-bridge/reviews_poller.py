@@ -58,14 +58,42 @@ _LABEL_COLORS = {
 _ensured_labels: set = set()
 
 
-async def _ensure_label_once(title: str) -> None:
+async def _ensure_label_once(title: str, show_on_sidebar: bool = True) -> None:
     if title in _ensured_labels:
         return
     try:
-        await chatwoot.ensure_label(title, _LABEL_COLORS.get(title, "#1f93ff"))
+        await chatwoot.ensure_label(title, _LABEL_COLORS.get(title, "#1f93ff"),
+                                    show_on_sidebar=show_on_sidebar)
     except Exception as e:
         print(f"[reviews] ensure_label({title}) failed: {e}")
     _ensured_labels.add(title)
+
+
+# Reply-status / reply-type labels backing the reviews inbox filter dropdown.
+# Hidden from the sidebar (they're dropdown filters, not sidebar chips).
+#   review-unreplied         — handed off, no reply posted yet
+#   review-replied           — a reply has been posted (auto OR manual)
+#   review-auto-replied      — the system auto-replied (positive high-star)
+#   review-manually-replied  — an agent approved a template and replied
+LBL_UNREPLIED        = "review-unreplied"
+LBL_REPLIED          = "review-replied"
+LBL_AUTO_REPLIED     = "review-auto-replied"
+LBL_MANUALLY_REPLIED = "review-manually-replied"
+
+
+async def tag_reply_status(conv_id: int, *add: str, remove: tuple = ()) -> None:
+    """Add/remove reply-status labels on a review conversation (best-effort)."""
+    for lbl in add:
+        await _ensure_label_once(lbl, show_on_sidebar=False)
+        try:
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[reviews] add_label({lbl}) failed for conv {conv_id}: {e}")
+    for lbl in remove:
+        try:
+            await chatwoot.remove_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[reviews] remove_label({lbl}) failed for conv {conv_id}: {e}")
 
 
 def _format_review_time(iso: str) -> str:
@@ -127,10 +155,14 @@ async def _ingest_review(loc: dict, rv: dict):
         # review_comment + reviewer are stashed here so the "Regenerate"
         # button can re-draft from the original review without re-parsing the
         # formatted message body.
+        # review_created_at = the review's ACTUAL date on Google (not the
+        # ingestion time). Stored so the reviews inbox can sort/display by real
+        # review date instead of when we happened to pull it in.
         additional_attributes={"type": "google_review", "location": title,
                                "stars": rv["stars"],
                                "review_comment": rv["comment"] or "",
-                               "reviewer": rv["reviewer"] or ""},
+                               "reviewer": rv["reviewer"] or "",
+                               "review_created_at": rv["create_time"] or ""},
         custom_attributes={"review_path": rv["reply_path"]},
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
@@ -144,8 +176,10 @@ async def _ingest_review(loc: dict, rv: dict):
     # two labels coexist on the conversation.
     star_label = f"review-{rv['stars']}star" if rv['stars'] else "review-unrated"
     store_label = _store_label(title)
-    for lbl in (star_label, store_label):
-        await _ensure_label_once(lbl)
+    # Store labels are hidden from the sidebar (100+ of them) — they exist only
+    # to back the inbox store dropdown. Star labels stay sidebar-visible (~7).
+    for lbl, on_sidebar in ((star_label, True), (store_label, False)):
+        await _ensure_label_once(lbl, show_on_sidebar=on_sidebar)
         try:
             await chatwoot.add_label(conv_id, lbl)
         except Exception as e:
@@ -170,6 +204,7 @@ async def _ingest_review(loc: dict, rv: dict):
             await chatwoot.create_message(conv_id, reply, message_type="outgoing",
                                           content_attributes=AUTO_MARKER)
             await chatwoot.toggle_status(conv_id, "resolved")
+            await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED)
             state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=True)
             print(f"[reviews] auto-replied {rv['stars']}★ @ {title}")
             return
@@ -191,6 +226,7 @@ async def _ingest_review(loc: dict, rv: dict):
     # No team assignment for reviews — teams exist for email routing and a team
     # box on every review is just noise. The conversation stays in the reviews
     # inbox (unassigned, open) for an agent to pick up directly.
+    await tag_reply_status(conv_id, LBL_UNREPLIED)
     state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=False)
     print(f"[reviews] handoff {rv['stars']}★ @ {title} → human")
 

@@ -20,7 +20,8 @@ import sys
 import config
 import chatwoot
 import review_reply
-from reviews_poller import _store_label, _ensure_label_once
+from reviews_poller import (_store_label, _ensure_label_once, tag_reply_status,
+                            LBL_UNREPLIED, LBL_REPLIED, LBL_AUTO_REPLIED)
 
 
 async def main():
@@ -30,6 +31,9 @@ async def main():
         "is excellent. Will definitely come back!"
     )
     reviewer = sys.argv[3] if len(sys.argv) > 3 else "Test Reviewer"
+    # Optional 4th arg: the review's actual date (ISO), for testing review-date
+    # sort. Defaults to empty (sorts to the bottom under review-date sort).
+    review_date = sys.argv[4] if len(sys.argv) > 4 else ""
     location = "Durian Experience Centre - MG Road"
     # Fake but plausible reply path; Send-to-Google will fail locally (expected).
     review_path = "accounts/000/locations/000/reviews/SIMULATED"
@@ -53,7 +57,8 @@ async def main():
         contact_id=contact_id,
         additional_attributes={"type": "google_review", "location": location,
                                "stars": stars, "review_comment": comment,
-                               "reviewer": reviewer},
+                               "reviewer": reviewer,
+                               "review_created_at": review_date},
         custom_attributes={"review_path": review_path},
     )
     await chatwoot.create_message(conv_id, body, message_type="incoming")
@@ -83,6 +88,7 @@ async def main():
             content_attributes={"source": "google_auto_reply"},
         )
         await chatwoot.toggle_status(conv_id, "resolved")
+        await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED)
         print(f"Done. Conversation #{conv_id} — AUTO-REPLIED + resolved.")
     else:
         # Handoff → leave the AI draft as the interactive suggestion card.
@@ -93,6 +99,7 @@ async def main():
             content_attributes={"type": "ai_review_suggestion", "suggestion": reply,
                                 "channel": "review", "ai_trace": drafted["trace"]},
         )
+        await tag_reply_status(conv_id, LBL_UNREPLIED)
         print(f"Done. Conversation #{conv_id} — handoff (agent card).")
     print(f"Open: {config.CHATWOOT_PUBLIC_URL}/app/accounts/"
           f"{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")

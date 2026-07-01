@@ -35,20 +35,26 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
         return r.json()
 
 
-async def ensure_label(title: str, color: str = "#1f93ff") -> None:
+async def ensure_label(title: str, color: str = "#1f93ff",
+                       show_on_sidebar: bool = True) -> None:
     """Create a Label record for `title` if one doesn't exist yet.
 
     Conversation labels added via add_label are stored as taggings; they only
     show up in Settings → Labels and the conversation-filter pickers once a
     Label record also exists. The reviews poller calls this for its store /
     star labels so they're filterable. Idempotent: a 'title already taken'
-    (422) response is treated as success."""
+    (422) response is treated as success.
+
+    `show_on_sidebar=False` keeps the label out of the sidebar Labels list
+    while still making it exist for the dropdown/filter pickers — used for the
+    per-store labels, which we seed for every location (100+) and don't want
+    cluttering the sidebar."""
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
             f"{config.CHATWOOT_BASE_URL}/api/v1/accounts/"
             f"{config.CHATWOOT_ACCOUNT_ID}/labels",
             headers=_headers(),
-            json={"title": title, "color": color, "show_on_sidebar": True},
+            json={"title": title, "color": color, "show_on_sidebar": show_on_sidebar},
         )
         if r.status_code not in (200, 422):
             raise RuntimeError(f"Chatwoot ensure_label failed [{r.status_code}]: {r.text}")

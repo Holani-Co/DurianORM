@@ -2292,6 +2292,10 @@ async def handle_review_reply(data: dict) -> dict:
 
     try:
         await gr.post_reply(reply_path, content)
+        # Segregate manual replies from auto ones for the reviews filter dropdown.
+        await reviews_poller.tag_reply_status(
+            conv_id, reviews_poller.LBL_REPLIED, reviews_poller.LBL_MANUALLY_REPLIED,
+            remove=(reviews_poller.LBL_UNREPLIED,))
         print(f"[reviews] posted human reply for conv {conv_id}")
         return {"posted": True, "conversation_id": conv_id}
     except Exception as e:

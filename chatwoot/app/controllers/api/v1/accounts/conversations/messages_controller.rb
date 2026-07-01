@@ -25,6 +25,22 @@ class Api::V1::Accounts::Conversations::MessagesController < Api::V1::Accounts::
     end
   end
 
+  # Mark an AI suggestion card (the bridge's interactive reply note) as approved
+  # and sent, recording the acting agent. The card transforms into an
+  # "Approved & sent by <agent>" line in place — no soft-delete, so there's no
+  # "message deleted" tombstone. Restricted to ai_review_suggestion notes.
+  def mark_suggestion_sent
+    attrs = message.content_attributes || {}
+    return render_could_not_create_error('not a suggestion card') unless attrs['type'] == 'ai_review_suggestion'
+
+    message.update!(content_attributes: attrs.merge('sent' => true,
+                                                    'sent_by' => Current.user&.available_name.presence || Current.user&.name))
+    # Tag who replied so the reviews inbox can filter "replied by <agent>".
+    # add_labels adds a tagging (no Label record) — filterable, no sidebar clutter.
+    message.conversation.add_labels(["replied-by-#{Current.user.id}"]) if Current.user
+    @message = message
+  end
+
   def retry
     return if message.blank?
 
