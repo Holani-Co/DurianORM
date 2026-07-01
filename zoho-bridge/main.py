@@ -2292,10 +2292,15 @@ async def handle_review_reply(data: dict) -> dict:
 
     try:
         await gr.post_reply(reply_path, content)
-        # Segregate manual replies from auto ones for the reviews filter dropdown.
+        # Segregate manual replies from auto ones + tag the replying agent
+        # (covers direct replies too, not just template-card approvals) so the
+        # reviews "replied by <agent>" filter works.
+        manual_labels = [reviews_poller.LBL_REPLIED, reviews_poller.LBL_MANUALLY_REPLIED]
+        agent_id = (data.get("sender") or {}).get("id")
+        if agent_id:
+            manual_labels.append(f"replied-by-{agent_id}")
         await reviews_poller.tag_reply_status(
-            conv_id, reviews_poller.LBL_REPLIED, reviews_poller.LBL_MANUALLY_REPLIED,
-            remove=(reviews_poller.LBL_UNREPLIED,))
+            conv_id, *manual_labels, remove=(reviews_poller.LBL_UNREPLIED,))
         print(f"[reviews] posted human reply for conv {conv_id}")
         return {"posted": True, "conversation_id": conv_id}
     except Exception as e:
