@@ -3025,6 +3025,18 @@ async def chatwoot_crm_create_deal(request: Request):
         layout_name = config.ZOHO_CRM_HOME_STUDIO_LAYOUT
         deal_stage  = config.ZOHO_CRM_HOME_STUDIO_STAGE
 
+    # Business Type — a MANDATORY picklist on the client's Standard Deals
+    # layout (Retail / Project / Retail A & ID). Derived from the flow's
+    # "Scale?" split: bulk orders + government buyers are Projects, everything
+    # else is Retail. "Retail A & ID" is agent-set in CRM afterwards.
+    extra_fields = {}
+    if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
+        business_type = ("Project"
+                         if (owner.get("location") == "govt"
+                             or deal_category == "project_bulk_order")
+                         else "Retail")
+        extra_fields[config.ZOHO_CRM_BUSINESS_TYPE_FIELD] = business_type
+
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,
         name=name, email=email, subject=subject,
@@ -3036,7 +3048,7 @@ async def chatwoot_crm_create_deal(request: Request):
             contact_id=contact_id, deal_name=deal_name,
             description=description, source="Chatwoot", owner_id=owner_id,
             vertical=owner.get("vertical", ""), layout_name=layout_name,
-            stage=deal_stage,
+            stage=deal_stage, extra_fields=extra_fields,
         )
     except Exception as e:
         raise HTTPException(500, f"CRM create_deal failed: {e}")
