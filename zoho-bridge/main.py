@@ -420,13 +420,6 @@ async def _surface_ticket_in_chatwoot(
     ticket_id     = ticket.get("id")
     ticket_number = ticket.get("ticketNumber") or ticket.get("ticket_number")
     subject       = ticket.get("subject") or ""
-    # Single choke point every ticket-creation path funnels through — one
-    # event here records ALL Zoho tickets (manual handoff, priority bump,
-    # signal escalation, agent-approved) in the conversation trace.
-    tracing.event(conv_id, "zoho-ticket-created", output={
-        "ticket_id": ticket_id, "ticket_number": ticket_number,
-        "subject": subject, "source": source,
-    })
     web_url       = ticket.get("webUrl") or (
         f"{config.ZOHO_DESK_URL}/agent/tickets/details/{ticket_id}"
         if ticket_id else None
@@ -2069,15 +2062,6 @@ async def handle_message_created(data: dict) -> dict:
                 print(f"[phase2b] action layer failed: {e}")
                 action_section = [f"⚠️ Phase 2 action layer error: `{e}`"]
 
-        tracing.event(conv_id, "phase2-actions", parent=_lf, output={
-            "mode": ("social_skip" if is_social else
-                     "dry_run_preview" if _PHASE_2_DRY_RUN else
-                     "loop_guard_skip" if existing_phase2 else "executed"),
-            "category": category_result.get("category"),
-            "rule_action": category_result.get("action"),
-            "summary": action_section,
-        })
-
         # Compose the agent-facing note. Professional, jargon-free: the
         # category, a one-line reason, and what was done. Internal terms
         # (confidence score, "observe-only", "Phase 2") are kept out — a
@@ -2122,17 +2106,9 @@ async def handle_message_created(data: dict) -> dict:
                 await chatwoot.assign_team(conv_id, int(rule_team_id))
                 print(f"[category-v2] conv {conv_id} assigned to team "
                       f"{rule_team_id} ({category_result['category']})")
-                tracing.event(conv_id, "team-assignment", parent=_lf, output={
-                    "team_id": rule_team_id, "source": "categorizer_rule",
-                    "category": category_result.get("category"), "assigned": True,
-                })
             except Exception as e:
                 print(f"[category-v2] assign_team({rule_team_id}) failed "
                       f"for conv {conv_id}: {e}")
-                tracing.event(conv_id, "team-assignment", parent=_lf, output={
-                    "team_id": rule_team_id, "source": "categorizer_rule",
-                    "assigned": False, "error": str(e),
-                })
       except Exception as e:
         # Never let the categorizer break the rest of the flow.
         print(f"[category-v2] ERROR ({type(e).__name__}): {e} — continuing")
@@ -2216,26 +2192,14 @@ async def handle_message_created(data: dict) -> dict:
 
     if not team_id:
         print(f"[classify] no TEAM_ID configured for '{team_key}' — skipping assignment")
-        tracing.event(conv_id, "team-routing", parent=_lf, output={
-            "team": team_key, "source": team_routing_source,
-            "assigned": False, "reason": "no TEAM_ID configured",
-        })
         return {"classified": team_key, "assigned": False}
 
     try:
         result = await chatwoot.assign_team(conv_id, team_id)
         print(f"[classify] assigned OK: {result}")
-        tracing.event(conv_id, "team-routing", parent=_lf, output={
-            "team": team_key, "team_id": team_id,
-            "source": team_routing_source, "assigned": True,
-        })
     except Exception as e:
         print(f"[classify] ERROR assigning team {team_key} ({team_id}) "
               f"to conv {conv_id}: {e}")
-        tracing.event(conv_id, "team-routing", parent=_lf, output={
-            "team": team_key, "team_id": team_id,
-            "source": team_routing_source, "assigned": False, "error": str(e),
-        })
         return {"classified": team_key, "assigned": False, "error": str(e)}
 
     # Option-D Zoho-escalation decision. Inputs are now ALL data-driven:
@@ -2249,10 +2213,6 @@ async def handle_message_created(data: dict) -> dict:
     )
     print(f"[zoho] escalation check for conv {conv_id}: "
           f"escalate={should_escalate} reason={escalation_label}")
-    tracing.event(conv_id, "zoho-escalation-check", parent=_lf, output={
-        "escalate": should_escalate, "label": escalation_label,
-        "signal": escalation_signal, "priority": priority, "team": team_key,
-    })
 
     zoho_ticket = None
     pending_decision = None
