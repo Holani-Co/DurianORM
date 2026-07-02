@@ -27,7 +27,7 @@ const store = useStore();
 const accountId = useMapGetter('getCurrentAccountId');
 
 const submitting = ref(false);
-const selected = ref(props.pending?.suggested || '');
+const selected = ref('');
 
 const suggestedDisplay = computed(() => props.pending?.suggested_display || '');
 const confidencePct = computed(() =>
@@ -170,16 +170,18 @@ async function confirm(category) {
     <div class="flex items-center gap-2 px-1">
       <select
         v-model="selected"
-        class="flex-1 px-2 py-1.5 text-sm rounded-md bg-n-background text-n-slate-12 border border-n-weak"
+        class="flex-1 h-8 px-2 text-sm rounded-md bg-n-background border border-n-weak"
+        :class="selected ? 'text-n-slate-12' : 'text-n-slate-10'"
         :disabled="submitting"
       >
+        <option value="" disabled>Select other categories</option>
         <option v-for="c in categories" :key="c.category" :value="c.category">
           {{ c.display_name }}
         </option>
       </select>
       <button
         type="button"
-        class="px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
+        class="h-8 px-3 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50 shrink-0"
         :disabled="submitting || !selected"
         @click="confirm(selected)"
       >
