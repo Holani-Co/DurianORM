@@ -30,6 +30,7 @@ import chatwoot
 import classifier
 import document_extractor
 import summarizer
+import tracing
 import zoho
 import google_reviews as gr
 import review_reply
@@ -234,7 +235,13 @@ async def _ticket_context(conv_id) -> tuple[list, dict]:
     if not conv_id:
         return [], {}
     messages = await chatwoot.get_conversation_messages(conv_id)
-    summary = await summarizer.summarize_conversation(messages) if messages else {}
+    if not messages:
+        return messages, {}
+    # Conversation-level action (not tied to one incoming message) → span with
+    # no message_id, nested under the conversation trace. Created only when the
+    # summariser actually runs, so no empty grouping spans.
+    _lf = tracing.message_parent(conv_id, name="ticket-summary")
+    summary = await summarizer.summarize_conversation(messages, lf_parent=_lf)
     return messages, summary
 
 
@@ -1635,8 +1642,10 @@ async def _maybe_extract_documents(data: dict) -> None:
                 .get("extracted_documents") or []
         seen_keys = {d.get("source_key") for d in existing_docs}
 
+        # Runs in a detached task, so nest via explicit ids (not OTel context).
+        _lf = tracing.message_parent(conv_id, message_id, name="document-extraction")
         results = await document_extractor.extract_for_message(
-            content, attachments, message_id, seen_keys
+            content, attachments, message_id, seen_keys, lf_parent=_lf
         )
         if not results:
             return
@@ -1809,9 +1818,15 @@ async def handle_message_created(data: dict) -> dict:
         except Exception as e:
             print(f"[spam] sender-history lookup failed for contact {contact_id}: {e}")
 
+    # One Langfuse span for THIS message; every classifier call below nests
+    # under it, and the span nests under the conversation trace (conv_id).
+    # `_lf` is a {trace_id, parent_observation_id} dict splatted into each call
+    # (empty dict = untraced, so a tracing hiccup never blocks classification).
+    _lf = tracing.message_parent(conv_id, data.get("id"), event="message_created")
+
     if bypass_reason is None:
         result = await classifier.classify_email_type(
-            content, sender_email=sender_email, subject=real_subject
+            content, sender_email=sender_email, subject=real_subject, lf_parent=_lf
         )
         email_category         = result["label"]
         classifier_conf        = result["confidence"]
@@ -1869,7 +1884,7 @@ async def handle_message_created(data: dict) -> dict:
     rule = None
     try:
         category_result = await classifier.classify_email_category(
-            content, sender_email=sender_email, subject=real_subject
+            content, sender_email=sender_email, subject=real_subject, lf_parent=_lf
         )
         rule = category_result.pop("rule", None)
         print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
@@ -2141,7 +2156,7 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} "
               f"content={content[:60]!r} (no escalation signal — using "
               f"generic team classifier)")
-        team_key = await classifier.classify(content, inbox_name)
+        team_key = await classifier.classify(content, inbox_name, lf_parent=_lf)
         team_routing_source = "generic_classifier"
     team_id  = config.TEAM_IDS.get(team_key)
     print(f"[classify] → team={team_key} id={team_id} source={team_routing_source}")

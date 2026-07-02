@@ -144,7 +144,10 @@ RSpec.describe Integrations::LlmInstrumentation do
 
         expect(mock_span).to have_received(:set_attribute).with('langfuse.user.id', '123')
         expect(mock_span).to have_received(:set_attribute).with('langfuse.session.id', '123_456')
-        expect(mock_span).to have_received(:set_attribute).with('langfuse.trace.tags', '["reply_suggestion"]')
+        expected_tags = ['reply_suggestion',
+                         "source:#{Integrations::LlmInstrumentationConstants::TRACE_SOURCE}",
+                         'conversation:456'].to_json
+        expect(mock_span).to have_received(:set_attribute).with('langfuse.trace.tags', expected_tags)
       end
 
       it 'sets completion message attributes when result contains message' do

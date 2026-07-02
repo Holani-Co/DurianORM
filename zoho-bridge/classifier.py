@@ -79,7 +79,8 @@ No explanation. No punctuation. Just the word.
 """
 
 
-async def classify(message_content: str, inbox_name: str = "") -> str:
+async def classify(message_content: str, inbox_name: str = "",
+                    lf_parent: dict = None) -> str:
     """Return one of: legal, marketing, hr, support. Always returns a valid value."""
     if not message_content or not message_content.strip():
         return "support"
@@ -100,6 +101,7 @@ async def classify(message_content: str, inbox_name: str = "") -> str:
                 "inbox": inbox_name or "unknown",
                 "langfuse_tags": ["classifier"],
             },
+            **(lf_parent or {}),
         )
         raw = r.choices[0].message.content.strip().lower()
         # Strip trailing punctuation just in case
@@ -278,7 +280,7 @@ EMAIL_TYPE_RESPONSE_SCHEMA = {
 
 
 async def classify_email_type(content: str, sender_email: str = "",
-                              subject: str = "") -> dict:
+                              subject: str = "", lf_parent: dict = None) -> dict:
     """Classify an inbound message and return a dict with keys:
       - label              (str)  — one of EMAIL_TYPE_VALID
       - confidence         (int)  — 1-10 (0 when classifier failed)
@@ -318,6 +320,7 @@ async def classify_email_type(content: str, sender_email: str = "",
                 "subject_preview": (subject or "")[:80],
                 "langfuse_tags": ["classifier", "spam-filter"],
             },
+            **(lf_parent or {}),
         )
         raw = r.choices[0].message.content
     except Exception as e:
@@ -597,7 +600,7 @@ _SAFE_CATEGORY_DEFAULT = {
 
 
 async def classify_email_category(content: str, sender_email: str = "",
-                                  subject: str = "") -> dict:
+                                  subject: str = "", lf_parent: dict = None) -> dict:
     """Classify an inbound email into one of the 12 Durian routing
     categories. Returns a dict with:
       category    – one of the keys in routing_rules.yaml (or 'fallback')
@@ -641,6 +644,7 @@ async def classify_email_category(content: str, sender_email: str = "",
                 "subject_preview": (subject or "")[:80],
                 "langfuse_tags":   ["classifier", "category-v2"],
             },
+            **(lf_parent or {}),
         )
         raw = r.choices[0].message.content
     except Exception as e:
@@ -704,7 +708,8 @@ async def classify_email_category(content: str, sender_email: str = "",
     # sector_confidence. The rule is COPIED before overriding forward_to/cc so
     # the shared _ROUTING_RULES dict is never mutated.
     if rule_key == "project_bulk_order" and rule.get("sector_routing"):
-        sec = await classify_bulk_sector(content, sender_email, subject)
+        sec = await classify_bulk_sector(content, sender_email, subject,
+                                         lf_parent=lf_parent)
         sroute = rule["sector_routing"].get(sec["sector"]) or {}
         result["sector"]            = sec["sector"]
         result["sector_confidence"] = sec["confidence"]
@@ -725,7 +730,8 @@ async def classify_email_category(content: str, sender_email: str = "",
         )
         if region_routing:
             reg = await classify_region(content, sender_email, subject,
-                                        list(region_routing.keys()))
+                                        list(region_routing.keys()),
+                                        lf_parent=lf_parent)
             result["region"]            = reg["region"]
             result["region_confidence"] = reg["confidence"]
             result["region_reason"]     = reg["reason"]
@@ -745,7 +751,8 @@ async def classify_email_category(content: str, sender_email: str = "",
     # rule-copy approach; 'other' is the safe default bucket, so this never
     # withholds a forward — it just picks the right handler.
     if rule_key == "doors_veneer_plywood" and rule.get("location_routing"):
-        loc = await classify_doors_location(content, sender_email, subject)
+        loc = await classify_doors_location(content, sender_email, subject,
+                                            lf_parent=lf_parent)
         lroute = (rule["location_routing"].get(loc["location"])
                   or rule["location_routing"].get("other") or {})
         result["doors_location"]            = loc["location"]
@@ -813,7 +820,7 @@ _BULK_SECTOR_PROMPT = _build_bulk_sector_prompt(
 
 
 async def classify_bulk_sector(content: str, sender_email: str = "",
-                               subject: str = "") -> dict:
+                               subject: str = "", lf_parent: dict = None) -> dict:
     """For a project_bulk_order email, decide government vs private buyer.
     Returns {sector, confidence, reason}. A government email domain is a hard
     signal (0.99). Fail-safe: returns a 0-confidence 'private' default on any
@@ -844,6 +851,7 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
             ],
             name="bulk-order-sector-classification",
             metadata={"langfuse_tags": ["classifier", "bulk-sector"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:
@@ -864,7 +872,8 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
 # engine and the client can extend the sheet with a YAML edit only. 'other'
 # always means "not one of the configured regions / unclear" → in-channel.
 async def classify_region(content: str, sender_email: str = "",
-                          subject: str = "", region_keys: "list[str]" = None) -> dict:
+                          subject: str = "", region_keys: "list[str]" = None,
+                          lf_parent: dict = None) -> dict:
     """Map the customer's location to ONE of region_keys (city/state names) or
     'other'. Defaults to 'other' on any error / empty keys so an unclear region
     is never auto-routed to the wrong handler."""
@@ -917,6 +926,7 @@ async def classify_region(content: str, sender_email: str = "",
             ],
             name="bulk-order-region-classification",
             metadata={"langfuse_tags": ["classifier", "bulk-region"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:
@@ -968,7 +978,7 @@ _DOORS_LOCATION_PROMPT = (
 
 
 async def classify_doors_location(content: str, sender_email: str = "",
-                                  subject: str = "") -> dict:
+                                  subject: str = "", lf_parent: dict = None) -> dict:
     """For a doors_veneer_plywood email, decide bangalore vs other. Returns
     {location, confidence, reason}. Defaults to 'other' (the catch-all desk)
     on any error — never blocks the forward."""
@@ -995,6 +1005,7 @@ async def classify_doors_location(content: str, sender_email: str = "",
             ],
             name="doors-location-classification",
             metadata={"langfuse_tags": ["classifier", "doors-location"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:
