@@ -100,6 +100,33 @@ ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 # Prod: ZOHO_CRM_BUSINESS_TYPE_FIELD=Business_Type_New
 ZOHO_CRM_BUSINESS_TYPE_FIELD = os.environ.get("ZOHO_CRM_BUSINESS_TYPE_FIELD", "")
 
+# The client's Standard Deals layout has more REQUIRED fields the bridge
+# can't infer from an email — filled with sensible defaults the agent
+# refines during qualification:
+#   Amount       → ZOHO_CRM_DEAL_AMOUNT_DEFAULT (currency; 0 = "unqualified")
+#   Closing_Date → today + ZOHO_CRM_DEAL_CLOSING_DAYS
+#   Pipeline     → the retail-vs-project split: ZOHO_CRM_PIPELINE_RETAIL /
+#                  ZOHO_CRM_PIPELINE_PROJECT (empty = field not sent — Zoho
+#                  then uses the layout's default pipeline). Prod values:
+#                  "Retail" and "Standard (Standard)".
+#   Anything else (e.g. the org's legacy Business_Type billing picklist) →
+#   ZOHO_CRM_DEAL_EXTRA_FIELDS, a small JSON of field→value merged into
+#   every deal, so future admin-added mandatory fields are an env edit:
+#   ZOHO_CRM_DEAL_EXTRA_FIELDS='{"Business_Type": "Retail GST Billing"}'
+ZOHO_CRM_DEAL_AMOUNT_DEFAULT = float(os.environ.get("ZOHO_CRM_DEAL_AMOUNT_DEFAULT", "0") or 0)
+ZOHO_CRM_DEAL_CLOSING_DAYS   = int(os.environ.get("ZOHO_CRM_DEAL_CLOSING_DAYS", "30"))
+ZOHO_CRM_PIPELINE_RETAIL     = os.environ.get("ZOHO_CRM_PIPELINE_RETAIL", "")
+ZOHO_CRM_PIPELINE_PROJECT    = os.environ.get("ZOHO_CRM_PIPELINE_PROJECT", "")
+import json as _json  # noqa: E402
+try:
+    ZOHO_CRM_DEAL_EXTRA_FIELDS = _json.loads(
+        os.environ.get("ZOHO_CRM_DEAL_EXTRA_FIELDS", "") or "{}")
+    if not isinstance(ZOHO_CRM_DEAL_EXTRA_FIELDS, dict):
+        raise ValueError("must be a JSON object")
+except Exception as _e:  # noqa: BLE001
+    print(f"[config] ZOHO_CRM_DEAL_EXTRA_FIELDS invalid JSON ({_e}) — ignoring")
+    ZOHO_CRM_DEAL_EXTRA_FIELDS = {}
+
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
 # Chatwoot API. On a single-VM deployment this is `http://localhost:3000`
