@@ -134,7 +134,17 @@ class Api::V1::Accounts::ConversationsController < Api::V1::Accounts::BaseContro
   end
 
   def custom_attributes
-    @conversation.custom_attributes = params.permit(custom_attributes: {})[:custom_attributes]
+    # MERGE semantics (fork change — upstream REPLACES the whole hash).
+    # Multiple writers share this JSONB column: the zoho-bridge stashes
+    # routing/CRM state (email_category_v2, crm_contact_id, zoho_tickets,
+    # phase2 loop-guard markers) while the dashboard edits user-facing
+    # attributes. Under replace semantics, any partial write from the UI
+    # wiped everything the bridge had stored. Merging fixes that; a key
+    # explicitly set to null is DELETED (the sidebar's delete flow sends
+    # `{key: null}`).
+    incoming = params.permit(custom_attributes: {})[:custom_attributes].to_h
+    merged = (@conversation.custom_attributes || {}).merge(incoming)
+    @conversation.custom_attributes = merged.reject { |_k, v| v.nil? }
     @conversation.save!
   end
 

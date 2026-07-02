@@ -84,10 +84,11 @@ async function resolve(choice, targetTicketId = null) {
       }
     );
     // The bridge has already cleared pending_zoho_ticket server-side; mirror
-    // that locally so Vuex updates and this panel disappears without waiting
-    // for a websocket push. `updateCustomAttributes` is idempotent — a second
-    // write of the same null is a no-op on the backend.
-    await store.dispatch('updateCustomAttributes', {
+    // ONLY in the local store so the panel disappears immediately. Never POST
+    // this to the API: Chatwoot's custom_attributes endpoint REPLACES the
+    // whole hash, so a single-key write from here wiped the conversation's
+    // other attributes — including the zoho_tickets sidebar history.
+    store.commit('UPDATE_CONVERSATION_CUSTOM_ATTRIBUTES', {
       conversationId: Number(props.conversationId),
       customAttributes: { pending_zoho_ticket: null },
     });

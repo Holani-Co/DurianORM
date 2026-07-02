@@ -69,9 +69,12 @@ async function confirm(category) {
         ...(category === BULK_CATEGORY ? { sector: selectedSector.value } : {}),
       }
     );
-    // Bridge clears pending_category_decision server-side; mirror locally so
-    // the panel disappears without waiting for a websocket push.
-    await store.dispatch('updateCustomAttributes', {
+    // Bridge clears pending_category_decision server-side; mirror ONLY in the
+    // local store so the panel disappears immediately. Never POST this to the
+    // API: Chatwoot's custom_attributes endpoint REPLACES the whole hash, so
+    // a single-key write from here wiped everything the bridge had just
+    // stored (category, CRM contact id, phase2 loop-guard marker).
+    store.commit('UPDATE_CONVERSATION_CUSTOM_ATTRIBUTES', {
       conversationId: Number(props.conversationId),
       customAttributes: { pending_category_decision: null },
     });

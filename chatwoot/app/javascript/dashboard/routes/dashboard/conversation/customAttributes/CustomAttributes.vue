@@ -221,11 +221,14 @@ const onUpdate = async (key, value) => {
 
 const onDelete = async key => {
   try {
-    const { [key]: remove, ...updatedAttributes } = customAttributes.value;
     if (props.attributeType === 'conversation_attribute') {
+      // The conversation custom_attributes endpoint MERGES (fork change) —
+      // deletion is expressed as an explicit null for the key, not by
+      // omitting it from a full replacement set (which, with multiple
+      // writers, wiped attributes other systems had stored).
       await store.dispatch('updateCustomAttributes', {
         conversationId: conversationId.value,
-        customAttributes: updatedAttributes,
+        customAttributes: { [key]: null },
       });
     } else {
       store.dispatch('contacts/deleteCustomAttributes', {
