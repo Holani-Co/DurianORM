@@ -36,9 +36,22 @@ class Api::V1::Accounts::Conversations::MessagesController < Api::V1::Accounts::
     message.update!(content_attributes: attrs.merge('sent' => true,
                                                     'sent_by' => Current.user&.available_name.presence || Current.user&.name))
     # Tag who replied so the reviews inbox can filter "replied by <agent>".
-    # add_labels adds a tagging (no Label record) — filterable, no sidebar clutter.
-    message.conversation.add_labels(["replied-by-#{Current.user.id}"]) if Current.user
+    # Uses a slug of the agent's name (`replied-by-aditya`) — much more
+    # readable than the raw id (`replied-by-1`) that shows up as a label chip
+    # on the conversation card.
+    if Current.user
+      slug = replied_by_slug(Current.user)
+      message.conversation.add_labels(["replied-by-#{slug}"]) if slug.present?
+    end
     @message = message
+  end
+
+  # Slugify a User's display name for the `replied-by-<slug>` label. Falls back
+  # through name → email local-part → id so we NEVER return an empty slug.
+  def replied_by_slug(user)
+    raw = user.available_name.presence || user.name.presence || user.email.to_s.split('@').first.to_s
+    slug = raw.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/(^-+|-+$)/, '')
+    slug.presence || user.id.to_s
   end
 
   def retry
