@@ -115,8 +115,12 @@ async def search_contact_by_email(email: str) -> Optional[dict]:
 
 
 async def create_contact(sender_email: str, sender_name: str,
-                         phone: str = "", source: str = "Chatwoot") -> dict:
-    """Create a new CRM Contact. Returns the created record ({id, …})."""
+                         phone: str = "", source: str = "Chatwoot",
+                         owner_id: str = "") -> dict:
+    """Create a new CRM Contact. Returns the created record ({id, …}).
+
+    owner_id (a Zoho user id) assigns the record to a location's salesperson —
+    the record shows up under their name/territory instead of the API user."""
     first, last = _split_name(sender_name, sender_email)
     record = {
         "Last_Name":  last,
@@ -126,6 +130,8 @@ async def create_contact(sender_email: str, sender_name: str,
     }
     if phone:
         record["Phone"] = phone
+    if owner_id:
+        record["Owner"] = {"id": str(owner_id)}
     resp = await _crm_request("POST", "/Contacts", json_body={"data": [record]})
     entry = (resp.get("data") or [{}])[0]
     if entry.get("code") != "SUCCESS":
@@ -156,10 +162,15 @@ def _duplicate_id_from_error(err_text: str) -> Optional[str]:
 
 
 async def find_or_create_contact(sender_email: str, sender_name: str,
-                                 phone: str = "") -> tuple[str, bool]:
+                                 phone: str = "",
+                                 owner_id: str = "") -> tuple[str, bool]:
     """Return (contact_id, created). Idempotent — a repeat call for the same
     email returns the existing id and created=False, even when Zoho's search
     index hasn't caught up yet (we recover from the DUPLICATE_DATA response).
+
+    owner_id (if given) assigns a newly-created Contact to that Zoho user. Note:
+    a REUSED contact keeps its current owner — we don't reassign existing
+    records (that would fight manual reassignments sales made).
 
     Empty email → returns ("", False). CRM requires an email to dedup, and
     creating an emailless contact would be worse than skipping the push."""
@@ -169,7 +180,8 @@ async def find_or_create_contact(sender_email: str, sender_name: str,
     if found:
         return str(found.get("id") or ""), False
     try:
-        created = await create_contact(sender_email, sender_name, phone)
+        created = await create_contact(sender_email, sender_name, phone,
+                                       owner_id=owner_id)
         return str(created.get("id") or ""), True
     except RuntimeError as e:
         # Search index lag → creation collided. Reuse the existing record.
@@ -220,43 +232,25 @@ async def create_note(parent_module: str, parent_id: str,
     return entry.get("details") or {}
 
 
-# ── Lead ──────────────────────────────────────────────────────────────────
-async def create_lead(sender_email: str, sender_name: str,
-                      description: str, company: str = "",
-                      phone: str = "", source: str = "Chatwoot") -> dict:
-    """Create a CRM Lead from an incoming enquiry. Zoho requires Last_Name +
-    Company on Leads (unlike Contacts). Returns the created record's details."""
-    first, last = _split_name(sender_name, sender_email)
-    record = {
-        "Last_Name":   last,
-        "First_Name":  first,
-        "Email":       sender_email,
-        "Company":     company or "(unknown)",  # Zoho hard-requires Company on Leads
-        "Lead_Source": source,
-        "Description": (description or "")[:NOTE_CONTENT_MAX],
-    }
-    if phone:
-        record["Phone"] = phone
-    resp = await _crm_request("POST", "/Leads", json_body={"data": [record]})
-    entry = (resp.get("data") or [{}])[0]
-    if entry.get("code") != "SUCCESS":
-        # Reconcile DUPLICATE_DATA the same way Contact does — a re-click on
-        # the button shouldn't spam CRM with duplicate leads.
-        dup = (entry.get("details") or {}).get("duplicate_record") or {}
-        if entry.get("code") == "DUPLICATE_DATA" and dup.get("id"):
-            return {"id": str(dup["id"]), "duplicate": True}
-        raise RuntimeError(f"Zoho CRM create_lead failed: {entry}")
-    return entry.get("details") or {}
+# NOTE: no create_lead — the client treats Leads and Deals as the same thing,
+# so the integration only creates Contacts (+Notes) and Deals.
 
 
 # ── Deal ──────────────────────────────────────────────────────────────────
 async def create_deal(contact_id: str, deal_name: str,
                       description: str, stage: str = "",
-                      source: str = "Chatwoot") -> dict:
+                      source: str = "Chatwoot", owner_id: str = "",
+                      vertical: str = "") -> dict:
     """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
     Stage falls back to config.ZOHO_CRM_DEAL_DEFAULT_STAGE — set that to your
     pipeline's first stage (e.g. 'Qualification'). If the stage doesn't exist
-    in your CRM you get a clear INVALID_DATA error identifying the field."""
+    in your CRM you get a clear INVALID_DATA error identifying the field.
+
+    owner_id assigns the Deal to a location's salesperson. vertical
+    (Furniture / Doors, from the client matrix) is written to the field named
+    by ZOHO_CRM_VERTICAL_FIELD when that's configured — otherwise it only
+    appears in the Description. The client's CRM Layout column is all
+    'Standard' (Zoho's default layout), so no Layout field is sent."""
     record = {
         "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
         "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
@@ -267,6 +261,10 @@ async def create_deal(contact_id: str, deal_name: str,
         # Link the Deal to the Contact — Zoho's "Contact_Name" field on Deals
         # is a lookup (accepts {"id": "..."} shape).
         record["Contact_Name"] = {"id": contact_id}
+    if owner_id:
+        record["Owner"] = {"id": str(owner_id)}
+    if vertical and config.ZOHO_CRM_VERTICAL_FIELD:
+        record[config.ZOHO_CRM_VERTICAL_FIELD] = vertical
     resp = await _crm_request("POST", "/Deals", json_body={"data": [record]})
     entry = (resp.get("data") or [{}])[0]
     if entry.get("code") != "SUCCESS":
@@ -286,10 +284,6 @@ def _ui_base() -> str:
 def contact_url(contact_id: str) -> str:
     """Deep-link into a Contact record in Zoho CRM."""
     return f"{_ui_base()}/crm/tab/Contacts/{contact_id}" if contact_id else ""
-
-
-def lead_url(lead_id: str) -> str:
-    return f"{_ui_base()}/crm/tab/Leads/{lead_id}" if lead_id else ""
 
 
 def deal_url(deal_id: str) -> str:

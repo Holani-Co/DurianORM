@@ -942,18 +942,22 @@ NEEDS_REGION_REVIEW_LABEL = "needs-region-review"
 
 
 async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
-    """Private bulk order whose state/region is unclear (or a state with no
-    configured handler). Don't forward to a guessed regional desk — leave it
-    in-channel with a note + label so an agent routes it."""
+    """Bulk order whose state/region is unclear (or a state with no configured
+    handler). Don't forward to a guessed regional desk — leave it in-channel
+    with a note + label so an agent routes it. Sector-aware: government and
+    private bulk orders both have region routing, so the note names the actual
+    sector instead of assuming private (which mislabelled govt orders)."""
     region = category_result.get("region") or "unclear"
     rconf  = int(round(float(category_result.get("region_confidence") or 0) * 100))
     reason = category_result.get("region_reason") or ""
+    sector = (category_result.get("sector") or "private").lower()
+    sector_label = "government" if sector == "government" else "private"
     lines = [
-        "📍 **Private bulk order — region needs an agent decision**",
+        f"📍 **{sector_label.capitalize()} bulk order — region needs an agent decision**",
         "",
-        "This is a **private project / bulk order**, but I couldn't confidently "
-        "place the customer's state among the regions we route automatically "
-        "(Karnataka, Delhi, Telangana, Maharashtra). It has **not** been "
+        f"This is a **{sector_label} project / bulk order**, but I couldn't "
+        "confidently place the customer's state among the regions we route "
+        "automatically. It has **not** been "
         f"forwarded — best guess was **{region}** ({rconf}%).",
     ]
     if reason:
@@ -1023,6 +1027,23 @@ async def _resolve_category_decision(conv_id: int, category: str,
         category_result["sector"] = chosen_sector
         category_result["sector_confidence"] = 1.0
         category_result["sector_reason"] = "Confirmed by agent."
+
+    # Persist the agent's decision onto email_category_v2 — the CRM panel
+    # gates its Create Deal button on the stored category, and the deal-owner
+    # resolver trusts an agent-confirmed sector (confidence 1.0) so the agent
+    # is never asked to pick government/private twice.
+    try:
+        existing_v2 = (conv.get("custom_attributes") or {}).get("email_category_v2") or {}
+        v2_update = {**existing_v2, "category": category,
+                     "display_name": rule.get("display_name") or category,
+                     "confidence": 1.0, "reason": "Confirmed by agent."}
+        if chosen_sector:
+            v2_update.update({"sector": chosen_sector, "sector_confidence": 1.0,
+                              "sector_reason": "Confirmed by agent."})
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"email_category_v2": v2_update})
+    except Exception as e:
+        print(f"[category-decision] email_category_v2 merge failed: {e}")
 
     # Carry the spam/intent label (automated / promotional / …) through so the
     # action layer can suppress the customer acknowledgment for automated mail
@@ -1335,6 +1356,48 @@ def _crm_note_body(sender_name: str, sender_email: str,
     return title, "\n".join(lines)
 
 
+async def _resolve_crm_owner(message_body: str, subject: str,
+                             sender_email: str) -> dict:
+    """Resolve a product enquiry's LOCATION → the CRM owner for that showroom.
+
+    Reads the `crm_owner_routing` block from the routing rules (location key →
+    {owner_email, owner_id, business_vertical}). Uses the AI region classifier
+    to map the enquiry to one of those location keys.
+
+    Returns one of:
+      {"configured": False}                      — no crm_owner_routing set;
+                                                    caller pushes WITHOUT an owner
+      {"configured": True, "location": None}     — configured but location could
+                                                    NOT be determined → caller
+                                                    SKIPS CRM entirely (client rule)
+      {"configured": True, "location": <key>, "owner_id", "owner_email",
+       "vertical"}                               — matched; assign this owner
+    """
+    routing = (classifier._ROUTING_RULES or {}).get("crm_owner_routing") or {}
+    # `govt` is the government-deals owner, `default` a reserved key — neither
+    # is a geographic location, so keep them out of the region classifier.
+    keys = [k for k in routing.keys() if k not in ("default", "govt")]
+    if not keys:
+        return {"configured": False}
+    try:
+        region = await classifier.classify_region(
+            message_body, sender_email, subject, region_keys=keys)
+    except Exception as e:
+        print(f"[crm] location classify failed: {e}")
+        return {"configured": True, "location": None}
+    loc = region.get("region")
+    if not loc or loc == "other" or loc not in routing:
+        return {"configured": True, "location": None}
+    entry = routing.get(loc) or {}
+    return {
+        "configured":  True,
+        "location":    loc,
+        "owner_id":    str(entry.get("owner_id") or ""),
+        "owner_email": entry.get("owner_email") or "",
+        "vertical":    entry.get("business_vertical") or "",
+    }
+
+
 async def _push_contact_and_note(conv_id: int, sender_name: str,
                                  sender_email: str, subject: str,
                                  message_body: str, category_key: str,
@@ -1343,17 +1406,31 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
     """Best-effort: find/create the CRM Contact and attach a Note with the
     enquiry summary. Returns an audit line describing what happened.
 
-    Idempotent via Chatwoot custom_attributes: once crm_contact_id is set on
-    the conversation we skip contact creation but still attach a Note for
-    the new message. Failures NEVER raise — CRM is downstream of the ack +
-    forward path and must not block them."""
+    Location-gated (client rule): when crm_owner_routing is configured and the
+    enquiry's location can't be determined, we do NOT tag CRM at all. When it
+    resolves, the Contact is created under that location's owner.
+
+    Idempotent via Chatwoot custom_attributes. Failures NEVER raise — CRM is
+    downstream of the ack + forward path and must not block them."""
     if not config.ZOHO_CRM_ENABLED:
         return ""
     if not sender_email:
         return "ℹ️ CRM push skipped — no sender email to key a Contact on."
+
+    # Location → owner. Client rule: no location = no CRM tag at all.
+    owner = await _resolve_crm_owner(message_body, subject, sender_email)
+    if owner.get("configured") and owner.get("location") is None:
+        return ("ℹ️ CRM push skipped — location could not be determined "
+                "(no CRM owner to route to).")
+    owner_id    = owner.get("owner_id", "")
+    owner_email = owner.get("owner_email", "")
+    location    = owner.get("location") or ""
+    owner_line  = (f"\n👤 CRM owner: {location} → {owner_email}"
+                   if location else "")
+
     if config.ZOHO_CRM_DRY_RUN:
         return (f"🔍 CRM dry-run: would upsert Contact for {sender_email} + "
-                f"attach a Note (category: {category_display or category_key}).")
+                f"attach a Note.{owner_line}")
 
     try:
         conv = await chatwoot.get_conversation(conv_id)
@@ -1369,7 +1446,7 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
     if not contact_id:
         try:
             contact_id, created = await zoho_crm.find_or_create_contact(
-                sender_email, sender_name)
+                sender_email, sender_name, owner_id=owner_id)
         except Exception as e:
             print(f"[crm] find_or_create_contact failed for {sender_email}: {e}")
             return f"⚠️ CRM Contact push failed: {e}"
@@ -1385,21 +1462,16 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
         await zoho_crm.create_note("Contacts", contact_id, title, body)
     except Exception as e:
         print(f"[crm] create_note failed for contact {contact_id}: {e}")
-        # Contact still succeeded — record what we managed to do.
         if str(existing_id or "") != str(contact_id):
             await _remember_crm_contact_id(conv_id, contact_id)
         return f"⚠️ CRM Note attach failed (contact {contact_id} created): {e}"
 
-    # Always stash the id — even when we REUSED an existing Contact — so the
-    # CRM sidebar panel sees it. Previously we only stashed on create, which
-    # meant conversations whose sender was already in CRM never got the id
-    # written to Chatwoot and the panel showed "No CRM Contact linked yet".
     if str(existing_id or "") != str(contact_id):
         await _remember_crm_contact_id(conv_id, contact_id)
     link = zoho_crm.contact_url(contact_id)
     action = "created" if created else "reused"
-    return (f"✅ CRM Contact {action} + note attached "
-            f"([{contact_id}]({link})).")
+    return (f"✅ CRM Contact {action} + note attached — "
+            f"[View in Zoho CRM]({link}).{owner_line}")
 
 
 async def _remember_crm_contact_id(conv_id: int, contact_id: str):
@@ -2015,6 +2087,23 @@ async def handle_message_created(data: dict) -> dict:
     category_confident = bool(category_result) and \
         category_result.get("category") != "fallback"
 
+    # Persist the classification NOW — before any gate can return early.
+    # Region-gated bulk orders, sector-review cards, and low-confidence
+    # decisions all used to exit without storing email_category_v2, which
+    # left the CRM sidebar panel blind (no category → no Create Deal button)
+    # and the deal-owner resolver without a sector to read.
+    if category_result is not None:
+        try:
+            await chatwoot.merge_custom_attributes(conv_id, {
+                "email_category_v2": {
+                    **category_result,
+                    "classified_at": _now_iso(),
+                    "display_name": (rule or {}).get("display_name"),
+                },
+            })
+        except Exception as e:
+            print(f"[category-v2] early merge_custom_attributes failed: {e}")
+
     # AUTO bar: the categoriser only forwards/acts on its own when confidence
     # is at/above CATEGORY_AUTO_CONFIDENCE (default 0.9). Below it — including
     # the fallback band — a human confirms the category first (decision card).
@@ -2088,16 +2177,8 @@ async def handle_message_created(data: dict) -> dict:
     # Phase 2B (PHASE_2_DRY_RUN=false): actually acknowledge + forward.
     if category_result is not None:
       try:
-        await chatwoot.merge_custom_attributes(conv_id, {
-            "email_category_v2": {
-                **category_result,
-                "classified_at": _now_iso(),
-                # Capture WHICH category was picked but stop short of
-                # serialising the full YAML rule (forward_to / cc / bcc)
-                # — Phase 2 will re-resolve it on the fly when forwarding.
-                "display_name": (rule or {}).get("display_name"),
-            },
-        })
+        # (email_category_v2 is persisted earlier, right after classification,
+        # so gate-exited conversations keep their category too.)
 
         # Loop guard: if this conv has already been Phase-2-handled, do
         # NOT execute actions again. Reply lands as a new incoming
@@ -2606,17 +2687,17 @@ def _conv_first_incoming_body(messages: list) -> tuple[str, str]:
     return "", ""
 
 
-async def _ensure_crm_contact(conv_id: int, conv: dict) -> str:
+async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "") -> str:
     """Return the crm_contact_id for this conversation, creating one if needed.
     Reuses the crm_contact_id stashed by the auto path (Phase A) so we don't
-    create a duplicate."""
+    create a duplicate. owner_id assigns a newly-created Contact."""
     custom = conv.get("custom_attributes") or {}
     if custom.get("crm_contact_id"):
         return str(custom["crm_contact_id"])
     name, email = _conv_sender(conv)
     if not email:
         raise HTTPException(400, "conversation has no sender email — cannot key a CRM Contact")
-    contact_id, created = await zoho_crm.find_or_create_contact(email, name)
+    contact_id, created = await zoho_crm.find_or_create_contact(email, name, owner_id=owner_id)
     if not contact_id:
         raise HTTPException(500, "CRM Contact could not be created")
     if created:
@@ -2628,78 +2709,171 @@ async def _ensure_crm_contact(conv_id: int, conv: dict) -> str:
     return contact_id
 
 
-@app.post("/chatwoot/crm/create-lead")
-async def chatwoot_crm_create_lead(request: Request):
-    """Create a CRM Lead for this conversation (idempotent via crm_lead_id)."""
-    if not config.ZOHO_CRM_ENABLED:
-        raise HTTPException(503, "CRM not configured")
-    body = await request.json()
-    conv_id = body.get("conversation_id")
-    if not conv_id:
-        raise HTTPException(400, "missing conversation_id")
+# NOTE: there is intentionally NO "create lead" endpoint — the client treats
+# Leads and Deals as the same thing, so the only manual CRM action is Deal
+# creation (per the deal-qualification flow: Govt → govt owner; otherwise
+# location-wise owner; human approval = the agent clicking the button).
+
+
+async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
+                              sender_email: str,
+                              sector_override: str = "") -> dict:
+    """Owner resolution for DEALS per the client's qualification flow:
+
+      Govt / CPWD buyer  → the dedicated `govt` owner in crm_owner_routing
+                           (Delhi office / govt location) — location-independent.
+      Private / retail   → location-wise owner (AI-extracted city, same as the
+                           auto Contact+Note path).
+
+    "Govt/CPWD?" is the FIRST decision for every deal (per the client's flow
+    diagram). Sector precedence:
+      1. sector_override — the AGENT's explicit choice (the panel asks when
+         classification was ambiguous),
+      2. the stored classification (email_category_v2.sector),
+      3. a fresh classify_bulk_sector call (keyword + domain signals from the
+         routing rules) — needed because region-gated bulk orders exit the
+         pipeline before anything is stored.
+    A below-bar fresh classification returns sector_unclear=True so the
+    endpoint can ask the agent instead of guessing."""
+    cat_v2 = custom.get("email_category_v2") or {}
+    sector = (sector_override or "").lower()
+    if sector not in ("government", "private"):
+        # Trust the stored sector only when the pipeline was confident about
+        # it (or an agent set it — those are stored with confidence 1.0).
+        # A below-bar stored guess must NOT silently route the deal.
+        stored_conf = float(cat_v2.get("sector_confidence") or 0)
+        if stored_conf >= config.BULK_SECTOR_AUTO_CONFIDENCE:
+            sector = (cat_v2.get("sector") or "").lower()
+        else:
+            sector = ""
+    if not sector:
+        try:
+            s = await classifier.classify_bulk_sector(body_text, sender_email, subject)
+            if float(s.get("confidence") or 0) >= config.BULK_SECTOR_AUTO_CONFIDENCE:
+                sector = (s.get("sector") or "").lower()
+            else:
+                # Ambiguous buyer type → the agent decides (panel shows a
+                # Government / Private choice), we never guess.
+                return {"configured": True, "location": None,
+                        "sector_unclear": True,
+                        "reason": "buyer type unclear — agent must pick "
+                                  "government or private"}
+        except Exception as e:
+            print(f"[crm] deal sector classify failed: {e}")
+            return {"configured": True, "location": None,
+                    "sector_unclear": True,
+                    "reason": f"buyer-type classification failed: {e}"}
+
+    if sector == "government":
+        routing = (classifier._ROUTING_RULES or {}).get("crm_owner_routing") or {}
+        govt = routing.get("govt") or {}
+        if govt.get("owner_id"):
+            return {"configured": True, "location": "govt",
+                    "owner_id":    str(govt.get("owner_id")),
+                    "owner_email": govt.get("owner_email") or "",
+                    "vertical":    govt.get("business_vertical") or ""}
+        # Govt buyer but no govt owner configured → treat as unresolvable
+        # rather than silently assigning a showroom salesperson.
+        return {"configured": True, "location": None,
+                "reason": "government buyer but no `govt` owner configured"}
+
+    # Doors enquiries have their own two-desk routing (client matrix rows with
+    # Business Vertical = Doors): Bangalore → Bangalore desk, everywhere else
+    # → the catch-all desk. Mirrors the doors email routing.
+    category = (cat_v2.get("category") or custom.get("phase2_category") or "")
+    doors = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_doors") or {}
+    if category == "doors_veneer_plywood" and doors:
+        try:
+            loc = await classifier.classify_doors_location(
+                body_text, sender_email, subject)
+            key = "bangalore" if loc.get("location") == "bangalore" else "other"
+        except Exception as e:
+            print(f"[crm] doors location classify failed: {e}")
+            key = "other"  # catch-all desk — same default the email routing uses
+        entry = doors.get(key) or {}
+        if entry.get("owner_id"):
+            return {"configured": True, "location": f"doors-{key}",
+                    "owner_id":    str(entry.get("owner_id")),
+                    "owner_email": entry.get("owner_email") or "",
+                    "vertical":    entry.get("business_vertical") or "Doors"}
+
+    return await _resolve_crm_owner(body_text, subject, sender_email)
+
+
+def _deal_transcript(messages: list, max_msgs: int = 12,
+                     max_chars: int = 5000) -> str:
+    """Human-readable transcript of the public conversation for the Deal
+    description — Customer/Agent prefixed, newest-complete, capped so a long
+    thread can't blow past Zoho's field limits."""
+    lines = []
+    for m in messages:
+        if m.get("private"):
+            continue
+        mtype = m.get("message_type")
+        if mtype in (0, "incoming"):
+            who = "Customer"
+        elif mtype in (1, "outgoing"):
+            who = "Agent"
+        else:
+            continue
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        lines.append(f"{who}: {content[:600]}")
+    text = "\n\n".join(lines[-max_msgs:])
+    return text[:max_chars]
+
+
+async def _deal_description(conv_id: int, conv: dict, messages: list,
+                            name: str, email: str, subject: str,
+                            category_display: str, owner: dict) -> str:
+    """Everything a salesperson needs, in the Deal's Description: who the
+    customer is (incl. phone when Chatwoot has it), what they asked for
+    (AI summary + transcript), how it was qualified (category/sector/
+    location), and a link back to the full Chatwoot conversation."""
+    sender = (conv.get("meta") or {}).get("sender") or {}
+    phone  = sender.get("phone_number") or ""
+    sector = "government" if owner.get("location") == "govt" else "private"
+    link   = (f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
+              f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")
+    parts = [
+        f"Category:  {category_display}",
+        f"Sector:    {sector}",
+        f"Location:  {owner.get('location') or 'n/a'}",
+        f"Vertical:  {owner.get('vertical') or 'Furniture'}",
+        f"Store:     {owner.get('owner_email') or 'n/a'}",
+        f"From:      {name or email} <{email}>" + (f" · {phone}" if phone else ""),
+        f"Subject:   {subject or '(no subject)'}",
+        f"Chatwoot:  {link}",
+    ]
+    # AI summary — same summarizer the Desk tickets use. Best-effort.
     try:
-        conv     = await chatwoot.get_conversation(int(conv_id))
-        messages = await chatwoot.get_conversation_messages(int(conv_id))
-    except Exception as e:
-        raise HTTPException(500, f"could not read conversation: {e}")
-
-    custom = conv.get("custom_attributes") or {}
-    if custom.get("crm_lead_id"):
-        # Already linked — nothing to do, return the existing id.
-        return {"lead_id": custom["crm_lead_id"], "created": False,
-                "url": zoho_crm.lead_url(str(custom["crm_lead_id"]))}
-
-    name, email = _conv_sender(conv)
-    subject, body_text = _conv_first_incoming_body(messages)
-    category_display = (custom.get("email_category_v2") or {}).get("display_name") \
-                       or (custom.get("email_category_v2") or {}).get("category") \
-                       or "Chatwoot enquiry"
-
-    if config.ZOHO_CRM_DRY_RUN:
-        return {"lead_id": "", "created": False, "dry_run": True,
-                "message": f"[dry-run] would create Lead for {email} ({category_display})"}
-
-    description = (
-        f"Category: {category_display}\n"
-        f"From: {name or email} <{email}>\n"
-        f"Subject: {subject or '(no subject)'}\n\n"
-        f"{body_text or '(no body)'}"
-    )
-    try:
-        lead = await zoho_crm.create_lead(
-            sender_email=email, sender_name=name,
-            description=description, source="Chatwoot",
-        )
-    except Exception as e:
-        raise HTTPException(500, f"CRM create_lead failed: {e}")
-
-    lead_id = str(lead.get("id") or "")
-    try:
-        await chatwoot.merge_custom_attributes(
-            int(conv_id), {"crm_lead_id": lead_id})
-    except Exception as e:
-        print(f"[crm] merge crm_lead_id failed for conv {conv_id}: {e}")
-
-    # Audit note — surfaces in the conversation thread like other automations.
-    try:
-        agent_name = body.get("agent_name") or "an agent"
-        await chatwoot.post_private_note(
-            int(conv_id),
-            f"✅ CRM Lead created by {agent_name} — [{lead_id}]"
-            f"({zoho_crm.lead_url(lead_id)})",
-        )
-    except Exception as e:
-        print(f"[crm] Lead audit note failed for conv {conv_id}: {e}")
-
-    return {"lead_id": lead_id, "created": True,
-            "url": zoho_crm.lead_url(lead_id),
-            "duplicate": bool(lead.get("duplicate"))}
+        summary = await summarizer.summarize_conversation(messages) if messages else {}
+    except Exception:
+        summary = {}
+    if summary.get("summary") or summary.get("customer_goal"):
+        parts.append("")
+        parts.append("--- Summary ---")
+        if summary.get("summary"):
+            parts.append(f"What happened: {summary['summary']}")
+        if summary.get("customer_goal"):
+            parts.append(f"Customer wants: {summary['customer_goal']}")
+        if summary.get("next_step"):
+            parts.append(f"Suggested next step: {summary['next_step']}")
+    transcript = _deal_transcript(messages)
+    if transcript:
+        parts.append("")
+        parts.append("--- Conversation ---")
+        parts.append(transcript)
+    return "\n".join(parts)
 
 
 @app.post("/chatwoot/crm/create-deal")
 async def chatwoot_crm_create_deal(request: Request):
     """Create a CRM Deal linked to the CRM Contact for this conversation.
-    Idempotent via crm_deal_id."""
+    Idempotent via crm_deal_id. Body: {conversation_id, agent_name?, sector?}
+    — `sector` is the agent's government/private choice when classification
+    was ambiguous (the endpoint returns 409 to request it)."""
     if not config.ZOHO_CRM_ENABLED:
         raise HTTPException(503, "CRM not configured")
     body = await request.json()
@@ -2723,29 +2897,58 @@ async def chatwoot_crm_create_deal(request: Request):
                        or (custom.get("email_category_v2") or {}).get("category") \
                        or "Chatwoot Deal"
 
+    # Deal-qualification flow: Govt buyer → govt owner; otherwise
+    # location-wise owner. Ambiguous buyer type → 409 so the panel asks the
+    # agent to pick Government/Private. Unresolvable location → 422, do NOT
+    # tag CRM (client rule).
+    sector_override = (body.get("sector") or "").lower()
+    owner = await _resolve_deal_owner(custom, body_text, subject, email,
+                                      sector_override=sector_override)
+    if owner.get("sector_unclear"):
+        raise HTTPException(409, owner.get("reason") or "buyer type unclear")
+    if owner.get("configured") and owner.get("location") is None:
+        raise HTTPException(
+            422, owner.get("reason")
+            or "location could not be determined — not tagging to CRM")
+    owner_id = owner.get("owner_id", "")
+
+    # Remember the agent's sector decision so re-runs / other flows see it.
+    if sector_override in ("government", "private"):
+        try:
+            cat_v2 = custom.get("email_category_v2") or {}
+            await chatwoot.merge_custom_attributes(int(conv_id), {
+                "email_category_v2": {
+                    **cat_v2,
+                    "sector": sector_override,
+                    "sector_reason": "Chosen by agent at deal creation.",
+                }})
+        except Exception as e:
+            print(f"[crm] merge agent sector failed for conv {conv_id}: {e}")
+
     if config.ZOHO_CRM_DRY_RUN:
         return {"deal_id": "", "created": False, "dry_run": True,
-                "message": f"[dry-run] would create Deal for {email} ({category_display})"}
+                "message": f"[dry-run] would create Deal for {email} "
+                           f"(owner {owner.get('owner_email') or 'default'})"}
 
-    # Deal needs a linked Contact. If none yet, create/find one first.
+    # Deal needs a linked Contact. If none yet, create/find one first (owned by
+    # the same location owner).
     try:
-        contact_id = await _ensure_crm_contact(int(conv_id), conv)
+        contact_id = await _ensure_crm_contact(int(conv_id), conv, owner_id=owner_id)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"CRM Contact resolve failed: {e}")
 
-    description = (
-        f"Category: {category_display}\n"
-        f"From: {name or email} <{email}>\n"
-        f"Subject: {subject or '(no subject)'}\n\n"
-        f"{body_text or '(no body)'}"
-    )
+    description = await _deal_description(
+        conv_id=int(conv_id), conv=conv, messages=messages,
+        name=name, email=email, subject=subject,
+        category_display=category_display, owner=owner)
     deal_name = f"{name or email} — {category_display}"[:255]
     try:
         deal = await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
-            description=description, source="Chatwoot",
+            description=description, source="Chatwoot", owner_id=owner_id,
+            vertical=owner.get("vertical", ""),
         )
     except Exception as e:
         raise HTTPException(500, f"CRM create_deal failed: {e}")
@@ -2761,8 +2964,8 @@ async def chatwoot_crm_create_deal(request: Request):
         agent_name = body.get("agent_name") or "an agent"
         await chatwoot.post_private_note(
             int(conv_id),
-            f"✅ CRM Deal created by {agent_name} — [{deal_id}]"
-            f"({zoho_crm.deal_url(deal_id)})",
+            f"✅ CRM Deal created by {agent_name} — "
+            f"[View Deal in Zoho CRM]({zoho_crm.deal_url(deal_id)})",
         )
     except Exception as e:
         print(f"[crm] Deal audit note failed for conv {conv_id}: {e}")

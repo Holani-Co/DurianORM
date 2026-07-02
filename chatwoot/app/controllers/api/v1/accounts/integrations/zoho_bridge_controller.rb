@@ -65,16 +65,12 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
   end
 
-  # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_lead
-  #   body: { conversation_id }
-  # Agent clicked "Create Lead" in the CRM sidebar panel — the bridge finds/
-  # creates the Contact then creates a Lead linked to it.
-  def create_crm_lead
-    proxy_to_bridge('/chatwoot/crm/create-lead', 30)
-  end
-
   # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_deal
   #   body: { conversation_id }
+  # Agent clicked "Create Deal" in the CRM sidebar panel — the bridge resolves
+  # the owner (govt → govt owner; else location-wise) and creates the Deal
+  # linked to the sender's CRM Contact. (No create-lead: the client treats
+  # Leads and Deals as the same thing.)
   def create_crm_deal
     proxy_to_bridge('/chatwoot/crm/create-deal', 30)
   end

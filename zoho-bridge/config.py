@@ -40,15 +40,9 @@ ZOHO_CRM_AUTO_CATEGORIES = tuple(
         "product_enquiry,general_information,existing_order_enquiry",
     ).split(",") if c.strip()
 )
-# Categories that show the "Create Lead" button in the CRM sidebar panel.
-ZOHO_CRM_LEAD_CATEGORIES = tuple(
-    c.strip() for c in os.environ.get(
-        "ZOHO_CRM_LEAD_CATEGORIES",
-        "product_enquiry,general_information,existing_order_enquiry",
-    ).split(",") if c.strip()
-)
-# Categories that show the "Create Deal" button. Includes the Lead ones so an
-# agent can pick Lead OR Deal for the same enquiry (per product decision).
+# Categories that show the "Create Deal" button in the CRM sidebar panel.
+# (There is deliberately NO "Create Lead" — the client treats Leads and Deals
+# as the same thing, so Deal is the only manual CRM action.)
 ZOHO_CRM_DEAL_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_DEAL_CATEGORIES",
@@ -62,6 +56,12 @@ ZOHO_CRM_DEAL_CATEGORIES = tuple(
 ZOHO_CRM_DEAL_DEFAULT_STAGE = os.environ.get(
     "ZOHO_CRM_DEAL_DEFAULT_STAGE", "Qualification"
 )
+# API name of the Deals field that holds the Business Vertical (Furniture /
+# Doors, from the client's matrix). Empty = don't set any field — the vertical
+# still appears in the Deal description. Fill this once the real org's field
+# API name is confirmed (Setup → API → API Names → Deals), e.g.
+# ZOHO_CRM_VERTICAL_FIELD=Business_Vertical
+ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the

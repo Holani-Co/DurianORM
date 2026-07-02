@@ -1073,3 +1073,265 @@ acknowledgment_template_for:
   full_home_customization:  forward_generic
   doors_veneer_plywood:     forward_generic
   fallback:                 in_channel
+
+# ── CRM owner routing (generated from the client's matrix sheet) ──
+# Regenerate with convert_crm_owner_matrix.py when the sheet changes.
+crm_owner_routing:
+  'Agra - Sikandra':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Ahmedabad - Bodakev':
+    owner_email: ahmedabad@durian.in
+    owner_id: "3608871000048969130"
+    business_vertical: Furniture
+  'Aizawl':
+    owner_email: lbslifestyle.azl@gmail.com
+    owner_id: "3608871000112689864"
+    business_vertical: Furniture
+  'Ajmer - Vaishali Nagar':
+    owner_email: durian.ajmer@gmail.com
+    owner_id: "3608871000177980396"
+    business_vertical: Furniture
+  'Chhatrapati Sambhajinagar(Aurangabad)':
+    owner_email: aurangabad@durian.in
+    owner_id: "3608871000000333392"
+    business_vertical: Furniture
+  'Anand':
+    owner_email: durian.petlad@gmail.com
+    owner_id: "3608871000201573749"
+    business_vertical: Furniture
+  'Bengaluru - Marathahalli':
+    owner_email: marathahallistore.bangalore@durian.in
+    owner_id: "3608871000181199067"
+    business_vertical: Furniture
+  'Bengaluru - JP Nagar':
+    owner_email: bangalore@durian.in
+    owner_id: "3608871000013515676"
+    business_vertical: Furniture
+  'Bengaluru - Shivaji Nagar':
+    owner_email: bangalore@durian.in
+    owner_id: "3608871000013515676"
+    business_vertical: Furniture
+  'Bhubaneshwar - Samantarapur':
+    owner_email: bhubaneswar@durian.in
+    owner_id: "3608871000000333379"
+    business_vertical: Furniture
+  'Bhubaneshwar - Patia':
+    owner_email: durian.patia@gmail.com
+    owner_id: "3608871000177980419"
+    business_vertical: Furniture
+  'Chennai - Nungambakkam':
+    owner_email: chennai@durian.in
+    owner_id: "3608871000000333353"
+    business_vertical: Furniture
+  'Chennai-Perungudi':
+    owner_email: chennai@durian.in
+    owner_id: "3608871000000333353"
+    business_vertical: Furniture
+  'Chennai - OMR':
+    owner_email: chennaiomr@durian.in
+    owner_id: "3608871000184905066"
+    business_vertical: Furniture
+  'Coimbatore - RS Puram':
+    owner_email: coimbatore@durian.in
+    owner_id: "3608871000000333366"
+    business_vertical: Furniture
+  'Delhi - Kirti Nagar':
+    owner_email: durian.kirtinagar@durian.in
+    owner_id: "3608871000000333444"
+    business_vertical: Furniture
+  'Faridabad - Mewla Maharajpur':
+    owner_email: faridabad.retail@durian.in
+    owner_id: "3608871000349910642"
+    business_vertical: Furniture
+  'Delhi - Ghitorni':
+    owner_email: ghitorni@durian.in
+    owner_id: "3608871000001206086"
+    business_vertical: Furniture
+  'Delhi - Sohna Road':
+    owner_email: sohnaroad@durian.in
+    owner_id: "3608871000156761363"
+    business_vertical: Furniture
+  'Gurgaon - JMD':
+    owner_email: durian.gurgaon@durian.in
+    owner_id: "3608871000000333502"
+    business_vertical: Furniture
+  'Noida - Sector 49':
+    owner_email: duriannoida49@gmail.com
+    owner_id: "3608871000486870231"
+    business_vertical: Furniture
+  'Noida - Sector 10':
+    owner_email: durian.noida@durian.in
+    owner_id: "3608871000001206109"
+    business_vertical: Furniture
+  'Gorakhpur':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Guwahati - Lachitnagar':
+    owner_email: guwahati.lachitnagar@durian.in
+    owner_id: "3608871000267793048"
+    business_vertical: Furniture
+  'Hyderabad - Kompally':
+    owner_email: hydkompally.retail@durian.in
+    owner_id: "3608871000433075236"
+    business_vertical: Furniture
+  'Hyderabad - Banjara Hills':
+    owner_email: banjarahills.hyderabad@durian.in
+    owner_id: "3608871000175445523"
+    business_vertical: Furniture
+  'Hyderabad - Sarath City':
+    owner_email: sarathcity.hyderabad@durian.in
+    owner_id: "3608871000198605455"
+    business_vertical: Furniture
+  'Indore - Vijay Nagar':
+    owner_email: indore@durian.in
+    owner_id: "3608871000000333340"
+    business_vertical: Furniture
+  'Jaipur - Vaishali Nagar':
+    owner_email: jaipur@durian.in
+    owner_id: "3608871000231624664"
+    business_vertical: Furniture
+  'Jammu - Kunjwani':
+    owner_email: jammu@durian.in
+    owner_id: "3608871000212096386"
+    business_vertical: Furniture
+  'Jamshedpur - Adityapur':
+    owner_email: tata@durian.in
+    owner_id: "3608871000000333520"
+    business_vertical: Furniture
+  'Kanpur - Acharya Nagar':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Kolkata - Topsia':
+    owner_email: kolkata.store@durian.in
+    owner_id: "3608871000308502001"
+    business_vertical: Furniture
+  'Lucknow - Arjunganj':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Lucknow - Indira Nagar':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Ludhiana - Daad Village':
+    owner_email: ludhiana@durian.in
+    owner_id: "3608871000000333001"
+    business_vertical: Furniture
+  'Mohali':
+    owner_email: durian.mohali@integroupe.com
+    owner_id: "3608871000246009411"
+    business_vertical: Furniture
+  'Thane - Subhash Nagar':
+    owner_email: furnituredurian@gmail.com
+    owner_id: "3608871000104057837"
+    business_vertical: Furniture
+  'Mumbai - Worli':
+    owner_email: worli@durian.in
+    owner_id: "3608871000000320763"
+    business_vertical: Furniture
+  'Mumbai - Goregaon':
+    owner_email: goregaon@durian.in
+    owner_id: "3608871000000804001"
+    business_vertical: Furniture
+  'Chandigarh - Panchkula':
+    owner_email: chd.durian@gmail.com
+    owner_id: "3608871000167558016"
+    business_vertical: Furniture
+  'Patna - Danapur':
+    owner_email: patna@durian.in
+    owner_id: "3608871000000320493"
+    business_vertical: Furniture
+  'Prayagraj - Lal Bahadur Shastri Marg':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Pune - Creaticity':
+    owner_email: punecreaticity@durian.in
+    owner_id: "3608871000257149336"
+    business_vertical: Furniture
+  'Pune - Baner':
+    owner_email: pune.baner@durian.in
+    owner_id: "3608871000000333405"
+    business_vertical: Furniture
+  'Ranchi - Ashok Nagar':
+    owner_email: ranchi.retail@durian.in
+    owner_id: "3608871000364635008"
+    business_vertical: Furniture
+  'Raipur - Telibandha':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Odisha - Sambalpur':
+    owner_email: dreamdecor.sbp@gmail.com
+    owner_id: "3608871000515672227"
+    business_vertical: Furniture
+  'Shillong - Demseiniong':
+    owner_email: durianfurnitureshillong@gmail.com
+    owner_id: "3608871000427746775"
+    business_vertical: Furniture
+  'Siliguri - Sevoke Road':
+    owner_email: durian.siliguri@gmail.com
+    owner_id: "3608871000231011311"
+    business_vertical: Furniture
+  'Surat - Dumas':
+    owner_email: surat@durian.in
+    owner_id: "3608871000000333431"
+    business_vertical: Furniture
+  'Vadodara - Centre Square Mall':
+    owner_email: bnbenterprise0@gmail.com
+    owner_id: "3608871000135120345"
+    business_vertical: Furniture
+  'Varanasi - Shivpur Bypass Rd':
+    owner_email: durianlko@gmail.com
+    owner_id: "3608871000102742316"
+    business_vertical: Furniture
+  'Visakhapatnam - Dondaparthy':
+    owner_email: durianvsp@gmail.com
+    owner_id: "3608871000223622883"
+    business_vertical: Furniture
+  'Bikaner - Rani Baraz':
+    owner_email: durian.bikaner@gmail.com
+    owner_id: "3608871000560226015"
+    business_vertical: Furniture
+  'Tirupati - Avilala':
+    owner_email: durian.tirupati@gmail.com
+    owner_id: "3608871000336987964"
+    business_vertical: Furniture
+  'Dhanbad - Hirapur':
+    owner_email: durian.dhanbad@gmail.com
+    owner_id: "3608871000211724213"
+    business_vertical: Furniture
+  'Motihari':
+    owner_email: durian.motihari@gmail.com
+    owner_id: "3608871000205381001"
+    business_vertical: Furniture
+  'Coimbatore':
+    owner_email: sales@prabhumahalingam.com
+    owner_id: "3608871000573539114"
+    business_vertical: Furniture
+  'Banaswadi':
+    owner_email: bangalore.banaswadi@durian.in
+    owner_id: "3608871000564447689"
+    business_vertical: Furniture
+  # Govt / CPWD deals — owner NOT in the client sheet; fill in the
+  # Delhi-office/govt owner before enabling government deals:
+  # govt:
+  #   owner_email: <govt owner email>
+  #   owner_id: "<govt owner Zoho user id>"
+  #   business_vertical: Furniture
+
+# Doors enquiries route Bangalore vs everywhere-else (sheet rows with
+# Business Vertical = Doors), mirroring the doors email routing.
+crm_owner_routing_doors:
+  bangalore:
+    owner_email: bangalore@durian.in
+    owner_id: "3608871000013515676"
+    business_vertical: Doors
+  other:
+    owner_email: rohit.kanoujia@durian.in
+    owner_id: "3608871000135120298"
+    business_vertical: Doors
