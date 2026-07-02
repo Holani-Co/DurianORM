@@ -3025,17 +3025,31 @@ async def chatwoot_crm_create_deal(request: Request):
         layout_name = config.ZOHO_CRM_HOME_STUDIO_LAYOUT
         deal_stage  = config.ZOHO_CRM_HOME_STUDIO_STAGE
 
-    # Business Type — a MANDATORY picklist on the client's Standard Deals
-    # layout (Retail / Project / Retail A & ID). Derived from the flow's
-    # "Scale?" split: bulk orders + government buyers are Projects, everything
-    # else is Retail. "Retail A & ID" is agent-set in CRM afterwards.
-    extra_fields = {}
+    # The client's Standard Deals layout has several MANDATORY fields the
+    # bridge must fill (creation fails with MANDATORY_NOT_FOUND otherwise).
+    # is_project drives the flow's "Scale?" split: bulk orders + government
+    # buyers are Projects, everything else is Retail.
+    is_project = (owner.get("location") == "govt"
+                  or deal_category == "project_bulk_order")
+    extra_fields = dict(config.ZOHO_CRM_DEAL_EXTRA_FIELDS)  # static env defaults
     if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
-        business_type = ("Project"
-                         if (owner.get("location") == "govt"
-                             or deal_category == "project_bulk_order")
-                         else "Retail")
-        extra_fields[config.ZOHO_CRM_BUSINESS_TYPE_FIELD] = business_type
+        # "Business Type" picklist (Retail / Project / Retail A & ID) —
+        # "Retail A & ID" is agent-set in CRM afterwards.
+        extra_fields[config.ZOHO_CRM_BUSINESS_TYPE_FIELD] = \
+            "Project" if is_project else "Retail"
+    # Pipeline — retail deals go on the Retail pipeline, project/govt deals
+    # on the tender pipeline. Empty config = field not sent (Zoho uses the
+    # layout's default pipeline; the entry stage exists in both).
+    pipeline = (config.ZOHO_CRM_PIPELINE_PROJECT if is_project
+                else config.ZOHO_CRM_PIPELINE_RETAIL)
+    if pipeline:
+        extra_fields.setdefault("Pipeline", pipeline)
+    # Amount + Closing_Date are required but unknowable from an enquiry —
+    # defaults the agent refines during qualification.
+    extra_fields.setdefault("Amount", config.ZOHO_CRM_DEAL_AMOUNT_DEFAULT)
+    closing = (datetime.now(timezone.utc)
+               + timedelta(days=config.ZOHO_CRM_DEAL_CLOSING_DAYS))
+    extra_fields.setdefault("Closing_Date", closing.strftime("%Y-%m-%d"))
 
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,
