@@ -335,6 +335,25 @@ const conversationList = computed(() => {
     });
   }
 
+  // Reviews inbox: optional client-side range filter on the review's ACTUAL
+  // posting date. Reviews missing review_created_at (ingested before the
+  // poller stored it) can't match a date and are hidden while a range is set.
+  if (isReviewsInbox.value && (reviewDateFrom.value || reviewDateTo.value)) {
+    const from = reviewDateFrom.value
+      ? Date.parse(reviewDateFrom.value)
+      : -Infinity;
+    // End of the "to" day (inputs are date-only, timestamps aren't).
+    const to = reviewDateTo.value
+      ? Date.parse(reviewDateTo.value) + 86399999
+      : Infinity;
+    localConversationList = localConversationList.filter(conversation => {
+      const d = Date.parse(
+        conversation.additional_attributes?.review_created_at
+      );
+      return !Number.isNaN(d) && d >= from && d <= to;
+    });
+  }
+
   // Reviews inbox: optional client-side sort by the review's ACTUAL date
   // (newest first) instead of ingestion order. Only reorders the currently
   // loaded conversations — as more load on scroll they re-sort within the set.
@@ -614,6 +633,11 @@ const reviewAgentFilter = ref('');
 // 'review_date' = by the review's actual Google date). Independent of the label
 // filters — it only reorders the displayed list (see conversationList).
 const reviewSort = ref('');
+// Client-side review POSTING date range (YYYY-MM-DD from <input type=date>).
+// Filters the loaded list on additional_attributes.review_created_at — the
+// review's actual Google date, not when the poller ingested it.
+const reviewDateFrom = ref('');
+const reviewDateTo = ref('');
 
 // Slugify an agent's display name for the `replied-by-<slug>` label. Mirrors
 // the bridge's reviews_poller.agent_name_slug + the Rails messages_controller
@@ -1060,6 +1084,8 @@ watch(conversationFilters, (newVal, oldVal) => {
       v-model:reply="reviewReplyFilter"
       v-model:agent="reviewAgentFilter"
       v-model:sort="reviewSort"
+      v-model:date-from="reviewDateFrom"
+      v-model:date-to="reviewDateTo"
       :store-options="storeFilterOptions"
       :agent-options="agentFilterOptions"
       @change="onReviewFilterChange"

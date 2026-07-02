@@ -14,6 +14,10 @@ defineProps({
   reply: { type: String, default: '' },
   agent: { type: String, default: '' },
   sort: { type: String, default: '' },
+  // Review POSTING date range (YYYY-MM-DD) — filters on the review's actual
+  // Google date (additional_attributes.review_created_at), not ingestion date.
+  dateFrom: { type: String, default: '' },
+  dateTo: { type: String, default: '' },
 });
 
 const emit = defineEmits([
@@ -22,6 +26,8 @@ const emit = defineEmits([
   'update:reply',
   'update:agent',
   'update:sort',
+  'update:dateFrom',
+  'update:dateTo',
   'change',
 ]);
 
@@ -72,6 +78,13 @@ const onAgent = e => {
 const onSort = e => {
   emit('update:sort', e.target.value);
 };
+// Client-side like sort — no 'change' (no server round-trip).
+const onDateFrom = e => {
+  emit('update:dateFrom', e.target.value);
+};
+const onDateTo = e => {
+  emit('update:dateTo', e.target.value);
+};
 
 const selectClass =
   'w-full min-w-0 px-2 py-1 text-sm rounded-md cursor-pointer bg-n-alpha-2 text-n-slate-12 border border-n-weak focus:outline-none focus:border-n-brand';
@@ -118,5 +131,23 @@ const selectClass =
         {{ opt.label }}
       </option>
     </select>
+    <label class="flex flex-col gap-0.5 min-w-0">
+      <span class="text-xs text-n-slate-11">Reviewed from</span>
+      <input
+        type="date"
+        :value="dateFrom"
+        :class="selectClass"
+        @change="onDateFrom"
+      />
+    </label>
+    <label class="flex flex-col gap-0.5 min-w-0">
+      <span class="text-xs text-n-slate-11">Reviewed to</span>
+      <input
+        type="date"
+        :value="dateTo"
+        :class="selectClass"
+        @change="onDateTo"
+      />
+    </label>
   </div>
 </template>
