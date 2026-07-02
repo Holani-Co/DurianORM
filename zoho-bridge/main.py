@@ -1475,11 +1475,14 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
 
 
 async def _remember_crm_contact_id(conv_id: int, contact_id: str):
-    """Stash crm_contact_id on the conversation so re-runs reuse it
-    (idempotency for the auto path + eventual PR B lookup for buttons)."""
+    """Stash crm_contact_id (+ the server-derived deep link) on the
+    conversation so re-runs reuse it and the sidebar panel links to the right
+    CRM data center — the panel must not guess the UI domain client-side
+    (Desk is on .in, Durian's CRM on .com)."""
     try:
         await chatwoot.merge_custom_attributes(
-            conv_id, {"crm_contact_id": contact_id})
+            conv_id, {"crm_contact_id": contact_id,
+                      "crm_contact_url": zoho_crm.contact_url(contact_id)})
     except Exception as e:
         print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
 
@@ -2703,7 +2706,8 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "") -> s
     if created:
         try:
             await chatwoot.merge_custom_attributes(
-                conv_id, {"crm_contact_id": contact_id})
+                conv_id, {"crm_contact_id": contact_id,
+                          "crm_contact_url": zoho_crm.contact_url(contact_id)})
         except Exception as e:
             print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
     return contact_id
@@ -2968,7 +2972,8 @@ async def chatwoot_crm_create_deal(request: Request):
     deal_id = str(deal.get("id") or "")
     try:
         await chatwoot.merge_custom_attributes(
-            int(conv_id), {"crm_deal_id": deal_id})
+            int(conv_id), {"crm_deal_id": deal_id,
+                           "crm_deal_url": zoho_crm.deal_url(deal_id)})
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
 

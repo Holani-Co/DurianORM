@@ -39,11 +39,11 @@ async def get_access_token() -> str:
         return _token_cache["value"]
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
-            f"{config.ZOHO_ACCOUNTS_URL}/oauth/v2/token",
+            f"{config.ZOHO_CRM_ACCOUNTS_URL}/oauth/v2/token",
             params={
                 "refresh_token": config.ZOHO_CRM_REFRESH_TOKEN,
-                "client_id":     config.ZOHO_CLIENT_ID,
-                "client_secret": config.ZOHO_CLIENT_SECRET,
+                "client_id":     config.ZOHO_CRM_CLIENT_ID,
+                "client_secret": config.ZOHO_CRM_CLIENT_SECRET,
                 "grant_type":    "refresh_token",
             },
         )

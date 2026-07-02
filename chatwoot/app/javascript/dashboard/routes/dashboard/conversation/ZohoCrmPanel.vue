@@ -71,14 +71,23 @@ const confirmDealDialog = ref(null);
 // "Govt / CPWD?" decision diamond.
 const sectorChoiceNeeded = ref(false);
 
-// Build the CRM deep-link URL from the id — mirrors zoho_crm.contact_url /
-// deal_url server-side (kept simple: prod URL only, sandbox users get a
-// slightly wrong link but the id is still correct).
-const contactUrl = computed(() =>
-  contactId.value ? `https://crm.zoho.in/crm/tab/Contacts/${contactId.value}` : ''
+// CRM deep links — prefer the server-derived URLs the bridge stashes
+// alongside the ids (crm_contact_url / crm_deal_url): only the bridge knows
+// which Zoho data center the CRM org lives on (.com vs .in). The .in pattern
+// is a legacy fallback for records linked before URLs were stored.
+const contactUrl = computed(
+  () =>
+    props.customAttributes.crm_contact_url ||
+    (contactId.value
+      ? `https://crm.zoho.in/crm/tab/Contacts/${contactId.value}`
+      : '')
 );
-const dealUrl = computed(() =>
-  dealId.value ? `https://crm.zoho.in/crm/tab/Potentials/${dealId.value}` : ''
+const dealUrl = computed(
+  () =>
+    props.customAttributes.crm_deal_url ||
+    (dealId.value
+      ? `https://crm.zoho.in/crm/tab/Potentials/${dealId.value}`
+      : '')
 );
 
 // After a successful create, patch the local conversation record so the

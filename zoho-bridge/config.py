@@ -24,10 +24,18 @@ ZOHO_DESK_URL      = os.environ.get("ZOHO_DESK_URL", "https://desk.zoho.in")
 
 # ── Zoho CRM ──────────────────────────────────────────────────────────────
 # Uses a SEPARATE refresh token from Desk so a CRM-side auth issue can't
-# knock out ticket creation. Client ID/secret are shared (same Self Client).
-# Optional — if not set, CRM features silently no-op (safe for staging where
-# CRM isn't configured yet).
+# knock out ticket creation. Optional — if not set, CRM features silently
+# no-op (safe for staging where CRM isn't configured yet).
+#
+# CROSS-DC NOTE: Durian's CRM org lives on the US data center (zoho.com)
+# while Desk runs on India (zoho.in). Zoho DCs are fully separate — a .in
+# OAuth client can't mint tokens for a .com org — so the CRM client id /
+# secret / accounts URL are their own settings. They DEFAULT to the Desk
+# values for single-DC setups (local dev against the .in test org).
 ZOHO_CRM_REFRESH_TOKEN = os.environ.get("ZOHO_CRM_REFRESH_TOKEN", "")
+ZOHO_CRM_CLIENT_ID     = os.environ.get("ZOHO_CRM_CLIENT_ID", ZOHO_CLIENT_ID)
+ZOHO_CRM_CLIENT_SECRET = os.environ.get("ZOHO_CRM_CLIENT_SECRET", ZOHO_CLIENT_SECRET)
+ZOHO_CRM_ACCOUNTS_URL  = os.environ.get("ZOHO_CRM_ACCOUNTS_URL", ZOHO_ACCOUNTS_URL)
 ZOHO_CRM_API_DOMAIN    = os.environ.get("ZOHO_CRM_API_DOMAIN", "https://www.zohoapis.in")
 ZOHO_CRM_ENABLED       = bool(ZOHO_CRM_REFRESH_TOKEN)
 # Dry-run: log CRM calls without executing them. Useful for pointing the
