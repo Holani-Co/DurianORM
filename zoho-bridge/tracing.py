@@ -20,9 +20,9 @@
 # trace_id + the message span id as `trace_id` / `parent_observation_id`. We
 # deliberately AVOID OTel ambient-context nesting (propagate_attributes /
 # start_as_current_observation): the reviews poller and document extraction run
-# in detached asyncio tasks where context propagation raises
-# (see llm_client.raw_client), whereas linking by id is a synchronous,
-# context-free code path that works everywhere.
+# in detached asyncio tasks where OTel ambient-context propagation is
+# unreliable, whereas linking by id is a synchronous, context-free code path
+# that works everywhere.
 #
 # The message span is created, stamped with the trace-level attributes, and
 # ended IMMEDIATELY — Langfuse links children to a parent purely by id (via a
@@ -88,3 +88,32 @@ def message_parent(conv_id, message_id=None, *, name=None, **metadata) -> dict:
     except Exception as e:  # tracing must never break the pipeline
         print(f"[tracing] message_parent failed ({type(e).__name__}): {e}")
         return {}
+
+
+def event(conv_id, name, *, parent: dict = None, output=None, **metadata) -> None:
+    """Record a point-in-time DECISION or automated ACTION in the conversation
+    trace — the things LLM generations don't capture: auto-snooze, team
+    assignment, auto-posting a Google reply, Zoho ticket creation, rating-only
+    template picks (which make no LLM call at all), and so on.
+
+    `output` carries the decision payload (shows as the observation's output in
+    Langfuse). Nested under `parent` (a message_parent dict) when given, else
+    attached directly under the conversation trace. Best-effort: never raises,
+    so recording a decision can never break the decision."""
+    try:
+        if parent and parent.get("trace_id"):
+            ctx = {"trace_id": parent["trace_id"],
+                   "parent_span_id": parent.get("parent_observation_id")}
+        elif conv_id is not None:
+            ctx = {"trace_id": conversation_trace_id(conv_id)}
+        else:
+            return
+        _lf.start_observation(
+            as_type="event",
+            name=name,
+            trace_context=ctx,
+            output=output,
+            metadata={"conversation_id": conv_id, **metadata} or None,
+        ).end()
+    except Exception as e:
+        print(f"[tracing] event failed ({type(e).__name__}): {e}")
