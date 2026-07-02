@@ -269,7 +269,8 @@ async def get_deal_layout_id(layout_name: str) -> str:
 async def create_deal(contact_id: str, deal_name: str,
                       description: str, stage: str = "",
                       source: str = "Chatwoot", owner_id: str = "",
-                      vertical: str = "", layout_name: str = "") -> dict:
+                      vertical: str = "", layout_name: str = "",
+                      extra_fields: dict | None = None) -> dict:
     """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
     Stage falls back to config.ZOHO_CRM_DEAL_DEFAULT_STAGE — set that to your
     pipeline's first stage (e.g. 'Qualification'). If the stage doesn't exist
@@ -279,7 +280,10 @@ async def create_deal(contact_id: str, deal_name: str,
     (Furniture / Doors, from the client matrix) is written to the field named
     by ZOHO_CRM_VERTICAL_FIELD when that's configured — otherwise it only
     appears in the Description. layout_name ("Standard" / "Home Studio")
-    selects the Deal record layout; unresolvable → Zoho's default layout."""
+    selects the Deal record layout; unresolvable → Zoho's default layout.
+    extra_fields merges arbitrary field→value pairs into the record — the
+    escape hatch for org-specific MANDATORY custom fields (e.g. the client's
+    Business_Type_New picklist) without another signature change."""
     record = {
         "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
         "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
@@ -294,6 +298,8 @@ async def create_deal(contact_id: str, deal_name: str,
         record["Owner"] = {"id": str(owner_id)}
     if vertical and config.ZOHO_CRM_VERTICAL_FIELD:
         record[config.ZOHO_CRM_VERTICAL_FIELD] = vertical
+    if extra_fields:
+        record.update(extra_fields)
     if layout_name:
         layout_id = await get_deal_layout_id(layout_name)
         if layout_id:

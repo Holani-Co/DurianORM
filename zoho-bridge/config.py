@@ -91,6 +91,14 @@ ZOHO_CRM_DEAL_DEFAULT_STAGE = os.environ.get(
 # API name is confirmed (Setup → API → API Names → Deals), e.g.
 # ZOHO_CRM_VERTICAL_FIELD=Business_Vertical
 ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
+# API name of the MANDATORY "Business Type" picklist on the client's Deals
+# module — their Standard layout requires it at creation (MANDATORY_NOT_FOUND
+# without it). Empty = not sent, for orgs without the field (e.g. the .in
+# test org). Value derived per deal: "Project" for bulk orders / government
+# buyers, "Retail" for everything else (org picklist: Retail / Project /
+# Retail A & ID — the last is agent-set in CRM, not auto-detectable).
+# Prod: ZOHO_CRM_BUSINESS_TYPE_FIELD=Business_Type_New
+ZOHO_CRM_BUSINESS_TYPE_FIELD = os.environ.get("ZOHO_CRM_BUSINESS_TYPE_FIELD", "")
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
