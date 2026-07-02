@@ -22,6 +22,75 @@ ZOHO_DEPARTMENT_ID = _required("ZOHO_DEPARTMENT_ID")
 ZOHO_ACCOUNTS_URL  = os.environ.get("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.in")
 ZOHO_DESK_URL      = os.environ.get("ZOHO_DESK_URL", "https://desk.zoho.in")
 
+# ── Zoho CRM ──────────────────────────────────────────────────────────────
+# Uses a SEPARATE refresh token from Desk so a CRM-side auth issue can't
+# knock out ticket creation. Optional — if not set, CRM features silently
+# no-op (safe for staging where CRM isn't configured yet).
+#
+# CROSS-DC NOTE: Durian's CRM org lives on the US data center (zoho.com)
+# while Desk runs on India (zoho.in). Zoho DCs are fully separate — a .in
+# OAuth client can't mint tokens for a .com org — so the CRM client id /
+# secret / accounts URL are their own settings. They DEFAULT to the Desk
+# values for single-DC setups (local dev against the .in test org).
+ZOHO_CRM_REFRESH_TOKEN = os.environ.get("ZOHO_CRM_REFRESH_TOKEN", "")
+ZOHO_CRM_CLIENT_ID     = os.environ.get("ZOHO_CRM_CLIENT_ID", ZOHO_CLIENT_ID)
+ZOHO_CRM_CLIENT_SECRET = os.environ.get("ZOHO_CRM_CLIENT_SECRET", ZOHO_CLIENT_SECRET)
+ZOHO_CRM_ACCOUNTS_URL  = os.environ.get("ZOHO_CRM_ACCOUNTS_URL", ZOHO_ACCOUNTS_URL)
+ZOHO_CRM_API_DOMAIN    = os.environ.get("ZOHO_CRM_API_DOMAIN", "https://www.zohoapis.in")
+ZOHO_CRM_ENABLED       = bool(ZOHO_CRM_REFRESH_TOKEN)
+# Dry-run: log CRM calls without executing them. Useful for pointing the
+# bridge at prod without accidentally pushing test data into the real CRM.
+ZOHO_CRM_DRY_RUN       = os.environ.get("ZOHO_CRM_DRY_RUN", "false").lower() == "true"
+# Categories that trigger auto Contact+Note. Comma-separated, override via env.
+ZOHO_CRM_AUTO_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_AUTO_CATEGORIES",
+        "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+# Categories that show the "Create Deal" button in the CRM sidebar panel.
+# (There is deliberately NO "Create Lead" — the client treats Leads and Deals
+# as the same thing, so Deal is the only manual CRM action.)
+ZOHO_CRM_DEAL_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_DEAL_CATEGORIES",
+        "project_bulk_order,doors_veneer_plywood,full_home_customization,"
+        "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+# Categories whose Deals go on the "Home Studio" record layout (full home
+# customization → designers). Everything else uses the "Standard" layout.
+# The layout ids are resolved by name at runtime (needs the
+# ZohoCRM.settings.layouts.READ scope); unresolvable → Zoho's default layout.
+ZOHO_CRM_HOME_STUDIO_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_HOME_STUDIO_CATEGORIES", "full_home_customization",
+    ).split(",") if c.strip()
+)
+# The Home Studio layout name to apply. EMPTY by default because the client's
+# Home Studio layout currently has NO pipeline/stages configured — a deal
+# created on it would fail stage validation. Run probe_home_studio_layout.py
+# against the real org (needs the .com token) to find out empirically whether
+# the layout accepts deals and with WHICH stage; then enable via env:
+#   ZOHO_CRM_HOME_STUDIO_LAYOUT="Home Studio"
+#   ZOHO_CRM_HOME_STUDIO_STAGE="<the stage the probe reported>"  # if different
+ZOHO_CRM_HOME_STUDIO_LAYOUT = os.environ.get("ZOHO_CRM_HOME_STUDIO_LAYOUT", "")
+# Entry stage for deals on the Home Studio layout (stages are validated per
+# layout). Empty → falls back to ZOHO_CRM_DEAL_DEFAULT_STAGE.
+ZOHO_CRM_HOME_STUDIO_STAGE = os.environ.get("ZOHO_CRM_HOME_STUDIO_STAGE", "")
+# First-stage name in your Deals pipeline. If unset or wrong, Zoho returns
+# INVALID_DATA on Stage; check Setup → Customization → Pipelines → Deals to find
+# yours. Common defaults: 'Qualification', 'Enquiry Received', 'New'.
+ZOHO_CRM_DEAL_DEFAULT_STAGE = os.environ.get(
+    "ZOHO_CRM_DEAL_DEFAULT_STAGE", "Qualification"
+)
+# API name of the Deals field that holds the Business Vertical (Furniture /
+# Doors, from the client's matrix). Empty = don't set any field — the vertical
+# still appears in the Deal description. Fill this once the real org's field
+# API name is confirmed (Setup → API → API Names → Deals), e.g.
+# ZOHO_CRM_VERTICAL_FIELD=Business_Vertical
+ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
+
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
 # Chatwoot API. On a single-VM deployment this is `http://localhost:3000`

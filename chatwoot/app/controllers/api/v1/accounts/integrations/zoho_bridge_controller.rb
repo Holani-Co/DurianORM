@@ -65,7 +65,39 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
   end
 
+  # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_deal
+  #   body: { conversation_id }
+  # Agent clicked "Create Deal" in the CRM sidebar panel — the bridge resolves
+  # the owner (govt → govt owner; else location-wise) and creates the Deal
+  # linked to the sender's CRM Contact. (No create-lead: the client treats
+  # Leads and Deals as the same thing.)
+  def create_crm_deal
+    proxy_to_bridge('/chatwoot/crm/create-deal', 30)
+  end
+
   private
+
+  # Shared proxy helper for the CRM endpoints — injects the acting agent's
+  # name for audit ("Created by <agent>") and forwards to the bridge.
+  def proxy_to_bridge(bridge_path, timeout_seconds)
+    payload = begin
+      JSON.parse(request.raw_post)
+    rescue JSON::ParserError
+      {}
+    end
+    payload['agent_name'] = Current.user&.name
+
+    response = HTTParty.post(
+      "#{bridge_url}#{bridge_path}",
+      body: payload.to_json,
+      headers: { 'Content-Type' => 'application/json' },
+      timeout: timeout_seconds
+    )
+    render json: response.parsed_response, status: proxy_status(response.code)
+  rescue StandardError => e
+    Rails.logger.error("[zoho-bridge proxy] #{bridge_path} failed: #{e.message}")
+    render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
+  end
 
   def set_conversation
     @conversation = Current.account.conversations.find_by(display_id: params[:conversation_id])
