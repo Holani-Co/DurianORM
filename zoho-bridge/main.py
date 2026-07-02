@@ -2947,12 +2947,18 @@ async def chatwoot_crm_create_deal(request: Request):
 
     # Record layout — the flow's product sub-type split: full home
     # customization deals go on the "Home Studio" layout (designers),
-    # everything else on "Standard" (sales).
+    # everything else on "Standard" (sales). Home Studio is applied only when
+    # ZOHO_CRM_HOME_STUDIO_LAYOUT is set — the client's Home Studio layout has
+    # no pipeline configured yet, and a deal created on it would fail stage
+    # validation.
     deal_category = (custom.get("email_category_v2") or {}).get("category") \
                     or custom.get("phase2_category") or ""
-    layout_name = ("Home Studio"
-                   if deal_category in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES
-                   else "Standard")
+    layout_name = "Standard"
+    deal_stage  = ""  # empty → create_deal uses ZOHO_CRM_DEAL_DEFAULT_STAGE
+    if (deal_category in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES
+            and config.ZOHO_CRM_HOME_STUDIO_LAYOUT):
+        layout_name = config.ZOHO_CRM_HOME_STUDIO_LAYOUT
+        deal_stage  = config.ZOHO_CRM_HOME_STUDIO_STAGE
 
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,
@@ -2965,6 +2971,7 @@ async def chatwoot_crm_create_deal(request: Request):
             contact_id=contact_id, deal_name=deal_name,
             description=description, source="Chatwoot", owner_id=owner_id,
             vertical=owner.get("vertical", ""), layout_name=layout_name,
+            stage=deal_stage,
         )
     except Exception as e:
         raise HTTPException(500, f"CRM create_deal failed: {e}")

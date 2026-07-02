@@ -67,6 +67,17 @@ ZOHO_CRM_HOME_STUDIO_CATEGORIES = tuple(
         "ZOHO_CRM_HOME_STUDIO_CATEGORIES", "full_home_customization",
     ).split(",") if c.strip()
 )
+# The Home Studio layout name to apply. EMPTY by default because the client's
+# Home Studio layout currently has NO pipeline/stages configured — a deal
+# created on it would fail stage validation. Run probe_home_studio_layout.py
+# against the real org (needs the .com token) to find out empirically whether
+# the layout accepts deals and with WHICH stage; then enable via env:
+#   ZOHO_CRM_HOME_STUDIO_LAYOUT="Home Studio"
+#   ZOHO_CRM_HOME_STUDIO_STAGE="<the stage the probe reported>"  # if different
+ZOHO_CRM_HOME_STUDIO_LAYOUT = os.environ.get("ZOHO_CRM_HOME_STUDIO_LAYOUT", "")
+# Entry stage for deals on the Home Studio layout (stages are validated per
+# layout). Empty → falls back to ZOHO_CRM_DEAL_DEFAULT_STAGE.
+ZOHO_CRM_HOME_STUDIO_STAGE = os.environ.get("ZOHO_CRM_HOME_STUDIO_STAGE", "")
 # First-stage name in your Deals pipeline. If unset or wrong, Zoho returns
 # INVALID_DATA on Stage; check Setup → Customization → Pipelines → Deals to find
 # yours. Common defaults: 'Qualification', 'Enquiry Received', 'New'.
