@@ -78,7 +78,7 @@ def _format_transcript(messages: list[dict], limit: int = 40) -> str:
     return "\n".join(lines)
 
 
-async def summarize_conversation(messages: list[dict]) -> dict:
+async def summarize_conversation(messages: list[dict], lf_parent: dict = None) -> dict:
     """Return {subject, summary, customer_goal, next_step}. Best-effort:
     returns _SAFE_DEFAULT (all empty) on no content or any failure, so the
     caller can fall back to its existing subject/transcript logic."""
@@ -101,6 +101,7 @@ async def summarize_conversation(messages: list[dict]) -> dict:
             ],
             name="ticket-conversation-summary",
             metadata={"langfuse_tags": ["summarizer", "zoho-ticket"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:  # noqa: BLE001 — best-effort

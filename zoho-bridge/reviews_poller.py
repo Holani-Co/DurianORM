@@ -20,6 +20,7 @@ import chatwoot
 import google_reviews as gr
 import review_reply
 import reviews_state as state
+import tracing
 
 # India Standard Time — Durian's locations are all in India, so reviews always
 # render in the showroom's local time, not UTC.
@@ -179,7 +180,8 @@ async def _ingest_review(loc: dict, rv: dict):
                                "review_created_at": rv["create_time"] or ""},
         custom_attributes={"review_path": rv["reply_path"]},
     )
-    await chatwoot.create_message(conv_id, body, message_type="incoming")
+    review_msg = await chatwoot.create_message(conv_id, body, message_type="incoming")
+    review_msg_id = review_msg.get("id")
 
     # Star-rating label so agents can filter by ★ in Chatwoot's sidebar
     # (Labels → review-5star, review-1star, …). Labels auto-create on first
@@ -202,12 +204,15 @@ async def _ingest_review(loc: dict, rv: dict):
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag
     # below only gates auto-posting (we won't re-post to Google), not the card.
+    _lf = tracing.message_parent(conv_id, review_msg_id, name="review-reply",
+                                 stars=rv["stars"], location=title)
     drafted = await review_reply.draft(
         channel="review",
         message=rv["comment"] or "",
         contact_name=rv["reviewer"] or "Customer",
         stars=rv["stars"] or 0,
         location=title,
+        lf_parent=_lf,
     )
     reply, action = drafted["reply"], drafted["action"]
 

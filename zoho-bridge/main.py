@@ -30,6 +30,7 @@ import chatwoot
 import classifier
 import document_extractor
 import summarizer
+import tracing
 import zoho
 import zoho_crm
 import google_reviews as gr
@@ -235,7 +236,13 @@ async def _ticket_context(conv_id) -> tuple[list, dict]:
     if not conv_id:
         return [], {}
     messages = await chatwoot.get_conversation_messages(conv_id)
-    summary = await summarizer.summarize_conversation(messages) if messages else {}
+    if not messages:
+        return messages, {}
+    # Conversation-level action (not tied to one incoming message) → span with
+    # no message_id, nested under the conversation trace. Created only when the
+    # summariser actually runs, so no empty grouping spans.
+    _lf = tracing.message_parent(conv_id, name="ticket-summary")
+    summary = await summarizer.summarize_conversation(messages, lf_parent=_lf)
     return messages, summary
 
 
@@ -1844,8 +1851,10 @@ async def _maybe_extract_documents(data: dict) -> None:
                 .get("extracted_documents") or []
         seen_keys = {d.get("source_key") for d in existing_docs}
 
+        # Runs in a detached task, so nest via explicit ids (not OTel context).
+        _lf = tracing.message_parent(conv_id, message_id, name="document-extraction")
         results = await document_extractor.extract_for_message(
-            content, attachments, message_id, seen_keys
+            content, attachments, message_id, seen_keys, lf_parent=_lf
         )
         if not results:
             return
@@ -2018,9 +2027,15 @@ async def handle_message_created(data: dict) -> dict:
         except Exception as e:
             print(f"[spam] sender-history lookup failed for contact {contact_id}: {e}")
 
+    # One Langfuse span for THIS message; every classifier call below nests
+    # under it, and the span nests under the conversation trace (conv_id).
+    # `_lf` is a {trace_id, parent_observation_id} dict splatted into each call
+    # (empty dict = untraced, so a tracing hiccup never blocks classification).
+    _lf = tracing.message_parent(conv_id, data.get("id"), event="message_created")
+
     if bypass_reason is None:
         result = await classifier.classify_email_type(
-            content, sender_email=sender_email, subject=real_subject
+            content, sender_email=sender_email, subject=real_subject, lf_parent=_lf
         )
         email_category         = result["label"]
         classifier_conf        = result["confidence"]
@@ -2078,7 +2093,7 @@ async def handle_message_created(data: dict) -> dict:
     rule = None
     try:
         category_result = await classifier.classify_email_category(
-            content, sender_email=sender_email, subject=real_subject
+            content, sender_email=sender_email, subject=real_subject, lf_parent=_lf
         )
         rule = category_result.pop("rule", None)
         print(f"[category-v2] conv {conv_id}: category={category_result['category']!r} "
@@ -2117,7 +2132,8 @@ async def handle_message_created(data: dict) -> dict:
     # ── Decision A: spam/promotional only stops the flow when the
     # categorizer is ALSO uncertain. A confident business category wins. ──
     if email_category == "spam" and not category_confident:
-        if classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD:
+        auto_snoozed = classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD
+        if auto_snoozed:
             try:
                 # Snooze (not resolve) so it lands in the Snoozed tab, not
                 # Resolved. snoozed_until=None → reopens on customer reply.
@@ -2130,20 +2146,32 @@ async def handle_message_created(data: dict) -> dict:
             print(f"[spam] conv {conv_id} labelled 'spam' but kept OPEN "
                   f"(confidence {classifier_conf} < "
                   f"{config.SPAM_CONFIDENCE_THRESHOLD}) — needs human review")
+        tracing.event(conv_id, "spam-decision", parent=_lf, output={
+            "action": "auto_snoozed" if auto_snoozed else "kept_open_for_review",
+            "confidence": classifier_conf,
+        })
         return {
             "classified_email_type": "spam",
             "confidence":            classifier_conf,
-            "auto_snoozed":          classifier_conf >= config.SPAM_CONFIDENCE_THRESHOLD,
+            "auto_snoozed":          auto_snoozed,
         }
 
     if email_category in ("promotional", "automated") and not category_confident:
         print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
+        tracing.event(conv_id, "email-type-decision", parent=_lf, output={
+            "label": email_category, "action": "labelled_kept_in_queue",
+        })
         return {"classified_email_type": email_category, "auto_handled": True}
 
     if email_category in ("spam", "promotional", "automated") and category_confident:
         print(f"[category-v2] '{email_category}' label overridden — confident "
               f"category {category_result['category']!r} wins; proceeding with "
               f"acknowledge/forward")
+        tracing.event(conv_id, "category-override", parent=_lf, output={
+            "spam_label": email_category,
+            "winning_category": category_result["category"],
+            "action": "category_wins_proceeding",
+        })
 
     # ── Human-in-the-loop gate ───────────────────────────────────────────
     # Classifier ran but isn't confident enough to auto-act → DON'T forward.
@@ -2152,6 +2180,12 @@ async def handle_message_created(data: dict) -> dict:
     # keeps its preview behaviour; social DMs are handled elsewhere.
     if (category_result is not None and not category_auto
             and not _PHASE_2_DRY_RUN and not is_social):
+        tracing.event(conv_id, "category-decision-card", parent=_lf, output={
+            "action": "posted_for_agent_confirmation",
+            "suggested": category_result.get("category"),
+            "confidence": category_result.get("confidence"),
+            "reason": "confidence below auto bar",
+        })
         return await _post_category_decision(conv_id, category_result)
 
     # ── Bulk-order sector gate ───────────────────────────────────────────
@@ -2163,6 +2197,11 @@ async def handle_message_created(data: dict) -> dict:
             and (category_result.get("rule") or {}).get("sector_routing")
             and not _PHASE_2_DRY_RUN and not is_social):
         if float(category_result.get("sector_confidence") or 0) < config.BULK_SECTOR_AUTO_CONFIDENCE:
+            tracing.event(conv_id, "bulk-sector-review-card", parent=_lf, output={
+                "action": "posted_for_agent_confirmation",
+                "sector": category_result.get("sector"),
+                "sector_confidence": category_result.get("sector_confidence"),
+            })
             return await _post_category_decision(conv_id, category_result,
                                                  sector_review_only=True)
 
@@ -2173,6 +2212,11 @@ async def handle_message_created(data: dict) -> dict:
     if (category_result is not None and category_auto
             and category_result.get("region_uncertain")
             and not _PHASE_2_DRY_RUN and not is_social):
+        tracing.event(conv_id, "bulk-region-review-card", parent=_lf, output={
+            "action": "left_in_channel_for_agent_routing",
+            "region": category_result.get("region"),
+            "region_confidence": category_result.get("region_confidence"),
+        })
         return await _post_bulk_region_review(conv_id, category_result)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
@@ -2359,7 +2403,7 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[classify] classifying conv={conv_id} inbox={inbox_name!r} "
               f"content={content[:60]!r} (no escalation signal — using "
               f"generic team classifier)")
-        team_key = await classifier.classify(content, inbox_name)
+        team_key = await classifier.classify(content, inbox_name, lf_parent=_lf)
         team_routing_source = "generic_classifier"
     team_id  = config.TEAM_IDS.get(team_key)
     print(f"[classify] → team={team_key} id={team_id} source={team_routing_source}")
@@ -2452,6 +2496,10 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
     message = _latest_incoming(all_messages)
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
+    # id of that same latest incoming message, for the Langfuse message span.
+    msg_id = next((m.get("id") for m in reversed(all_messages)
+                   if m.get("message_type") in (0, "incoming")
+                   and (m.get("content") or "").strip()), None)
 
     # If the latest outgoing message is itself a pending suggestion card, skip
     # — the team hasn't actioned it yet. The Send flow deletes the card and
@@ -2466,8 +2514,11 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
         return {"ignored": True, "reason": "card_already_pending"}
 
     try:
+        _lf = tracing.message_parent(conv_id, msg_id, name="template-suggest",
+                                     channel=channel)
         drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
+            lf_parent=_lf,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
@@ -2598,21 +2649,28 @@ async def reviews_regenerate(request: Request):
     if channel == "review":
         # The poller stashed the raw review payload on additional_attributes
         # so regenerate doesn't need to re-parse the formatted message body.
+        # Agent-triggered re-draft (no new inbound message) → conversation-level
+        # span, no message_id.
+        _lf = tracing.message_parent(conv_id, name="review-regenerate")
         drafted = await review_reply.draft(
             channel="review",
             message=add.get("review_comment") or "",
             contact_name=add.get("reviewer") or contact_name,
             stars=add.get("stars") or 0,
             location=add.get("location") or "",
+            lf_parent=_lf,
         )
     else:
         # For social DMs, the customer's latest incoming message is the context
         # (the message that triggered the handoff).
         messages = await chatwoot.get_conversation_messages(conv_id)
+        _lf = tracing.message_parent(conv_id, name="template-regenerate",
+                                     channel=channel)
         drafted = await review_reply.draft(
             channel=channel,
             message=_latest_incoming(messages),
             contact_name=contact_name,
+            lf_parent=_lf,
         )
     return {"suggestion": drafted["reply"], "action": drafted["action"],
             "ai_trace": drafted["trace"]}

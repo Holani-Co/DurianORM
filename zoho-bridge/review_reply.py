@@ -17,9 +17,12 @@
 
 import config
 import chatwoot
-# Reviews run in the poller's background task, where the Langfuse-instrumented
-# client throws an async-context error — use the plain (un-instrumented) client.
-from llm_client import raw_client as client
+# Instrumented client: review LLM calls are traced to Langfuse and nest under
+# their conversation trace via explicit ids (lf_parent), like every other
+# module. This runs fine in the poller's detached asyncio task — the earlier
+# async-context error came from an `async with propagate_attributes` wrapper
+# that no longer exists, NOT from this client (see tracing.py).
+from llm_client import client
 
 # Display labels + warnings the system prompt weaves into the channel-specific
 # instructions. Keep these short; the model adapts tone from the templates.
@@ -224,7 +227,8 @@ _REVIEW_POSITIVE_PROMPT = (
 )
 
 
-async def classify_review_positive(message: str, stars: int = 0) -> dict:
+async def classify_review_positive(message: str, stars: int = 0,
+                                   lf_parent: dict = None) -> dict:
     """Return {positive, confidence, reason} for a review. Conservative: any
     criticism, mixed sentiment, or uncertainty → positive=false. Fail-safe:
     returns positive=false on empty input / error so we never auto-post on a
@@ -243,6 +247,9 @@ async def classify_review_positive(message: str, stars: int = 0) -> dict:
                 {"role": "system", "content": _REVIEW_POSITIVE_PROMPT},
                 {"role": "user",   "content": f"Star rating: {stars or '?'}/5\nReview: {message}"},
             ],
+            name="review-positivity",
+            metadata={"langfuse_tags": ["review", "positivity"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content or "")
     except Exception as e:
@@ -254,7 +261,7 @@ async def classify_review_positive(message: str, stars: int = 0) -> dict:
 
 
 async def draft(channel: str, message: str, contact_name: str,
-                stars: int = 0, location: str = ""):
+                stars: int = 0, location: str = "", lf_parent: dict = None):
     """Pick + personalise an approved template for the given channel.
 
     Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
@@ -347,6 +354,10 @@ async def draft(channel: str, message: str, contact_name: str,
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_msg},
             ],
+            name="template-reply",
+            metadata={"channel": channel, "stars": stars,
+                      "langfuse_tags": ["template_reply", f"channel_{channel}"]},
+            **(lf_parent or {}),
         )
         parsed = json.loads(r.choices[0].message.content)
         reply = _unescape_newlines((parsed.get("reply") or "").strip())
@@ -374,7 +385,7 @@ async def draft(channel: str, message: str, contact_name: str,
     # action — so a 4-5★ review only auto-posts when its TEXT is genuinely
     # positive. Below the bar, force_human already routes it to the card.
     if channel == "review" and not force_human and reply:
-        pos = await classify_review_positive(message, stars)
+        pos = await classify_review_positive(message, stars, lf_parent=lf_parent)
         if pos["positive"] and pos["confidence"] >= config.REVIEW_AUTO_REPLY_MIN_CONFIDENCE:
             action = "auto"
         else:

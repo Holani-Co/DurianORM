@@ -26,7 +26,7 @@ module Captain::ToolInstrumentation
   def set_tool_session_attributes(span, params)
     span.set_attribute(ATTR_LANGFUSE_USER_ID, params[:account_id].to_s) if params[:account_id]
     span.set_attribute(ATTR_LANGFUSE_SESSION_ID, "#{params[:account_id]}_#{params[:conversation_id]}") if params[:conversation_id].present?
-    span.set_attribute(ATTR_LANGFUSE_TAGS, [params[:feature_name]].to_json)
+    span.set_attribute(ATTR_LANGFUSE_TAGS, langfuse_trace_tags(params))
     span.set_attribute(ATTR_LANGFUSE_OBSERVATION_INPUT, params[:messages].to_json)
   end
 

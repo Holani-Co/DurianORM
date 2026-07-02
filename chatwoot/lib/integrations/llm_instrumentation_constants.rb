@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'socket'
+
 module Integrations::LlmInstrumentationConstants
   # OpenTelemetry attribute names following GenAI semantic conventions
   # https://opentelemetry.io/docs/specs/semconv/gen-ai/
@@ -29,4 +31,20 @@ module Integrations::LlmInstrumentationConstants
   ATTR_LANGFUSE_OBSERVATION_TYPE = 'langfuse.observation.type'
   ATTR_LANGFUSE_OBSERVATION_INPUT = 'langfuse.observation.input'
   ATTR_LANGFUSE_OBSERVATION_OUTPUT = 'langfuse.observation.output'
+
+  # Which machine produced this trace (prod ORM server vs a dev laptop). Set
+  # TRACE_SOURCE per install (e.g. orm-server, siddharth-macbook); falls back
+  # to the OS hostname. Mirrors zoho-bridge's config.TRACE_SOURCE so both apps
+  # label their Langfuse traces the same way.
+  TRACE_SOURCE = (ENV['TRACE_SOURCE'].presence || Socket.gethostname).freeze
+
+  # Standard Langfuse trace tags for every span: the feature, which machine
+  # produced it (source:<host>), and which conversation it belongs to
+  # (conversation:<id> — lines up with the zoho-bridge traces for the same
+  # conversation so one filter surfaces both apps).
+  def langfuse_trace_tags(params)
+    tags = [params[:feature_name], "source:#{TRACE_SOURCE}"]
+    tags << "conversation:#{params[:conversation_id]}" if params[:conversation_id].present?
+    tags.compact.to_json
+  end
 end

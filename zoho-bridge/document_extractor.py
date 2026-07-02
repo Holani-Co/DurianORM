@@ -154,7 +154,8 @@ def _normalise(fields: dict) -> dict:
 
 
 # ── LLM call plumbing ─────────────────────────────────────────────────────
-async def _call_extraction(content_parts: list, source: str) -> dict | None:
+async def _call_extraction(content_parts: list, source: str,
+                           lf_parent: dict = None) -> dict | None:
     """Run one strict-schema extraction call. Returns the parsed dict or
     None on any failure (callers treat None as 'nothing extracted')."""
     try:
@@ -172,6 +173,7 @@ async def _call_extraction(content_parts: list, source: str) -> dict | None:
             ],
             name="document-extraction",
             metadata={"source": source, "langfuse_tags": ["doc-extraction"]},
+            **(lf_parent or {}),
         )
         return _normalise(json.loads(r.choices[0].message.content))
     except Exception as e:  # noqa: BLE001 — best-effort by design
@@ -179,7 +181,8 @@ async def _call_extraction(content_parts: list, source: str) -> dict | None:
         return None
 
 
-async def _extract_from_image(data: bytes, mime: str) -> dict | None:
+async def _extract_from_image(data: bytes, mime: str,
+                              lf_parent: dict = None) -> dict | None:
     b64 = base64.b64encode(data).decode()
     return await _call_extraction(
         [
@@ -193,13 +196,15 @@ async def _extract_from_image(data: bytes, mime: str) -> dict | None:
             },
         ],
         source="image",
+        lf_parent=lf_parent,
     )
 
 
-async def _extract_from_text(text: str) -> dict | None:
+async def _extract_from_text(text: str, lf_parent: dict = None) -> dict | None:
     return await _call_extraction(
         [{"type": "text", "text": f"Extract the document data from this message:\n\n{text}"}],
         source="text",
+        lf_parent=lf_parent,
     )
 
 
@@ -241,19 +246,19 @@ def _pdf_text_layer(data: bytes) -> str:
         return ""
 
 
-async def _extract_from_pdf(data: bytes) -> dict | None:
+async def _extract_from_pdf(data: bytes, lf_parent: dict = None) -> dict | None:
     """Digital PDFs (text layer) → cheap text extraction via pypdf.
     Scanned PDFs (no text layer) → render page 1 with poppler's pdftoppm
     and go through the vision path. Both CPU/subprocess steps run in a
     worker thread so the event loop keeps serving webhooks."""
     text = await asyncio.to_thread(_pdf_text_layer, data)
     if len(text.strip()) > 40:
-        return await _extract_from_text(text[:8000])
+        return await _extract_from_text(text[:8000], lf_parent=lf_parent)
 
     png = await asyncio.to_thread(_rasterise_pdf_first_page, data)
     if png is None:
         return None
-    return await _extract_from_image(png, "image/png")
+    return await _extract_from_image(png, "image/png", lf_parent=lf_parent)
 
 
 async def _download(url: str) -> tuple[bytes | None, str]:
@@ -296,7 +301,8 @@ def sniff_image_mime(data: bytes) -> str | None:
 
 
 async def extract_for_message(content: str, attachments: list,
-                              message_id, seen_keys: set) -> list[dict]:
+                              message_id, seen_keys: set,
+                              lf_parent: dict = None) -> list[dict]:
     """Run extraction for one incoming message. Returns a list of result
     dicts, each carrying a stable `source_key` for idempotency:
       att:<attachment_id>   for attachments
@@ -329,14 +335,14 @@ async def extract_for_message(content: str, attachments: list,
         # customers rename files freely. `mime` from the download response
         # is intentionally ignored here.
         if data.startswith(b"%PDF"):
-            fields = await _extract_from_pdf(data)
+            fields = await _extract_from_pdf(data, lf_parent=lf_parent)
         else:
             sniffed = sniff_image_mime(data)
             if sniffed is None:
                 print(f"[docs] attachment {att_id} skipped — bytes are not "
                       f"a supported image/pdf format (HEIC/AVIF/docx/...)")
                 continue
-            fields = await _extract_from_image(data, sniffed)
+            fields = await _extract_from_image(data, sniffed, lf_parent=lf_parent)
 
         if fields and fields.get("is_financial_document"):
             fields["source_key"] = key
@@ -348,7 +354,7 @@ async def extract_for_message(content: str, attachments: list,
     # already includes the context — no second call.)
     text_key = f"msg:{message_id}"
     if not results and text_looks_billish(content) and text_key not in seen_keys:
-        fields = await _extract_from_text(content[:8000])
+        fields = await _extract_from_text(content[:8000], lf_parent=lf_parent)
         if fields and fields.get("is_financial_document"):
             fields["source_key"] = text_key
             fields["source"] = "text"

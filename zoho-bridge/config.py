@@ -1,6 +1,7 @@
 # Centralised env loading. Fails fast at startup if anything required is missing.
 
 import os
+import socket
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -121,6 +122,18 @@ CHATWOOT_WEBHOOK_SECRET = os.environ.get("CHATWOOT_WEBHOOK_SECRET", "")
 #   in sync with the Chatwoot User the bridge posts as (rename that user too).
 PRODUCT_NAME  = os.environ.get("PRODUCT_NAME", "DurianORM")
 AI_AGENT_NAME = os.environ.get("AI_AGENT_NAME", "MiracleAI")
+
+# ── Tracing: which instance produced a trace ──────────────────────────────
+# The same bridge code runs in several places (the prod ORM server, and dev
+# laptops) that can all point at the SAME Langfuse project. TRACE_SOURCE labels
+# which machine handled a conversation so its traces are told apart. Set it
+# explicitly per machine in that machine's env / systemd unit —
+#   TRACE_SOURCE=orm-server        (prod)
+#   TRACE_SOURCE=siddharth-macbook (dev)
+#   TRACE_SOURCE=aditya-macbook    (dev)
+# — falling back to the OS hostname when unset. Surfaced as a `source:<value>`
+# tag on every conversation trace (see tracing.py).
+TRACE_SOURCE = (os.environ.get("TRACE_SOURCE") or socket.gethostname() or "unknown").strip()
 
 # ── OpenAI (used for team classification) ─────────────────────────────────
 OPENAI_API_KEY = _required("OPENAI_API_KEY")

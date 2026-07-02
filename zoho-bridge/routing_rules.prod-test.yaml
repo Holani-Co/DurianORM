@@ -19,16 +19,18 @@ categories:
   existing_order_enquiry: { team_id: 8 }
 
   # Still test-funnelled: complaint + legal_complaint
-  complaint:
+      complaint:
     team_id: 4
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
+    forward_to: customersupport@durian.in
+    cc: []
+    bcc: []
     include_customer_in_cc: false
   legal_complaint:
     team_id: 2
-    forward_to: rachael.rodrigues@durian.in
-    cc: [varsha@durian.in, sushil.k@durian.in, shilpa@durian.in]
-    include_customer_in_cc: false
+    forward_to: escalation@durian.in
+    cc: [customersupport@durian.in]
+    bcc: [jeevan.jyoti@durian.in]
+    include_customer_in_cc: false                # ← stays false
 
   # LIVE — team_id only; base supplies the real forward_to + cc + customer-cc
   # (doors → location routing; project_bulk_order → sector + region routing).

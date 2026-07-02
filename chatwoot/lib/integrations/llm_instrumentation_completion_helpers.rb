@@ -31,7 +31,7 @@ module Integrations::LlmInstrumentationCompletionHelpers
 
   def set_common_span_metadata(span, params)
     span.set_attribute(ATTR_LANGFUSE_USER_ID, params[:account_id].to_s) if params[:account_id]
-    span.set_attribute(ATTR_LANGFUSE_TAGS, [params[:feature_name]].to_json) if params[:feature_name]
+    span.set_attribute(ATTR_LANGFUSE_TAGS, langfuse_trace_tags(params)) if params[:feature_name]
   end
 
   def set_embedding_result_attributes(span, result)
