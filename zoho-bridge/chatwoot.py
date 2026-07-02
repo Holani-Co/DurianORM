@@ -443,27 +443,23 @@ async def get_conversation_messages(conversation_id: int) -> list[dict]:
 
 
 async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
-    """Merge keys into the conversation's `custom_attributes` JSONB column via
-    Chatwoot's dedicated endpoint. Read-modify-write — concurrency caveat:
-    not atomic. Safe under the current single-bridge architecture (FastAPI
-    handles webhooks serially per event); revisit if scaled out."""
+    """Merge keys into the conversation's `custom_attributes` JSONB column.
+
+    The fork's custom_attributes endpoint MERGES server-side (a key set to
+    null is deleted), so this is a single atomic POST — no read-modify-write,
+    no race with concurrent writers. (The old GET-merge-POST here, combined
+    with the endpoint's original replace semantics, is what let partial
+    frontend writes wipe bridge-written attributes.)"""
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(_conv_url(conversation_id), headers=_headers())
-        if r.status_code >= 300:
-            raise RuntimeError(
-                f"Chatwoot get conversation failed [{r.status_code}]: {r.text}"
-            )
-        current = (r.json() or {}).get("custom_attributes") or {}
-        merged = {**current, **attrs}
-        r2 = await client.post(
+        r = await client.post(
             _conv_url(conversation_id, "/custom_attributes"),
             headers=_headers(),
-            json={"custom_attributes": merged},
+            json={"custom_attributes": attrs},
         )
-        if r2.status_code >= 300:
+        if r.status_code >= 300:
             raise RuntimeError(
-                f"Chatwoot post custom_attributes failed [{r2.status_code}]: {r2.text}"
+                f"Chatwoot post custom_attributes failed [{r.status_code}]: {r.text}"
             )
-        return r2.json()
+        return r.json()
 
 
