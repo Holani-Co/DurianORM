@@ -236,11 +236,40 @@ async def create_note(parent_module: str, parent_id: str,
 # so the integration only creates Contacts (+Notes) and Deals.
 
 
+# ── Deal layouts ──────────────────────────────────────────────────────────
+# The client's Deals module has two record layouts: "Standard" (regular sales)
+# and "Home Studio" (full home customization → designers). Layout ids are
+# org-specific, so we resolve them by NAME once and cache for the process
+# lifetime. Requires the ZohoCRM.settings.layouts.READ scope — without it the
+# lookup fails and deals are created on the module's default layout (Standard),
+# with a log line so the gap is visible.
+_layout_cache: dict = {}
+
+
+async def get_deal_layout_id(layout_name: str) -> str:
+    """Return the Deals-module layout id for `layout_name`, or "" if the
+    layout doesn't exist / the token lacks the layouts.READ scope."""
+    if not layout_name:
+        return ""
+    if not _layout_cache:
+        try:
+            resp = await _crm_request("GET", "/settings/layouts",
+                                      params={"module": "Deals"})
+            for lay in resp.get("layouts") or []:
+                _layout_cache[(lay.get("name") or "").strip().lower()] = \
+                    str(lay.get("id") or "")
+        except Exception as e:
+            print(f"[crm] Deals layout lookup failed (creating on default "
+                  f"layout): {e}")
+            _layout_cache["__failed__"] = ""
+    return _layout_cache.get(layout_name.strip().lower(), "")
+
+
 # ── Deal ──────────────────────────────────────────────────────────────────
 async def create_deal(contact_id: str, deal_name: str,
                       description: str, stage: str = "",
                       source: str = "Chatwoot", owner_id: str = "",
-                      vertical: str = "") -> dict:
+                      vertical: str = "", layout_name: str = "") -> dict:
     """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
     Stage falls back to config.ZOHO_CRM_DEAL_DEFAULT_STAGE — set that to your
     pipeline's first stage (e.g. 'Qualification'). If the stage doesn't exist
@@ -249,8 +278,8 @@ async def create_deal(contact_id: str, deal_name: str,
     owner_id assigns the Deal to a location's salesperson. vertical
     (Furniture / Doors, from the client matrix) is written to the field named
     by ZOHO_CRM_VERTICAL_FIELD when that's configured — otherwise it only
-    appears in the Description. The client's CRM Layout column is all
-    'Standard' (Zoho's default layout), so no Layout field is sent."""
+    appears in the Description. layout_name ("Standard" / "Home Studio")
+    selects the Deal record layout; unresolvable → Zoho's default layout."""
     record = {
         "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
         "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
@@ -265,6 +294,10 @@ async def create_deal(contact_id: str, deal_name: str,
         record["Owner"] = {"id": str(owner_id)}
     if vertical and config.ZOHO_CRM_VERTICAL_FIELD:
         record[config.ZOHO_CRM_VERTICAL_FIELD] = vertical
+    if layout_name:
+        layout_id = await get_deal_layout_id(layout_name)
+        if layout_id:
+            record["Layout"] = {"id": layout_id}
     resp = await _crm_request("POST", "/Deals", json_body={"data": [record]})
     entry = (resp.get("data") or [{}])[0]
     if entry.get("code") != "SUCCESS":

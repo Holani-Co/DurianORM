@@ -56,6 +56,7 @@ const categoryKey = computed(() => {
 const DEAL_CATEGORIES = new Set([
   'project_bulk_order',
   'doors_veneer_plywood',
+  'full_home_customization',
   'product_enquiry',
   'general_information',
   'existing_order_enquiry',

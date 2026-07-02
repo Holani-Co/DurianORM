@@ -2826,7 +2826,8 @@ def _deal_transcript(messages: list, max_msgs: int = 12,
 
 async def _deal_description(conv_id: int, conv: dict, messages: list,
                             name: str, email: str, subject: str,
-                            category_display: str, owner: dict) -> str:
+                            category_display: str, owner: dict,
+                            layout_name: str = "Standard") -> str:
     """Everything a salesperson needs, in the Deal's Description: who the
     customer is (incl. phone when Chatwoot has it), what they asked for
     (AI summary + transcript), how it was qualified (category/sector/
@@ -2841,6 +2842,7 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
         f"Sector:    {sector}",
         f"Location:  {owner.get('location') or 'n/a'}",
         f"Vertical:  {owner.get('vertical') or 'Furniture'}",
+        f"Layout:    {layout_name}",
         f"Store:     {owner.get('owner_email') or 'n/a'}",
         f"From:      {name or email} <{email}>" + (f" · {phone}" if phone else ""),
         f"Subject:   {subject or '(no subject)'}",
@@ -2939,16 +2941,26 @@ async def chatwoot_crm_create_deal(request: Request):
     except Exception as e:
         raise HTTPException(500, f"CRM Contact resolve failed: {e}")
 
+    # Record layout — the flow's product sub-type split: full home
+    # customization deals go on the "Home Studio" layout (designers),
+    # everything else on "Standard" (sales).
+    deal_category = (custom.get("email_category_v2") or {}).get("category") \
+                    or custom.get("phase2_category") or ""
+    layout_name = ("Home Studio"
+                   if deal_category in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES
+                   else "Standard")
+
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,
         name=name, email=email, subject=subject,
-        category_display=category_display, owner=owner)
+        category_display=category_display, owner=owner,
+        layout_name=layout_name)
     deal_name = f"{name or email} — {category_display}"[:255]
     try:
         deal = await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
             description=description, source="Chatwoot", owner_id=owner_id,
-            vertical=owner.get("vertical", ""),
+            vertical=owner.get("vertical", ""), layout_name=layout_name,
         )
     except Exception as e:
         raise HTTPException(500, f"CRM create_deal failed: {e}")

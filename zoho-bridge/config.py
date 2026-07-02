@@ -46,8 +46,17 @@ ZOHO_CRM_AUTO_CATEGORIES = tuple(
 ZOHO_CRM_DEAL_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_DEAL_CATEGORIES",
-        "project_bulk_order,doors_veneer_plywood,"
+        "project_bulk_order,doors_veneer_plywood,full_home_customization,"
         "product_enquiry,general_information,existing_order_enquiry",
+    ).split(",") if c.strip()
+)
+# Categories whose Deals go on the "Home Studio" record layout (full home
+# customization → designers). Everything else uses the "Standard" layout.
+# The layout ids are resolved by name at runtime (needs the
+# ZohoCRM.settings.layouts.READ scope); unresolvable → Zoho's default layout.
+ZOHO_CRM_HOME_STUDIO_CATEGORIES = tuple(
+    c.strip() for c in os.environ.get(
+        "ZOHO_CRM_HOME_STUDIO_CATEGORIES", "full_home_customization",
     ).split(",") if c.strip()
 )
 # First-stage name in your Deals pipeline. If unset or wrong, Zoho returns
