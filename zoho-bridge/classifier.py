@@ -467,6 +467,20 @@ _ROUTING_RULES = _load_routing_rules()
 _CATEGORY_KEYS = list((_ROUTING_RULES.get("categories") or {}).keys())
 _CONFIDENCE_THRESHOLD = float(_ROUTING_RULES.get("confidence_threshold", 0.6))
 
+# Subject substrings (lower-cased) for Durian's automated system emails.
+# main.py short-circuits these to General Information without forward/CRM/review.
+_SYSTEM_NOTIFICATION_SUBJECTS = tuple(
+    str(s).lower() for s in (_ROUTING_RULES.get("system_notification_subjects") or [])
+)
+
+
+def is_system_notification(subject: str) -> bool:
+    """True when the email Subject matches a configured system-notification
+    phrase (order confirmations, OTP, newsletter, stock alerts). Case-
+    insensitive substring match; empty list / subject → False."""
+    s = (subject or "").lower()
+    return any(pat in s for pat in _SYSTEM_NOTIFICATION_SUBJECTS)
+
 
 def category_choices() -> list[dict]:
     """[{category, display_name}] for every routing category — used to build

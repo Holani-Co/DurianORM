@@ -1991,6 +1991,46 @@ async def handle_message_created(data: dict) -> dict:
         or content[:80]
     )
 
+    # ── Automated system / transactional emails ───────────────────────────
+    # Durian's own no-reply notifications (order confirmations, shipping
+    # updates, OTP, newsletter opt-ins, stock alerts). Deterministically tag
+    # them General Information and STOP — no forward, no CRM Contact, no
+    # acknowledgment, no needs-review card, no team routing. Subject-matched
+    # (case-insensitive) from routing_rules.yaml:system_notification_subjects.
+    # Social DMs have no email subject, so this only applies to email inboxes.
+    if not is_social and classifier.is_system_notification(real_subject):
+        print(f"[system-notification] conv {conv_id}: subject matched — "
+              f"tagging General Information, skipping forward/CRM/ack/review")
+        gi_rule = (classifier._ROUTING_RULES.get("categories") or {}).get(
+            "general_information") or {}
+        try:
+            await chatwoot.add_label(conv_id, "general-information")
+        except Exception as e:
+            print(f"[system-notification] add_label failed: {e}")
+        try:
+            await chatwoot.merge_custom_attributes(conv_id, {
+                "email_category_v2": {
+                    "category":     "general_information",
+                    "confidence":   1.0,
+                    "reason":       "Automated system/transactional email "
+                                    "(subject-matched).",
+                    "action":       "in_channel",
+                    "display_name": gi_rule.get("display_name")
+                                    or "General Information",
+                    "classified_at": _now_iso(),
+                },
+                # Mark handled so a later reply on the thread doesn't re-run the
+                # classify pipeline, and record the intent label for the digest.
+                "email_category":    "automated",
+                "phase2_handled_at": _now_iso(),
+                "phase2_category":   "general_information",
+                "system_notification": True,
+            })
+        except Exception as e:
+            print(f"[system-notification] merge_custom_attributes failed: {e}")
+        return {"classified_email_type": "system_notification",
+                "category": "general_information", "auto_handled": True}
+
     # ── Email-type classification pipeline ────────────────────────────────
     # Layers (earliest-exit wins on inbox bypass; otherwise classifier runs):
     #   * NEVER_SPAM_INBOXES — operator-controlled per-inbox bypass

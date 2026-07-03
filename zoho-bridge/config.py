@@ -56,7 +56,7 @@ ZOHO_CRM_DEAL_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_DEAL_CATEGORIES",
         "project_bulk_order,doors_veneer_plywood,full_home_customization,"
-        "product_enquiry,general_information,existing_order_enquiry",
+        "product_enquiry",
     ).split(",") if c.strip()
 )
 # Categories whose Deals go on the "Home Studio" record layout (full home

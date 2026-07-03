@@ -1002,6 +1002,25 @@ fallback:
 # fallback category. Tune after observing real-world behaviour.
 confidence_threshold: 0.6
 
+# Automated system / transactional emails — Durian's own no-reply
+# notifications (order confirmations, shipping updates, OTP, newsletter
+# opt-ins, stock alerts). Matched case-insensitively as SUBSTRINGS of the
+# email Subject. On a match the bridge tags the conversation General
+# Information and stops: no forward, no CRM Contact, no acknowledgment, no
+# needs-review decision card. Keep these phrases distinctive enough that a
+# genuine customer enquiry never matches (e.g. "your durian order" is the
+# system's phrasing; a customer writes "my order").
+system_notification_subjects:
+  - "registration for durian.in"
+  - "subscription confirmation"
+  - "thank you for subscribing"
+  - "verify your otp"
+  - "product low stock"
+  - "product out of stock"
+  - "your durian order"
+  - "successfully shipped"
+  - "has been shipped"
+
 # Acknowledgment templates sent to the customer. {customer_name} is
 # substituted at send time; if the contact has no name on file the
 # substitution renders as "there" (avoiding the "[Customer Name]"
