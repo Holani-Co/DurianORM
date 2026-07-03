@@ -821,15 +821,12 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 # /chatwoot/resolve-category-decision → _resolve_category_decision, which
 # then runs the real forward/route action for the chosen category.
 
-# Label applied to low-confidence emails awaiting an agent's category
-# decision. Colour it red in Chatwoot → Settings → Labels so these stand
-# out in the conversation list. Removed automatically once confirmed.
-NEEDS_REVIEW_LABEL = "needs-category-review"
-
-# Umbrella label applied on EVERY human-in-the-loop case (category/sector
-# confirmation AND region review) on top of the specific label. The permanent
-# "Needs review" sidebar view filters on this one, so it catches all review
-# types with no future sidebar edits when new review kinds are added.
+# The ONE label for every human-in-the-loop case (category/sector confirmation
+# AND region review). Colour it red in Chatwoot → Settings → Labels. The
+# permanent "Needs review" sidebar view filters on it; removed automatically
+# once the agent confirms. (Previously each review kind ALSO got its own
+# specific label — needs-category-review / needs-region-review — but the double
+# chips confused agents, so everything is unified on this single label.)
 NEEDS_REVIEW_UMBRELLA_LABEL = "needs-review"
 
 
@@ -932,20 +929,16 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         print(f"[category-decision] post_private_note failed: {e}")
 
     # Visible flag in the conversation list so agents can spot these at a
-    # glance. Colour it red in Chatwoot → Settings → Labels. The umbrella
-    # `needs-review` label backs the permanent "Needs review" sidebar view.
-    for lbl in (NEEDS_REVIEW_LABEL, NEEDS_REVIEW_UMBRELLA_LABEL):
-        try:
-            await chatwoot.add_label(conv_id, lbl)
-        except Exception as e:
-            print(f"[category-decision] add_label({lbl}) failed: {e}")
+    # glance. Backs the permanent "Needs review" sidebar view.
+    try:
+        await chatwoot.add_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)
+    except Exception as e:
+        print(f"[category-decision] add_label({NEEDS_REVIEW_UMBRELLA_LABEL}) failed: {e}")
 
     print(f"[category-decision] conv {conv_id}: card posted "
           f"(suggested={suggested!r} conf={conf})")
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
 
-
-NEEDS_REGION_REVIEW_LABEL = "needs-region-review"
 
 
 async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
@@ -974,11 +967,10 @@ async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
         await chatwoot.post_private_note(conv_id, "\n".join(lines))
     except Exception as e:
         print(f"[bulk-region] post_private_note failed for conv {conv_id}: {e}")
-    for lbl in (NEEDS_REGION_REVIEW_LABEL, NEEDS_REVIEW_UMBRELLA_LABEL):
-        try:
-            await chatwoot.add_label(conv_id, lbl)
-        except Exception as e:
-            print(f"[bulk-region] add_label({lbl}) failed for conv {conv_id}: {e}")
+    try:
+        await chatwoot.add_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)
+    except Exception as e:
+        print(f"[bulk-region] add_label({NEEDS_REVIEW_UMBRELLA_LABEL}) failed for conv {conv_id}: {e}")
     print(f"[bulk-region] conv {conv_id}: region unclear "
           f"({region} {rconf}%) — left in-channel for agent")
     return {"classified_email_type": "project_bulk_order", "region_review": True}
@@ -1082,8 +1074,7 @@ async def _resolve_category_decision(conv_id: int, category: str,
         # auto-forwarded). Applied here too so in-channel categories (which
         # don't forward) still land in the view.
         await chatwoot.add_label(conv_id, "manually-sent")
-        await chatwoot.remove_label(conv_id, NEEDS_REVIEW_LABEL)  # resolved
-        await chatwoot.remove_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)
+        await chatwoot.remove_label(conv_id, NEEDS_REVIEW_UMBRELLA_LABEL)  # resolved
         team_id = rule.get("team_id")
         if team_id:
             await chatwoot.assign_team(conv_id, int(team_id))

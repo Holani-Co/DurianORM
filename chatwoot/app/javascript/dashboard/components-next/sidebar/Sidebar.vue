@@ -51,7 +51,6 @@ const EMAIL_HANDLING_LABELS = [
   'auto-forwarded',
   'manually-sent',
   'needs-review',
-  'needs-category-review',
 ];
 
 const { accountScopedRoute, isOnChatwootCloud } = useAccount();
@@ -274,7 +273,7 @@ const menuItems = computed(() => {
           to: accountScopedRoute('conversation_unattended'),
         },
         // Email handling: always-on views for the AI email router — auto-sent
-        // (auto-forwarded) and human-in-the-loop (needs-category-review).
+        // (auto-forwarded) and human-in-the-loop (needs-review).
         // Hard-coded so they're permanent; no agent can remove them.
         {
           name: 'EmailHandling',
