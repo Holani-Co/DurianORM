@@ -46,7 +46,8 @@ ZOHO_CRM_DRY_RUN       = os.environ.get("ZOHO_CRM_DRY_RUN", "false").lower() == 
 ZOHO_CRM_AUTO_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_AUTO_CATEGORIES",
-        "product_enquiry,general_information,existing_order_enquiry",
+        "product_enquiry,general_information,existing_order_enquiry,"
+        "franchise_dealership",
     ).split(",") if c.strip()
 )
 # Categories that show the "Create Deal" button in the CRM sidebar panel.
@@ -56,7 +57,7 @@ ZOHO_CRM_DEAL_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_DEAL_CATEGORIES",
         "project_bulk_order,doors_veneer_plywood,full_home_customization,"
-        "product_enquiry",
+        "product_enquiry,franchise_dealership",
     ).split(",") if c.strip()
 )
 # Categories whose Deals go on the "Home Studio" record layout (full home

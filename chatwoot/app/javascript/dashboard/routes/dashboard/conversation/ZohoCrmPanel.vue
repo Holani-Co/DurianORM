@@ -54,13 +54,15 @@ const categoryKey = computed(() => {
 // UI matches what the bridge will accept. No "Create Lead": the client treats
 // Leads and Deals as the same thing, so Deal is the only manual CRM action.
 // General Information / Existing Order Enquiry are informational (not sales
-// opportunities) and Franchise / Vendor are non-customer, so none of them
-// offer a Deal — the button only shows for genuine sales categories.
+// opportunities) and Vendor is non-customer, so they don't offer a Deal.
+// Franchise/Dealership DOES — it routes to the dedicated franchise desk
+// (crm_owner_routing_franchise in the bridge's routing rules).
 const DEAL_CATEGORIES = new Set([
   'project_bulk_order',
   'doors_veneer_plywood',
   'full_home_customization',
   'product_enquiry',
+  'franchise_dealership',
 ]);
 
 const showDeal = computed(() => DEAL_CATEGORIES.has(categoryKey.value));
