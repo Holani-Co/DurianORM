@@ -1354,3 +1354,12 @@ crm_owner_routing_doors:
     owner_email: rohit.kanoujia@durian.in
     owner_id: "3608871000135120298"
     business_vertical: Doors
+
+# Franchise / Dealership enquiries have a single dedicated desk (sheet row
+# with Category = Franchise/Dealership) — location-independent, and no
+# government/private question (a franchise enquiry is never govt procurement).
+# Drives BOTH the auto Contact+Note and the Create Deal owner.
+crm_owner_routing_franchise:
+  owner_email: gautam.kumar@durian.in
+  owner_id: "3608871000143694172"
+  business_vertical: Furniture

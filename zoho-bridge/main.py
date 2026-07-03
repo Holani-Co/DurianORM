@@ -1416,7 +1416,15 @@ async def _push_contact_and_note(conv_id: int, sender_name: str,
         return "ℹ️ CRM push skipped — no sender email to key a Contact on."
 
     # Location → owner. Client rule: no location = no CRM tag at all.
-    owner = await _resolve_crm_owner(message_body, subject, sender_email)
+    # Franchise enquiries skip the location matrix — they always belong to
+    # the dedicated franchise desk (crm_owner_routing_franchise).
+    franchise = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_franchise") or {}
+    if category_key == "franchise_dealership" and franchise.get("owner_id"):
+        owner = {"configured": True, "location": "franchise",
+                 "owner_id":    str(franchise.get("owner_id")),
+                 "owner_email": franchise.get("owner_email") or ""}
+    else:
+        owner = await _resolve_crm_owner(message_body, subject, sender_email)
     if owner.get("configured") and owner.get("location") is None:
         return ("ℹ️ CRM push skipped — location could not be determined "
                 "(no CRM owner to route to).")
@@ -2836,6 +2844,19 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
     A below-bar fresh classification returns sector_unclear=True so the
     endpoint can ask the agent instead of guessing."""
     cat_v2 = custom.get("email_category_v2") or {}
+    category = (cat_v2.get("category") or custom.get("phase2_category") or "")
+
+    # Franchise/dealership enquiries: single dedicated desk (sheet row with
+    # Category = Franchise/Dealership) — location-independent, and skips the
+    # govt/private question entirely (a franchise enquiry is never govt
+    # procurement).
+    franchise = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_franchise") or {}
+    if category == "franchise_dealership" and franchise.get("owner_id"):
+        return {"configured": True, "location": "franchise",
+                "owner_id":    str(franchise.get("owner_id")),
+                "owner_email": franchise.get("owner_email") or "",
+                "vertical":    franchise.get("business_vertical") or "Furniture"}
+
     sector = (sector_override or "").lower()
     if sector not in ("government", "private"):
         # Trust the stored sector only when the pipeline was confident about
@@ -2880,7 +2901,6 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
     # Doors enquiries have their own two-desk routing (client matrix rows with
     # Business Vertical = Doors): Bangalore → Bangalore desk, everywhere else
     # → the catch-all desk. Mirrors the doors email routing.
-    category = (cat_v2.get("category") or custom.get("phase2_category") or "")
     doors = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_doors") or {}
     if category == "doors_veneer_plywood" and doors:
         try:
