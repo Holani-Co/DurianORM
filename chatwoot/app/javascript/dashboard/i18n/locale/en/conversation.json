@@ -38,7 +38,10 @@
       "CONFIRM_BODY_GENERIC": "This will send your reply to the customer. Please make sure it reads the way you want before sending.",
       "CONFIRM_BUTTON_GENERIC": "Send reply",
       "APPROVED_SENT_BY": "Approved & sent by {agent}",
-      "APPROVED_SENT": "Approved & sent"
+      "APPROVED_SENT": "Approved & sent",
+      "MORE_TEMPLATES": "More templates",
+      "TEMPLATES_TITLE": "Choose a template",
+      "TEMPLATES_EMPTY": "No templates found for this channel."
     },
     "EMPTY_STATE": {
       "CMD_BAR": "to open command menu",

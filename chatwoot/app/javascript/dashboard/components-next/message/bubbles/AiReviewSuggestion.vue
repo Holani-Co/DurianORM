@@ -174,6 +174,61 @@ const cancel = async () => {
     useAlert(t('CONVERSATION.AI_REVIEW_SUGGESTION.CANCEL_ERROR'));
   }
 };
+
+// ── Template picker ──────────────────────────────────────────────────────
+// The bridge picks ONE template; the ⋯ button lets the agent browse the full
+// approved library for this card's channel and swap it in. Templates are
+// Chatwoot canned responses whose short_code is prefixed with the channel
+// (`review_` / `social_` / `whatsapp_` — see the bridge's setup_*_templates
+// scripts). The swapped text just replaces the draft, so the normal Edit /
+// Send flow (and its "Approved & sent by <agent>" attribution) still applies.
+const templatesDialog = ref(null);
+
+const channelTemplates = computed(() =>
+  (store.getters.getCannedResponses || []).filter(cr =>
+    (cr.short_code || '').startsWith(`${channel.value}_`)
+  )
+);
+
+const openTemplates = () => {
+  if (busy.value) return;
+  store.dispatch('getCannedResponse');
+  templatesDialog.value?.open();
+};
+
+// "review_positive_5star" → "Positive 5star" for the list heading.
+const templateLabel = cr => {
+  const code = (cr.short_code || '')
+    .replace(`${channel.value}_`, '')
+    .replace(/_/g, ' ');
+  return code.charAt(0).toUpperCase() + code.slice(1);
+};
+
+// Mirror the bridge's personalisation (review_reply._personalise): swap the
+// approved greeting placeholder for the customer's first name, leave the
+// template wording untouched otherwise.
+const firstName = computed(() => {
+  const name =
+    store.getters.getConversationById(Number(conversationId.value))?.meta
+      ?.sender?.name || '';
+  const fn = name.trim().split(/\s+/)[0] || '';
+  return ['customer', 'google', 'user'].includes(fn.toLowerCase()) ? '' : fn;
+});
+
+const personalise = content => {
+  if (firstName.value) {
+    return content
+      .replace('Dear Customer,', `Dear ${firstName.value},`)
+      .replace('[NAME]', firstName.value);
+  }
+  return content.replace(' [NAME],', ',');
+};
+
+const pickTemplate = tpl => {
+  draft.value = personalise(tpl.content || '');
+  isEditing.value = false;
+  templatesDialog.value?.close();
+};
 </script>
 
 <template>
@@ -237,6 +292,15 @@ const cancel = async () => {
       </button>
       <button
         type="button"
+        class="px-2 py-1 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-12 hover:bg-n-solid-2 disabled:opacity-50"
+        :disabled="busy"
+        :title="t('CONVERSATION.AI_REVIEW_SUGGESTION.MORE_TEMPLATES')"
+        @click="openTemplates"
+      >
+        <span class="i-ph-dots-three-bold align-middle" />
+      </button>
+      <button
+        type="button"
         class="px-3 py-1 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="busy || !draft.trim()"
         @click="requestSend"
@@ -265,5 +329,40 @@ const cancel = async () => {
       :confirm-button-label="confirmButton"
       @confirm="send"
     />
+
+    <!-- Full template library for this channel — picking one replaces the
+         draft; the agent still reviews/edits and sends as usual. -->
+    <Dialog
+      ref="templatesDialog"
+      width="2xl"
+      overflow-y-auto
+      :title="t('CONVERSATION.AI_REVIEW_SUGGESTION.TEMPLATES_TITLE')"
+      :show-confirm-button="false"
+    >
+      <div class="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+        <p
+          v-if="!channelTemplates.length"
+          class="text-sm text-n-slate-11 py-4 text-center"
+        >
+          {{ t('CONVERSATION.AI_REVIEW_SUGGESTION.TEMPLATES_EMPTY') }}
+        </p>
+        <button
+          v-for="tpl in channelTemplates"
+          :key="tpl.id"
+          type="button"
+          class="flex flex-col gap-1 p-3 text-left border rounded-lg border-n-weak bg-n-solid-2 hover:bg-n-solid-3 hover:border-n-brand"
+          @click="pickTemplate(tpl)"
+        >
+          <span class="text-xs font-medium text-n-slate-12">
+            {{ templateLabel(tpl) }}
+          </span>
+          <span
+            class="text-xs whitespace-pre-wrap text-n-slate-11 line-clamp-4"
+          >
+            {{ tpl.content }}
+          </span>
+        </button>
+      </div>
+    </Dialog>
   </div>
 </template>
