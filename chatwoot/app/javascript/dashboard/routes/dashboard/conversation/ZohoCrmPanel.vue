@@ -53,13 +53,14 @@ const categoryKey = computed(() => {
 // Same list as ZOHO_CRM_DEAL_CATEGORIES in config.py — kept in sync so the
 // UI matches what the bridge will accept. No "Create Lead": the client treats
 // Leads and Deals as the same thing, so Deal is the only manual CRM action.
+// General Information / Existing Order Enquiry are informational (not sales
+// opportunities) and Franchise / Vendor are non-customer, so none of them
+// offer a Deal — the button only shows for genuine sales categories.
 const DEAL_CATEGORIES = new Set([
   'project_bulk_order',
   'doors_veneer_plywood',
   'full_home_customization',
   'product_enquiry',
-  'general_information',
-  'existing_order_enquiry',
 ]);
 
 const showDeal = computed(() => DEAL_CATEGORIES.has(categoryKey.value));
