@@ -379,8 +379,8 @@ categories:
   vendor_supplier_enquiry:
     display_name: Vendor / Supplier Enquiry
     action: forward
-    forward_to: nagender.rao@durian.in
-    cc: [sujitha.acharya@durian.in]
+    forward_to: ganguli@durian.in
+    cc: [shilpa@durian.in]
     bcc: []
     include_customer_in_cc: false
     description: |
