@@ -15,6 +15,8 @@
 # personalise it (greeting + one specific reference) — never to invent new
 # wording.
 
+from pathlib import Path
+
 import config
 import chatwoot
 # Instrumented client: review LLM calls are traced to Langfuse and nest under
@@ -23,6 +25,37 @@ import chatwoot
 # async-context error came from an `async with propagate_attributes` wrapper
 # that no longer exists, NOT from this client (see tracing.py).
 from llm_client import client
+
+try:
+    import yaml as _yaml
+except ImportError:  # pragma: no cover
+    _yaml = None
+
+# Per-template guidance from social_templates.yaml — the same file
+# sync_social_templates.py pushes to Chatwoot, so wording and guidance stay in
+# one place. Each entry's `use_when` + `triggers` are woven into the prompt so
+# the model matches INTENT instead of guessing from the template body alone
+# (which used to land catalogue asks on the generic greeting). Template CONTENT
+# still comes live from Chatwoot (UI edits win); a code with no hint simply
+# lists without guidance.
+_HINTS_PATH = Path(__file__).parent / "social_templates.yaml"
+
+
+def _load_hints() -> dict:
+    if _yaml is None:
+        return {}
+    try:
+        with open(_HINTS_PATH, "r", encoding="utf-8") as f:
+            entries = (_yaml.safe_load(f) or {}).get("templates") or []
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"[template_reply] failed to parse {_HINTS_PATH.name}: {e}")
+        return {}
+    return {t["short_code"]: t for t in entries if t.get("short_code")}
+
+
+_HINTS = _load_hints()
 
 # Display labels + warnings the system prompt weaves into the channel-specific
 # instructions. Keep these short; the model adapts tone from the templates.
@@ -48,13 +81,24 @@ You are writing a reply to a customer on {channel_label}.
 
 {channel_warning}
 
-You are given a set of APPROVED reply templates (each with a short_code) and
-one customer message. Your job:
+You are given a set of APPROVED reply templates (each with a short_code, and
+usually USE WHEN guidance plus TYPICAL MESSAGES examples) and the customer's
+recent message(s) — the LAST message is the one you are replying to; earlier
+ones are context. Your job:
 
-1. PICK the single template that best fits the message's sentiment and content.
+1. PICK the single template that best fits the LATEST message's intent.
+   Match against each template's USE WHEN / TYPICAL MESSAGES first, sentiment
+   second. When the customer asks for something specific (a catalogue, a
+   price, a store address, a callback, a job), NEVER pick a generic greeting
+   template if a specific one exists.
 2. PERSONALISE it lightly:
-   - Replace "Dear Customer" with the sender's first name if one is given
-     (e.g. "Dear Rajiv,"). If no real name, keep "Dear Customer,".
+   - Replace the [NAME] placeholder (or "Dear Customer") with the sender's
+     first name if one is given (e.g. "Hello Rajiv,"). If no real name is
+     available, drop the placeholder ("Hello," / "Dear Customer,").
+   - Fill obvious placeholders you have the answer for (e.g. the product name
+     when the customer named one). If a template needs a substitution you
+     CANNOT make (like a per-product URL you weren't given), prefer a
+     template without that placeholder.
    - You MAY weave in ONE short, specific reference to what they mentioned,
      only where it reads naturally. Keep the template's structure and wording
      otherwise intact.
@@ -94,9 +138,18 @@ _CHANNEL_LABELS = {
 
 
 def _format_templates(templates: list[dict]) -> str:
-    return "\n\n".join(
-        f"[{t['short_code']}]\n{t['content']}" for t in templates
-    )
+    blocks = []
+    for t in templates:
+        code = t["short_code"]
+        hint = _HINTS.get(code) or {}
+        head = f"[{code}]"
+        if hint.get("use_when"):
+            head += f"\nUSE WHEN: {str(hint['use_when']).strip()}"
+        triggers = hint.get("triggers") or []
+        if triggers:
+            head += "\nTYPICAL MESSAGES: " + "; ".join(str(x) for x in triggers[:6])
+        blocks.append(f"{head}\n{t['content']}")
+    return "\n\n".join(blocks)
 
 
 # Star-rating → review template short_code. For rating-only reviews (no text)
@@ -261,7 +314,8 @@ async def classify_review_positive(message: str, stars: int = 0,
 
 
 async def draft(channel: str, message: str, contact_name: str,
-                stars: int = 0, location: str = "", lf_parent: dict = None):
+                stars: int = 0, location: str = "", lf_parent: dict = None,
+                surface: str = ""):
     """Pick + personalise an approved template for the given channel.
 
     Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
@@ -274,6 +328,9 @@ async def draft(channel: str, message: str, contact_name: str,
         contact_name: the customer/reviewer's name (for personalisation).
         stars: 1-5 review rating (review channel only — used for hard-handoff).
         location: showroom name (review channel only — for context).
+        surface: "comment" when drafting a PUBLIC reply to a post comment —
+            narrows the template pool to the comment variants (short, prices
+            redirected to DM) and swaps in a public-reply warning.
 
     Reviews additionally hard-handoff below REVIEWS_AUTO_REPLY_MIN_STARS so
     low-rated reviews always need a human regardless of model output."""
@@ -294,6 +351,20 @@ async def draft(channel: str, message: str, contact_name: str,
     if not templates:
         print(f"[template_reply] no {prefix} templates found — handing off")
         return result("", "handoff")
+
+    # Comment vs DM template pools. Comment-surface templates (marked in the
+    # YAML) are short public replies that redirect questions to DM — public
+    # comment drafts draw from those; DM drafts must EXCLUDE them (a DM must
+    # never say "kindly check your DM"). Either filter falls back to the full
+    # pool rather than going empty.
+    comment_codes = {c for c, h in _HINTS.items()
+                     if (h.get("surface") or "") == "comment"}
+    if surface == "comment":
+        templates = [t for t in templates
+                     if t.get("short_code") in comment_codes] or templates
+    elif comment_codes:
+        templates = [t for t in templates
+                     if t.get("short_code") not in comment_codes] or templates
 
     # Rating-only review (Google review with stars but no text): the AI has
     # nothing to read, so pick a template deterministically from the rating
@@ -327,9 +398,17 @@ async def draft(channel: str, message: str, contact_name: str,
         and (stars or 0) < config.REVIEWS_AUTO_REPLY_MIN_STARS
     )
 
+    channel_label = CHANNEL_LABELS.get(channel, channel)
+    channel_warning = CHANNEL_WARNINGS.get(channel, "")
+    if surface == "comment":
+        channel_label = "a PUBLIC comment under one of our Instagram/Facebook posts"
+        channel_warning = ("This reply is PUBLIC under our post. Keep it short "
+                           "and brand-safe. NEVER quote prices publicly — "
+                           "questions get redirected to DM (the comment "
+                           "templates already do this).")
     system_prompt = SYSTEM_PROMPT_FMT.format(
-        channel_label=CHANNEL_LABELS.get(channel, channel),
-        channel_warning=CHANNEL_WARNINGS.get(channel, ""),
+        channel_label=channel_label,
+        channel_warning=channel_warning,
     )
 
     context_lines = [f"From: {contact_name}"]
@@ -337,7 +416,7 @@ async def draft(channel: str, message: str, contact_name: str,
         context_lines.append(f"Star rating: {stars or 'unknown'}/5")
         if location:
             context_lines.append(f"Showroom: {location}")
-    context_lines.append(f"Message: {message or '(empty)'}")
+    context_lines.append(f"Message(s):\n{message or '(empty)'}")
 
     user_msg = (
         f"── APPROVED TEMPLATES ──\n{_format_templates(templates)}\n\n"
@@ -355,7 +434,7 @@ async def draft(channel: str, message: str, contact_name: str,
                 {"role": "user",   "content": user_msg},
             ],
             name="template-reply",
-            metadata={"channel": channel, "stars": stars,
+            metadata={"channel": channel, "stars": stars, "surface": surface,
                       "langfuse_tags": ["template_reply", f"channel_{channel}"]},
             **(lf_parent or {}),
         )

@@ -1923,22 +1923,31 @@ async def handle_message_created(data: dict) -> dict:
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
 
+    # Comment conversations: when the comment auto-reply bot is ON it owns
+    # them (comment-specific prompt in Chatwoot's DmBot). When it's OFF —
+    # the prod-test default — agents used to get NOTHING on comments; now
+    # they get a template-suggestion card drawn from the PUBLIC comment
+    # templates (short, brand-safe, prices redirected to DM). Either way the
+    # spam/team pipeline and Zoho escalation never run on comments.
+    if is_social and _is_comment_conversation(conv):
+        comment_bot_on = os.environ.get(
+            "DM_BOT_COMMENT_AUTO_REPLY_ENABLED", "false").lower() == "true"
+        if comment_bot_on:
+            print(f"[msg] conv {conv_id} is a comment — DM bot replies, skipping pipeline")
+            return {"ignored": True, "reason": "comment_bot_handles"}
+        full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
+        return await handle_template_suggest(full_conv, social_channel,
+                                             surface="comment")
+
     # Prod-test phase: the DM bot is OFF (so no customer ever sees a bot
     # message), but the team still wants the Durian template-suggestion card on
     # every incoming social DM so they can review and send the reply manually.
     # When DM_BOT_AUTO_REPLY_ENABLED=true (bot back on), the card waits for
-    # handoff as before. Comments are skipped — they're handled separately.
+    # handoff as before.
     bot_off = os.environ.get("DM_BOT_AUTO_REPLY_ENABLED", "false").lower() != "true"
-    if (is_social and bot_off and not _is_comment_conversation(conv)):
+    if is_social and bot_off:
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
         return await handle_template_suggest(full_conv, social_channel)
-
-    # Comment conversations belong to the in-Chatwoot DM bot, which replies
-    # with a comment-specific prompt. The bridge must not run the spam/team
-    # pipeline or escalate them to Zoho — bail out before any of that.
-    if _is_comment_conversation(conv):
-        print(f"[msg] conv {conv_id} is a comment — leaving to DM bot, skipping pipeline")
-        return {"ignored": True, "reason": "comment_conversation"}
 
     # Document extraction (bills / receipts / order screenshots). MUST be
     # scheduled BEFORE the early returns below: the spam/team pipeline only
@@ -2503,10 +2512,23 @@ def _latest_incoming(messages: list) -> str:
     return ""
 
 
-async def handle_template_suggest(conv: dict, channel: str) -> dict:
+def _recent_incoming(messages: list, n: int = 3) -> str:
+    """The customer's last `n` text messages, oldest first — the drafter
+    replies to the LAST one but needs the earlier ones as context (customers
+    split one thought across messages: "Can we connect on call?" … "And may
+    I have your catalogue")."""
+    texts = [m["content"].strip() for m in messages or []
+             if m.get("message_type") in (0, "incoming")
+             and (m.get("content") or "").strip()]
+    return "\n".join(texts[-n:])
+
+
+async def handle_template_suggest(conv: dict, channel: str,
+                                  surface: str = "") -> dict:
     """Post a Durian-template AI reply suggestion as a private note for a
-    social DM. The agent gets the best-matching Durian template
-    (edit / regenerate / send) instead of a blank reply box.
+    social DM (or, with surface="comment", a public post comment). The agent
+    gets the best-matching Durian template (edit / regenerate / send) instead
+    of a blank reply box.
 
     Dedup rule: post a fresh card on every customer message that lands AFTER
     the team's last reply (or on the very first message). If a previous card
@@ -2524,7 +2546,10 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
     # strips private ones (cards are private), which would defeat the dedup
     # check below. Inline fetch with no filter.
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
-    message = _latest_incoming(all_messages)
+    # Last few customer messages, not just the latest: customers split one
+    # thought across messages ("Can we connect on call?" … "And may I have
+    # your catalogue") and the drafter needs the whole thought.
+    message = _recent_incoming(all_messages)
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
     # id of that same latest incoming message, for the Langfuse message span.
@@ -2549,7 +2574,7 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
                                      channel=channel)
         drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
-            lf_parent=_lf,
+            lf_parent=_lf, surface=surface,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
@@ -2564,6 +2589,7 @@ async def handle_template_suggest(conv: dict, channel: str) -> dict:
             conv_id, reply, message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion",
                                 "suggestion": reply, "channel": channel,
+                                "surface": surface,
                                 "ai_trace": drafted["trace"]},
         )
     except Exception as e:
@@ -2692,16 +2718,17 @@ async def reviews_regenerate(request: Request):
             lf_parent=_lf,
         )
     else:
-        # For social DMs, the customer's latest incoming message is the context
-        # (the message that triggered the handoff).
+        # For social DMs/comments, the customer's recent messages are the
+        # context (comment conversations regenerate against the comment pool).
         messages = await chatwoot.get_conversation_messages(conv_id)
         _lf = tracing.message_parent(conv_id, name="template-regenerate",
                                      channel=channel)
         drafted = await review_reply.draft(
             channel=channel,
-            message=_latest_incoming(messages),
+            message=_recent_incoming(messages),
             contact_name=contact_name,
             lf_parent=_lf,
+            surface="comment" if _is_comment_conversation(conv) else "",
         )
     return {"suggestion": drafted["reply"], "action": drafted["action"],
             "ai_trace": drafted["trace"]}
