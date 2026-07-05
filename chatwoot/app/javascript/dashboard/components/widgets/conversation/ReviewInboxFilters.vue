@@ -29,6 +29,7 @@ const emit = defineEmits([
   'update:dateFrom',
   'update:dateTo',
   'change',
+  'downloadReport',
 ]);
 
 // Client-side sort of the loaded list (no server round-trip → no 'change').
@@ -149,5 +150,16 @@ const selectClass =
         @change="onDateTo"
       />
     </label>
+    <!-- Star-segregated CSV for the selected posting-date range (defaults to
+         the last 7 days when no range is picked) — the client's weekly
+         ratings report, downloaded to forward on. -->
+    <button
+      type="button"
+      class="col-span-2 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded-md bg-n-alpha-2 text-n-slate-12 border border-n-weak hover:bg-n-alpha-3"
+      @click="emit('downloadReport')"
+    >
+      <span class="i-lucide-download text-sm" />
+      Download report (CSV)
+    </button>
   </div>
 </template>

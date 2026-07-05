@@ -639,6 +639,36 @@ const reviewSort = ref('');
 const reviewDateFrom = ref('');
 const reviewDateTo = ref('');
 
+// Star-segregated ratings CSV for the selected posting-date range (server
+// generated — covers ALL reviews in range, not just the loaded list). Empty
+// range → the backend defaults to the last 7 days. Fetched via axios so the
+// request carries auth headers, then saved through a blob link.
+const downloadReviewReport = async () => {
+  try {
+    const { data } = await window.axios.get(
+      `/api/v1/accounts/${currentAccountId.value}/reviews_report`,
+      {
+        params: {
+          inbox_id: Number(props.conversationInbox),
+          since: reviewDateFrom.value || undefined,
+          until: reviewDateTo.value || undefined,
+        },
+        responseType: 'blob',
+      }
+    );
+    const url = URL.createObjectURL(data);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `google-reviews-report-${
+      reviewDateFrom.value || 'last-7-days'
+    }_${reviewDateTo.value || ''}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    useAlert('Could not generate the reviews report. Please try again.');
+  }
+};
+
 // Slugify an agent's display name for the `replied-by-<slug>` label. Mirrors
 // the bridge's reviews_poller.agent_name_slug + the Rails messages_controller
 // replied_by_slug — keep the three in sync so the filter matches labels the
@@ -1086,6 +1116,7 @@ watch(conversationFilters, (newVal, oldVal) => {
       v-model:sort="reviewSort"
       v-model:date-from="reviewDateFrom"
       v-model:date-to="reviewDateTo"
+      @download-report="downloadReviewReport"
       :store-options="storeFilterOptions"
       :agent-options="agentFilterOptions"
       @change="onReviewFilterChange"
