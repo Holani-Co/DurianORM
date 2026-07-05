@@ -106,6 +106,8 @@ Rails.application.routes.draw do
           end
           resources :assignable_agents, only: [:index]
           resource :audit_logs, only: [:show]
+          # Durian — star-segregated Google-reviews CSV for a date range.
+          resource :reviews_report, controller: 'reviews_reports', only: [:show]
           resources :callbacks, only: [] do
             collection do
               post :register_facebook_page
