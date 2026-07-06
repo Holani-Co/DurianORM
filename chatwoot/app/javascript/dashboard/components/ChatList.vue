@@ -53,6 +53,7 @@ import {
 import { matchesFilters } from '../store/modules/conversations/helpers/filterHelpers';
 import { CONVERSATION_EVENTS } from '../helper/AnalyticsHelper/events';
 import { ASSIGNEE_TYPE_TAB_PERMISSIONS } from 'dashboard/constants/permissions.js';
+import { storeSegment } from './widgets/conversation/storeSegments';
 
 const props = defineProps({
   conversationInbox: { type: [String, Number], default: 0 },
@@ -695,6 +696,9 @@ const agentFilterOptions = computed(() =>
 
 const isReviewsInbox = computed(() => inbox.value?.name === 'Google Reviews');
 
+// Store options carry their COCO/FOFO segment so the dropdown can group the
+// showrooms — the reviews team wants to see at a glance which stores are
+// company-owned (COCO) vs franchise (FOFO).
 const storeFilterOptions = computed(() =>
   (labels.value || [])
     .filter(label => label.title?.startsWith('store-'))
@@ -704,6 +708,7 @@ const storeFilterOptions = computed(() =>
         .replace(/^store-/, '')
         .replace(/-/g, ' ')
         .replace(/\b\w/g, char => char.toUpperCase()),
+      segment: storeSegment(label.title),
     }))
 );
 
