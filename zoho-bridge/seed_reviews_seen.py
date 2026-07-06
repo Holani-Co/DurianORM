@@ -78,7 +78,8 @@ async def main():
                     skipped += 1
                     continue
                 state.mark_seen(rv["review_id"], 0, rv["reply_path"],
-                                rv["stars"] or 0, replied=bool(rv["has_reply"]))
+                                rv["stars"] or 0, replied=bool(rv["has_reply"]),
+                                update_time=rv.get("update_time", ""))
                 marked += 1
             total_marked += marked
             total_skipped += skipped

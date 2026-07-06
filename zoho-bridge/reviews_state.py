@@ -41,6 +41,14 @@ def init():
                 review_id       TEXT
             )
         """)
+        # Auto-migrate: `update_time` tracks the review's Google updateTime so
+        # the poller can detect EDITS (same review_id, newer updateTime). Rows
+        # that predate this column keep '' — treated as "baseline unknown", so
+        # the first sweep silently records their updateTime instead of firing a
+        # spurious edit for every already-seen review.
+        cols = [r[1] for r in c.execute("PRAGMA table_info(seen_reviews)").fetchall()]
+        if "update_time" not in cols:
+            c.execute("ALTER TABLE seen_reviews ADD COLUMN update_time TEXT DEFAULT ''")
 
 
 def is_seen(review_id: str) -> bool:
@@ -50,14 +58,25 @@ def is_seen(review_id: str) -> bool:
         ).fetchone() is not None
 
 
+def seen_record(review_id: str) -> dict | None:
+    """The stored row for a review_id (or None if never seen). Used by the
+    poller to detect edits: compare the returned `update_time` to Google's."""
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT conversation_id, reply_path, stars, replied, update_time "
+            "FROM seen_reviews WHERE review_id = ?", (review_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def mark_seen(review_id: str, conversation_id: int, reply_path: str,
-              stars: int, replied: bool = False):
+              stars: int, replied: bool = False, update_time: str = ""):
     with _lock, _conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO seen_reviews "
-            "(review_id, conversation_id, reply_path, stars, replied) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (review_id, conversation_id, reply_path, stars, int(replied)),
+            "(review_id, conversation_id, reply_path, stars, replied, update_time) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (review_id, conversation_id, reply_path, stars, int(replied), update_time),
         )
         if conversation_id:
             c.execute(

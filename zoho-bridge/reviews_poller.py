@@ -224,7 +224,8 @@ async def _ingest_review(loc: dict, rv: dict):
                                           content_attributes=AUTO_MARKER)
             await chatwoot.toggle_status(conv_id, "resolved")
             await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED)
-            state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=True)
+            state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
+                            replied=True, update_time=rv["update_time"])
             print(f"[reviews] auto-replied {rv['stars']}★ @ {title}")
             return
         except Exception as e:
@@ -246,8 +247,105 @@ async def _ingest_review(loc: dict, rv: dict):
     # box on every review is just noise. The conversation stays in the reviews
     # inbox (unassigned, open) for an agent to pick up directly.
     await tag_reply_status(conv_id, LBL_UNREPLIED)
-    state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"], replied=False)
+    state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
+                    replied=False, update_time=rv["update_time"])
     print(f"[reviews] handoff {rv['stars']}★ @ {title} → human")
+
+
+LBL_EDITED = "review-edited"
+
+
+async def _ingest_edit(loc: dict, rv: dict, rec: dict):
+    """A previously-seen review was EDITED on Google (same reviewId, newer
+    updateTime). Re-surface it in the EXISTING conversation — new text as an
+    incoming message, a fresh AI suggestion card, reopened + back to unreplied
+    — so the team is prompted to send an updated reply (the client's case: a
+    customer turns a complaint into praise and now wants a warm response).
+    Never auto-posts to Google — an edit always goes to a human."""
+    conv_id = rec.get("conversation_id")
+    if not conv_id:
+        # Seeded/link-less record — no conversation to update; ingest fresh.
+        await _ingest_review(loc, rv)
+        return
+
+    title = loc["title"]
+    old_stars = rec.get("stars") or 0
+    star_changed = (rv["stars"] or 0) != old_stars
+    header = "✏️ *Review edited on Google*"
+    if star_changed:
+        header += f" — rating changed {old_stars or '?'}★ → {rv['stars'] or '?'}★"
+    # Show BOTH dates: when it was originally posted (create_time — unchanged
+    # by an edit) and when it was edited (update_time — the new timestamp).
+    date_line = f"🗓 Posted {_format_review_time(rv['create_time'])}"
+    if rv["update_time"]:
+        date_line += f"  ·  ✏️ Edited {_format_review_time(rv['update_time'])}"
+    body = (
+        f"{header}\n\n"
+        f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
+        f"📍 {title}\n"
+        f"{date_line}\n\n"
+        f"{rv['comment'] or '(no text — rating only)'}"
+    )
+    review_msg = await chatwoot.create_message(conv_id, body, message_type="incoming")
+    review_msg_id = review_msg.get("id")
+
+    # Stash the edited text/rating so the "Regenerate" button re-drafts from
+    # the NEW review, not the original (the original lives in
+    # additional_attributes, which the API can't update — the review regenerate
+    # handler prefers these custom_attributes when present).
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "review_edited_comment": rv["comment"] or "",
+            "review_edited_stars": rv["stars"] or 0,
+        })
+    except Exception as e:
+        print(f"[reviews] edit: merge_custom_attributes failed conv {conv_id}: {e}")
+
+    # Swap the star label if the rating changed (e.g. review-2star → review-4star).
+    if star_changed:
+        old_lbl = f"review-{old_stars}star" if old_stars else "review-unrated"
+        new_lbl = f"review-{rv['stars']}star" if rv['stars'] else "review-unrated"
+        await _ensure_label_once(new_lbl, show_on_sidebar=True)
+        try:
+            await chatwoot.remove_label(conv_id, old_lbl)
+            await chatwoot.add_label(conv_id, new_lbl)
+        except Exception as e:
+            print(f"[reviews] edit: star relabel failed conv {conv_id}: {e}")
+
+    # `review-edited` marker so the team can spot/filter re-surfaced reviews.
+    await _ensure_label_once(LBL_EDITED, show_on_sidebar=True)
+    try:
+        await chatwoot.add_label(conv_id, LBL_EDITED)
+    except Exception as e:
+        print(f"[reviews] edit: add {LBL_EDITED} failed conv {conv_id}: {e}")
+
+    # Fresh AI draft from the NEW text, posted as the suggestion card.
+    _lf = tracing.message_parent(conv_id, review_msg_id, name="review-edit",
+                                 stars=rv["stars"], location=title)
+    drafted = await review_reply.draft(
+        channel="review", message=rv["comment"] or "",
+        contact_name=rv["reviewer"] or "Customer",
+        stars=rv["stars"] or 0, location=title, lf_parent=_lf,
+    )
+    reply = drafted["reply"]
+    note = reply or "(AI flagged this edited review for human handling — no draft.)"
+    await chatwoot.create_message(
+        conv_id, note, message_type="outgoing", private=True,
+        content_attributes={"type": "ai_review_suggestion",
+                            "suggestion": reply, "channel": "review",
+                            "ai_trace": drafted["trace"]},
+    )
+
+    # Reopen + reset to unreplied so it re-enters the team's queue for a new reply.
+    try:
+        await chatwoot.toggle_status(conv_id, "open")
+    except Exception as e:
+        print(f"[reviews] edit: reopen failed conv {conv_id}: {e}")
+    await tag_reply_status(conv_id, LBL_UNREPLIED,
+                           remove=(LBL_REPLIED, LBL_AUTO_REPLIED, LBL_MANUALLY_REPLIED))
+    state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
+                    replied=False, update_time=rv["update_time"])
+    print(f"[reviews] EDIT re-surfaced {rv['stars']}★ @ {title} (conv {conv_id})")
 
 
 async def poll_once():
@@ -258,6 +356,7 @@ async def poll_once():
     locations = await _discover_locations()
     cap = config.REVIEWS_MAX_PER_SWEEP
     new_count = 0
+    edit_count = 0
     skipped_for_cap = 0
     for loc in locations:
         try:
@@ -266,7 +365,26 @@ async def poll_once():
             print(f"[reviews] list failed for {loc['title']}: {e}")
             continue
         for rv in reviews:
-            if state.is_seen(rv["review_id"]):
+            rec = state.seen_record(rv["review_id"])
+            if rec is not None:
+                # Already seen — but was it EDITED? Compare Google's updateTime
+                # to what we stored.
+                stored = rec.get("update_time") or ""
+                if not stored:
+                    # Baseline unknown (seeded, or ingested before we tracked
+                    # updateTime) → record the current one WITHOUT re-surfacing,
+                    # so we don't fire a spurious edit for every old review.
+                    state.mark_seen(rv["review_id"], rec.get("conversation_id") or 0,
+                                    rv["reply_path"], rec.get("stars") or 0,
+                                    replied=bool(rec.get("replied")),
+                                    update_time=rv["update_time"])
+                    continue
+                if rv["update_time"] and rv["update_time"] != stored:
+                    try:
+                        await _ingest_edit(loc, rv, rec)
+                        edit_count += 1
+                    except Exception as e:
+                        print(f"[reviews] edit re-surface failed ({rv['review_id']}): {e}")
                 continue
             if cap and new_count >= cap:
                 skipped_for_cap += 1
@@ -276,8 +394,8 @@ async def poll_once():
                 new_count += 1
             except Exception as e:
                 print(f"[reviews] ingest failed ({rv['review_id']}): {e}")
-    if new_count:
-        msg = f"[reviews] ingested {new_count} new review(s)"
+    if new_count or edit_count:
+        msg = f"[reviews] ingested {new_count} new review(s), {edit_count} edited"
         if skipped_for_cap:
             msg += (f"; {skipped_for_cap} held back by "
                     f"REVIEWS_MAX_PER_SWEEP={cap} (next sweep)")
