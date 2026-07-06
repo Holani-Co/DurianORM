@@ -4,8 +4,10 @@
 // server-side via the `store-<name>` / `review-<n>star` labels the
 // reviews poller applies. Presentational only — the parent (ChatList) owns
 // the actual filter dispatch.
-defineProps({
-  // [{ value: 'store-koramangala', label: 'Koramangala' }, …]
+import { computed } from 'vue';
+
+const props = defineProps({
+  // [{ value: 'store-koramangala', label: 'Koramangala', segment: 'COCO' }, …]
   storeOptions: { type: Array, default: () => [] },
   // [{ value: 'replied-by-3', label: 'Aditya' }, …]
   agentOptions: { type: Array, default: () => [] },
@@ -89,15 +91,43 @@ const onDateTo = e => {
 
 const selectClass =
   'w-full min-w-0 px-2 py-1 text-sm rounded-md cursor-pointer bg-n-alpha-2 text-n-slate-12 border border-n-weak focus:outline-none focus:border-n-brand';
+
+// Group the store options by COCO / FOFO so the reviews team can tell
+// company-owned from franchise showrooms at a glance. Stores with no known
+// segment fall into "Other stores" (doors / FHC / project centres, or any
+// showroom not yet classified). Empty groups are dropped.
+const storeGroups = computed(() => {
+  const buckets = { COCO: [], FOFO: [], Other: [] };
+  [...props.storeOptions]
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .forEach(opt => {
+      (buckets[opt.segment] || buckets.Other).push(opt);
+    });
+  return [
+    { key: 'COCO', label: 'COCO — Company-owned', options: buckets.COCO },
+    { key: 'FOFO', label: 'FOFO — Franchise', options: buckets.FOFO },
+    { key: 'Other', label: 'Other stores', options: buckets.Other },
+  ].filter(g => g.options.length);
+});
 </script>
 
 <template>
   <div class="grid grid-cols-2 gap-2 px-3 py-2">
     <select :value="store" :class="selectClass" @change="onStore">
       <option value="">{{ ALL_STORES_LABEL }}</option>
-      <option v-for="opt in storeOptions" :key="opt.value" :value="opt.value">
-        {{ opt.label }}
-      </option>
+      <optgroup
+        v-for="group in storeGroups"
+        :key="group.key"
+        :label="group.label"
+      >
+        <option
+          v-for="opt in group.options"
+          :key="opt.value"
+          :value="opt.value"
+        >
+          {{ opt.label }}
+        </option>
+      </optgroup>
     </select>
     <select :value="rating" :class="selectClass" @change="onRating">
       <option
@@ -123,7 +153,12 @@ const selectClass =
         {{ opt.label }}
       </option>
     </select>
-    <select :value="sort" :class="[selectClass, 'col-span-2']" @change="onSort">
+    <select
+      :value="sort"
+      class="col-span-2"
+      :class="[selectClass]"
+      @change="onSort"
+    >
       <option
         v-for="opt in SORT_OPTIONS"
         :key="opt.value || 'default-sort'"
