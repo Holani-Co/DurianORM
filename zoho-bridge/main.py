@@ -2710,18 +2710,22 @@ async def reviews_regenerate(request: Request):
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
     add = conv.get("additional_attributes") or {}
+    cust = conv.get("custom_attributes") or {}
 
     if channel == "review":
         # The poller stashed the raw review payload on additional_attributes
         # so regenerate doesn't need to re-parse the formatted message body.
         # Agent-triggered re-draft (no new inbound message) → conversation-level
         # span, no message_id.
+        # If the review was edited (poller stashes review_edited_* on
+        # custom_attributes), re-draft from the EDITED text/rating — the
+        # original in additional_attributes can't be updated via the API.
         _lf = tracing.message_parent(conv_id, name="review-regenerate")
         drafted = await review_reply.draft(
             channel="review",
-            message=add.get("review_comment") or "",
+            message=cust.get("review_edited_comment") or add.get("review_comment") or "",
             contact_name=add.get("reviewer") or contact_name,
-            stars=add.get("stars") or 0,
+            stars=cust.get("review_edited_stars") or add.get("stars") or 0,
             location=add.get("location") or "",
             lf_parent=_lf,
         )

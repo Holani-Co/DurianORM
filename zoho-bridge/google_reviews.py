@@ -107,6 +107,10 @@ async def list_reviews(account_id: str, location_id: str, page_size: int = 50) -
             "comment":    (rv.get("comment") or "").strip(),
             "reviewer":   (rv.get("reviewer") or {}).get("displayName", "Google user"),
             "create_time": rv.get("createTime", ""),
+            # updateTime changes when the customer EDITS their review (same
+            # reviewId). The poller compares it against the stored value to
+            # detect edits and re-surface them.
+            "update_time": rv.get("updateTime", ""),
             "has_reply":  bool(rv.get("reviewReply")),
             "reply_path": f"accounts/{account_id}/locations/{location_id}/reviews/{rid}",
         })
