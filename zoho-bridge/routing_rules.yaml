@@ -1093,8 +1093,95 @@ acknowledgment_template_for:
   doors_veneer_plywood:     forward_generic
   fallback:                 in_channel
 
-# ── CRM owner routing (generated from the client's matrix sheet) ──
-# Regenerate with convert_crm_owner_matrix.py when the sheet changes.
+# ── Phase-1 CRM owner routing (rebuilt from Matrix - Enquiry Durian) ──
+# Routing is by ENQUIRY TYPE first, then location:
+#   FHC / Home Studio   → crm_owner_routing_homestudio (by location)
+#   Doors (incl. bulk)  → crm_owner_routing_doors (Bangalore vs rest)
+#   Govt / bulk furn.   → crm_owner_routing_govt_bulk (by city/region, lists = round-robin)
+#   Private project     → crm_owner_routing_private (4 project cities)
+#   Anything else       → crm_owner_routing_fallback (hello@ central)
+# The `crm_owner_routing` retail matrix below is PARKED for Phase 2 —
+# _resolve_deal_owner / _resolve_crm_owner MUST NOT route to it.
+crm_owner_routing_homestudio:   # FHC / Home Studio deals, by location
+  "Bengaluru - JP Nagar":
+    owner_email: jpnagar.fhcshowroom@durian.in
+    owner_id: "3608871000507413009"
+  "Hyderabad - Kompally":
+    owner_email: kompally.fhcshowroom@durian.in
+    owner_id: "3608871000476693618"
+  "Mumbai - Goregaon":
+    owner_email: goregaon.homestudio@durian.in
+    owner_id: "3608871000315511062"
+  "Delhi - Kirti Nagar":
+    owner_email: kirtinagar.homestudio@durian.in
+    owner_id: "3608871000410312080"
+  "Noida - Sector 10":
+    owner_email: noida.fhcshowroom@durian.in
+    owner_id: "3608871000484244133"
+  "Thane - Subhash Nagar":
+    owner_email: furnituredurian@gmail.com
+    owner_id: "3608871000104057837"
+
+crm_owner_routing_private:      # Private project furniture, by city
+  "Bangalore":
+    owner_email: sunil.m@durian.in
+    owner_id: "3608871000430943098"
+  "Delhi":
+    owner_email: anubhav.singh@durian.in
+    owner_id: "3608871000355488523"
+  "Hyderabad":
+    owner_email: hyder.shaffi@gmail.com
+    owner_id: "3608871000586001175"
+  "Pune":
+    owner_email: tushar.gajare@durian.in
+    owner_id: "3608871000339726005"
+
+crm_owner_routing_govt_bulk:    # Govt/Bulk furniture, by city/region (lists round-robin)
+  "Uttrakhand and Punjab":
+    - {owner_email: raj.singh@durian.in, owner_id: "3608871000278408103"}
+  "Hyderabad":
+    - {owner_email: umesh.dubey@durian.in, owner_id: "3608871000000320367"}
+  "Kolkata":
+    - {owner_email: vijay.karan@durian.in, owner_id: "3608871000320536307"}
+    - {owner_email: rakibul.haque@durian.in, owner_id: "3608871000310647226"}
+  "Mumbai":
+    - {owner_email: rajesh.m@durian.in, owner_id: "3608871000000320403"}
+    - {owner_email: prabhat.sharma@durian.in, owner_id: "3608871000389356021"}
+    - {owner_email: mitesh@durian.in, owner_id: "3608871000000320385"}
+  "Guwahati":
+    - {owner_email: chayan.sengupta@durian.in, owner_id: "3608871000118034537"}
+  "Patna":
+    - {owner_email: patna@durian.in, owner_id: "3608871000000320493"}
+  "Bhubaneshwar":
+    - {owner_email: sangram.das@durian.in, owner_id: "3608871000001898093"}
+  "Chennai":
+    - {owner_email: thota.rao@durian.in, owner_id: "3608871000373053353"}
+  "Coimbatore":
+    - {owner_email: gunasundari@durian.in, owner_id: "3608871000249596245"}
+  "Rajasthan":
+    - {owner_email: saket.sanadhya@durian.in, owner_id: "3608871000139740009"}
+  "Ranchi":
+    - {owner_email: ranchi@durian.in, owner_id: "3608871000000320511"}
+  "Ahmedabad":
+    - {owner_email: vikash.jha@durian.in, owner_id: "3608871000151650236"}
+  "Pune":
+    - {owner_email: nikhil.suryawanshi@durian.in, owner_id: "3608871000001970056"}
+  "Bhopal":
+    - {owner_email: shaishav.khare@durian.in, owner_id: "3608871000332871010"}
+    - {owner_email: mohit.swami@durian.in, owner_id: "3608871000176802004"}
+  "Indore":
+    - {owner_email: gajendrasingh.mourya@durian.in, owner_id: "3608871000000320583"}
+  "Noida":
+    - {owner_email: durian.noida@durian.in, owner_id: "3608871000001206109"}
+  "default":   # Delhi/NCR/Haryana/J&K + balance states + anything unmatched
+    - {owner_email: saharsh@durian.in, owner_id: "3608871000000963013"}
+
+crm_owner_routing_fallback:     # nothing specific resolved -> central inbox
+  owner_email: hello@durian.in
+  owner_id: "3608871000002452324"
+
+# ── PHASE-2 retail matrix (PARKED — do NOT route here) ──
+# Generated from the client's matrix sheet. Retained for Phase 2 only.
 crm_owner_routing:
   'Agra - Sikandra':
     owner_email: durianlko@gmail.com
