@@ -102,14 +102,14 @@ const conversationCustomAttributes = computed(
 
 // Google-review data lives on the conversation's additional_attributes (the
 // bridge's reviews poller writes type / stars / reviewer / review_comment).
-// The "Escalate to team" panel shows ONLY for bad reviews (1–2★).
+// The "Escalate to team" panel shows ONLY for 1★ reviews for now.
 const reviewAttributes = computed(
   () => currentChat.value?.additional_attributes || {}
 );
 const isBadReview = computed(
   () =>
     reviewAttributes.value.type === 'google_review' &&
-    [1, 2].includes(Number(reviewAttributes.value.stars))
+    Number(reviewAttributes.value.stars) === 1
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
