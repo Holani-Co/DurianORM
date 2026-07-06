@@ -37,6 +37,9 @@ import google_reviews as gr
 import review_reply
 import reviews_poller
 import reviews_state
+import crm_state
+
+crm_state.init()  # round-robin counters for govt/bulk owner rotation
 
 app = FastAPI()
 
@@ -1367,44 +1370,14 @@ def _crm_note_body(sender_name: str, sender_email: str,
 
 async def _resolve_crm_owner(message_body: str, subject: str,
                              sender_email: str) -> dict:
-    """Resolve a product enquiry's LOCATION → the CRM owner for that showroom.
+    """Auto Contact+Note owner for product / general / existing-order enquiries.
 
-    Reads the `crm_owner_routing` block from the routing rules (location key →
-    {owner_email, owner_id, business_vertical}). Uses the AI region classifier
-    to map the enquiry to one of those location keys.
-
-    Returns one of:
-      {"configured": False}                      — no crm_owner_routing set;
-                                                    caller pushes WITHOUT an owner
-      {"configured": True, "location": None}     — configured but location could
-                                                    NOT be determined → caller
-                                                    SKIPS CRM entirely (client rule)
-      {"configured": True, "location": <key>, "owner_id", "owner_email",
-       "vertical"}                               — matched; assign this owner
-    """
-    routing = (classifier._ROUTING_RULES or {}).get("crm_owner_routing") or {}
-    # `govt` is the government-deals owner, `default` a reserved key — neither
-    # is a geographic location, so keep them out of the region classifier.
-    keys = [k for k in routing.keys() if k not in ("default", "govt")]
-    if not keys:
-        return {"configured": False}
-    try:
-        region = await classifier.classify_region(
-            message_body, sender_email, subject, region_keys=keys)
-    except Exception as e:
-        print(f"[crm] location classify failed: {e}")
-        return {"configured": True, "location": None}
-    loc = region.get("region")
-    if not loc or loc == "other" or loc not in routing:
-        return {"configured": True, "location": None}
-    entry = routing.get(loc) or {}
-    return {
-        "configured":  True,
-        "location":    loc,
-        "owner_id":    str(entry.get("owner_id") or ""),
-        "owner_email": entry.get("owner_email") or "",
-        "vertical":    entry.get("business_vertical") or "",
-    }
+    Phase 1: the retail location matrix is PARKED, so these non-bulk, non-FHC,
+    non-doors enquiries are assigned to the central hello@ inbox (the matrix's
+    'Product Enquiry — nothing specified' fallback). Kept as a thin wrapper so
+    _push_contact_and_note's call site is unchanged; when retail routing is
+    turned on for Phase 2 this is where the location matrix comes back."""
+    return _fallback_owner()
 
 
 async def _push_contact_and_note(conv_id: int, sender_name: str,
@@ -2865,101 +2838,160 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "") -> s
 # location-wise owner; human approval = the agent clicking the button).
 
 
+def _owner_dict(location: str, entry: dict, vertical: str = "") -> dict:
+    return {"configured": True, "location": location,
+            "owner_id":    str(entry.get("owner_id") or ""),
+            "owner_email": entry.get("owner_email") or "",
+            "vertical":    entry.get("business_vertical") or vertical}
+
+
+def _fallback_owner() -> dict:
+    """Central hello@ inbox — used when nothing enquiry-specific resolves.
+    The Phase-2 retail matrix is deliberately NOT consulted."""
+    fb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_fallback") or {}
+    return {"configured": True, "location": "central",
+            "owner_id":    str(fb.get("owner_id") or ""),
+            "owner_email": fb.get("owner_email") or "hello@durian.in",
+            "vertical":    ""}
+
+
+def _mentions_doors(body_text: str, subject: str) -> bool:
+    """A doors/veneer/plywood/laminate enquiry — even when it classifies as a
+    bulk order (e.g. '100 doors') it must route to the doors desks, not the
+    furniture bulk owners."""
+    t = f"{subject} {body_text}".lower()
+    return any(w in t for w in ("door", "veneer", "plywood", "laminate"))
+
+
+async def _classify_owner_region(mapping_keys: list, body_text: str,
+                                 subject: str, sender_email: str, label: str):
+    """AI-match the enquiry to one of `mapping_keys`; returns the key or None."""
+    if not mapping_keys:
+        return None
+    try:
+        region = await classifier.classify_region(
+            body_text, sender_email, subject, region_keys=mapping_keys)
+        loc = region.get("region")
+        return loc if loc and loc != "other" and loc in mapping_keys else None
+    except Exception as e:
+        print(f"[crm] {label} region classify failed: {e}")
+        return None
+
+
+async def _resolve_named_owner(mapping: dict, body_text: str, subject: str,
+                               sender_email: str, label: str,
+                               vertical: str = "") -> dict:
+    """Resolve to a single-owner mapping (location → owner). No match →
+    central fallback (never the parked retail matrix)."""
+    loc = await _classify_owner_region(list(mapping.keys()), body_text, subject,
+                                       sender_email, label)
+    if not loc:
+        return _fallback_owner()
+    return _owner_dict(f"{label}:{loc}", mapping[loc], vertical)
+
+
+async def _resolve_doors_owner(body_text: str, subject: str,
+                               sender_email: str) -> dict:
+    """Doors desks: Bangalore → bangalore@durian.in, everywhere else →
+    rohit.kanoujia@durian.in."""
+    doors = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_doors") or {}
+    try:
+        loc = await classifier.classify_doors_location(body_text, sender_email, subject)
+        key = "bangalore" if loc.get("location") == "bangalore" else "other"
+    except Exception as e:
+        print(f"[crm] doors location classify failed: {e}")
+        key = "other"
+    entry = doors.get(key) or {}
+    return _owner_dict(f"doors-{key}", entry, "Doors") if entry.get("owner_id") \
+        else _fallback_owner()
+
+
+async def _resolve_govt_bulk_owner(body_text: str, subject: str,
+                                   sender_email: str) -> dict:
+    """Govt/bulk furniture: match to a city/region, round-robin when that key
+    has multiple owners (Mumbai/Bhopal/Kolkata); unmatched → `default`
+    (Saharsh — Delhi/NCR/Haryana/J&K/balance)."""
+    gb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_govt_bulk") or {}
+    keys = [k for k in gb.keys() if k != "default"]
+    loc = await _classify_owner_region(keys, body_text, subject, sender_email, "govt-bulk")
+    key = loc if loc else "default"
+    owners = gb.get(key) or gb.get("default") or []
+    if not owners:
+        return _fallback_owner()
+    idx = crm_state.next_index(f"govt_bulk:{key}", len(owners))
+    return _owner_dict(f"govt_bulk:{key}#{idx}", owners[idx], "Furniture")
+
+
+async def _resolve_bulk_sector(cat_v2: dict, body_text: str, subject: str,
+                               sender_email: str, sector_override: str):
+    """government | private | None(unclear). Precedence: agent override →
+    confident stored classification → fresh classify_bulk_sector."""
+    sector = (sector_override or "").lower()
+    if sector in ("government", "private"):
+        return sector
+    if float(cat_v2.get("sector_confidence") or 0) >= config.BULK_SECTOR_AUTO_CONFIDENCE:
+        s = (cat_v2.get("sector") or "").lower()
+        if s in ("government", "private"):
+            return s
+    try:
+        s = await classifier.classify_bulk_sector(body_text, sender_email, subject)
+        if float(s.get("confidence") or 0) >= config.BULK_SECTOR_AUTO_CONFIDENCE:
+            return (s.get("sector") or "").lower() or None
+    except Exception as e:
+        print(f"[crm] deal sector classify failed: {e}")
+    return None
+
+
 async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
                               sender_email: str,
                               sector_override: str = "") -> dict:
-    """Owner resolution for DEALS per the client's qualification flow:
+    """Owner resolution for DEALS — Phase-1 matrix, routed by ENQUIRY TYPE
+    first, then location (the retail location matrix is PARKED):
 
-      Govt / CPWD buyer  → the dedicated `govt` owner in crm_owner_routing
-                           (Delhi office / govt location) — location-independent.
-      Private / retail   → location-wise owner (AI-extracted city, same as the
-                           auto Contact+Note path).
-
-    "Govt/CPWD?" is the FIRST decision for every deal (per the client's flow
-    diagram). Sector precedence:
-      1. sector_override — the AGENT's explicit choice (the panel asks when
-         classification was ambiguous),
-      2. the stored classification (email_category_v2.sector),
-      3. a fresh classify_bulk_sector call (keyword + domain signals from the
-         routing rules) — needed because region-gated bulk orders exit the
-         pipeline before anything is stored.
-    A below-bar fresh classification returns sector_unclear=True so the
-    endpoint can ask the agent instead of guessing."""
+      Franchise          → franchise desk
+      FHC / Home Studio  → home-studio owner (by location)
+      Doors (incl. bulk) → doors desks (Bangalore vs rest)
+      Bulk furniture     → govt (city/region, round-robin) vs private (4 cities)
+      Anything else      → central hello@ fallback (never a retail owner)
+    """
+    R = classifier._ROUTING_RULES or {}
     cat_v2 = custom.get("email_category_v2") or {}
     category = (cat_v2.get("category") or custom.get("phase2_category") or "")
 
-    # Franchise/dealership enquiries: single dedicated desk (sheet row with
-    # Category = Franchise/Dealership) — location-independent, and skips the
-    # govt/private question entirely (a franchise enquiry is never govt
-    # procurement).
-    franchise = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_franchise") or {}
+    # Franchise/dealership → single dedicated desk.
+    franchise = R.get("crm_owner_routing_franchise") or {}
     if category == "franchise_dealership" and franchise.get("owner_id"):
-        return {"configured": True, "location": "franchise",
-                "owner_id":    str(franchise.get("owner_id")),
-                "owner_email": franchise.get("owner_email") or "",
-                "vertical":    franchise.get("business_vertical") or "Furniture"}
+        return _owner_dict("franchise", franchise, "Furniture")
 
-    sector = (sector_override or "").lower()
-    if sector not in ("government", "private"):
-        # Trust the stored sector only when the pipeline was confident about
-        # it (or an agent set it — those are stored with confidence 1.0).
-        # A below-bar stored guess must NOT silently route the deal.
-        stored_conf = float(cat_v2.get("sector_confidence") or 0)
-        if stored_conf >= config.BULK_SECTOR_AUTO_CONFIDENCE:
-            sector = (cat_v2.get("sector") or "").lower()
-        else:
-            sector = ""
-    if not sector:
-        try:
-            s = await classifier.classify_bulk_sector(body_text, sender_email, subject)
-            if float(s.get("confidence") or 0) >= config.BULK_SECTOR_AUTO_CONFIDENCE:
-                sector = (s.get("sector") or "").lower()
-            else:
-                # Ambiguous buyer type → the agent decides (panel shows a
-                # Government / Private choice), we never guess.
-                return {"configured": True, "location": None,
-                        "sector_unclear": True,
-                        "reason": "buyer type unclear — agent must pick "
-                                  "government or private"}
-        except Exception as e:
-            print(f"[crm] deal sector classify failed: {e}")
-            return {"configured": True, "location": None,
-                    "sector_unclear": True,
-                    "reason": f"buyer-type classification failed: {e}"}
+    # FHC / Home Studio → home-studio owner by location.
+    if category in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES:
+        return await _resolve_named_owner(
+            R.get("crm_owner_routing_homestudio") or {},
+            body_text, subject, sender_email, "homestudio", "FHC")
 
-    if sector == "government":
-        routing = (classifier._ROUTING_RULES or {}).get("crm_owner_routing") or {}
-        govt = routing.get("govt") or {}
-        if govt.get("owner_id"):
-            return {"configured": True, "location": "govt",
-                    "owner_id":    str(govt.get("owner_id")),
-                    "owner_email": govt.get("owner_email") or "",
-                    "vertical":    govt.get("business_vertical") or ""}
-        # Govt buyer but no govt owner configured → treat as unresolvable
-        # rather than silently assigning a showroom salesperson.
-        return {"configured": True, "location": None,
-                "reason": "government buyer but no `govt` owner configured"}
+    # Doors — a retail doors enquiry OR a bulk order that's about doors → the
+    # doors desks (never the furniture bulk owners).
+    if category == "doors_veneer_plywood" or \
+       (category == "project_bulk_order" and _mentions_doors(body_text, subject)):
+        return await _resolve_doors_owner(body_text, subject, sender_email)
 
-    # Doors enquiries have their own two-desk routing (client matrix rows with
-    # Business Vertical = Doors): Bangalore → Bangalore desk, everywhere else
-    # → the catch-all desk. Mirrors the doors email routing.
-    doors = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_doors") or {}
-    if category == "doors_veneer_plywood" and doors:
-        try:
-            loc = await classifier.classify_doors_location(
-                body_text, sender_email, subject)
-            key = "bangalore" if loc.get("location") == "bangalore" else "other"
-        except Exception as e:
-            print(f"[crm] doors location classify failed: {e}")
-            key = "other"  # catch-all desk — same default the email routing uses
-        entry = doors.get(key) or {}
-        if entry.get("owner_id"):
-            return {"configured": True, "location": f"doors-{key}",
-                    "owner_id":    str(entry.get("owner_id")),
-                    "owner_email": entry.get("owner_email") or "",
-                    "vertical":    entry.get("business_vertical") or "Doors"}
+    # Bulk / project furniture → govt vs private.
+    if category == "project_bulk_order":
+        sector = await _resolve_bulk_sector(cat_v2, body_text, subject,
+                                            sender_email, sector_override)
+        if sector is None:
+            return {"configured": True, "location": None, "sector_unclear": True,
+                    "reason": "buyer type unclear — agent must pick "
+                              "government or private"}
+        if sector == "government":
+            return await _resolve_govt_bulk_owner(body_text, subject, sender_email)
+        return await _resolve_named_owner(
+            R.get("crm_owner_routing_private") or {},
+            body_text, subject, sender_email, "private", "Furniture")
 
-    return await _resolve_crm_owner(body_text, subject, sender_email)
+    # Product / general / existing-order enquiry (and anything else) → central
+    # hello@ inbox. The retail location matrix is parked for Phase 2.
+    return _fallback_owner()
 
 
 def _deal_transcript(messages: list, max_msgs: int = 12,
