@@ -27,6 +27,7 @@ import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/Lin
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import ZohoCrmPanel from './ZohoCrmPanel.vue';
+import ReviewEscalationPanel from './ReviewEscalationPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 import PendingTicketDecisionPanel from './PendingTicketDecisionPanel.vue';
 import PendingCategoryDecisionPanel from './PendingCategoryDecisionPanel.vue';
@@ -97,6 +98,18 @@ const conversationAdditionalAttributes = computed(
 // bridge writes the Zoho ticket card here so the sidebar panel can render it.
 const conversationCustomAttributes = computed(
   () => currentChat.value?.custom_attributes || {}
+);
+
+// Google-review data lives on the conversation's additional_attributes (the
+// bridge's reviews poller writes type / stars / reviewer / review_comment).
+// The "Escalate to team" panel shows ONLY for bad reviews (1–2★).
+const reviewAttributes = computed(
+  () => currentChat.value?.additional_attributes || {}
+);
+const isBadReview = computed(
+  () =>
+    reviewAttributes.value.type === 'google_review' &&
+    [1, 2].includes(Number(reviewAttributes.value.stars))
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
@@ -192,6 +205,22 @@ onMounted(() => {
           v-if="currentChat && currentChat.id"
           :conversation-id="currentChat.id"
           :custom-attributes="conversationCustomAttributes"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Escalate to team — only for bad Google reviews (1–2★). Emails the
+         review (or full history) to addresses the agent enters. -->
+    <div v-if="isBadReview" id="sidebar-section-review-escalation" class="px-2 pt-3">
+      <AccordionItem
+        title="Escalate review"
+        :is-open="isContactSidebarItemOpen('is_review_escalation_open')"
+        compact
+        @toggle="value => toggleSidebarUIState('is_review_escalation_open', value)"
+      >
+        <ReviewEscalationPanel
+          v-if="currentChat && currentChat.id"
+          :conversation-id="currentChat.id"
+          :review="reviewAttributes"
         />
       </AccordionItem>
     </div>

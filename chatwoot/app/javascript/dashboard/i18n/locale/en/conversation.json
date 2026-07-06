@@ -43,6 +43,20 @@
       "TEMPLATES_TITLE": "Choose a template",
       "TEMPLATES_EMPTY": "No templates found for this channel."
     },
+    "REVIEW_ESCALATION": {
+      "HINT": "This is a {stars}★ review. Send it to your team for escalation.",
+      "BUTTON": "Escalate to team",
+      "TITLE": "Escalate review to team",
+      "TO": "To (comma-separated emails)",
+      "TO_PLACEHOLDER": "name@durian.in, name2@durian.in",
+      "CC": "Cc (optional)",
+      "INCLUDE_HISTORY": "Include full conversation history",
+      "MESSAGE": "Message",
+      "SEND": "Send email",
+      "SENT": "Escalation email sent to the team.",
+      "NO_RECIPIENT": "Please enter at least one recipient email.",
+      "ERROR": "Could not send the escalation email. Please try again."
+    },
     "EMPTY_STATE": {
       "CMD_BAR": "to open command menu",
       "KEYBOARD_SHORTCUTS": "to view keyboard shortcuts"

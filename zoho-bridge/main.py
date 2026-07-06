@@ -2730,6 +2730,93 @@ async def reviews_regenerate(request: Request):
             "ai_trace": drafted["trace"]}
 
 
+def _escalation_transcript(messages: list) -> str:
+    """Readable Customer/Team transcript of a review conversation for the
+    'full conversation history' escalation option. Skips private notes."""
+    lines = []
+    for m in messages or []:
+        if m.get("private"):
+            continue
+        mtype = m.get("message_type")
+        who = "Customer" if mtype in (0, "incoming") else (
+            "Team" if mtype in (1, "outgoing") else None)
+        content = (m.get("content") or "").strip()
+        if who and content:
+            lines.append(f"{who}: {content}")
+    return "\n\n".join(lines)
+
+
+@app.post("/reviews/escalate")
+async def reviews_escalate(request: Request):
+    """Send a bad Google review to the team by email (the "Escalate to team"
+    button on a review conversation). The reviews inbox is an API channel and
+    can't send email, so the escalation is sent through the email inbox
+    (REVIEW_ESCALATION_INBOX_ID). An audit note is posted back on the review.
+
+    Body: {conversation_id, to_emails, cc_emails?, subject, body,
+           include_history?, agent?}
+    """
+    body_json    = await request.json()
+    conv_id      = body_json.get("conversation_id")
+    to_emails    = (body_json.get("to_emails") or "").strip()
+    cc_emails    = (body_json.get("cc_emails") or "").strip()
+    subject      = (body_json.get("subject") or "Negative Feedback Received on Google").strip()
+    email_body   = (body_json.get("body") or "").strip()
+    include_hist = bool(body_json.get("include_history"))
+    agent        = (body_json.get("agent") or "").strip()
+
+    if not conv_id or not to_emails or not email_body:
+        raise HTTPException(400, "conversation_id, to_emails and body are required")
+    if not config.REVIEW_ESCALATION_INBOX_ID:
+        raise HTTPException(503, "escalation email inbox not configured "
+                                 "(REVIEW_ESCALATION_INBOX_ID)")
+
+    # Optionally append the full conversation transcript.
+    if include_hist:
+        try:
+            msgs = await chatwoot.get_conversation_messages_raw(int(conv_id))
+            transcript = _escalation_transcript(msgs)
+            if transcript:
+                email_body += ("\n\n----------------------------------------\n"
+                               "Conversation history:\n\n" + transcript)
+        except Exception as e:
+            print(f"[review-escalate] transcript fetch failed conv {conv_id}: {e}")
+
+    # Send through the email inbox: a fresh conversation whose mail_subject
+    # drives the outgoing subject, sent to the agent-entered recipients.
+    primary = to_emails.split(",")[0].strip()
+    try:
+        contact_id, source_id = await chatwoot.create_contact(
+            name="Durian Team", identifier=f"escalation:{primary}".lower(),
+            inbox_id=config.REVIEW_ESCALATION_INBOX_ID, email=primary,
+        )
+        esc_conv = await chatwoot.create_conversation(
+            source_id=source_id or f"esc_{conv_id}",
+            inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
+            contact_id=contact_id,
+            additional_attributes={"mail_subject": subject},
+        )
+        await chatwoot.send_outgoing_message(
+            esc_conv, email_body, to_emails=to_emails,
+            cc_emails=cc_emails or None,
+        )
+    except Exception as e:
+        print(f"[review-escalate] send failed conv {conv_id}: {e}")
+        raise HTTPException(502, f"could not send escalation email: {e}")
+
+    # Audit trail on the original review.
+    try:
+        who = f" by {agent}" if agent else ""
+        cc_note = f" (cc {cc_emails})" if cc_emails else ""
+        await chatwoot.post_private_note(
+            int(conv_id), f"📧 Review escalated to {to_emails}{cc_note}{who}.")
+    except Exception as e:
+        print(f"[review-escalate] audit note failed conv {conv_id}: {e}")
+
+    print(f"[review-escalate] conv {conv_id} → {to_emails} (history={include_hist})")
+    return {"sent": True, "to": to_emails, "escalation_conversation_id": esc_conv}
+
+
 @app.post("/chatwoot/resolve-ticket-decision")
 async def chatwoot_resolve_ticket_decision(request: Request):
     """Called by the Chatwoot Rails proxy when an agent clicks

@@ -216,6 +216,11 @@ GBP_ACCOUNT_ID         = os.environ.get("GBP_ACCOUNT_ID", "")
 
 # Chatwoot API-channel inbox that holds reviews (create it once — see setup guide).
 REVIEWS_INBOX_ID       = int(os.environ.get("REVIEWS_INBOX_ID", "0") or 0)
+# Email inbox (e.g. hello@durian.in) used to SEND review-escalation emails.
+# The reviews inbox is an API channel and cannot send email itself, so the
+# "Escalate to team" button routes the email through this email inbox. Set to
+# its numeric id; 0 disables the escalate endpoint.
+REVIEW_ESCALATION_INBOX_ID = int(os.environ.get("REVIEW_ESCALATION_INBOX_ID", "0") or 0)
 # Team to route handed-off (negative) reviews to. Defaults to the support team.
 REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEAM_IDS.get("support", 0)
 
