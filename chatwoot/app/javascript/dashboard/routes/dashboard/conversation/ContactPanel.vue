@@ -210,12 +210,18 @@ onMounted(() => {
     </div>
     <!-- Escalate to team — only for bad Google reviews (1–2★). Emails the
          review (or full history) to addresses the agent enters. -->
-    <div v-if="isBadReview" id="sidebar-section-review-escalation" class="px-2 pt-3">
+    <div
+      v-if="isBadReview"
+      id="sidebar-section-review-escalation"
+      class="px-2 pt-3"
+    >
       <AccordionItem
         title="Escalate review"
         :is-open="isContactSidebarItemOpen('is_review_escalation_open')"
         compact
-        @toggle="value => toggleSidebarUIState('is_review_escalation_open', value)"
+        @toggle="
+          value => toggleSidebarUIState('is_review_escalation_open', value)
+        "
       >
         <ReviewEscalationPanel
           v-if="currentChat && currentChat.id"
