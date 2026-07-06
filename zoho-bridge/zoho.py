@@ -121,7 +121,7 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
     # Include Chatwoot team in description for context (e.g., "Legal" → Zoho agent
     # knows what kind of ticket this is even before routing inside Zoho)
     team_meta  = (conv.get("meta") or {}).get("team")
-    team_label = f"<p><i>— Chatwoot team: {esc(team_meta.get('name'))}</i></p>" if team_meta else ""
+    team_label = f"<p><i>— {esc(config.PRODUCT_NAME)} team: {esc(team_meta.get('name'))}</i></p>" if team_meta else ""
 
     # Ride-along: extracted bill/receipt data (document_extractor pipeline,
     # stored on custom_attributes.extracted_documents). Surfacing it in the
@@ -169,7 +169,7 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
         )
         chatwoot_link = (
             f'<p><a href="{chatwoot_url}" target="_blank" rel="noopener">'
-            f'➡ Open conversation in Chatwoot</a></p><hr/>'
+            f'➡ Open conversation in {config.PRODUCT_NAME}</a></p><hr/>'
         )
     else:
         chatwoot_link = ""

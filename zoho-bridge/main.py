@@ -1139,7 +1139,7 @@ def _format_attach_comment(conv_id: int,
         "<p><b>📨 Another conversation attached from Chatwoot</b></p>",
         "<ul>",
         f"<li><b>Source:</b> "
-        f"<a href='{html.escape(conv_url)}'>Open conversation #{conv_id} in Chatwoot ↗</a></li>",
+        f"<a href='{html.escape(conv_url)}'>Open conversation #{conv_id} in {html.escape(config.PRODUCT_NAME)} ↗</a></li>",
         f"<li><b>Escalation type:</b> {html.escape(label_pretty)}</li>",
         "</ul>",
     ]
@@ -1353,7 +1353,7 @@ def _crm_note_body(sender_name: str, sender_email: str,
     link  = (f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
              f"/app/accounts/{config.CHATWOOT_ACCOUNT_ID}/conversations/{conv_id}")
     lines = [
-        f"Source:   Chatwoot ({category_display or 'Uncategorised'})",
+        f"Source:   {config.PRODUCT_NAME} ({category_display or 'Uncategorised'})",
         f"From:     {sender_name or sender_email or 'Unknown'} <{sender_email}>",
         f"Subject:  {subject or '(no subject)'}",
         f"Link:     {link}",
@@ -3040,7 +3040,7 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
         f"Store:     {owner.get('owner_email') or 'n/a'}",
         f"From:      {name or email} <{email}>" + (f" · {phone}" if phone else ""),
         f"Subject:   {subject or '(no subject)'}",
-        f"Chatwoot:  {link}",
+        f"{config.PRODUCT_NAME}:  {link}",
     ]
     # AI summary — same summarizer the Desk tickets use. Best-effort.
     try:
@@ -3091,7 +3091,7 @@ async def chatwoot_crm_create_deal(request: Request):
     subject, body_text = _conv_first_incoming_body(messages)
     category_display = (custom.get("email_category_v2") or {}).get("display_name") \
                        or (custom.get("email_category_v2") or {}).get("category") \
-                       or "Chatwoot Deal"
+                       or f"{config.PRODUCT_NAME} Deal"
 
     # Deal-qualification flow: Govt buyer → govt owner; otherwise
     # location-wise owner. Ambiguous buyer type → 409 so the panel asks the
@@ -3185,7 +3185,7 @@ async def chatwoot_crm_create_deal(request: Request):
     try:
         deal = await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
-            description=description, source="Chatwoot", owner_id=owner_id,
+            description=description, source=config.ZOHO_CRM_LEAD_SOURCE, owner_id=owner_id,
             vertical=owner.get("vertical", ""), layout_name=layout_name,
             stage=deal_stage, extra_fields=extra_fields,
         )

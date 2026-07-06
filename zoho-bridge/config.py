@@ -158,6 +158,12 @@ CHATWOOT_WEBHOOK_SECRET = os.environ.get("CHATWOOT_WEBHOOK_SECRET", "")
 #   in sync with the Chatwoot User the bridge posts as (rename that user too).
 PRODUCT_NAME  = os.environ.get("PRODUCT_NAME", "DurianORM")
 AI_AGENT_NAME = os.environ.get("AI_AGENT_NAME", "MiracleAI")
+# Value written to the Zoho CRM Lead_Source field (labelled "Enquiry Source"
+# in the client's UI) on every Contact/Deal. Lead_Source is a PICKLIST — this
+# value MUST exist as an option in Zoho CRM Setup or record creation fails
+# with INVALID_DATA. Defaults to the product name; override if the picklist
+# option is spelled differently.
+ZOHO_CRM_LEAD_SOURCE = os.environ.get("ZOHO_CRM_LEAD_SOURCE", PRODUCT_NAME)
 
 # ── Tracing: which instance produced a trace ──────────────────────────────
 # The same bridge code runs in several places (the prod ORM server, and dev
