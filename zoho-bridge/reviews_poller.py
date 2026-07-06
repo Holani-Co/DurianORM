@@ -274,11 +274,16 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
     header = "✏️ *Review edited on Google*"
     if star_changed:
         header += f" — rating changed {old_stars or '?'}★ → {rv['stars'] or '?'}★"
+    # Show BOTH dates: when it was originally posted (create_time — unchanged
+    # by an edit) and when it was edited (update_time — the new timestamp).
+    date_line = f"🗓 Posted {_format_review_time(rv['create_time'])}"
+    if rv["update_time"]:
+        date_line += f"  ·  ✏️ Edited {_format_review_time(rv['update_time'])}"
     body = (
         f"{header}\n\n"
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
         f"📍 {title}\n"
-        f"🗓 {_format_review_time(rv['create_time'])}\n\n"
+        f"{date_line}\n\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
     review_msg = await chatwoot.create_message(conv_id, body, message_type="incoming")
