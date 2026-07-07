@@ -2784,11 +2784,17 @@ async def reviews_escalate(request: Request):
 
     # Send through the email inbox: a fresh conversation whose mail_subject
     # drives the outgoing subject, sent to the agent-entered recipients.
-    primary = to_emails.split(",")[0].strip()
     try:
+        # ONE fixed, reusable escalation contact — NOT keyed on the recipient's
+        # email. Keying on the recipient 422s whenever that address already
+        # exists as a contact (Chatwoot enforces unique emails). The real
+        # recipients ride on to_emails below; this contact is just the
+        # conversation's nominal record, created once and reused thereafter.
         contact_id, source_id = await chatwoot.create_contact(
-            name="Durian Team", identifier=f"escalation:{primary}".lower(),
-            inbox_id=config.REVIEW_ESCALATION_INBOX_ID, email=primary,
+            name="Durian Review Escalations",
+            identifier="durian-review-escalation",
+            inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
+            email="review-escalations@durian.in",
         )
         esc_conv = await chatwoot.create_conversation(
             source_id=source_id or f"esc_{conv_id}",
