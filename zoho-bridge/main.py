@@ -3084,9 +3084,17 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
                               "government or private"}
         if sector == "government":
             return await _resolve_govt_bulk_owner(body_text, subject, sender_email)
-        return await _resolve_named_owner(
-            R.get("crm_owner_routing_private") or {},
-            body_text, subject, sender_email, "private", "Furniture")
+        # Private: try the 4 dedicated private-project cities first
+        # (Bangalore / Delhi / Hyderabad / Pune). If the enquiry is NOT in one
+        # of those, fall through to the govt/bulk city/state list — the client
+        # wants private bulk orders to reach the nearest bulk-owner too, not
+        # land on hello@ central. Retail matrix stays parked either way.
+        private = R.get("crm_owner_routing_private") or {}
+        loc = await _classify_owner_region(list(private.keys()), body_text,
+                                           subject, sender_email, "private")
+        if loc:
+            return _owner_dict(f"private:{loc}", private[loc], "Furniture")
+        return await _resolve_govt_bulk_owner(body_text, subject, sender_email)
 
     # Product / general / existing-order enquiry (and anything else) → central
     # hello@ inbox. The retail location matrix is parked for Phase 2.
