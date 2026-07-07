@@ -48,7 +48,7 @@
       "BUTTON": "Escalate to team",
       "TITLE": "Escalate review to team",
       "TO": "To (comma-separated emails)",
-      "TO_PLACEHOLDER": "name@durian.in, name2@durian.in",
+      "TO_PLACEHOLDER": "Enter team email(s), comma-separated",
       "CC": "Cc (optional)",
       "INCLUDE_HISTORY": "Include full conversation history",
       "MESSAGE": "Message",
