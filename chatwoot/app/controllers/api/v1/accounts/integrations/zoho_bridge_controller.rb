@@ -39,6 +39,26 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
   end
 
+  # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/escalate_review
+  #   body: { conversation_id, to_emails, cc_emails, subject, body, include_history }
+  # Emails a bad Google review to the team ("Escalate to team" button). The
+  # acting agent's name is added server-side for the audit note.
+  def escalate_review
+    payload = params.permit(:conversation_id, :to_emails, :cc_emails, :subject,
+                            :body, :include_history).to_h
+    payload[:agent] = Current.user&.available_name
+    response = HTTParty.post(
+      "#{bridge_url}/reviews/escalate",
+      body: payload.to_json,
+      headers: { 'Content-Type' => 'application/json' },
+      timeout: 30
+    )
+    render json: response.parsed_response, status: proxy_status(response.code)
+  rescue StandardError => e
+    Rails.logger.error("[zoho-bridge proxy] escalate_review failed: #{e.message}")
+    render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
+  end
+
   # POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_category_decision
   #   body: { conversation_id, category }
   # Agent confirmed a category on the low-confidence Category Decision card;

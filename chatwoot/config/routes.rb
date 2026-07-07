@@ -367,6 +367,7 @@ Rails.application.routes.draw do
                 post :regenerate_review_reply
                 post :resolve_category_decision
                 post :create_crm_deal
+                post :escalate_review
               end
             end
             resource :shopify, controller: 'shopify', only: [:destroy] do

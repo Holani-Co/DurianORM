@@ -216,6 +216,15 @@ async def _ingest_review(loc: dict, rv: dict):
     )
     reply, action = drafted["reply"], drafted["action"]
 
+    # Flag genuinely-bad reviews for the "Escalate to team" button: the AI
+    # hands off (action == "handoff") for any complaint/criticism or low
+    # rating, so review_negative marks reviews the team may want to escalate.
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"review_negative": action == "handoff"})
+    except Exception as e:
+        print(f"[reviews] review_negative flag failed for conv {conv_id}: {e}")
+
     if action == "auto" and config.REVIEWS_AUTO_REPLY and reply and not rv["has_reply"]:
         # 3a. Post to Google, then mirror into Chatwoot (marked) + resolve.
         try:
@@ -328,6 +337,12 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
         stars=rv["stars"] or 0, location=title, lf_parent=_lf,
     )
     reply = drafted["reply"]
+    # Re-evaluate the escalate flag — an edit can flip a complaint to praise.
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"review_negative": drafted["action"] == "handoff"})
+    except Exception as e:
+        print(f"[reviews] edit: review_negative flag failed for conv {conv_id}: {e}")
     note = reply or "(AI flagged this edited review for human handling — no draft.)"
     await chatwoot.create_message(
         conv_id, note, message_type="outgoing", private=True,

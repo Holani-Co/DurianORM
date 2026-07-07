@@ -130,15 +130,20 @@ async def list_canned_responses() -> list[dict]:
 
 
 async def create_contact(name: str, identifier: str, inbox_id: int,
-                         custom_attributes: dict | None = None) -> tuple[int, str]:
+                         custom_attributes: dict | None = None,
+                         email: str | None = None) -> tuple[int, str]:
     """Create (or return existing) a contact on an inbox. Returns (contact_id, source_id).
-    `identifier` should be stable per reviewer so re-ingests don't duplicate."""
+    `identifier` should be stable per reviewer so re-ingests don't duplicate.
+    `email` is set for email-inbox contacts (needed so Chatwoot can actually
+    send outbound mail from the resulting conversation)."""
     payload = {
         "inbox_id": inbox_id,
         "name": name or "Google user",
         "identifier": identifier,
         "custom_attributes": custom_attributes or {},
     }
+    if email:
+        payload["email"] = email
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(_acct_url("/contacts"), headers=_headers(), json=payload)
         # Chatwoot returns 422 if identifier already exists → look it up instead.
