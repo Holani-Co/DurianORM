@@ -196,7 +196,7 @@ async def create_ticket(payload: dict, priority: str | None = None,
                         due_at: "datetime | None" = None,
                         messages: list | None = None,
                         summary: dict | None = None,
-                        department_id: str | None = None) -> dict:
+                        assignee_id: str | None = None) -> dict:
     """Create a Zoho Desk ticket from a Chatwoot webhook payload.
 
     Optional kwargs:
@@ -209,17 +209,16 @@ async def create_ticket(payload: dict, priority: str | None = None,
       summary:  AI summary dict {subject, summary, customer_goal, next_step}
                 used to headline the ticket and title it by the customer's
                 actual issue rather than the bot's handoff line.
-      department_id: Zoho Desk DEPARTMENT id to create the ticket in
-                (`departmentId`). Overrides the global config.ZOHO_DEPARTMENT_ID
-                for this ticket — e.g. routing product complaints into the
-                SUPPORT department. Omitted → the global department (prior
-                behaviour). This is a Desk department id (`.in` org), separate
-                from any CRM id.
+      assignee_id: Zoho Desk AGENT id to own the ticket (`assigneeId`) — e.g.
+                the customersupport agent who handles product complaints. This
+                is a Desk agent id (separate from any CRM id); the agent must
+                belong to the ticket's department or Zoho ignores it. Omitted →
+                unassigned in the department (prior behaviour).
     """
     body = _build_ticket_body(payload, messages=messages, summary=summary)
 
-    if department_id:
-        body["departmentId"] = str(department_id)
+    if assignee_id:
+        body["assigneeId"] = str(assignee_id)
 
     if priority:
         # Zoho Desk only has High / Medium / Low — it has no "Highest", so
