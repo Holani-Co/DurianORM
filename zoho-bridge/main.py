@@ -1477,6 +1477,39 @@ async def _remember_crm_contact_id(conv_id: int, contact_id: str):
         print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
 
 
+async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
+                                         sender_email: str) -> list[str]:
+    """For product `complaint` emails: auto-create a Zoho Desk ticket assigned
+    to the client's customersupport agent — in ADDITION to the email forward.
+
+    Fully automatic: bypasses ZOHO_TICKET_REQUIRE_APPROVAL (this is a
+    dedicated, client-requested auto path, not the escalation flow). Assigned to
+    COMPLAINT_TICKET_OWNER_DESK_ID (empty → unassigned). Best-effort — any
+    failure logs and returns an audit line; it never blocks the forward."""
+    if not config.COMPLAINT_AUTO_TICKET_ENABLED:
+        return []
+    try:
+        assignee_id = config.COMPLAINT_TICKET_OWNER_DESK_ID or None
+        messages, summary = await _ticket_context(conv_id)
+        payload = {"conversation": {
+            "id": conv_id,
+            "meta": {"sender": {"name": sender_name, "email": sender_email}},
+        }}
+        ticket = await zoho.create_ticket(
+            payload, messages=messages, summary=summary,
+            assignee_id=assignee_id)
+        ticket_id = ticket.get("id")
+        print(f"[zoho] complaint ticket created for conv {conv_id}: "
+              f"{ticket_id} assignee={assignee_id or '(none)'}")
+        await _surface_ticket_in_chatwoot(conv_id, ticket, source="auto_complaint")
+        who = f" → assigned to agent {assignee_id}" if assignee_id \
+            else " (unassigned — no owner configured)"
+        return [f"🎫 Zoho Desk complaint ticket created{who}."]
+    except Exception as e:
+        print(f"[zoho] complaint ticket failed for conv {conv_id}: {e}")
+        return [f"⚠️ Complaint ticket could not be created: {e}"]
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -1689,6 +1722,12 @@ async def _phase2_execute_actions(conv_id: int,
             # errors; this catch is for anything unexpected higher up.
             print(f"[crm] unexpected error for conv {conv_id}: {e}")
             audit.append(f"⚠️ CRM push errored unexpectedly: {e}")
+
+    # Product complaints ALSO spin up an assigned Zoho Desk ticket (on top of
+    # the email forward + ack above). Only after a successful forward, so a
+    # failed handoff doesn't leave a ticket with no email trail.
+    if forwarded_ok and cat_key == "complaint":
+        audit += await _maybe_create_complaint_ticket(conv_id, sender_name, sender_email)
 
     # Mark the conversation as Phase-2-handled so subsequent webhook fires
     # on this conv (e.g. department replies landing as new incoming
