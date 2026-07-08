@@ -1479,21 +1479,18 @@ async def _remember_crm_contact_id(conv_id: int, contact_id: str):
 
 async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
                                          sender_email: str) -> list[str]:
-    """For product `complaint` emails: auto-create a Zoho Desk ticket assigned
-    to the client's fixed complaints owner — in ADDITION to the email forward.
+    """For product `complaint` emails: auto-create a Zoho Desk ticket in the
+    client's SUPPORT department — in ADDITION to the email forward.
 
     Fully automatic: bypasses ZOHO_TICKET_REQUIRE_APPROVAL (this is a
-    dedicated, client-requested auto path, not the escalation flow). Owner is
-    resolved from a Desk agent id (preferred) or an email lookup. Best-effort —
-    any failure logs and returns an audit line; it never blocks the forward."""
+    dedicated, client-requested auto path, not the escalation flow). The ticket
+    lands in COMPLAINT_TICKET_DEPARTMENT_ID (falls back to the global
+    department). Best-effort — any failure logs and returns an audit line; it
+    never blocks the forward."""
     if not config.COMPLAINT_AUTO_TICKET_ENABLED:
         return []
     try:
-        assignee_id = config.COMPLAINT_TICKET_OWNER_DESK_ID
-        if not assignee_id and config.COMPLAINT_TICKET_OWNER_EMAIL:
-            assignee_id = await zoho.resolve_desk_agent_id(
-                config.COMPLAINT_TICKET_OWNER_EMAIL)
-
+        dept_id = config.COMPLAINT_TICKET_DEPARTMENT_ID or None
         messages, summary = await _ticket_context(conv_id)
         payload = {"conversation": {
             "id": conv_id,
@@ -1501,14 +1498,13 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
         }}
         ticket = await zoho.create_ticket(
             payload, messages=messages, summary=summary,
-            assignee_id=assignee_id or None)
+            department_id=dept_id)
         ticket_id = ticket.get("id")
         print(f"[zoho] complaint ticket created for conv {conv_id}: "
-              f"{ticket_id} assignee={assignee_id or '(none)'}")
+              f"{ticket_id} dept={dept_id or '(global)'}")
         await _surface_ticket_in_chatwoot(conv_id, ticket, source="auto_complaint")
-        who = f" → assigned to {config.COMPLAINT_TICKET_OWNER_EMAIL or assignee_id}" \
-            if assignee_id else " (unassigned — no owner configured)"
-        return [f"🎫 Zoho Desk complaint ticket created{who}."]
+        where = f" in department {dept_id}" if dept_id else ""
+        return [f"🎫 Zoho Desk complaint ticket created{where}."]
     except Exception as e:
         print(f"[zoho] complaint ticket failed for conv {conv_id}: {e}")
         return [f"⚠️ Complaint ticket could not be created: {e}"]

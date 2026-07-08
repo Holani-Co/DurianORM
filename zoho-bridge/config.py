@@ -345,18 +345,16 @@ PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
 ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 
 # ── Product-complaint auto-ticket ──────────────────────────────────────────
-# When a `complaint` email is classified, auto-create a Zoho Desk ticket
-# assigned to a fixed owner (the client's product-complaints handler), in
-# ADDITION to the existing email forward + customer ack. Fully automatic —
-# bypasses ZOHO_TICKET_REQUIRE_APPROVAL for this one category only.
+# When a `complaint` email is classified, auto-create a Zoho Desk ticket in
+# the client's SUPPORT department, in ADDITION to the existing email forward +
+# customer ack. Fully automatic — bypasses ZOHO_TICKET_REQUIRE_APPROVAL for
+# this one category only.
 #
-# Assignee: set EITHER the Desk agent id directly (preferred, no lookup) OR
-# the agent's email (resolved to an id via the Desk agents API at runtime).
-# The id is a DESK agent id, NOT a CRM owner id — the two are different.
-# With neither set, the ticket is still created but left unassigned.
-COMPLAINT_AUTO_TICKET_ENABLED   = _bool("COMPLAINT_AUTO_TICKET_ENABLED", "false")
-COMPLAINT_TICKET_OWNER_DESK_ID  = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_ID", "").strip()
-COMPLAINT_TICKET_OWNER_EMAIL    = os.environ.get("COMPLAINT_TICKET_OWNER_EMAIL", "").strip()
+# COMPLAINT_TICKET_DEPARTMENT_ID: Desk DEPARTMENT id the ticket is created in
+# (the client's SUPPORT dept / customersupport@ queue). Empty → the global
+# ZOHO_DEPARTMENT_ID. This is a Desk department id, NOT a CRM owner id.
+COMPLAINT_AUTO_TICKET_ENABLED     = _bool("COMPLAINT_AUTO_TICKET_ENABLED", "false")
+COMPLAINT_TICKET_DEPARTMENT_ID    = os.environ.get("COMPLAINT_TICKET_DEPARTMENT_ID", "").strip()
 
 # ── Human-in-the-loop email categorisation ─────────────────────────────────
 # The categoriser auto-acts (forward + label + team) ONLY when its confidence
