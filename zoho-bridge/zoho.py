@@ -45,6 +45,55 @@ async def get_access_token() -> str:
         return _token_cache["value"]
 
 
+# ── Desk agent lookup ─────────────────────────────────────────────────────
+# Resolves an agent email → Desk agent id, so callers can assign a ticket by
+# email without hardcoding an id. Cached for the process lifetime (agent ids
+# never change). Returns None on any failure — the caller falls back to an
+# unassigned ticket rather than blocking creation.
+_agent_id_cache: dict[str, str | None] = {}
+
+
+async def resolve_desk_agent_id(email: str) -> str | None:
+    """Return the Zoho Desk agent id for `email`, or None if not found.
+
+    NOTE: this is a DESK agent id (`.in` org), which is distinct from a CRM
+    owner id. The agent must exist in this Desk org for assignment to work."""
+    key = (email or "").strip().lower()
+    if not key:
+        return None
+    if key in _agent_id_cache:
+        return _agent_id_cache[key]
+
+    async def _get(client, token):
+        return await client.get(
+            f"{config.ZOHO_DESK_URL}/api/v1/agents",
+            headers={"Authorization": f"Zoho-oauthtoken {token}",
+                     "orgId": config.ZOHO_ORG_ID},
+            params={"searchStr": key},
+        )
+
+    agent_id = None
+    try:
+        token = await get_access_token()
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await _get(client, token)
+            if r.status_code == 401:
+                _token_cache["value"] = None
+                r = await _get(client, await get_access_token())
+            if r.status_code < 300:
+                for a in (r.json().get("data") or []):
+                    if (a.get("emailId") or "").strip().lower() == key:
+                        agent_id = str(a.get("id"))
+                        break
+            else:
+                print(f"[zoho] agent lookup failed [{r.status_code}] for {key!r}: {r.text[:200]}")
+    except Exception as e:
+        print(f"[zoho] agent lookup errored for {key!r}: {e}")
+
+    _agent_id_cache[key] = agent_id
+    return agent_id
+
+
 # ── Ticket creation ───────────────────────────────────────────────────────
 def _build_ticket_body(payload: dict, messages: list | None = None,
                        summary: dict | None = None) -> dict:
@@ -195,7 +244,8 @@ def _build_ticket_body(payload: dict, messages: list | None = None,
 async def create_ticket(payload: dict, priority: str | None = None,
                         due_at: "datetime | None" = None,
                         messages: list | None = None,
-                        summary: dict | None = None) -> dict:
+                        summary: dict | None = None,
+                        assignee_id: str | None = None) -> dict:
     """Create a Zoho Desk ticket from a Chatwoot webhook payload.
 
     Optional kwargs:
@@ -208,8 +258,16 @@ async def create_ticket(payload: dict, priority: str | None = None,
       summary:  AI summary dict {subject, summary, customer_goal, next_step}
                 used to headline the ticket and title it by the customer's
                 actual issue rather than the bot's handoff line.
+      assignee_id: Zoho Desk AGENT id to own the ticket (`assigneeId`). This is
+                a Desk agent id, NOT a CRM owner id — the two systems have
+                separate ids. The agent must belong to the ticket's department
+                or Zoho ignores the assignment. Omitted → ticket lands
+                unassigned in the department (the prior behaviour).
     """
     body = _build_ticket_body(payload, messages=messages, summary=summary)
+
+    if assignee_id:
+        body["assigneeId"] = str(assignee_id)
 
     if priority:
         # Zoho Desk only has High / Medium / Low — it has no "Highest", so
