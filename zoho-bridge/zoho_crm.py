@@ -115,7 +115,7 @@ async def search_contact_by_email(email: str) -> Optional[dict]:
 
 
 async def create_contact(sender_email: str, sender_name: str,
-                         phone: str = "", source: str = "Chatwoot",
+                         phone: str = "", source: str = None,
                          owner_id: str = "") -> dict:
     """Create a new CRM Contact. Returns the created record ({id, …}).
 
@@ -126,7 +126,7 @@ async def create_contact(sender_email: str, sender_name: str,
         "Last_Name":  last,
         "First_Name": first,
         "Email":      sender_email,
-        "Lead_Source": source,
+        "Lead_Source": source or config.ZOHO_CRM_LEAD_SOURCE,
     }
     if phone:
         record["Phone"] = phone
@@ -268,7 +268,7 @@ async def get_deal_layout_id(layout_name: str) -> str:
 # ── Deal ──────────────────────────────────────────────────────────────────
 async def create_deal(contact_id: str, deal_name: str,
                       description: str, stage: str = "",
-                      source: str = "Chatwoot", owner_id: str = "",
+                      source: str = None, owner_id: str = "",
                       vertical: str = "", layout_name: str = "",
                       extra_fields: dict | None = None) -> dict:
     """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
@@ -285,9 +285,9 @@ async def create_deal(contact_id: str, deal_name: str,
     escape hatch for org-specific MANDATORY custom fields (e.g. the client's
     Business_Type_New picklist) without another signature change."""
     record = {
-        "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
+        "Deal_Name":   (deal_name or f"{config.PRODUCT_NAME} Deal")[:255],
         "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
-        "Lead_Source": source,
+        "Lead_Source": source or config.ZOHO_CRM_LEAD_SOURCE,
         "Description": (description or "")[:NOTE_CONTENT_MAX],
     }
     if contact_id:

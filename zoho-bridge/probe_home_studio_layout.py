@@ -43,7 +43,7 @@ async def main():
         record = {
             "Deal_Name":   "[PROBE] Home Studio layout test — safe to delete",
             "Stage":       stage,
-            "Lead_Source": "Chatwoot",
+            "Lead_Source": config.ZOHO_CRM_LEAD_SOURCE,
             "Layout":      {"id": layout_id},
         }
         try:
