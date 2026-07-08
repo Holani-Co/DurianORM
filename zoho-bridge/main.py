@@ -1545,6 +1545,7 @@ async def _phase2_execute_actions(conv_id: int,
     # Uses Chatwoot's `to_emails` override so the email goes to the
     # department address (NOT the customer). cc/bcc applied per the YAML
     # rule; customer optionally Cc'd when the rule says so.
+    forwarded_ok = False
     if action == "forward" and rule:
         forward_to = (rule.get("forward_to") or "").strip()
         cc_list    = list(rule.get("cc") or [])
@@ -1584,6 +1585,7 @@ async def _phase2_execute_actions(conv_id: int,
                     cc_emails  = ", ".join(cc_list)  if cc_list  else None,
                     bcc_emails = ", ".join(bcc_list) if bcc_list else None,
                 )
+                forwarded_ok = True
                 audit.append(f"📨 Forwarded to {forward_to}.")
                 # For bulk orders, show which sector (government/private) drove
                 # the destination so the agent sees the routing decision.
@@ -1700,6 +1702,22 @@ async def _phase2_execute_actions(conv_id: int,
         })
     except Exception as e:
         print(f"[phase2b] failed to mark phase2_handled_at: {e}")
+
+    # ── Auto-resolve once forwarded ──────────────────────────────────────
+    # A forwarded conversation is DONE from the inbox's point of view — the
+    # internal team owns it now. Resolving keeps the open queue equal to
+    # "work still needing a human" (clean reports). Applies to BOTH auto
+    # forwards and agent-confirmed sends (both run through this function).
+    # Only after a SUCCESSFUL forward — a failed/skipped forward stays open.
+    # A customer reply auto-reopens the conversation in Chatwoot, so nothing
+    # gets lost. In-channel categories never reach here (forwarded_ok=False).
+    if forwarded_ok and config.RESOLVE_AFTER_FORWARD:
+        try:
+            await chatwoot.toggle_status(conv_id, "resolved")
+            audit.append("✅ Conversation resolved (handed to the team).")
+        except Exception as e:
+            print(f"[phase2b] auto-resolve failed for conv {conv_id}: {e}")
+            audit.append(f"⚠️ Auto-resolve failed: {e}")
 
     return audit
 
