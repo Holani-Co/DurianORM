@@ -354,6 +354,13 @@ ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
 CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
 
+# Auto-resolve a conversation once its email has been successfully forwarded
+# to the internal team — auto-forwarded AND agent-confirmed sends alike. The
+# open queue then means "still needs a human here" (clean reports). Customer
+# replies auto-reopen the conversation in Chatwoot. Set to false to disable
+# without a code change.
+RESOLVE_AFTER_FORWARD = os.environ.get("RESOLVE_AFTER_FORWARD", "true").lower() == "true"
+
 # Bulk orders are sub-classified into government vs private buyers and routed to
 # different handlers. At/above this bar the sector is auto-routed; below it the
 # email is flagged for an agent to confirm the sector before forwarding (so an
