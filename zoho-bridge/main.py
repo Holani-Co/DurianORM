@@ -2999,20 +2999,130 @@ async def _resolve_doors_owner(body_text: str, subject: str,
         else _fallback_owner()
 
 
+SAHARSH_TERRITORY_KEY = "Delhi / NCR (except Noida) / Haryana / J&K / balance states"
+
+# Deterministic keyword override for Saharsh's OWN territory: Delhi-NCR
+# (except Noida proper), Haryana, J&K, Chandigarh. The AI classifier tends
+# to fuzzy-match NCR-adjacent cities to Noida and Chandigarh to Punjab —
+# these force Saharsh regardless. (Balance STATES are NOT keyworded here:
+# a state either appears in crm_owner_routing_govt_bulk_states — and its
+# cities round-robin over that state's owners — or it doesn't, and the
+# classifier's no-match naturally falls to Saharsh.)
+SAHARSH_TERRITORY_KEYWORDS = (
+    # NCR (except Noida proper — Noida has its own dedicated owner)
+    "gurgaon", "gurugram", "faridabad", "ghaziabad",
+    "greater noida", "noida extension",
+    # Haryana
+    "haryana", "hisar", "karnal", "panipat", "rohtak", "sonipat", "ambala",
+    # J&K + Ladakh
+    "jammu", "kashmir", "srinagar", "leh", "ladakh",
+    # Chandigarh (UT, no explicit owner → Saharsh per client)
+    "chandigarh", "panchkula",
+)
+
+
+def _mentions_saharsh_territory(body_text: str, subject: str) -> bool:
+    """True when the enquiry clearly mentions a place in Saharsh's own
+    territory (NCR-except-Noida / Haryana / J&K / Chandigarh). Used to
+    OVERRIDE the AI classifier when it would fuzzy-match the wrong bucket
+    (Gurgaon → Noida, Chandigarh → Punjab)."""
+    t = f" {(subject or '')} {(body_text or '')} ".lower()
+    return any(f" {kw} " in t or f" {kw}." in t or f" {kw}," in t
+               for kw in SAHARSH_TERRITORY_KEYWORDS)
+
+
+# Common-name aliases for the single-city govt/bulk keys, used for the
+# deterministic "is this city literally named?" check.
+_GOVT_BULK_CITY_ALIASES = {
+    "Bhopal":       ("bhopal",),
+    "Indore":       ("indore",),
+    "Ahmedabad":    ("ahmedabad", "amdavad"),
+    "Chennai":      ("chennai", "madras"),
+    "Coimbatore":   ("coimbatore", "kovai"),
+    "Kolkata":      ("kolkata", "calcutta"),
+    "Mumbai":       ("mumbai", "bombay"),
+    "Pune":         ("pune", "poona"),
+    "Bhubaneshwar": ("bhubaneshwar", "bhubaneswar"),
+    "Patna":        ("patna",),
+    "Ranchi":       ("ranchi",),
+    "Guwahati":     ("guwahati", "gauhati"),
+    "Hyderabad":    ("hyderabad",),
+    "Noida":        ("noida",),
+}
+
+
+def _key_literally_mentioned(key: str, body_text: str, subject: str) -> bool:
+    """True when a single-city govt/bulk key is literally named in the
+    enquiry. Enforces: a listed city's owner gets deals for THAT city."""
+    t = f" {(subject or '')} {(body_text or '')} ".lower()
+    for a in _GOVT_BULK_CITY_ALIASES.get(key, (key.lower(),)):
+        if f" {a} " in t or f" {a}." in t or f" {a}," in t or f" {a}'" in t:
+            return True
+    return False
+
+
+def _state_owner_pool(state: str) -> tuple[str, list]:
+    """All owners covering `state`, flattened across its mapped govt/bulk
+    keys in listed order. Returns (pool_key, owners) — e.g. Madhya Pradesh →
+    Bhopal's two owners + Indore's one, round-robined as one pool."""
+    R = classifier._ROUTING_RULES or {}
+    gb = R.get("crm_owner_routing_govt_bulk") or {}
+    state_map = R.get("crm_owner_routing_govt_bulk_states") or {}
+    owners = []
+    for key in state_map.get(state) or []:
+        owners.extend(gb.get(key) or [])
+    return f"govt_bulk_state:{state}", owners
+
+
 async def _resolve_govt_bulk_owner(body_text: str, subject: str,
                                    sender_email: str) -> dict:
-    """Govt/bulk furniture: match to a city/region, round-robin when that key
-    has multiple owners (Mumbai/Bhopal/Kolkata); unmatched → `default`
-    (Saharsh — Delhi/NCR/Haryana/J&K/balance)."""
-    gb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_govt_bulk") or {}
-    keys = [k for k in gb.keys() if k != "default"]
-    loc = await _classify_owner_region(keys, body_text, subject, sender_email, "govt-bulk")
-    key = loc if loc else "default"
-    owners = gb.get(key) or gb.get("default") or []
+    """Govt/bulk furniture routing, per the client's rules:
+
+    1. Saharsh's own territory (NCR-except-Noida / Haryana / J&K /
+       Chandigarh) → Saharsh. Deterministic keyword override, so Gurgaon
+       never fuzzy-matches to Noida nor Chandigarh to Punjab.
+    2. A listed city, literally named in the enquiry → that city's owner(s),
+       round-robin within the city (Mumbai ×3, Bhopal ×2, Kolkata ×2).
+    3. An UNLISTED city in a COVERED state → round-robin across ALL that
+       state's owners (Jabalpur → Bhopal's two + Indore's one; Vellore →
+       Chennai + Coimbatore; Nagpur → Mumbai's three + Pune). "Why would
+       Saharsh handle it if there's an owner close to that city?" — client.
+    4. A state with NO owner (Kerala, Goa, HP, NE...) or no location at
+       all → Saharsh (balance / catch-all)."""
+    R = classifier._ROUTING_RULES or {}
+    gb = R.get("crm_owner_routing_govt_bulk") or {}
+    state_map = R.get("crm_owner_routing_govt_bulk_states") or {}
+
+    # 1. Saharsh's own territory — deterministic.
+    if _mentions_saharsh_territory(body_text, subject):
+        key, owners = SAHARSH_TERRITORY_KEY, gb.get(SAHARSH_TERRITORY_KEY) or []
+    else:
+        # 2. Listed city literally named — deterministic, no AI needed.
+        key = next((k for k in gb
+                    if k != SAHARSH_TERRITORY_KEY
+                    and _key_literally_mentioned(k, body_text, subject)), None)
+        if key:
+            owners = gb.get(key) or []
+        else:
+            # 3. AI maps the enquiry to a covered STATE (or the multi-state
+            #    'Uttrakhand and Punjab' / 'Rajasthan' keys, which the state
+            #    map also routes through).
+            state = await _classify_owner_region(
+                list(state_map.keys()), body_text, subject, sender_email,
+                "govt-bulk-state")
+            if state:
+                key, owners = _state_owner_pool(state)
+            else:
+                # 4. Balance states / unknown → Saharsh.
+                key, owners = SAHARSH_TERRITORY_KEY, gb.get(SAHARSH_TERRITORY_KEY) or []
+
+    if not owners:
+        owners = gb.get(SAHARSH_TERRITORY_KEY) or []
+        key = SAHARSH_TERRITORY_KEY
     if not owners:
         return _fallback_owner()
-    idx = crm_state.next_index(f"govt_bulk:{key}", len(owners))
-    return _owner_dict(f"govt_bulk:{key}#{idx}", owners[idx], "Furniture")
+    idx = crm_state.next_index(key, len(owners))
+    return _owner_dict(f"{key}#{idx}", owners[idx], "Furniture")
 
 
 async def _resolve_bulk_sector(cat_v2: dict, body_text: str, subject: str,
@@ -3078,9 +3188,17 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
                               "government or private"}
         if sector == "government":
             return await _resolve_govt_bulk_owner(body_text, subject, sender_email)
-        return await _resolve_named_owner(
-            R.get("crm_owner_routing_private") or {},
-            body_text, subject, sender_email, "private", "Furniture")
+        # Private: try the 4 dedicated private-project cities first
+        # (Bangalore / Delhi / Hyderabad / Pune). If the enquiry is NOT in one
+        # of those, fall through to the govt/bulk city/state list — the client
+        # wants private bulk orders to reach the nearest bulk-owner too, not
+        # land on hello@ central. Retail matrix stays parked either way.
+        private = R.get("crm_owner_routing_private") or {}
+        loc = await _classify_owner_region(list(private.keys()), body_text,
+                                           subject, sender_email, "private")
+        if loc:
+            return _owner_dict(f"private:{loc}", private[loc], "Furniture")
+        return await _resolve_govt_bulk_owner(body_text, subject, sender_email)
 
     # Product / general / existing-order enquiry (and anything else) → central
     # hello@ inbox. The retail location matrix is parked for Phase 2.

@@ -1173,8 +1173,39 @@ crm_owner_routing_govt_bulk:    # Govt/Bulk furniture, by city/region (lists rou
     - {owner_email: gajendrasingh.mourya@durian.in, owner_id: "3608871000000320583"}
   "Noida":
     - {owner_email: durian.noida@durian.in, owner_id: "3608871000001206109"}
-  "default":   # Delhi/NCR/Haryana/J&K + balance states + anything unmatched
+  # Saharsh's explicit territory (per client sheet row 99): Delhi, all NCR
+  # EXCEPT Noida (Noida has its own dedicated owner above), Haryana
+  # (Gurgaon / Faridabad / Ghaziabad / Panchkula / Chandigarh), J&K, and
+  # every state with NO owner in this block ("balance states": Kerala, Goa,
+  # HP, NE states, etc.). Cities NOT listed here but in a COVERED state do
+  # NOT come to Saharsh — they round-robin across that state's owners (see
+  # crm_owner_routing_govt_bulk_states below). Also the catch-all when the
+  # classifier can't place the enquiry at all.
+  "Delhi / NCR (except Noida) / Haryana / J&K / balance states":
     - {owner_email: saharsh@durian.in, owner_id: "3608871000000963013"}
+
+# State → govt/bulk keys covering that state (from the sheet's State column).
+# An unlisted city in one of these states round-robins across ALL owners of
+# the mapped keys — e.g. Jabalpur (MP) rotates over Bhopal's two owners +
+# Indore's one; Vellore (TN) over Chennai + Coimbatore. A state absent here
+# has no owner → Saharsh. NOTE: the sheet lists vijay.karan's territory as
+# "West Bengal, Sikkim" — so Sikkim maps to the Kolkata desk, NOT Saharsh.
+crm_owner_routing_govt_bulk_states:
+  "Telangana":       ["Hyderabad"]
+  "West Bengal":     ["Kolkata"]
+  "Sikkim":          ["Kolkata"]
+  "Maharashtra":     ["Mumbai", "Pune"]
+  "Assam":           ["Guwahati"]
+  "Bihar":           ["Patna"]
+  "Odisha":          ["Bhubaneshwar"]
+  "Tamil Nadu":      ["Chennai", "Coimbatore"]
+  "Rajasthan":       ["Rajasthan"]
+  "Jharkhand":       ["Ranchi"]
+  "Gujarat":         ["Ahmedabad"]
+  "Madhya Pradesh":  ["Bhopal", "Indore"]
+  "Uttar Pradesh":   ["Noida"]
+  "Uttarakhand":     ["Uttrakhand and Punjab"]
+  "Punjab":          ["Uttrakhand and Punjab"]
 
 crm_owner_routing_fallback:     # nothing specific resolved -> central inbox
   owner_email: hello@durian.in
