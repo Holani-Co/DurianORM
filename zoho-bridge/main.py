@@ -3001,19 +3001,108 @@ async def _resolve_doors_owner(body_text: str, subject: str,
 
 SAHARSH_TERRITORY_KEY = "Delhi / NCR (except Noida) / Haryana / J&K / balance states"
 
+# Deterministic keyword override for Saharsh's territory. The AI region
+# classifier tends to fuzzy-match NCR-adjacent cities (Gurgaon, Ghaziabad)
+# to Noida because they're geographically close, and Chandigarh to Punjab
+# because they border. These keywords force those to Saharsh's bucket
+# regardless of what the classifier says.
+SAHARSH_TERRITORY_KEYWORDS = (
+    # NCR (except Noida proper — Noida has its own dedicated owner)
+    "gurgaon", "gurugram", "faridabad", "ghaziabad",
+    "greater noida", "noida extension",
+    # Haryana
+    "haryana", "hisar", "karnal", "panipat", "rohtak", "sonipat", "ambala",
+    # J&K
+    "jammu", "kashmir", "srinagar", "leh", "ladakh",
+    # Chandigarh (UT, no explicit owner → Saharsh per client)
+    "chandigarh", "panchkula",
+    # 'balance states' — states with no explicit owner in the govt/bulk list.
+    "kerala", "kochi", "trivandrum", "thiruvananthapuram", "kozhikode",
+    "sikkim", "gangtok",
+    "goa", "panaji",
+    "himachal", "shimla", "manali",
+    "meghalaya", "shillong",
+    "nagaland", "kohima", "dimapur",
+    "manipur", "imphal",
+    "arunachal",
+    "mizoram", "aizawl",
+    "tripura", "agartala",
+    "andaman",
+)
+
+
+def _mentions_saharsh_territory(body_text: str, subject: str) -> bool:
+    """True when the enquiry clearly mentions a city/state that belongs to
+    Saharsh's territory (NCR-except-Noida / Haryana / J&K / balance states).
+    Used to OVERRIDE the AI classifier when it would fuzzy-match the wrong
+    bucket (Gurgaon → Noida, Chandigarh → Punjab, Jabalpur → Bhopal, etc.)."""
+    t = f" {(subject or '')} {(body_text or '')} ".lower()
+    return any(f" {kw} " in t or f" {kw}." in t or f" {kw}," in t
+               for kw in SAHARSH_TERRITORY_KEYWORDS)
+
+
+# Govt/bulk keys that represent a WHOLE STATE or MULTI-STATE bucket rather
+# than a single city — for these it's OK for the AI to match on state, not
+# a literal city mention (e.g. "Udaipur, Rajasthan" → "Rajasthan"). Every
+# other key is a specific city and must be literally named in the enquiry.
+_GOVT_BULK_REGION_KEYS = {
+    "Rajasthan", "Uttrakhand and Punjab", SAHARSH_TERRITORY_KEY,
+}
+
+
+def _key_literally_mentioned(key: str, body_text: str, subject: str) -> bool:
+    """True when a single-city govt/bulk key is literally named in the enquiry.
+    Bhopal → 'bhopal' must appear; Ahmedabad → 'ahmedabad' or 'amdavad'; etc.
+    This enforces the client's rule: 'explicit city in sheet = go to that
+    owner ONLY, don't substitute a nearby state-mate.'"""
+    t = f" {(subject or '')} {(body_text or '')} ".lower()
+    aliases = {
+        "Bhopal":       ("bhopal",),
+        "Indore":       ("indore",),
+        "Ahmedabad":    ("ahmedabad", "amdavad"),
+        "Chennai":      ("chennai", "madras"),
+        "Coimbatore":   ("coimbatore", "kovai"),
+        "Kolkata":      ("kolkata", "calcutta"),
+        "Mumbai":       ("mumbai", "bombay"),
+        "Pune":         ("pune", "poona"),
+        "Bhubaneshwar": ("bhubaneshwar", "bhubaneswar"),
+        "Patna":        ("patna",),
+        "Ranchi":       ("ranchi",),
+        "Guwahati":     ("guwahati", "gauhati"),
+        "Hyderabad":    ("hyderabad",),
+        "Noida":        ("noida",),
+    }
+    for a in aliases.get(key, (key.lower(),)):
+        if f" {a} " in t or f" {a}." in t or f" {a}," in t or f" {a}'" in t:
+            return True
+    return False
+
 
 async def _resolve_govt_bulk_owner(body_text: str, subject: str,
                                    sender_email: str) -> dict:
-    """Govt/bulk furniture: match to a city/region, round-robin when that key
-    has multiple owners (Mumbai/Bhopal/Kolkata). Saharsh's territory is now
-    a NAMED key the AI sees explicitly (Delhi / NCR-except-Noida / Haryana /
-    J&K / balance states) — this stops the classifier fuzzy-matching Gurgaon
-    or Ghaziabad to Noida just because the two are close together. If the AI
-    STILL says nothing matches, Saharsh's key is used as the catch-all."""
+    """Govt/bulk furniture routing. Two safety nets around the AI classifier:
+
+    1. If the enquiry keywords a place in Saharsh's territory (NCR-except-
+       Noida / Haryana / J&K / balance states like Kerala/Sikkim/Chandigarh),
+       FORCE Saharsh — no fuzzy-matching to Noida/Punjab/Bhopal.
+    2. If the AI matches to a single-city key (Bhopal, Chennai, etc.) but
+       the enquiry doesn't literally mention that city, treat it as no-match
+       and fall to Saharsh. Enforces the client's rule: an explicit city in
+       the sheet routes only for THAT city, not for state-mates (Jabalpur
+       shouldn't inherit Bhopal's owner just because both are in MP).
+
+    Round-robin still applies when a matched key has multiple owners."""
     gb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_govt_bulk") or {}
     keys = list(gb.keys())
-    loc = await _classify_owner_region(keys, body_text, subject, sender_email, "govt-bulk")
-    key = loc if loc else SAHARSH_TERRITORY_KEY
+    if _mentions_saharsh_territory(body_text, subject):
+        key = SAHARSH_TERRITORY_KEY
+    else:
+        loc = await _classify_owner_region(keys, body_text, subject, sender_email, "govt-bulk")
+        # Enforce literal mention for single-city keys.
+        if loc and loc not in _GOVT_BULK_REGION_KEYS \
+                and not _key_literally_mentioned(loc, body_text, subject):
+            loc = None
+        key = loc if loc else SAHARSH_TERRITORY_KEY
     owners = gb.get(key) or gb.get(SAHARSH_TERRITORY_KEY) or []
     if not owners:
         return _fallback_owner()
