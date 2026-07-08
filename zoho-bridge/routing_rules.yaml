@@ -1173,7 +1173,17 @@ crm_owner_routing_govt_bulk:    # Govt/Bulk furniture, by city/region (lists rou
     - {owner_email: gajendrasingh.mourya@durian.in, owner_id: "3608871000000320583"}
   "Noida":
     - {owner_email: durian.noida@durian.in, owner_id: "3608871000001206109"}
-  "default":   # Delhi/NCR/Haryana/J&K + balance states + anything unmatched
+  # Saharsh's explicit territory (per client sheet row 99): Delhi, all NCR
+  # EXCEPT Noida (Noida has its own dedicated owner above), Haryana
+  # (Gurgaon / Faridabad / Ghaziabad / Panchkula / Chandigarh dual-cap), J&K
+  # (Srinagar, Jammu, Kashmir valley), and every state / city not listed
+  # elsewhere in this block ("balance states": Kerala, Sikkim, Nagaland,
+  # Meghalaya, Arunachal, Mizoram, Tripura, Goa, HP, MP outside Bhopal/Indore,
+  # UP outside Noida, etc.). Named explicitly (not "default") so the AI
+  # region classifier picks it deliberately for Gurgaon/Ghaziabad rather than
+  # fuzzy-matching to Noida because "Noida is close by". Still also serves as
+  # the round-robin catch-all when the classifier says nothing matches.
+  "Delhi / NCR (except Noida) / Haryana / J&K / balance states":
     - {owner_email: saharsh@durian.in, owner_id: "3608871000000963013"}
 
 crm_owner_routing_fallback:     # nothing specific resolved -> central inbox

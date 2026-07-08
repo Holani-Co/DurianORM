@@ -2999,16 +2999,22 @@ async def _resolve_doors_owner(body_text: str, subject: str,
         else _fallback_owner()
 
 
+SAHARSH_TERRITORY_KEY = "Delhi / NCR (except Noida) / Haryana / J&K / balance states"
+
+
 async def _resolve_govt_bulk_owner(body_text: str, subject: str,
                                    sender_email: str) -> dict:
     """Govt/bulk furniture: match to a city/region, round-robin when that key
-    has multiple owners (Mumbai/Bhopal/Kolkata); unmatched → `default`
-    (Saharsh — Delhi/NCR/Haryana/J&K/balance)."""
+    has multiple owners (Mumbai/Bhopal/Kolkata). Saharsh's territory is now
+    a NAMED key the AI sees explicitly (Delhi / NCR-except-Noida / Haryana /
+    J&K / balance states) — this stops the classifier fuzzy-matching Gurgaon
+    or Ghaziabad to Noida just because the two are close together. If the AI
+    STILL says nothing matches, Saharsh's key is used as the catch-all."""
     gb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_govt_bulk") or {}
-    keys = [k for k in gb.keys() if k != "default"]
+    keys = list(gb.keys())
     loc = await _classify_owner_region(keys, body_text, subject, sender_email, "govt-bulk")
-    key = loc if loc else "default"
-    owners = gb.get(key) or gb.get("default") or []
+    key = loc if loc else SAHARSH_TERRITORY_KEY
+    owners = gb.get(key) or gb.get(SAHARSH_TERRITORY_KEY) or []
     if not owners:
         return _fallback_owner()
     idx = crm_state.next_index(f"govt_bulk:{key}", len(owners))
