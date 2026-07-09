@@ -18,7 +18,7 @@ import { useAlert } from 'dashboard/composables';
 // Shape of `pending` from main._pause_for_agent_decision:
 //   {
 //     sender_email, escalation_label, suggested_at,
-//     candidates: [{ id, number, subject, status, url, created_at }, ...]
+//     candidates: [{ id, number, subject, status, url, created_at, match? }, ...]
 //   }
 const props = defineProps({
   pending: {
@@ -43,6 +43,17 @@ const candidates = computed(() => props.pending?.candidates || []);
 const hasCandidates = computed(() => candidates.value.length > 0);
 const escalationLabel = computed(() => props.pending?.escalation_label || '');
 const senderEmail = computed(() => props.pending?.sender_email || '');
+// attach_only: the customer named an existing ticket, so creating a brand-new
+// one is never right — hide "Create new ticket" and offer attach/reject only.
+const attachOnly = computed(() => props.pending?.attach_only === true);
+
+const headerText = computed(() => {
+  if (attachOnly.value)
+    return 'Refers to an existing ticket — attach or reject';
+  if (hasCandidates.value)
+    return 'Possible duplicate — approve, attach, or reject';
+  return 'Zoho ticket needs your approval';
+});
 
 const ALERTS = {
   create_new: 'Zoho ticket created.',
@@ -110,11 +121,7 @@ async function resolve(choice, targetTicketId = null) {
   <div class="flex flex-col gap-2">
     <div class="px-1 text-xs text-n-slate-11">
       <span class="text-n-slate-12">
-        {{
-          hasCandidates
-            ? 'Possible duplicate — approve, attach, or reject'
-            : 'Zoho ticket needs your approval'
-        }}
+        {{ headerText }}
       </span>
       <span v-if="escalationLabel" class="text-n-slate-10">
         · {{ formatLabel(escalationLabel) }}
@@ -124,9 +131,12 @@ async function resolve(choice, targetTicketId = null) {
       </span>
     </div>
 
-    <!-- Primary actions up top: Approve/Create new + Reject. -->
+    <!-- Primary actions up top: Approve/Create new + Reject. In attach-only
+         mode the customer named an existing ticket, so "create new" is
+         suppressed — only Reject sits up here, and attach is below. -->
     <div class="flex items-center gap-2 px-1">
       <button
+        v-if="!attachOnly"
         type="button"
         class="flex-1 px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="submittingChoice !== null"
@@ -152,7 +162,11 @@ async function resolve(choice, targetTicketId = null) {
     </div>
 
     <div v-if="hasCandidates" class="px-1 pt-1 text-xs text-n-slate-10">
-      …or attach to an existing ticket:
+      {{
+        attachOnly
+          ? 'Attach to the referenced ticket:'
+          : '…or attach to an existing ticket:'
+      }}
     </div>
 
     <div
@@ -177,6 +191,13 @@ async function resolve(choice, targetTicketId = null) {
         <span class="text-xs text-amber-600 dark:text-amber-400 shrink-0">
           {{ formatStatus(ticket.status) }}
         </span>
+      </div>
+
+      <!-- Why the bridge surfaced this candidate: "same contact",
+           "#N referenced in message", or "similar content" (may be a
+           cross-contact match — same person on a second email address). -->
+      <div v-if="ticket.match" class="text-xs italic text-n-slate-10">
+        {{ ticket.match }}
       </div>
 
       <!-- Subject -->

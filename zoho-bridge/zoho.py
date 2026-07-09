@@ -299,33 +299,34 @@ def _clean_search_query(raw: str) -> str:
     return " ".join(words[:6])
 
 
-async def search_tickets(query: str, exclude_id: Optional[str] = None,
-                         limit: int = 3) -> list[dict]:
-    """Search Zoho Desk tickets by free-text query against the SUBJECT field.
-    Returns top matches (Zoho ranks by relevance), excluding exclude_id so a
-    freshly-created ticket doesn't match itself.
+def _ticket_brief(t: dict) -> dict:
+    """Normalize a raw Zoho ticket record to the small dict the bridge passes
+    around (candidates list, pending_zoho_ticket attr, private notes)."""
+    tid = t.get("id")
+    return {
+        "id":         tid,
+        "number":     t.get("ticketNumber"),
+        "subject":    t.get("subject") or "",
+        "status":     t.get("status"),
+        "url":        t.get("webUrl") or (
+            f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
+        ),
+        "created_at": t.get("createdTime"),
+    }
 
-    Best-effort: returns [] on any failure (network, no-results, 4xx)."""
-    q = _clean_search_query(query)
-    if not q:
-        return []
 
+async def _search_tickets_raw(params: dict) -> list[dict]:
+    """GET /tickets/search with the standard headers + one 401 retry.
+    Returns raw ticket records; [] on any failure (best-effort, never raises)."""
     async def _get(client, token):
-        # Zoho Desk's /tickets/search takes field-name params directly
-        # (?subject=keyword), NOT a searchStr wrapper.
         return await client.get(
             f"{config.ZOHO_DESK_URL}/api/v1/tickets/search",
             headers={
                 "Authorization": f"Zoho-oauthtoken {token}",
                 "orgId":         config.ZOHO_ORG_ID,
             },
-            params={
-                "subject":      q,
-                "limit":        str(limit + 1),
-                "departmentId": config.ZOHO_DEPARTMENT_ID,
-            },
+            params={**params, "departmentId": config.ZOHO_DEPARTMENT_ID},
         )
-
     try:
         token = await get_access_token()
         async with httpx.AsyncClient(timeout=15) as client:
@@ -336,31 +337,79 @@ async def search_tickets(query: str, exclude_id: Optional[str] = None,
             if r.status_code == 204:
                 return []
             if r.status_code >= 300:
-                print(f"[zoho] search_tickets non-200 [{r.status_code}]; "
-                      f"query={q!r} body={r.text[:500]!r}")
+                print(f"[zoho] tickets/search non-200 [{r.status_code}]; "
+                      f"params={params!r} body={r.text[:300]!r}")
                 return []
-            results = (r.json() or {}).get("data") or []
+            return (r.json() or {}).get("data") or []
     except Exception as e:
-        print(f"[zoho] search_tickets exception: {type(e).__name__}: {e}")
+        print(f"[zoho] tickets/search exception: {type(e).__name__}: {e}")
         return []
 
+
+async def get_ticket_by_number(number: str) -> Optional[dict]:
+    """Exact lookup by the human-facing ticketNumber (the '#253' customers
+    quote from their emails — NOT the long internal id). None if no match."""
+    number = str(number).strip().lstrip("#")
+    if not number.isdigit():
+        return None
+    results = await _search_tickets_raw({"ticketNumber": number, "limit": "1"})
+    return _ticket_brief(results[0]) if results else None
+
+
+async def search_tickets_by_content(subject: str, body: str,
+                                    limit: int = 3,
+                                    open_only: bool = True) -> list[dict]:
+    """Find tickets whose DESCRIPTION matches the incoming message's keywords.
+
+    The description holds the original email text (create_ticket embeds the
+    message thread), so a customer re-sending the same complaint from a
+    DIFFERENT email address still matches — unlike the subject field, where
+    the AI-generated ticket subject paraphrases and Zoho's AND-semantics
+    keyword match misses it (probed 2026-07-09: description search found the
+    re-sent complaint, subject search returned 204).
+
+    Body keywords are the primary query; the raw subject is a secondary
+    query for same-subject re-sends. open_only drops closed tickets — a
+    closed ticket isn't a duplicate risk."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    body_q    = _clean_search_query(body)
+    subject_q = _clean_search_query(subject)
+    queries = [p for p in (
+        {"description": body_q} if body_q else None,
+        {"subject": subject_q}  if subject_q else None,
+    ) if p]
+    for params in queries:
+        for t in await _search_tickets_raw({**params, "limit": str(limit + 2)}):
+            status = str(t.get("status") or "").lower()
+            if open_only and status not in _OPEN_STATUSES:
+                continue
+            tid = str(t.get("id"))
+            if tid in seen:
+                continue
+            seen.add(tid)
+            out.append(_ticket_brief(t))
+            if len(out) >= limit:
+                return out
+    return out
+
+
+async def search_tickets(query: str, exclude_id: Optional[str] = None,
+                         limit: int = 3) -> list[dict]:
+    """Search Zoho Desk tickets by free-text query against the SUBJECT field.
+    Returns top matches (Zoho ranks by relevance), excluding exclude_id so a
+    freshly-created ticket doesn't match itself.
+
+    Best-effort: returns [] on any failure (network, no-results, 4xx)."""
+    q = _clean_search_query(query)
+    if not q:
+        return []
+    # Zoho Desk's /tickets/search takes field-name params directly
+    # (?subject=keyword), NOT a searchStr wrapper.
+    results = await _search_tickets_raw({"subject": q, "limit": str(limit + 1)})
     if exclude_id is not None:
         results = [t for t in results if str(t.get("id")) != str(exclude_id)]
-
-    out = []
-    for t in results[:limit]:
-        tid = t.get("id")
-        out.append({
-            "id":         tid,
-            "number":     t.get("ticketNumber"),
-            "subject":    t.get("subject") or "",
-            "status":     t.get("status"),
-            "url":        t.get("webUrl") or (
-                f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
-            ),
-            "created_at": t.get("createdTime"),
-        })
-    return out
+    return [_ticket_brief(t) for t in results[:limit]]
 
 
 # ── Open-ticket lookup by contact email ───────────────────────────────────
@@ -454,21 +503,7 @@ async def search_open_tickets_by_email(email: str,
 
     if exclude_id is not None:
         results = [t for t in results if str(t.get("id")) != str(exclude_id)]
-
-    out = []
-    for t in results[:limit]:
-        tid = t.get("id")
-        out.append({
-            "id":         tid,
-            "number":     t.get("ticketNumber"),
-            "subject":    t.get("subject") or "",
-            "status":     t.get("status"),
-            "url":        t.get("webUrl") or (
-                f"{config.ZOHO_DESK_URL}/agent/tickets/details/{tid}" if tid else None
-            ),
-            "created_at": t.get("createdTime"),
-        })
-    return out
+    return [_ticket_brief(t) for t in results[:limit]]
 
 
 # ── Append a comment on an existing ticket ────────────────────────────────
