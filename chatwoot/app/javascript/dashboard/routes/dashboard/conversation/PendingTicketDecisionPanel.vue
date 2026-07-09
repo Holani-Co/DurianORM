@@ -72,6 +72,15 @@ const formatLabel = label => {
   return map[label] || label.replace(/_/g, ' ');
 };
 
+// Escalation label + sender on their own muted line so the header doesn't
+// run on into an awkward wrap (the long email was the worst offender).
+const metaLine = computed(() => {
+  const parts = [];
+  if (escalationLabel.value) parts.push(formatLabel(escalationLabel.value));
+  if (senderEmail.value) parts.push(senderEmail.value);
+  return parts.join(' · ');
+});
+
 const formatStatus = status => (status === 'On Hold' ? 'On Hold' : 'Open');
 
 // Zoho `createdTime` (ISO) → readable stamp; '' when missing/unparseable.
@@ -118,27 +127,22 @@ async function resolve(choice, targetTicketId = null) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
-    <div class="px-1 text-xs text-n-slate-11">
-      <span class="text-n-slate-12">
-        {{ headerText }}
-      </span>
-      <span v-if="escalationLabel" class="text-n-slate-10">
-        · {{ formatLabel(escalationLabel) }}
-      </span>
-      <span v-if="senderEmail" class="text-n-slate-10">
-        · {{ senderEmail }}
+  <div class="flex flex-col gap-2 py-1 text-sm">
+    <div class="flex flex-col gap-0.5">
+      <span class="text-xs text-n-slate-12">{{ headerText }}</span>
+      <span v-if="metaLine" class="text-xs text-n-slate-10 break-all">
+        {{ metaLine }}
       </span>
     </div>
 
     <!-- Primary actions up top: Approve/Create new + Reject. In attach-only
          mode the customer named an existing ticket, so "create new" is
          suppressed — only Reject sits up here, and attach is below. -->
-    <div class="flex items-center gap-2 px-1">
+    <div class="flex items-center gap-2">
       <button
         v-if="!attachOnly"
         type="button"
-        class="flex-1 px-3 py-1.5 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
+        class="flex-1 px-2.5 py-1 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="submittingChoice !== null"
         @click="resolve('create_new')"
       >
@@ -153,7 +157,7 @@ async function resolve(choice, targetTicketId = null) {
       </button>
       <button
         type="button"
-        class="px-3 py-1.5 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-11 hover:text-n-ruby-11 disabled:opacity-50"
+        class="px-2.5 py-1 text-xs font-medium rounded-md bg-n-solid-3 text-n-slate-11 hover:text-n-ruby-11 disabled:opacity-50"
         :disabled="submittingChoice !== null"
         @click="resolve('reject')"
       >
@@ -161,7 +165,7 @@ async function resolve(choice, targetTicketId = null) {
       </button>
     </div>
 
-    <div v-if="hasCandidates" class="px-1 pt-1 text-xs text-n-slate-10">
+    <div v-if="hasCandidates" class="pt-1 text-xs text-n-slate-10">
       {{
         attachOnly
           ? 'Attach to the referenced ticket:'
@@ -172,7 +176,7 @@ async function resolve(choice, targetTicketId = null) {
     <div
       v-for="ticket in candidates"
       :key="ticket.id"
-      class="flex flex-col gap-1.5 p-3 rounded-md bg-n-alpha-1"
+      class="flex flex-col gap-1.5 p-2 border rounded-md border-n-weak bg-n-alpha-1"
     >
       <!-- Header: ticket number + status -->
       <div class="flex items-center justify-between gap-2">
