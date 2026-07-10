@@ -50,7 +50,7 @@ In Zoho API Console (https://api-console.zoho.in):
 
 1. **Add Client** → **Self Client** (purple icon).
 2. **Client Secret** tab → copy **Client ID** + **Client Secret**.
-3. **Generate Code** tab → scope = `Desk.tickets.CREATE,Desk.contacts.CREATE,Desk.contacts.READ`, 10 min duration → copy the code.
+3. **Generate Code** tab → scope = `Desk.tickets.CREATE,Desk.tickets.READ,Desk.tickets.UPDATE,Desk.contacts.CREATE,Desk.contacts.READ,Desk.search.READ`, 10 min duration → copy the code. (`Desk.tickets.UPDATE` is required for the dedup **Attach to existing ticket** action — it posts a comment on the ticket; without it Zoho returns 403 and the attach silently fails.)
 4. Exchange for refresh token:
    ```bash
    curl -X POST "https://accounts.zoho.in/oauth/v2/token" \

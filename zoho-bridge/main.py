@@ -855,15 +855,17 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
             result["resolved"] = False
             result["error"]    = str(e)
 
-    # Clear the pending flag whether or not the action succeeded — leaving
-    # it set would block subsequent webhooks. On error, the agent can still
-    # re-trigger via a manual handoff.
-    try:
-        await chatwoot.merge_custom_attributes(
-            conv_id, {"pending_zoho_ticket": None}
-        )
-    except Exception as e:
-        print(f"[zoho-dedup] failed to clear pending flag on {conv_id}: {e}")
+    # Clear the pending flag ONLY on success. On failure (e.g. Zoho rejected the
+    # comment for a missing scope) leave it set so the agent can retry once the
+    # cause is fixed — clearing it here made the decision panel vanish while the
+    # attach had silently failed, which read as "attached" but did nothing.
+    if result.get("resolved"):
+        try:
+            await chatwoot.merge_custom_attributes(
+                conv_id, {"pending_zoho_ticket": None}
+            )
+        except Exception as e:
+            print(f"[zoho-dedup] failed to clear pending flag on {conv_id}: {e}")
 
     return result
 
@@ -3191,6 +3193,13 @@ async def chatwoot_resolve_ticket_decision(request: Request):
         print(f"[zoho-dedup] resolve endpoint failed for conv {conv_id}: "
               f"{type(e).__name__}: {e}")
         raise HTTPException(500, f"resolve failed: {e}")
+    # The action layer catches its own errors and returns resolved=False rather
+    # than raising (e.g. Zoho rejected the comment on the attach path). Surface
+    # that as an HTTP error so the agent sees a real failure toast instead of a
+    # false "attached" success — and the decision panel stays for a retry.
+    if not result.get("resolved"):
+        reason = result.get("error") or result.get("reason") or "unknown error"
+        raise HTTPException(502, f"Ticket decision could not be completed: {reason}")
     return result
 
 
