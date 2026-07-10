@@ -83,8 +83,8 @@ const headerCount = computed(() => props.tickets?.length || 0);
 </script>
 
 <template>
-  <div v-if="tickets && tickets.length" class="flex flex-col gap-2">
-    <div class="px-1 text-xs font-medium text-n-slate-11">
+  <div v-if="tickets && tickets.length" class="flex flex-col gap-2 px-4 py-3">
+    <div class="text-xs font-medium text-n-slate-11">
       {{ headerCount }} ticket{{ headerCount === 1 ? '' : 's' }}
     </div>
     <div

@@ -127,7 +127,7 @@ async function resolve(choice, targetTicketId = null) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 py-1 text-sm">
+  <div class="flex flex-col gap-2 px-4 py-3 text-sm">
     <div class="flex flex-col gap-0.5">
       <span class="text-xs text-n-slate-12">{{ headerText }}</span>
       <span v-if="metaLine" class="text-xs text-n-slate-10 break-all">

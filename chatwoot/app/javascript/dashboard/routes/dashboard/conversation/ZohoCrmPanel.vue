@@ -18,10 +18,6 @@ import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
 
-const axios = window.axios;
-const store = useStore();
-const accountId = useMapGetter('getCurrentAccountId');
-
 const props = defineProps({
   conversationId: {
     type: [Number, String],
@@ -32,11 +28,16 @@ const props = defineProps({
     default: () => ({}),
   },
 });
+const axios = window.axios;
+const store = useStore();
+const accountId = useMapGetter('getCurrentAccountId');
 
 // Contact / Lead / Deal ids — reactive to store updates when the bridge
 // merges custom_attributes after a successful create.
-const contactId = computed(() => String(props.customAttributes.crm_contact_id || ''));
-const dealId    = computed(() => String(props.customAttributes.crm_deal_id    || ''));
+const contactId = computed(() =>
+  String(props.customAttributes.crm_contact_id || '')
+);
+const dealId = computed(() => String(props.customAttributes.crm_deal_id || ''));
 
 // Category — drives which buttons show. Try email_category_v2 first (auto
 // path writes the full classifier result there); fall back to phase2_category
@@ -45,9 +46,9 @@ const dealId    = computed(() => String(props.customAttributes.crm_deal_id    ||
 // wouldn't show the Create buttons.
 const categoryKey = computed(() => {
   const attrs = props.customAttributes || {};
-  return (attrs.email_category_v2 || {}).category
-      || attrs.phase2_category
-      || '';
+  return (
+    (attrs.email_category_v2 || {}).category || attrs.phase2_category || ''
+  );
 });
 
 // Same list as ZOHO_CRM_DEAL_CATEGORIES in config.py — kept in sync so the
@@ -133,8 +134,8 @@ const createDeal = async (sector = '') => {
     } else {
       useAlert(
         e?.response?.data?.detail ||
-        e?.response?.data?.error ||
-        'Could not create the Deal. Check the bridge logs.'
+          e?.response?.data?.error ||
+          'Could not create the Deal. Check the bridge logs.'
       );
     }
   } finally {
@@ -147,7 +148,7 @@ const requestCreateDeal = () => confirmDealDialog.value?.open();
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 py-1 text-sm">
+  <div class="flex flex-col gap-2 px-4 py-3 text-sm">
     <!-- Contact row: shown once the auto path (Phase A) has linked one.
          Friendly link text — the raw Zoho record id is meaningless to agents,
          so it lives only inside the href. -->
@@ -192,7 +193,13 @@ const requestCreateDeal = () => confirmDealDialog.value?.open();
         @click="requestCreateDeal"
       >
         <span class="i-lucide-plus align-middle" />
-        {{ dealId ? 'Deal already created' : (isCreatingDeal ? 'Creating…' : 'Create Deal') }}
+        {{
+          dealId
+            ? 'Deal already created'
+            : isCreatingDeal
+              ? 'Creating…'
+              : 'Create Deal'
+        }}
       </button>
     </div>
 
