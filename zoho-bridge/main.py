@@ -1839,16 +1839,26 @@ async def _phase2_execute_actions(conv_id: int,
                 "Team Durian",
             ]
             forward_body = "\n".join(fwd_lines)
+            # suppress_forward: keep the full sector/region classification (it
+            # drives CRM deal creation) but DON'T email any team — the client
+            # wants bulk orders qualified in-channel, not forwarded. The
+            # sector/region audit + labels below still run for agent context.
+            suppress = bool(rule.get("suppress_forward"))
             try:
-                await chatwoot.send_outgoing_message(
-                    conv_id,
-                    forward_body,
-                    to_emails  = forward_to,
-                    cc_emails  = ", ".join(cc_list)  if cc_list  else None,
-                    bcc_emails = ", ".join(bcc_list) if bcc_list else None,
-                )
-                forwarded_ok = True
-                audit.append(f"📨 Forwarded to {forward_to}.")
+                if suppress:
+                    audit.append("📭 Not forwarded to any team (client policy) — "
+                                 "the lead is qualified in-channel; create the deal "
+                                 "to resolve.")
+                else:
+                    await chatwoot.send_outgoing_message(
+                        conv_id,
+                        forward_body,
+                        to_emails  = forward_to,
+                        cc_emails  = ", ".join(cc_list)  if cc_list  else None,
+                        bcc_emails = ", ".join(bcc_list) if bcc_list else None,
+                    )
+                    forwarded_ok = True
+                    audit.append(f"📨 Forwarded to {forward_to}.")
                 # For bulk orders, show which sector (government/private) drove
                 # the destination so the agent sees the routing decision.
                 if category_result.get("sector"):
@@ -1882,12 +1892,16 @@ async def _phase2_execute_actions(conv_id: int,
                 # send (manual=True) is tagged `manually-sent`; a fully automatic
                 # forward is tagged `auto-forwarded`. Best-effort — must not undo
                 # the forward.
-                fwd_label = "manually-sent" if manual else "auto-forwarded"
-                try:
-                    await chatwoot.add_label(conv_id, fwd_label)
-                    audit.append(f"🏷️ Tagged {fwd_label}.")
-                except Exception as e:
-                    print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
+                # Skip the forwarded/manually-sent tag when nothing was actually
+                # sent (suppress_forward) — those labels drive the "Auto-forwarded"
+                # sidebar view, which must not list un-forwarded conversations.
+                if not suppress:
+                    fwd_label = "manually-sent" if manual else "auto-forwarded"
+                    try:
+                        await chatwoot.add_label(conv_id, fwd_label)
+                        audit.append(f"🏷️ Tagged {fwd_label}.")
+                    except Exception as e:
+                        print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
 
                 # Bulk orders also get a sector label (bulk-government /
                 # bulk-private) so agents can see + filter the buyer sector at a
@@ -3757,6 +3771,16 @@ async def chatwoot_crm_create_deal(request: Request):
         )
     except Exception as e:
         print(f"[crm] Deal audit note failed for conv {conv_id}: {e}")
+
+    # A created deal means the enquiry is qualified and handled → resolve the
+    # conversation so it leaves the open queue (bulk orders in particular no
+    # longer forward, so deal creation is their close signal). Customer replies
+    # auto-reopen in Chatwoot. Best-effort — never fail the deal response.
+    if config.RESOLVE_AFTER_DEAL:
+        try:
+            await chatwoot.toggle_status(int(conv_id), "resolved")
+        except Exception as e:
+            print(f"[crm] resolve-after-deal failed for conv {conv_id}: {e}")
 
     return {"deal_id": deal_id, "created": True,
             "url": zoho_crm.deal_url(deal_id)}
