@@ -576,7 +576,7 @@ categories:
   project_bulk_order:
     display_name: Project / Bulk Order
     action: forward
-    forward_to: marketing@durian.in
+    forward_to: saharsh@durian.in
     cc: []
     bcc: []
     include_customer_in_cc: false

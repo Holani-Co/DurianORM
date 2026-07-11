@@ -43,6 +43,7 @@ import VoiceCallBubble from './bubbles/VoiceCall.vue';
 import MultiAttachmentBubble from './bubbles/MultiAttachment.vue';
 import InstagramReelBubble from './bubbles/InstagramReel.vue';
 import AiReviewSuggestionBubble from './bubbles/AiReviewSuggestion.vue';
+import AiOrderReplySuggestionBubble from './bubbles/AiOrderReplySuggestion.vue';
 
 import MessageError from './MessageError.vue';
 import AiTrace from './AiTrace.vue';
@@ -341,6 +342,11 @@ const componentToRender = computed(() => {
   // zoho-bridge as a private note with this content_attributes type).
   if (props.contentAttributes.type === 'ai_review_suggestion') {
     return AiReviewSuggestionBubble;
+  }
+
+  // Durian — interactive order-lookup reply card (existing-order enquiries).
+  if (props.contentAttributes.type === 'ai_order_reply') {
+    return AiOrderReplySuggestionBubble;
   }
 
   const instagramSharedTypes = [

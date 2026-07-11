@@ -357,6 +357,30 @@ ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 COMPLAINT_AUTO_TICKET_ENABLED     = _bool("COMPLAINT_AUTO_TICKET_ENABLED", "false")
 COMPLAINT_TICKET_OWNER_DESK_ID    = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_ID", "").strip()
 
+# ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────
+# When enabled, existing-order enquiries get an automatic BMS lookup: order id
+# from the email → get-orders-by-order-id; else phone → get-orders-by-customer;
+# else a drafted "please share your order no. / phone" ask. Everything lands
+# as PRIVATE notes / drafts for the agent — nothing is auto-sent to the
+# customer (testing phase; also, BMS returns orders for whatever phone you
+# query, so a human must verify before anything customer-facing goes out).
+#
+# BMS_API_TOKEN is the FULL Authorization header value, passed verbatim
+# (DRF TokenAuthentication — the value already carries its scheme prefix).
+ORDER_LOOKUP_ENABLED   = _bool("ORDER_LOOKUP_ENABLED", "false")
+BMS_API_BASE_URL       = os.environ.get("BMS_API_BASE_URL", "").strip()
+BMS_API_TOKEN          = os.environ.get("BMS_API_TOKEN", "").strip()
+# How many times the bridge drafts a "please share your details" ask before
+# giving up and leaving the conversation to the agent entirely.
+ORDER_LOOKUP_MAX_ASKS  = int(os.environ.get("ORDER_LOOKUP_MAX_ASKS", "2"))
+# When true, a successfully-fetched order reply is emailed to the customer
+# AUTOMATICALLY (no agent card) — but ONLY when the sender's email matches the
+# order's billing email (proof they own the order). Orders are full of PII
+# (name, phone, home address) and order ids are sequential/guessable, so an
+# unverified requester must never get an auto-reply. When the sender can't be
+# verified as the owner, the flow falls back to the agent review-send card.
+ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
+
 # ── Human-in-the-loop email categorisation ─────────────────────────────────
 # The categoriser auto-acts (forward + label + team) ONLY when its confidence
 # is at or above this bar. Below it, the email is NOT forwarded — instead a
