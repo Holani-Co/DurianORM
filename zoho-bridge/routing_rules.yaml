@@ -1095,7 +1095,7 @@ acknowledgment_template_for:
   marketing_advertising:    forward_generic
   collaboration_request:    forward_generic
   career_job_enquiry:       forward_hr
-  project_bulk_order:       forward_generic
+  project_bulk_order:       in_channel   # no forward now → accurate "team is reviewing" ack
   full_home_customization:  forward_generic
   doors_veneer_plywood:     forward_generic
   fallback:                 in_channel
