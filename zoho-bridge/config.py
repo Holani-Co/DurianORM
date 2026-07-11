@@ -362,10 +362,10 @@ COMPLAINT_TICKET_OWNER_DESK_ID    = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_
 # is at or above this bar. Below it, the email is NOT forwarded — instead a
 # "Category decision" card is posted in the conversation showing the AI's best
 # guess + alternatives, and an agent confirms the category before any action.
-# 0.9 = 90%. Tune on the VM (e.g. CATEGORY_AUTO_CONFIDENCE=0.8) without a code
+# 0.85 = 85%. Tune on the VM (e.g. CATEGORY_AUTO_CONFIDENCE=0.8) without a code
 # change. Note: this is a HIGHER bar than the classifier's own
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
-CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
+CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.85"))
 
 # Auto-resolve a conversation once its email has been successfully forwarded
 # to the internal team — auto-forwarded AND agent-confirmed sends alike. The
@@ -373,6 +373,12 @@ CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9
 # replies auto-reopen the conversation in Chatwoot. Set to false to disable
 # without a code change.
 RESOLVE_AFTER_FORWARD = os.environ.get("RESOLVE_AFTER_FORWARD", "true").lower() == "true"
+
+# Auto-resolve a conversation once an agent creates a CRM Deal from it — a
+# created deal means the enquiry is qualified and handled, so it drops out of
+# the open queue (e.g. bulk orders, which no longer forward, are closed by
+# creating the deal). Customer replies auto-reopen. Set false to disable.
+RESOLVE_AFTER_DEAL = os.environ.get("RESOLVE_AFTER_DEAL", "true").lower() == "true"
 
 # Bulk orders are sub-classified into government vs private buyers and routed to
 # different handlers. At/above this bar the sector is auto-routed; below it the

@@ -577,6 +577,13 @@ categories:
     display_name: Project / Bulk Order
     action: forward
     forward_to: marketing@durian.in
+    # Client 2026-07: bulk orders are NO LONGER emailed to any team. The
+    # sector (govt/private) + region classification below still runs (it drives
+    # CRM deal creation), but the outbound forward is suppressed — the customer
+    # just gets the acknowledgment and the team qualifies the lead in-channel
+    # (Create Deal → conversation auto-resolves). Flip to false to restore the
+    # email forward to the addresses above / the sector desks.
+    suppress_forward: true
     cc: []
     bcc: []
     include_customer_in_cc: false
