@@ -117,14 +117,10 @@ const isBadReview = computed(
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
-// Manual ticket creation is an email-desk feature — show it only on email
-// conversations that don't already have a Zoho ticket.
+// Manual ticket creation is an email-desk feature — available on any email
+// conversation (even when a ticket already exists, so agents can open another),
+// except while a ticket decision is already pending on this conversation.
 const isEmailChannel = computed(() => channelType.value === 'Channel::Email');
-const hasZohoTicket = computed(
-  () =>
-    (conversationCustomAttributes.value.zoho_tickets || []).length > 0 ||
-    Boolean(conversationCustomAttributes.value.zoho_ticket)
-);
 
 const contactGetter = useMapGetter('contacts/getContact');
 const contactId = computed(() => currentChat.value.meta?.sender?.id);
@@ -202,7 +198,12 @@ onMounted(() => {
           :ticket="conversationCustomAttributes.zoho_ticket"
         />
         <ManualTicketCreate
-          v-if="isEmailChannel && !hasZohoTicket && currentChat && currentChat.id"
+          v-if="
+            isEmailChannel &&
+            currentChat &&
+            currentChat.id &&
+            !conversationCustomAttributes.pending_zoho_ticket
+          "
           :conversation-id="currentChat.id"
         />
       </AccordionItem>
