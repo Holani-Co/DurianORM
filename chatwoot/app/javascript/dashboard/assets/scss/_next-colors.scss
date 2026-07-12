@@ -1,7 +1,9 @@
 // scss-lint:disable PropertySortOrder
-@layer base {
-  // NEXT COLORS START
-  :root {
+// NEXT COLORS START
+// Durian: the LIGHT palette lives in a mixin so it can be re-applied to the
+// conversation reading pane in dark mode (Gmail-style) — that centre pane stays
+// light while the sidebars keep the dark palette. See the rule at the bottom.
+@mixin next-light-tokens {
     // slate
     --slate-1: 252 252 253;
     --slate-2: 249 249 251;
@@ -145,6 +147,11 @@
     --black-alpha-2: 0, 0, 0, 0.04;
     --border-blue: 39, 129, 246, 0.5;
     --white-alpha: 255, 255, 255, 0.8;
+}
+
+@layer base {
+  :root {
+    @include next-light-tokens;
   }
 
   .dark {
@@ -291,6 +298,14 @@
     --border-blue: 39, 129, 246, 0.5;
     --border-container: 255, 255, 255, 0;
     --white-alpha: 255, 255, 255, 0.1;
+  }
+
+  // Durian: force the conversation reading pane (header + message thread +
+  // reply composer) to the LIGHT palette even in dark mode, so email content
+  // authored for a white background stays readable — Gmail-style. The left
+  // conversation list and the right contact sidebar keep the dark palette.
+  .dark .conversation-details-wrap {
+    @include next-light-tokens;
   }
 }
 // NEXT COLORS END
