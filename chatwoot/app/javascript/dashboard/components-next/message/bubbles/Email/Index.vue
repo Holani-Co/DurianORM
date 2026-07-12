@@ -360,6 +360,11 @@ const bccEmailsForModal = computed(
 [data-bubble-name='email'] {
   color-scheme: light;
 
+  // A defined edge + soft shadow so the white/blue email card reads as a
+  // distinct card instead of blending into the (also light) conversation pane.
+  border: 1px solid #e5e7eb; // slate-200
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+
   // Meta header + inline controls use theme tokens that render light-on-dark;
   // pin them dark so they read on the light bubble.
   :is(.text-n-slate-11, .text-n-slate-12) {
