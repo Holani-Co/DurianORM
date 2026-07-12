@@ -924,13 +924,16 @@ async def _manual_create_ticket(conv_id: int, subject: str, description: str,
     the ticket now via the shared create_ticket + surface pipeline."""
     conv = await chatwoot.get_conversation(conv_id)
     name, sender_email = _conv_sender(conv)
-    candidates, referenced = await _gather_ticket_candidates(
+    candidates, _referenced = await _gather_ticket_candidates(
         sender_email, subject, description)
     if candidates:
+        # attach_only=False: the agent deliberately clicked "Create ticket", so
+        # always offer Create-new (with attach/reject as alternatives) — never
+        # force attach-only, even if their text mentions a ticket number.
         await _pause_for_agent_decision(
             conv_id=conv_id, sender_email=sender_email,
             escalation_label="manual", candidates=candidates,
-            attach_only=referenced,
+            attach_only=False,
             manual_overrides={"subject": subject, "description": description,
                               "priority": priority},
         )

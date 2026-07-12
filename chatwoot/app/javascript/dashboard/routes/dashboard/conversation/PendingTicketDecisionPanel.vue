@@ -135,12 +135,11 @@ async function resolve(choice, targetTicketId = null) {
       </span>
     </div>
 
-    <!-- Primary actions up top: Approve/Create new + Reject. In attach-only
-         mode the customer named an existing ticket, so "create new" is
-         suppressed — only Reject sits up here, and attach is below. -->
+    <!-- Primary actions up top: Approve/Create new + Reject. "Create new" is
+         always offered so the agent can open a fresh ticket even when related
+         ones exist — attach (below) and reject are the alternatives. -->
     <div class="flex items-center gap-2">
       <button
-        v-if="!attachOnly"
         type="button"
         class="flex-1 px-2.5 py-1 text-xs font-medium text-white rounded-md bg-n-brand hover:opacity-90 disabled:opacity-50"
         :disabled="submittingChoice !== null"
