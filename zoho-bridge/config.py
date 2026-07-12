@@ -43,11 +43,13 @@ ZOHO_CRM_ENABLED       = bool(ZOHO_CRM_REFRESH_TOKEN)
 # bridge at prod without accidentally pushing test data into the real CRM.
 ZOHO_CRM_DRY_RUN       = os.environ.get("ZOHO_CRM_DRY_RUN", "false").lower() == "true"
 # Categories that trigger auto Contact+Note. Comma-separated, override via env.
+# Default is EMPTY: no email auto-creates a CRM contact. The CRM is written to
+# only via the manual "Create Deal" button (the bulk-order / sales-qualified
+# flow). Set this env to re-enable auto Contact+Note for specific categories.
 ZOHO_CRM_AUTO_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_AUTO_CATEGORIES",
-        "product_enquiry,general_information,existing_order_enquiry,"
-        "franchise_dealership",
+        "",
     ).split(",") if c.strip()
 )
 # Categories that show the "Create Deal" button in the CRM sidebar panel.
