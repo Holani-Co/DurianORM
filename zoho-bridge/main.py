@@ -647,7 +647,8 @@ async def _pause_for_agent_decision(conv_id: int,
                                     sender_email: str,
                                     escalation_label: str,
                                     candidates: list[dict],
-                                    attach_only: bool = False) -> None:
+                                    attach_only: bool = False,
+                                    manual_overrides: dict | None = None) -> None:
     """Write pending_zoho_ticket onto the conversation + post a private note.
 
     Best-effort: failure here means an agent might not see the banner, but
@@ -673,6 +674,11 @@ async def _pause_for_agent_decision(conv_id: int,
         "attach_only":      attach_only,
         "suggested_at":     _now_iso(),
     }
+    # Manual create paused by the dedup check: carry the agent's edited
+    # title/description/priority so "Create new" in the decision panel uses
+    # them instead of re-deriving from the AI summary.
+    if manual_overrides:
+        pending["manual_overrides"] = manual_overrides
     try:
         await chatwoot.merge_custom_attributes(conv_id, {"pending_zoho_ticket": pending})
     except Exception as e:
@@ -778,6 +784,10 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 
     elif choice == "create_new":
         try:
+            # A manual create that paused for dedup carries the agent's edited
+            # title/description/priority — use them (and skip the AI summary
+            # block so it doesn't duplicate the agent's description).
+            manual = pending.get("manual_overrides") or {}
             messages, summary = await _ticket_context(conv_id)
             # Complaint tickets carry the client's dedicated owner — preserve
             # that when the paused complaint path lands here (the direct
@@ -785,14 +795,19 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
             assignee_id = (config.COMPLAINT_TICKET_OWNER_DESK_ID or None) \
                 if escalation_label == "complaint" else None
             ticket = await zoho.create_ticket(
-                synthetic_payload, messages=messages, summary=summary,
-                priority=_priority_from_label(escalation_label),
+                synthetic_payload, messages=messages,
+                summary=None if manual else summary,
+                priority=(manual.get("priority")
+                          or _priority_from_label(escalation_label)),
                 assignee_id=assignee_id,
+                subject_override=manual.get("subject"),
+                description_override=manual.get("description"),
             )
             print(f"[zoho-dedup] conv {conv_id}: agent chose CREATE_NEW → "
                   f"ticket {ticket.get('id')}")
             await _surface_ticket_in_chatwoot(
-                conv_id, ticket, source=f"auto_{escalation_label}"
+                conv_id, ticket,
+                source="manual" if manual else f"auto_{escalation_label}"
             )
             # The paused-complaint customer got a number-less ack at pause
             # time — deliver their reference number now the ticket exists.
@@ -866,6 +881,72 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
         print(f"[zoho-dedup] failed to clear pending flag on {conv_id}: {e}")
 
     return result
+
+
+# ── Manual (agent-initiated) ticket creation ──────────────────────────────
+# A user can open a Zoho ticket on demand — not only from an AI suggestion.
+# The AI pre-fills title/description (from the conversation summary), the agent
+# edits, and creation flows through the SAME create_ticket + dedup + surface
+# pipeline as the automatic path.
+def _draft_description_from_summary(summary: dict, fallback_body: str) -> str:
+    """Readable plain-text ticket description from the AI summary; falls back to
+    the customer's first message when the summariser had nothing usable."""
+    parts = []
+    if summary.get("summary"):
+        parts.append(str(summary["summary"]).strip())
+    if summary.get("customer_goal"):
+        parts.append(f"Customer wants: {str(summary['customer_goal']).strip()}")
+    if summary.get("next_step"):
+        parts.append(f"Suggested next step: {str(summary['next_step']).strip()}")
+    return "\n\n".join(p for p in parts if p).strip() or (fallback_body or "").strip()
+
+
+async def _draft_ticket_fields(conv_id: int) -> dict:
+    """AI autofill for a manual ticket: {subject, description, priority}. Best-
+    effort — returns editable text even if the summariser fails."""
+    try:
+        messages, summary = await _ticket_context(conv_id)
+    except Exception as e:
+        print(f"[ticket-draft] context failed for conv {conv_id}: {e}")
+        messages, summary = [], {}
+    subj, body = _conv_first_incoming_body(messages)
+    subject = (summary.get("subject") or subj or "New support ticket").strip()[:120]
+    return {"subject": subject,
+            "description": _draft_description_from_summary(summary, body),
+            "priority": "medium"}
+
+
+async def _manual_create_ticket(conv_id: int, subject: str, description: str,
+                                priority: str, agent_name: str) -> dict:
+    """Agent-initiated ticket creation. Runs the SAME dedup check as the AI
+    path: if the contact already has related open tickets, pause for the
+    attach-vs-create decision (carrying the agent's edits); otherwise create
+    the ticket now via the shared create_ticket + surface pipeline."""
+    conv = await chatwoot.get_conversation(conv_id)
+    name, sender_email = _conv_sender(conv)
+    candidates, referenced = await _gather_ticket_candidates(
+        sender_email, subject, description)
+    if candidates:
+        await _pause_for_agent_decision(
+            conv_id=conv_id, sender_email=sender_email,
+            escalation_label="manual", candidates=candidates,
+            attach_only=referenced,
+            manual_overrides={"subject": subject, "description": description,
+                              "priority": priority},
+        )
+        print(f"[ticket-manual] conv {conv_id}: {agent_name or 'agent'} started a "
+              f"ticket → paused ({len(candidates)} related); decision panel shown")
+        return {"paused": True, "candidates": len(candidates)}
+
+    messages, _ = await _ticket_context(conv_id)
+    ticket = await zoho.create_ticket(
+        {"conversation": conv}, messages=messages, summary=None,
+        subject_override=subject, description_override=description,
+        priority=priority)
+    await _surface_ticket_in_chatwoot(conv_id, ticket, source="manual")
+    print(f"[ticket-manual] conv {conv_id}: {agent_name or 'agent'} created "
+          f"ticket {ticket.get('id')}")
+    return {"created": True, "ticket_id": ticket.get("id")}
 
 
 # ── Human-in-the-loop email category decision ─────────────────────────────
@@ -3172,6 +3253,45 @@ async def reviews_escalate(request: Request):
 
     print(f"[review-escalate] conv {conv_id} → {to_emails} (history={include_hist})")
     return {"sent": True, "to": to_emails, "escalation_conversation_id": esc_conv}
+
+
+@app.post("/chatwoot/ticket/draft")
+async def chatwoot_ticket_draft(request: Request):
+    """AI autofill for manual ticket creation — called when the agent opens the
+    Create-ticket dialog. Body: {conversation_id}. Returns
+    {subject, description, priority}; nothing is created."""
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    if not conv_id:
+        raise HTTPException(400, "missing conversation_id")
+    try:
+        return await _draft_ticket_fields(int(conv_id))
+    except Exception as e:
+        print(f"[ticket-draft] endpoint failed for conv {conv_id}: {e}")
+        raise HTTPException(500, f"draft failed: {e}")
+
+
+@app.post("/chatwoot/ticket/create")
+async def chatwoot_ticket_create(request: Request):
+    """Agent-initiated ticket creation — same dedup + create_ticket + surface
+    pipeline as the AI path. Body:
+      {conversation_id, subject, description, priority?, agent_name?}
+    Returns {created, ticket_id} or {paused, candidates} when the dedup check
+    fires. Raises on failure so the UI shows a real error (never a false OK)."""
+    body = await request.json()
+    conv_id     = body.get("conversation_id")
+    subject     = (body.get("subject") or "").strip()
+    description = (body.get("description") or "").strip()
+    priority    = (body.get("priority") or "medium").strip().lower()
+    agent_name  = body.get("agent_name") or ""       # injected by the Rails proxy
+    if not conv_id or not subject:
+        raise HTTPException(400, "missing conversation_id or subject")
+    try:
+        return await _manual_create_ticket(int(conv_id), subject, description,
+                                           priority, agent_name)
+    except Exception as e:
+        print(f"[ticket-manual] create endpoint failed for conv {conv_id}: {e}")
+        raise HTTPException(500, f"ticket create failed: {e}")
 
 
 @app.post("/chatwoot/resolve-ticket-decision")

@@ -43,6 +43,26 @@
       "TEMPLATES_TITLE": "Choose a template",
       "TEMPLATES_EMPTY": "No templates found for this channel."
     },
+    "MANUAL_TICKET": {
+      "BUTTON": "Create ticket",
+      "TITLE": "Create a Zoho Desk ticket",
+      "SUBTITLE": "AI has pre-filled these from the conversation — review and edit before creating.",
+      "DRAFTING": "Drafting from the conversation…",
+      "SUBJECT": "Title",
+      "DESCRIPTION": "Description",
+      "PRIORITY": "Priority",
+      "PRIORITIES": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "urgent": "Urgent"
+      },
+      "CREATE": "Create ticket",
+      "CREATED": "Zoho Desk ticket created.",
+      "PAUSED": "This contact already has related open tickets — review the Ticket decision panel to attach or create a new one.",
+      "DRAFT_ERROR": "Could not draft the ticket. You can still fill it in manually.",
+      "CREATE_ERROR": "Could not create the ticket. Please try again."
+    },
     "REVIEW_ESCALATION": {
       "HINT": "This is a {stars}★ review. Send it to your team for escalation.",
       "BUTTON": "Escalate to team",

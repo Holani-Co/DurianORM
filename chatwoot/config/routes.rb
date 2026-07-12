@@ -368,6 +368,8 @@ Rails.application.routes.draw do
                 post :resolve_category_decision
                 post :create_crm_deal
                 post :escalate_review
+                post :draft_ticket
+                post :create_ticket
               end
             end
             resource :shopify, controller: 'shopify', only: [:destroy] do

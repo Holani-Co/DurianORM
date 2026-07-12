@@ -196,7 +196,9 @@ async def create_ticket(payload: dict, priority: str | None = None,
                         due_at: "datetime | None" = None,
                         messages: list | None = None,
                         summary: dict | None = None,
-                        assignee_id: str | None = None) -> dict:
+                        assignee_id: str | None = None,
+                        subject_override: str | None = None,
+                        description_override: str | None = None) -> dict:
     """Create a Zoho Desk ticket from a Chatwoot webhook payload.
 
     Optional kwargs:
@@ -216,6 +218,16 @@ async def create_ticket(payload: dict, priority: str | None = None,
                 unassigned in the department (prior behaviour).
     """
     body = _build_ticket_body(payload, messages=messages, summary=summary)
+
+    # Manual ticket creation: the agent's edited title/description win. The
+    # agent-authored description leads; the auto-built block (transcript +
+    # Chatwoot deep-link) is kept below it for context. Callers pass
+    # summary=None alongside these so the AI summary block doesn't duplicate.
+    if subject_override and subject_override.strip():
+        body["subject"] = f"[{config.PRODUCT_NAME}] {subject_override.strip()[:120]}"
+    if description_override and description_override.strip():
+        lead = html.escape(description_override.strip()).replace("\n", "<br>")
+        body["description"] = f"<p>{lead}</p><hr/>" + (body.get("description") or "")
 
     if assignee_id:
         body["assigneeId"] = str(assignee_id)
