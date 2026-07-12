@@ -132,8 +132,8 @@ const bccEmailsForModal = computed(
   <BaseBubble
     class="w-full relative"
     :class="{
-      'bg-n-slate-4': isIncoming,
-      'bg-n-solid-blue': isOutgoing,
+      'bg-white': isIncoming,
+      'bg-blue-50': isOutgoing,
     }"
     data-bubble-name="email"
   >
@@ -344,6 +344,48 @@ const bccEmailsForModal = computed(
   // styling continues to follow the sender or our fallback above.
   p, div, span, td, th, li, blockquote, font, address {
     color: #1f2937 !important;
+  }
+}
+
+// ── Whole email box in a fixed LIGHT theme (Gmail-style reading pane) ──
+// The email BODY already forces light via .letter-render (external email HTML
+// is authored for a white background). This extends the same to the rest of
+// the email box — the meta header (from/to/subject/date), our own outgoing
+// reply text, and the collapse fade — so the ENTIRE email box stays readable
+// regardless of the app's dark theme. The bubble background is set to a light
+// colour on the BaseBubble above.
+[data-bubble-name='email'] {
+  color-scheme: light;
+
+  // Meta header + inline controls use theme tokens that render light-on-dark;
+  // pin them dark so they read on the light bubble.
+  :is(.text-n-slate-11, .text-n-slate-12) {
+    color: #475569 !important; // slate-600
+  }
+  :is(.border-n-strong, [class*='border-n-slate-8']) {
+    border-color: #e5e7eb !important; // slate-200
+  }
+
+  // Our own outgoing reply text (rendered via prose, not .letter-render).
+  .prose {
+    color: #1f2937;
+  }
+
+  // The "read more" collapse fade references dark theme tokens — keep it light
+  // so it blends with the white/blue email canvas instead of a dark band.
+  .from-n-slate-4 {
+    --tw-gradient-from: #ffffff var(--tw-gradient-from-position);
+  }
+  .from-n-solid-blue {
+    --tw-gradient-from: #eff6ff var(--tw-gradient-from-position);
+  }
+  .via-n-slate-4 {
+    --tw-gradient-to: rgb(255 255 255 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), #ffffff var(--tw-gradient-via-position), var(--tw-gradient-to);
+  }
+  .via-n-solid-blue {
+    --tw-gradient-to: rgb(239 246 255 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), #eff6ff var(--tw-gradient-via-position), var(--tw-gradient-to);
   }
 }
 </style>
