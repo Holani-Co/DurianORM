@@ -25,6 +25,7 @@ import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
+import ManualTicketCreate from './ManualTicketCreate.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import ZohoCrmPanel from './ZohoCrmPanel.vue';
 import ReviewEscalationPanel from './ReviewEscalationPanel.vue';
@@ -116,6 +117,14 @@ const isBadReview = computed(
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
+// Manual ticket creation is an email-desk feature — show it only on email
+// conversations that don't already have a Zoho ticket.
+const isEmailChannel = computed(() => channelType.value === 'Channel::Email');
+const hasZohoTicket = computed(
+  () =>
+    (conversationCustomAttributes.value.zoho_tickets || []).length > 0 ||
+    Boolean(conversationCustomAttributes.value.zoho_ticket)
+);
 
 const contactGetter = useMapGetter('contacts/getContact');
 const contactId = computed(() => currentChat.value.meta?.sender?.id);
@@ -191,6 +200,10 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+        <ManualTicketCreate
+          v-if="isEmailChannel && !hasZohoTicket && currentChat && currentChat.id"
+          :conversation-id="currentChat.id"
         />
       </AccordionItem>
     </div>
