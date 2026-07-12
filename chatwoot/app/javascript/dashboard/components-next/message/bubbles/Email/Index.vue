@@ -319,9 +319,12 @@ const bccEmailsForModal = computed(
   @apply rounded-md;
   padding: 0.75rem 0.875rem;
 
-  // Default blue for links the email didn't style itself.
-  a:where(:not([style*='color'])) {
-    color: #2563eb; // blue-600
+  // Force links to a readable blue — even when the email set its own faint
+  // inline colour (e.g. Google bounce notices grey out the mailto address and
+  // the "LEARN MORE" link, which then ghost out against the white canvas).
+  // Readability wins over preserving a sender's faint link colour.
+  a, a * {
+    color: #2563eb !important; // blue-600
   }
 
   img {
