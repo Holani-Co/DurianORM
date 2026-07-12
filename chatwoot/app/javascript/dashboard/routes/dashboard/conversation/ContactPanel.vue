@@ -25,6 +25,7 @@ import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
+import ManualTicketCreate from './ManualTicketCreate.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import ZohoCrmPanel from './ZohoCrmPanel.vue';
 import ReviewEscalationPanel from './ReviewEscalationPanel.vue';
@@ -116,6 +117,10 @@ const isBadReview = computed(
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
+// Manual ticket creation is an email-desk feature — available on any email
+// conversation (even when a ticket already exists, so agents can open another),
+// except while a ticket decision is already pending on this conversation.
+const isEmailChannel = computed(() => channelType.value === 'Channel::Email');
 
 const contactGetter = useMapGetter('contacts/getContact');
 const contactId = computed(() => currentChat.value.meta?.sender?.id);
@@ -191,6 +196,15 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+        <ManualTicketCreate
+          v-if="
+            isEmailChannel &&
+            currentChat &&
+            currentChat.id &&
+            !conversationCustomAttributes.pending_zoho_ticket
+          "
+          :conversation-id="currentChat.id"
         />
       </AccordionItem>
     </div>
