@@ -300,12 +300,18 @@
     --white-alpha: 255, 255, 255, 0.1;
   }
 
-  // Durian: force the conversation reading pane (header + message thread +
-  // reply composer) to the LIGHT palette even in dark mode, so email content
-  // authored for a white background stays readable — Gmail-style. The left
-  // conversation list and the right contact sidebar keep the dark palette.
-  .dark .conversation-details-wrap {
+  // Durian: the conversation READING pane (the message thread only) always
+  // renders in the LIGHT palette even in dark mode — Gmail-style — so email
+  // content authored for a white background stays readable. The header, the
+  // reply composer (To/Cc/Bcc + editor), and both sidebars keep the dark
+  // theme. A border + subtle shadow give the light thread a defined edge so it
+  // doesn't blend into the surrounding dark chrome.
+  .dark .conversation-panel {
     @include next-light-tokens;
+    border: 1px solid rgb(var(--slate-6));
+    border-radius: 0.75rem;
+    margin: 0.5rem;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
   }
 }
 // NEXT COLORS END
