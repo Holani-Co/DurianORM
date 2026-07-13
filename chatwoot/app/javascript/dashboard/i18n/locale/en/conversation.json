@@ -43,6 +43,23 @@
       "TEMPLATES_TITLE": "Choose a template",
       "TEMPLATES_EMPTY": "No templates found for this channel."
     },
+    "AI_ORDER_REPLY": {
+      "TITLE": "Order reply",
+      "SUBTITLE": "· review and send to the customer",
+      "EDIT": "Edit",
+      "DONE_EDITING": "Done editing",
+      "SEND": "Send to customer",
+      "SENDING": "Sending…",
+      "CANCEL": "Cancel",
+      "SENT": "Reply sent to the customer.",
+      "SEND_ERROR": "Could not send the reply. Please try again.",
+      "CANCEL_ERROR": "Could not dismiss the draft.",
+      "CONFIRM_TITLE": "Send this reply to the customer?",
+      "CONFIRM_BODY": "This will email your reply to the customer. Please make sure it reads the way you want before sending.",
+      "CONFIRM_BUTTON": "Send reply",
+      "APPROVED_SENT_BY": "Sent to customer by {agent}",
+      "APPROVED_SENT": "Sent to customer"
+    },
     "REVIEW_ESCALATION": {
       "HINT": "This is a {stars}★ review. Send it to your team for escalation.",
       "BUTTON": "Escalate to team",

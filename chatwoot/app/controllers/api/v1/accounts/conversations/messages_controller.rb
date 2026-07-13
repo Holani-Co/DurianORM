@@ -31,7 +31,7 @@ class Api::V1::Accounts::Conversations::MessagesController < Api::V1::Accounts::
   # "message deleted" tombstone. Restricted to ai_review_suggestion notes.
   def mark_suggestion_sent
     attrs = message.content_attributes || {}
-    return render_could_not_create_error('not a suggestion card') unless attrs['type'] == 'ai_review_suggestion'
+    return render_could_not_create_error('not a suggestion card') unless %w[ai_review_suggestion ai_order_reply].include?(attrs['type'])
 
     message.update!(content_attributes: attrs.merge('sent' => true,
                                                     'sent_by' => Current.user&.available_name.presence || Current.user&.name))

@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import hmac
 import html
+import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from langfuse import get_client
 
+import bms
 import config
 import chatwoot
 import classifier
@@ -1730,6 +1732,376 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
         return [f"⚠️ Complaint ticket could not be created: {e}"], False, None
 
 
+# ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────
+# When a customer emails about an existing order, the bridge tries to fetch
+# their order(s) from BMS and DRAFTS everything for the agent — the order
+# snapshot + a suggested customer reply land in a private note, and a label
+# marks the conversation ready. NOTHING is auto-sent (testing phase; also,
+# BMS returns orders for whatever phone you query — see bms.py — so a human
+# must always verify the match before replying).
+#
+# Identifier priority (client's flow): order id in the email → lookup by id;
+# else phone (email text, then the Chatwoot contact) → lookup by phone; else
+# draft a "please share your order no. / phone / purchase location" ask and
+# set `pending_order_lookup` so the customer's reply re-enters this flow
+# (handle_message_created checks the attribute BEFORE the already-classified
+# guard). Capped at ORDER_LOOKUP_MAX_ASKS so it can never nag forever.
+
+ORDER_REPLY_READY_LABEL   = "order-reply-ready"
+ORDER_DETAILS_NEEDED_LABEL = "order-details-needed"
+
+# Order ids are 4-8 digits, quoted as "D#75833", "#75833" or keyword-anchored
+# ("order no. 75833"). The 8-digit cap plus the phone pattern below keeps a
+# 10-digit mobile number from being read as an order id and vice versa.
+_ORDER_ID_KEYWORD_RE = re.compile(
+    r"\b(?:order|ord)\s*(?:id|no\.?|number)?\s*[#:]?\s*(?:is|was)?\s*"
+    r"D?#?\s*(\d{4,8})\b", re.I)
+_ORDER_ID_DHASH_RE = re.compile(r"\bD#\s*(\d{4,8})\b", re.I)
+# Indian mobile: optional +91/91/0 prefix, 10 digits starting 6-9, separators
+# tolerated between digits ("70630 65631", "70630-65631").
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s-]?|0)?([6-9](?:[\s-]?\d){9})(?!\d)")
+
+
+def _extract_order_ids(text: str, cap: int = 3) -> list[str]:
+    refs: list[str] = []
+    for rx in (_ORDER_ID_DHASH_RE, _ORDER_ID_KEYWORD_RE):
+        refs += [m.group(1) for m in rx.finditer(text or "")]
+    seen: set[str] = set()
+    return [r for r in refs if not (r in seen or seen.add(r))][:cap]
+
+
+def _extract_phones(text: str, cap: int = 3) -> list[str]:
+    phones: list[str] = []
+    for m in _PHONE_RE.finditer(text or ""):
+        digits = re.sub(r"\D", "", m.group(1))
+        if len(digits) == 10:
+            phones.append(digits)
+    seen: set[str] = set()
+    return [p for p in phones if not (p in seen or seen.add(p))][:cap]
+
+
+def _format_order_snapshot(orders: list[dict]) -> str:
+    """Markdown block for the private note: what BMS knows, agent-readable."""
+    lines = []
+    for o in orders:
+        head = f"**{o.get('order_number') or o.get('order_id')}** — {o.get('status') or '?'}"
+        if o.get("created_date"):
+            head += f" · placed {o['created_date']}"
+        if o.get("payment_method"):
+            head += f" · {o['payment_method']}"
+        lines.append(f"- {head}")
+        for it in o.get("items") or []:
+            qty = f" × {it['quantity']}" if it.get("quantity") else ""
+            lines.append(f"  - {it.get('name') or '?'} ({it.get('sku')}){qty}")
+        place = ", ".join(x for x in (o.get("delivery_city"), o.get("delivery_state")) if x)
+        money = f"₹{o['gross_amount']}" if o.get("gross_amount") else ""
+        if o.get("paid_amount"):
+            money += f" (paid ₹{o['paid_amount']})"
+        tail = " · ".join(x for x in (f"deliver to {place}" if place else "",
+                                      money,
+                                      f"delivery {o['delivery_date']}" if o.get("delivery_date") else "",
+                                      f"under {o['customer_name']}" if o.get("customer_name") else ""
+                                      ) if x)
+        if tail:
+            lines.append(f"  - {tail}")
+    return "\n".join(lines)
+
+
+_ASK_DETAILS_TEMPLATE = """Dear {customer_name},
+
+Thank you for reaching out to Durian.
+
+So that we can quickly locate your order and assist you, could you please share:
+
+1. Your order number (it looks like D#12345), or
+2. The phone number you used at the time of purchase, and
+3. The city or Durian store where you made the purchase
+
+We will get back to you with the details right away.
+
+Regards,
+Team Durian"""
+
+_NOT_FOUND_TEMPLATE = """Dear {customer_name},
+
+Thank you for reaching out to Durian.
+
+We tried to locate your order using the details shared ({tried}), but could not
+find a matching order in our system. Could you please double-check the order
+number (it looks like D#12345) or share the phone number used at the time of
+purchase? We will look it up again right away.
+
+Regards,
+Team Durian"""
+
+
+async def _draft_order_reply(customer_name: str, question: str,
+                             orders: list[dict], matched_by: str) -> str:
+    """LLM-drafted customer reply, hard-grounded on the BMS data. Falls back
+    to a deterministic snapshot reply if the LLM call fails — the agent must
+    always end up with SOMETHING sendable in the note."""
+    from llm_client import client
+    schema = {
+        "name": "order_reply_draft",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["reply"],
+            "properties": {"reply": {"type": "string"}},
+        },
+    }
+    system = (
+        "You draft warm, professional customer-support email replies for "
+        "Durian, an Indian furniture brand. Ground EVERY fact strictly in the "
+        "ORDER DATA JSON — never invent statuses, dates, amounts or products.\n"
+        "\n"
+        "Structure the reply:\n"
+        "1. Open by directly answering the customer's specific question using "
+        "the order facts (e.g. if they ask about delivery, lead with the "
+        "delivery status/date).\n"
+        "2. Then give a clear, complete summary of the order so they have the "
+        "full picture, including EVERY field that is present in the data: the "
+        "order number, current status, the product(s) ordered (name and "
+        "quantity), the order/purchase date, the payment method, the amount, "
+        "the expected delivery date, and the delivery city/address. Present "
+        "this as a tidy labelled list (e.g. 'Order Number: …', 'Status: …') so "
+        "it's easy to read.\n"
+        "3. Omit any field that is empty/missing — never write 'N/A' or a blank "
+        "value, and never guess. If a field the customer asked about is "
+        "missing, say the team will confirm it shortly.\n"
+        "4. Format money with a ₹ sign and dates in a readable form.\n"
+        "\n"
+        f"Address the customer as '{customer_name}'. Plain text (no markdown "
+        "symbols like * or #), sign off exactly:\nRegards,\nTeam Durian"
+    )
+    user = (
+        f"CUSTOMER'S MESSAGE:\n{question[:2000]}\n\n"
+        f"ORDER DATA (matched by {matched_by}):\n"
+        f"{json.dumps(orders, ensure_ascii=False)}"
+    )
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            response_format={"type": "json_schema", "json_schema": schema},
+        )
+        reply = (json.loads(resp.choices[0].message.content) or {}).get("reply", "")
+        if reply.strip():
+            return reply.strip()
+    except Exception as e:
+        print(f"[order-lookup] reply drafting failed: {e}")
+    # Deterministic fallback: greeting + facts, no LLM required.
+    facts = _format_order_snapshot(orders).replace("**", "")
+    return (f"Dear {customer_name},\n\nThank you for reaching out. Here are "
+            f"the details of your order(s):\n\n{facts}\n\nPlease let us know "
+            f"if we can help with anything else.\n\nRegards,\nTeam Durian")
+
+
+async def _label_conversation(conv_id: int, label: str) -> None:
+    """ensure + add a label, best-effort (a labelling failure must never
+    break the lookup flow — the private note is the real deliverable)."""
+    try:
+        await chatwoot.ensure_label(label)
+        await chatwoot.add_label(conv_id, label)
+    except Exception as e:
+        print(f"[order-lookup] labelling {conv_id} '{label}' failed: {e}")
+
+
+async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") -> None:
+    """Post the drafted customer reply as an interactive 'Send to customer'
+    card (content_attributes.type == 'ai_order_reply'), NOT a plain private
+    note. The agent reviews/edits and sends it in one click — nothing is sent
+    automatically. `context` is an agent-only snapshot (order details / match
+    reason) rendered read-only on the card; it is never sent to the customer.
+    Best-effort — falls back to a private note if card creation fails."""
+    ca = {"type": "ai_order_reply", "suggestion": draft}
+    if context:
+        ca["context"] = context
+    try:
+        await chatwoot.create_message(conv_id, draft, message_type="outgoing",
+                                      private=True, content_attributes=ca)
+    except Exception as e:
+        print(f"[order-lookup] card post failed for conv {conv_id}: {e}")
+        note = (context + "\n\n" if context else "") + \
+            f"✉️ Drafted reply (card unavailable):\n\n{draft}"
+        await chatwoot.post_private_note(conv_id, note)
+
+
+def _owned_orders(sender_email: str, orders: list[dict]) -> list[dict]:
+    """The subset of `orders` the sender demonstrably OWNS — i.e. the order's
+    billing email matches the address the customer emailed from. Only these are
+    safe to auto-send: order ids are sequential/guessable and BMS returns
+    orders for any phone, so an email match is the one strong ownership signal.
+    Returns [] when the sender email is empty or matches nothing (→ agent card)."""
+    key = (sender_email or "").strip().lower()
+    if not key:
+        return []
+    return [o for o in orders
+            if (o.get("customer_email") or "").strip().lower() == key]
+
+
+async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
+                            subject: str, body: str, *, attempt: int) -> list[str]:
+    """One pass of the order-lookup flow. `attempt` = asks already sent
+    (0 on the first classification pass; from pending_order_lookup on
+    re-entry). Posts its own private notes; returns audit lines for the
+    caller's classification note."""
+    text = f"{subject}\n{body}"
+    order_ids = _extract_order_ids(text)
+    phones    = _extract_phones(text)
+
+    # Free extra sources: order ids the document extractor pulled from
+    # attached invoices/screenshots, and the Chatwoot contact's phone.
+    conv_data = await chatwoot.get_conversation(conv_id)
+    attrs = conv_data.get("custom_attributes") or {}
+    if not order_ids:
+        for d in attrs.get("extracted_documents") or []:
+            oid = str((d or {}).get("order_id") or "").strip().lstrip("D#")
+            if oid.isdigit() and 4 <= len(oid) <= 8:
+                order_ids.append(oid)
+                break
+    if not phones:
+        raw = ((conv_data.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+        digits = re.sub(r"\D", "", raw)[-10:]
+        if len(digits) == 10 and digits[0] in "6789":
+            phones.append(digits)
+
+    name = _resolve_customer_name(sender_name, sender_email)
+
+    # Priority per the client's flow: order id wins over phone.
+    orders: list[dict] = []
+    matched_by = ""
+    for oid in order_ids:
+        o = await bms.get_order_by_id(oid)
+        if o:
+            orders.append(o)
+            matched_by = f"order id {oid}"
+    if not orders:
+        for ph in phones:
+            got = await bms.get_orders_by_phone(ph)
+            if got:
+                orders = got
+                matched_by = f"phone {ph}"
+                break
+
+    if orders:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+        try:
+            await chatwoot.remove_label(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+        except Exception:
+            pass
+
+        # Auto-send ONLY the orders the sender provably owns (billing email ==
+        # sender email). Everything else goes to the agent card — order PII must
+        # never auto-email to an unverified requester.
+        owned = _owned_orders(sender_email, orders)
+        if config.ORDER_LOOKUP_AUTO_SEND and owned:
+            draft = await _draft_order_reply(name, body, owned, matched_by)
+            await chatwoot.send_outgoing_message(conv_id, draft)
+            await _label_conversation(conv_id, ORDER_REPLY_READY_LABEL)
+            note = (f"📦 **Order details auto-sent** to {sender_email} "
+                    f"(verified owner — billing email matches).\n\n"
+                    f"{_format_order_snapshot(owned)}")
+            await chatwoot.post_private_note(conv_id, note)
+            print(f"[order-lookup] conv {conv_id}: auto-sent {len(owned)} owned order(s) "
+                  f"to {sender_email} via {matched_by}")
+            return [f"📦 BMS lookup: found + AUTO-SENT {len(owned)} order(s) to "
+                    f"{sender_email} (verified owner) via {matched_by}."]
+
+        # Not auto-sent → agent review-send card. Note WHY if auto-send is on
+        # but ownership couldn't be verified, so the agent knows to check.
+        draft = await _draft_order_reply(name, body, orders, matched_by)
+        context = (f"📦 BMS order lookup (matched by {matched_by}) — "
+                   f"{len(orders)} order(s)\n\n{_format_order_snapshot(orders)}")
+        if config.ORDER_LOOKUP_AUTO_SEND and not owned:
+            context += (f"\n\n⚠️ Not auto-sent: the sender ({sender_email or 'no email'}) "
+                        f"does not match the order's billing email — verify this is "
+                        f"their order before sending.")
+        await _post_order_reply_card(conv_id, draft, context)
+        await _label_conversation(conv_id, ORDER_REPLY_READY_LABEL)
+        print(f"[order-lookup] conv {conv_id}: {len(orders)} order(s) via {matched_by} "
+              f"(card — {'auto-send on, owner unverified' if config.ORDER_LOOKUP_AUTO_SEND else 'auto-send off'})")
+        return [f"📦 BMS lookup: found {len(orders)} order(s) by {matched_by}; "
+                f"reply drafted as a send card for agent review."]
+
+    if order_ids or phones:
+        # The customer gave identifiers but BMS knows nothing about them → tell
+        # them the details didn't match and ask for the correct ones. Keep the
+        # loop OPEN (set pending, respecting the ask cap) so their corrected
+        # reply is looked up again instead of falling through to the agent.
+        tried = ", ".join([f"order {o}" for o in order_ids] +
+                          [f"phone {p}" for p in phones])
+        draft = _NOT_FOUND_TEMPLATE.format(customer_name=name, tried=tried)
+        ctx = f"📦 BMS order lookup: no match. Tried {tried} — BMS returned nothing."
+        if attempt < config.ORDER_LOOKUP_MAX_ASKS:
+            await chatwoot.merge_custom_attributes(conv_id, {
+                "pending_order_lookup": {"attempts": attempt + 1,
+                                         "asked_at": _now_iso(),
+                                         "category": "existing_order_enquiry"}})
+        else:
+            await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+        # The not-found reply carries NO order PII (only the customer's own
+        # wrong identifiers echoed back), so it is safe to auto-send with no
+        # ownership check when auto-send is on.
+        if config.ORDER_LOOKUP_AUTO_SEND:
+            await chatwoot.send_outgoing_message(conv_id, draft)
+            await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** 'details not found' reply. {ctx}")
+            await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+            print(f"[order-lookup] conv {conv_id}: no match for {tried} — AUTO-SENT re-check reply")
+            return [f"📦 BMS lookup: no match ({tried}); auto-sent 'please re-check details' reply."]
+        await _post_order_reply_card(conv_id, draft, context=ctx)
+        await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+        print(f"[order-lookup] conv {conv_id}: no match for {tried}")
+        return [f"📦 BMS lookup: no order matched ({tried}); "
+                f"double-check reply drafted."]
+
+    # No identifiers at all → draft the ask (unless we've asked enough).
+    if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
+        print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+        return ["📦 BMS lookup: still no order id / phone after "
+                f"{attempt} ask(s) — leaving this one to the team."]
+
+    draft = _ASK_DETAILS_TEMPLATE.format(customer_name=name)
+    await _post_order_reply_card(
+        conv_id, draft,
+        context="📦 No order number or phone found in the email (or on the contact) — "
+                "ask the customer for details.")
+    await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+    await chatwoot.merge_custom_attributes(conv_id, {
+        "pending_order_lookup": {
+            "attempts":  attempt + 1,
+            "asked_at":  _now_iso(),
+            "category":  "existing_order_enquiry",
+        },
+    })
+    print(f"[order-lookup] conv {conv_id}: details ask drafted (attempt {attempt + 1})")
+    return ["📦 BMS lookup: no order id / phone in the email — "
+            "follow-up ask drafted for agent review."]
+
+
+async def _handle_order_lookup_reply(conv_id: int, data: dict,
+                                     conv: dict, pending: dict) -> dict:
+    """Customer replied on a conversation awaiting order details. Runs the
+    lookup pass over the NEW message (plus the usual extra sources) and
+    returns the webhook response. Called before the already-classified guard
+    in handle_message_created."""
+    content = data.get("content") or ""
+    subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
+    sender  = (conv.get("meta") or {}).get("sender") or {}
+    audit = await _run_order_lookup(
+        conv_id,
+        sender.get("name") or "",
+        sender.get("email") or "",
+        subject, content,
+        attempt=int(pending.get("attempts") or 1),
+    )
+    print(f"[order-lookup] conv {conv_id}: reply re-entry → {audit}")
+    return {"handled": "order_lookup_reply", "audit": audit}
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -1938,6 +2310,20 @@ async def _phase2_execute_actions(conv_id: int,
         # In-channel categories aren't forwarded — the conversation stays
         # open for an agent to handle. Say so plainly in the note.
         audit.append("This conversation stays here for the team to assist.")
+
+    # ── BMS order lookup (existing-order enquiries only) ────────────────
+    # Fetch the customer's order(s) and draft everything for the agent —
+    # or draft a "please share your order no. / phone" ask when the email
+    # carries no identifiers. Best-effort: a lookup failure produces an
+    # audit line, never blocks the ack/CRM steps around it.
+    if cat_key == "existing_order_enquiry" and config.ORDER_LOOKUP_ENABLED:
+        try:
+            audit += await _run_order_lookup(
+                conv_id, sender_name, sender_email,
+                original_subject, original_content, attempt=0)
+        except Exception as e:
+            print(f"[order-lookup] unexpected error for conv {conv_id}: {e}")
+            audit.append(f"⚠️ BMS order lookup errored: {e}")
 
     # ── Zoho CRM Contact + Note (qualifying categories only) ────────────
     # Fires for product enquiries / general info / existing-order — the
@@ -2300,8 +2686,17 @@ async def handle_message_created(data: dict) -> dict:
     if config.DOC_EXTRACTION_ENABLED:
         _schedule_document_extraction(data)
 
-    # Idempotency: already-classified conversations skip both classifiers.
+    # Order-lookup re-entry: a conversation waiting on order details gets
+    # its customer replies routed back into the lookup flow — this MUST run
+    # before the already-classified guard below, which would otherwise
+    # swallow the reply ("email_category already set").
     existing_attrs   = conv.get("custom_attributes") or {}
+    pending_order = existing_attrs.get("pending_order_lookup")
+    if (pending_order and config.ORDER_LOOKUP_ENABLED
+            and data.get("message_type") in (0, "incoming")):
+        return await _handle_order_lookup_reply(conv_id, data, conv, pending_order)
+
+    # Idempotency: already-classified conversations skip both classifiers.
     existing_category = existing_attrs.get("email_category")
     if existing_category:
         print(f"[msg] ignoring — email_category already set: {existing_category}")
