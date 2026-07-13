@@ -4338,6 +4338,19 @@ async def chatwoot_crm_create_deal(request: Request):
     closing = (datetime.now(timezone.utc)
                + timedelta(days=config.ZOHO_CRM_DEAL_CLOSING_DAYS))
     extra_fields.setdefault("Closing_Date", closing.strftime("%Y-%m-%d"))
+    # Structured fields → the Deal record (all env-gated by api_name so a
+    # wrong/unset name can't fail the create):
+    #   Mobile ← gate-captured phone, else the Chatwoot contact's number
+    #   City   ← gate-captured city
+    #   Email  ← the inbox sender's email address
+    deal_phone = (_captured.get("phone")
+                  or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or "")
+    if config.ZOHO_CRM_MOBILE_FIELD and deal_phone:
+        extra_fields.setdefault(config.ZOHO_CRM_MOBILE_FIELD, str(deal_phone))
+    if config.ZOHO_CRM_CITY_FIELD and _captured.get("city"):
+        extra_fields.setdefault(config.ZOHO_CRM_CITY_FIELD, str(_captured["city"]))
+    if config.ZOHO_CRM_EMAIL_FIELD and email:
+        extra_fields.setdefault(config.ZOHO_CRM_EMAIL_FIELD, str(email))
 
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,

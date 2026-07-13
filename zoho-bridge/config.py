@@ -102,6 +102,15 @@ ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 # Retail A & ID — the last is agent-set in CRM, not auto-detectable).
 # Prod: ZOHO_CRM_BUSINESS_TYPE_FIELD=Business_Type_New
 ZOHO_CRM_BUSINESS_TYPE_FIELD = os.environ.get("ZOHO_CRM_BUSINESS_TYPE_FIELD", "")
+# API names of the Deals fields for the customer's phone / city / email. Empty
+# = not sent — a wrong/unset api_name would fail the whole create, so set these
+# to the REAL names from Setup → Developer Space → API Names → Deals. For this
+# org (confirmed 2026-07): ZOHO_CRM_MOBILE_FIELD=Mobile, ZOHO_CRM_CITY_FIELD=City,
+# ZOHO_CRM_EMAIL_FIELD=Email. Phone + city come from the customer (deal-details
+# gate); email is the inbox sender's address.
+ZOHO_CRM_MOBILE_FIELD = os.environ.get("ZOHO_CRM_MOBILE_FIELD", "")
+ZOHO_CRM_CITY_FIELD   = os.environ.get("ZOHO_CRM_CITY_FIELD", "")
+ZOHO_CRM_EMAIL_FIELD  = os.environ.get("ZOHO_CRM_EMAIL_FIELD", "")
 
 # The client's Standard Deals layout has more REQUIRED fields the bridge
 # can't infer from an email — filled with sensible defaults the agent
