@@ -1807,32 +1807,46 @@ def _format_order_snapshot(orders: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# Single "ask for details" email — used whenever we do NOT yet have a verified
+# order id + phone (one/both missing, or the two didn't match an order). It
+# carries NO order data, so it is safe to auto-send. {needed} lists exactly
+# what's still required (client rule: BOTH the order number AND the registered
+# phone are mandatory before any order detail is shared — a safety measure).
 _ASK_DETAILS_TEMPLATE = """Dear {customer_name},
 
 Thank you for reaching out to Durian.
 
-So that we can quickly locate your order and assist you, could you please share:
+For your security, we can look up your order only once we have BOTH of the following:
+{needed}
 
-1. Your order number (it looks like D#12345), or
-2. The phone number you used at the time of purchase, and
-3. The city or Durian store where you made the purchase
-
-We will get back to you with the details right away.
+Kindly reply with these details and we'll share your order status right away.
 
 Regards,
 Team Durian"""
 
-_NOT_FOUND_TEMPLATE = """Dear {customer_name},
+_ORDER_NO_LINE = "Your order number (it looks like D#12345)"
+_PHONE_LINE    = "The phone number used at the time of purchase"
 
-Thank you for reaching out to Durian.
 
-We tried to locate your order using the details shared ({tried}), but could not
-find a matching order in our system. Could you please double-check the order
-number (it looks like D#12345) or share the phone number used at the time of
-purchase? We will look it up again right away.
+def _needed_details(have_id: bool, have_phone: bool) -> str:
+    """Bulleted list of the still-required identifiers for the ask email. When
+    both were supplied but couldn't be verified, we ask them to re-check both."""
+    items = []
+    if not have_id:
+        items.append(_ORDER_NO_LINE)
+    if not have_phone:
+        items.append(_PHONE_LINE)
+    if not items:                      # both given but unverified → re-check both
+        items = [_ORDER_NO_LINE, _PHONE_LINE]
+    return "\n".join(f"{i}. {x}" for i, x in enumerate(items, 1))
 
-Regards,
-Team Durian"""
+
+def _phones_match(provided: str, order_phone: str) -> bool:
+    """True when two phone numbers match on their last 10 digits (ignoring
+    +91 / spaces / dashes). Empty on either side → False."""
+    a = re.sub(r"\D", "", provided or "")[-10:]
+    b = re.sub(r"\D", "", order_phone or "")[-10:]
+    return len(a) == 10 and a == b
 
 
 async def _draft_order_reply(customer_name: str, question: str,
@@ -1929,31 +1943,20 @@ async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") ->
         await chatwoot.post_private_note(conv_id, note)
 
 
-def _owned_orders(sender_email: str, orders: list[dict]) -> list[dict]:
-    """The subset of `orders` the sender demonstrably OWNS — i.e. the order's
-    billing email matches the address the customer emailed from. Only these are
-    safe to auto-send: order ids are sequential/guessable and BMS returns
-    orders for any phone, so an email match is the one strong ownership signal.
-    Returns [] when the sender email is empty or matches nothing (→ agent card)."""
-    key = (sender_email or "").strip().lower()
-    if not key:
-        return []
-    return [o for o in orders
-            if (o.get("customer_email") or "").strip().lower() == key]
-
-
 async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
                             subject: str, body: str, *, attempt: int) -> list[str]:
-    """One pass of the order-lookup flow. `attempt` = asks already sent
-    (0 on the first classification pass; from pending_order_lookup on
-    re-entry). Posts its own private notes; returns audit lines for the
-    caller's classification note."""
+    """One pass of the order-lookup flow. Client's safety rule: reveal order
+    details ONLY when the customer supplied BOTH an order number AND the phone,
+    and the phone matches that order's registered number. Otherwise auto-send a
+    single ask for the still-missing/unverified detail(s). `attempt` = asks
+    already sent (0 on first pass; from pending_order_lookup on re-entry)."""
     text = f"{subject}\n{body}"
     order_ids = _extract_order_ids(text)
     phones    = _extract_phones(text)
 
-    # Free extra sources: order ids the document extractor pulled from
-    # attached invoices/screenshots, and the Chatwoot contact's phone.
+    # Order id may also come from an attached invoice/screenshot (still the
+    # customer's own document). The PHONE must be typed by the customer — for
+    # the safety gate we deliberately DON'T auto-fill it from the stored contact.
     conv_data = await chatwoot.get_conversation(conv_id)
     attrs = conv_data.get("custom_attributes") or {}
     if not order_ids:
@@ -1962,124 +1965,69 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
             if oid.isdigit() and 4 <= len(oid) <= 8:
                 order_ids.append(oid)
                 break
-    if not phones:
-        raw = ((conv_data.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
-        digits = re.sub(r"\D", "", raw)[-10:]
-        if len(digits) == 10 and digits[0] in "6789":
-            phones.append(digits)
 
     name = _resolve_customer_name(sender_name, sender_email)
+    have_id, have_phone = bool(order_ids), bool(phones)
 
-    # Priority per the client's flow: order id wins over phone.
-    orders: list[dict] = []
-    matched_by = ""
+    # ── Helper: ask for the missing/unverified details ────────────────────
+    # Carries NO order data → safe to auto-send. Order DETAILS (PII) are always
+    # an agent card; only this ask is auto-sent (when ORDER_LOOKUP_AUTO_SEND).
+    async def _ask_for_details(reason: str) -> list[str]:
+        if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
+            await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+            print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
+            return [f"📦 Order lookup: {reason}; ask cap ({attempt}) reached — left to the team."]
+        draft = _ASK_DETAILS_TEMPLATE.format(
+            customer_name=name, needed=_needed_details(have_id, have_phone))
+        ctx = f"📦 Order lookup: {reason} — requesting the required details from the customer."
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "pending_order_lookup": {"attempts": attempt + 1, "asked_at": _now_iso(),
+                                     "category": "existing_order_enquiry"}})
+        if config.ORDER_LOOKUP_AUTO_SEND:
+            await chatwoot.send_outgoing_message(conv_id, draft)
+            await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** request for order details. {ctx}")
+            await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+            print(f"[order-lookup] conv {conv_id}: auto-sent details ask ({reason})")
+            return [f"📦 Order lookup: {reason}; auto-sent request for the required details."]
+        await _post_order_reply_card(conv_id, draft, context=ctx)
+        await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+        print(f"[order-lookup] conv {conv_id}: details ask drafted ({reason})")
+        return [f"📦 Order lookup: {reason}; request-for-details reply drafted for agent review."]
+
+    # ── Both are mandatory. Missing one/both → ask, no lookup. ────────────
+    if not (have_id and have_phone):
+        missing = ("no order number or phone" if not (have_id or have_phone)
+                   else "phone missing" if have_id else "order number missing")
+        return await _ask_for_details(missing)
+
+    # ── Both supplied → look up by order id, then VERIFY the phone belongs
+    # to that order (safety: both, AND they must match the same order). ────
+    order, matched_id = None, None
     for oid in order_ids:
         o = await bms.get_order_by_id(oid)
         if o:
-            orders.append(o)
-            matched_by = f"order id {oid}"
-    if not orders:
-        for ph in phones:
-            got = await bms.get_orders_by_phone(ph)
-            if got:
-                orders = got
-                matched_by = f"phone {ph}"
-                break
+            order, matched_id = o, oid
+            break
 
-    if orders:
-        await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
-        try:
-            await chatwoot.remove_label(conv_id, ORDER_DETAILS_NEEDED_LABEL)
-        except Exception:
-            pass
+    if not order or not any(_phones_match(ph, order.get("customer_phone")) for ph in phones):
+        # Not found OR the phone doesn't match. Reveal NOTHING (don't even
+        # confirm the order exists) — just ask them to re-check both.
+        return await _ask_for_details("order number + phone could not be verified")
 
-        # Auto-send ONLY the orders the sender provably owns (billing email ==
-        # sender email). Everything else goes to the agent card — order PII must
-        # never auto-email to an unverified requester.
-        owned = _owned_orders(sender_email, orders)
-        if config.ORDER_LOOKUP_AUTO_SEND and owned:
-            draft = await _draft_order_reply(name, body, owned, matched_by)
-            await chatwoot.send_outgoing_message(conv_id, draft)
-            await _label_conversation(conv_id, ORDER_REPLY_READY_LABEL)
-            note = (f"📦 **Order details auto-sent** to {sender_email} "
-                    f"(verified owner — billing email matches).\n\n"
-                    f"{_format_order_snapshot(owned)}")
-            await chatwoot.post_private_note(conv_id, note)
-            print(f"[order-lookup] conv {conv_id}: auto-sent {len(owned)} owned order(s) "
-                  f"to {sender_email} via {matched_by}")
-            return [f"📦 BMS lookup: found + AUTO-SENT {len(owned)} order(s) to "
-                    f"{sender_email} (verified owner) via {matched_by}."]
-
-        # Not auto-sent → agent review-send card. Note WHY if auto-send is on
-        # but ownership couldn't be verified, so the agent knows to check.
-        draft = await _draft_order_reply(name, body, orders, matched_by)
-        context = (f"📦 BMS order lookup (matched by {matched_by}) — "
-                   f"{len(orders)} order(s)\n\n{_format_order_snapshot(orders)}")
-        if config.ORDER_LOOKUP_AUTO_SEND and not owned:
-            context += (f"\n\n⚠️ Not auto-sent: the sender ({sender_email or 'no email'}) "
-                        f"does not match the order's billing email — verify this is "
-                        f"their order before sending.")
-        await _post_order_reply_card(conv_id, draft, context)
-        await _label_conversation(conv_id, ORDER_REPLY_READY_LABEL)
-        print(f"[order-lookup] conv {conv_id}: {len(orders)} order(s) via {matched_by} "
-              f"(card — {'auto-send on, owner unverified' if config.ORDER_LOOKUP_AUTO_SEND else 'auto-send off'})")
-        return [f"📦 BMS lookup: found {len(orders)} order(s) by {matched_by}; "
-                f"reply drafted as a send card for agent review."]
-
-    if order_ids or phones:
-        # The customer gave identifiers but BMS knows nothing about them → tell
-        # them the details didn't match and ask for the correct ones. Keep the
-        # loop OPEN (set pending, respecting the ask cap) so their corrected
-        # reply is looked up again instead of falling through to the agent.
-        tried = ", ".join([f"order {o}" for o in order_ids] +
-                          [f"phone {p}" for p in phones])
-        draft = _NOT_FOUND_TEMPLATE.format(customer_name=name, tried=tried)
-        ctx = f"📦 BMS order lookup: no match. Tried {tried} — BMS returned nothing."
-        if attempt < config.ORDER_LOOKUP_MAX_ASKS:
-            await chatwoot.merge_custom_attributes(conv_id, {
-                "pending_order_lookup": {"attempts": attempt + 1,
-                                         "asked_at": _now_iso(),
-                                         "category": "existing_order_enquiry"}})
-        else:
-            await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
-        # The not-found reply carries NO order PII (only the customer's own
-        # wrong identifiers echoed back), so it is safe to auto-send with no
-        # ownership check when auto-send is on.
-        if config.ORDER_LOOKUP_AUTO_SEND:
-            await chatwoot.send_outgoing_message(conv_id, draft)
-            await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** 'details not found' reply. {ctx}")
-            await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
-            print(f"[order-lookup] conv {conv_id}: no match for {tried} — AUTO-SENT re-check reply")
-            return [f"📦 BMS lookup: no match ({tried}); auto-sent 'please re-check details' reply."]
-        await _post_order_reply_card(conv_id, draft, context=ctx)
-        await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
-        print(f"[order-lookup] conv {conv_id}: no match for {tried}")
-        return [f"📦 BMS lookup: no order matched ({tried}); "
-                f"double-check reply drafted."]
-
-    # No identifiers at all → draft the ask (unless we've asked enough).
-    if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
-        print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
-        await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
-        return ["📦 BMS lookup: still no order id / phone after "
-                f"{attempt} ask(s) — leaving this one to the team."]
-
-    draft = _ASK_DETAILS_TEMPLATE.format(customer_name=name)
-    await _post_order_reply_card(
-        conv_id, draft,
-        context="📦 No order number or phone found in the email (or on the contact) — "
-                "ask the customer for details.")
-    await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
-    await chatwoot.merge_custom_attributes(conv_id, {
-        "pending_order_lookup": {
-            "attempts":  attempt + 1,
-            "asked_at":  _now_iso(),
-            "category":  "existing_order_enquiry",
-        },
-    })
-    print(f"[order-lookup] conv {conv_id}: details ask drafted (attempt {attempt + 1})")
-    return ["📦 BMS lookup: no order id / phone in the email — "
-            "follow-up ask drafted for agent review."]
+    # ── Verified → draft the order details as an agent card (never auto-sent).
+    await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+    try:
+        await chatwoot.remove_label(conv_id, ORDER_DETAILS_NEEDED_LABEL)
+    except Exception:
+        pass
+    draft = await _draft_order_reply(name, body, [order], f"order {matched_id} + phone verified")
+    context = (f"📦 BMS order lookup — order {matched_id}, phone verified.\n\n"
+               f"{_format_order_snapshot([order])}")
+    await _post_order_reply_card(conv_id, draft, context)
+    await _label_conversation(conv_id, ORDER_REPLY_READY_LABEL)
+    print(f"[order-lookup] conv {conv_id}: verified order {matched_id}; details card drafted")
+    return [f"📦 BMS lookup: order {matched_id} verified by phone; "
+            f"details drafted as a send card for agent review."]
 
 
 async def _handle_order_lookup_reply(conv_id: int, data: dict,
