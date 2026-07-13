@@ -382,6 +382,16 @@ ORDER_LOOKUP_MAX_ASKS  = int(os.environ.get("ORDER_LOOKUP_MAX_ASKS", "2"))
 # mode) makes the ask an agent card too, so nothing goes out without a click.
 ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 
+# ── Deal-details gate (bulk order / FHC / door) ────────────────────────────
+# Client rule: before a CRM deal can be created for these sales categories the
+# customer must have provided BOTH a phone AND a city. When enabled, the bridge
+# checks each enquiry for both; if either is missing it AI-drafts and auto-sends
+# a single "to register your enquiry we need your phone + city + requirements"
+# email (which REPLACES the generic acknowledgment) and waits for the reply.
+# The "Create Deal" button/endpoint stays blocked until both are captured.
+DEAL_DETAILS_GATE_ENABLED = _bool("DEAL_DETAILS_GATE_ENABLED", "false")
+DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "2"))
+
 # ── Human-in-the-loop email categorisation ─────────────────────────────────
 # The categoriser auto-acts (forward + label + team) ONLY when its confidence
 # is at or above this bar. Below it, the email is NOT forwarded — instead a

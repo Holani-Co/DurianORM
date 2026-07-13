@@ -2050,6 +2050,165 @@ async def _handle_order_lookup_reply(conv_id: int, data: dict,
     return {"handled": "order_lookup_reply", "audit": audit}
 
 
+# ── Deal-details gate (bulk order / FHC / door) ────────────────────────────
+# Sales categories that create a CRM deal and therefore require the customer's
+# phone + city up front (client rule). Franchise is intentionally excluded —
+# it routes to the dedicated franchise desk, not a location-owner deal.
+_DEAL_DETAILS_CATEGORIES = {
+    "project_bulk_order", "full_home_customization", "doors_veneer_plywood",
+}
+DEAL_DETAILS_NEEDED_LABEL = "deal-details-needed"
+DEAL_READY_LABEL          = "deal-ready"
+
+# Fallback ask when the LLM draft is unavailable (keeps the flow moving).
+_DEAL_DETAILS_FALLBACK_ASK = """Dear {customer_name},
+
+Thank you for your interest in Durian.
+
+To register your enquiry and connect you with the right team, could you please share:
+1. The phone number we can reach you on
+2. Your city
+
+We'll take it forward as soon as we receive these.
+
+Regards,
+Team Durian"""
+
+# Sent (auto) once BOTH phone + city are in hand — the enquiry is registered and
+# the agent can create the deal. Kept simple/fixed (the "not template" rule was
+# for the ASK; this confirmation isn't asking for anything).
+_DEAL_DETAILS_ACK = """Dear {customer_name},
+
+Thank you — we've registered your enquiry and shared it with our team. Our representative will get in touch with you shortly to take it forward.
+
+Regards,
+Team Durian"""
+
+
+async def _deal_details_gate_llm(customer_name: str, text: str,
+                                 have_phone: bool) -> dict:
+    """One LLM call: extract the city the customer EXPLICITLY stated (empty if
+    none), and — when phone and/or city is still missing — draft a warm reply
+    asking for the missing detail(s) plus their requirement. Returns
+    {"city": str, "ask_reply": str}; ask_reply is "" when nothing is missing.
+    Best-effort — returns empties on any failure so the flow never breaks."""
+    from llm_client import client
+    schema = {
+        "name": "deal_details_gate", "strict": True,
+        "schema": {"type": "object", "additionalProperties": False,
+                   "required": ["city", "ask_reply"],
+                   "properties": {"city": {"type": "string"},
+                                  "ask_reply": {"type": "string"}}},
+    }
+    system = (
+        "You are a warm, professional customer-support agent for Durian, an "
+        "Indian furniture brand, handling a bulk-order / full-home-customisation "
+        "/ door enquiry.\n"
+        "Return two fields:\n"
+        "1. city — the city or town the customer EXPLICITLY mentions as theirs "
+        "(delivery/location/where they are). Empty string if they did not "
+        "clearly state a city. Never guess from area codes or names.\n"
+        "2. ask_reply — to register the enquiry we REQUIRE the customer's phone "
+        "number AND city. 'Already have phone' below tells you if the phone is "
+        "present. If the phone is missing OR the city is empty, write a short, "
+        "warm reply that: thanks them, says we'd love to help with their "
+        "requirement, and asks ONLY for what's still missing (phone and/or "
+        "city). Do not ask for quantity, timeline or budget. "
+        f"Address them as '{customer_name}', plain text, sign off exactly:\n"
+        "Regards,\nTeam Durian\n"
+        "If BOTH phone and city are already present, return ask_reply as an "
+        "empty string."
+    )
+    user = f"Already have phone: {have_phone}\n\nCUSTOMER ENQUIRY:\n{text[:2000]}"
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            response_format={"type": "json_schema", "json_schema": schema},
+        )
+        parsed = json.loads(resp.choices[0].message.content) or {}
+        return {"city": (parsed.get("city") or "").strip(),
+                "ask_reply": (parsed.get("ask_reply") or "").strip()}
+    except Exception as e:
+        print(f"[deal-gate] LLM gate failed: {e}")
+        return {"city": "", "ask_reply": ""}
+
+
+async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: str,
+                                 subject: str, body: str, category: str,
+                                 *, attempt: int) -> list[str]:
+    """One pass of the deal-details gate. Captures phone + city; when both are
+    present it registers the enquiry (auto-acknowledges, marks deal-ready) and
+    when either is missing it auto-sends ONE AI-drafted ask (replacing the
+    generic acknowledgment). `attempt` = asks already sent."""
+    text = f"{subject}\n{body}"
+    phones = _extract_phones(text)
+    have_phone = bool(phones)
+    name = _resolve_customer_name(sender_name, sender_email)
+
+    gate = await _deal_details_gate_llm(name, text, have_phone)
+    city = gate.get("city") or ""
+    have_city = bool(city)
+
+    if have_phone and have_city:
+        # Both in hand → capture for the deal, acknowledge, mark ready.
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "deal_customer_details": {"phone": phones[0], "city": city,
+                                      "captured_at": _now_iso()},
+            "pending_deal_details": None})
+        try:
+            await chatwoot.remove_label(conv_id, DEAL_DETAILS_NEEDED_LABEL)
+        except Exception:
+            pass
+        if _EMAIL_CUSTOMER_ACK_ENABLED and sender_email:
+            try:
+                await chatwoot.send_outgoing_message(
+                    conv_id, _DEAL_DETAILS_ACK.format(customer_name=name),
+                    to_emails=sender_email)
+            except Exception as e:
+                print(f"[deal-gate] ack send failed for conv {conv_id}: {e}")
+        await _label_conversation(conv_id, DEAL_READY_LABEL)
+        print(f"[deal-gate] conv {conv_id}: captured phone + city ({city}) — deal-ready")
+        return [f"📝 Deal details captured (phone + {city}); enquiry acknowledged "
+                f"— ready for the agent to create the deal."]
+
+    # Missing phone and/or city → auto-send the AI ask (no PII), capped.
+    missing = ", ".join(x for x in ("phone" if not have_phone else "",
+                                    "city" if not have_city else "") if x)
+    if attempt >= config.DEAL_DETAILS_MAX_ASKS:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_deal_details": None})
+        print(f"[deal-gate] conv {conv_id}: ask cap ({attempt}) — leaving to agent")
+        return [f"📝 Deal details ({missing}) still missing after {attempt} ask(s) — left to the team."]
+    ask = gate.get("ask_reply") or _DEAL_DETAILS_FALLBACK_ASK.format(customer_name=name)
+    await chatwoot.merge_custom_attributes(conv_id, {
+        "pending_deal_details": {"attempts": attempt + 1, "asked_at": _now_iso(),
+                                 "category": category}})
+    if sender_email:
+        try:
+            await chatwoot.send_outgoing_message(conv_id, ask, to_emails=sender_email)
+        except Exception as e:
+            print(f"[deal-gate] ask send failed for conv {conv_id}: {e}")
+    await _label_conversation(conv_id, DEAL_DETAILS_NEEDED_LABEL)
+    print(f"[deal-gate] conv {conv_id}: auto-sent AI ask for {missing} (attempt {attempt + 1})")
+    return [f"📝 Deal details ({missing}) missing — auto-sent request for the required details."]
+
+
+async def _handle_deal_details_reply(conv_id: int, data: dict,
+                                     conv: dict, pending: dict) -> dict:
+    """Customer replied on a conversation awaiting deal details. Re-runs the
+    gate over the NEW message. Called before the already-classified guard."""
+    content = data.get("content") or ""
+    subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
+    sender  = (conv.get("meta") or {}).get("sender") or {}
+    audit = await _run_deal_details_gate(
+        conv_id, sender.get("name") or "", sender.get("email") or "",
+        subject, content, str(pending.get("category") or ""),
+        attempt=int(pending.get("attempts") or 1))
+    print(f"[deal-gate] conv {conv_id}: reply re-entry → {audit}")
+    return {"handled": "deal_details_reply", "audit": audit}
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -2111,6 +2270,13 @@ async def _phase2_execute_actions(conv_id: int,
         # email. Sending the generic acknowledgment too would be a duplicate.
         audit.append(
             "ℹ️ Acknowledgment skipped — order-lookup owns the customer reply."
+        )
+    elif cat_key in _DEAL_DETAILS_CATEGORIES and config.DEAL_DETAILS_GATE_ENABLED:
+        # The deal-details gate (below) owns the reply for bulk order / FHC /
+        # door: it either asks for the required phone + city or acknowledges the
+        # registered enquiry — one email either way, so skip the generic ack.
+        audit.append(
+            "ℹ️ Acknowledgment skipped — deal-details gate owns the customer reply."
         )
     elif template and sender_email:
         ack_body = (template.get("body") or "").format(
@@ -2280,6 +2446,19 @@ async def _phase2_execute_actions(conv_id: int,
         except Exception as e:
             print(f"[order-lookup] unexpected error for conv {conv_id}: {e}")
             audit.append(f"⚠️ BMS order lookup errored: {e}")
+
+    # ── Deal-details gate (bulk order / FHC / door) ─────────────────────
+    # Require the customer's phone + city before a deal can be created. When
+    # missing, auto-send an AI-drafted request (replacing the generic ack);
+    # when present, capture them + acknowledge and mark the enquiry deal-ready.
+    if cat_key in _DEAL_DETAILS_CATEGORIES and config.DEAL_DETAILS_GATE_ENABLED:
+        try:
+            audit += await _run_deal_details_gate(
+                conv_id, sender_name, sender_email,
+                original_subject, original_content, cat_key, attempt=0)
+        except Exception as e:
+            print(f"[deal-gate] unexpected error for conv {conv_id}: {e}")
+            audit.append(f"⚠️ Deal-details gate errored: {e}")
 
     # ── Zoho CRM Contact + Note (qualifying categories only) ────────────
     # Fires for product enquiries / general info / existing-order — the
@@ -2651,6 +2830,14 @@ async def handle_message_created(data: dict) -> dict:
     if (pending_order and config.ORDER_LOOKUP_ENABLED
             and data.get("message_type") in (0, "incoming")):
         return await _handle_order_lookup_reply(conv_id, data, conv, pending_order)
+
+    # Deal-details re-entry: a bulk/FHC/door enquiry waiting on phone + city
+    # gets the customer's reply routed back into the gate (before the
+    # already-classified guard, same as order-lookup above).
+    pending_deal = existing_attrs.get("pending_deal_details")
+    if (pending_deal and config.DEAL_DETAILS_GATE_ENABLED
+            and data.get("message_type") in (0, "incoming")):
+        return await _handle_deal_details_reply(conv_id, data, conv, pending_deal)
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_category = existing_attrs.get("email_category")
@@ -4051,6 +4238,23 @@ async def chatwoot_crm_create_deal(request: Request):
     category_display = (custom.get("email_category_v2") or {}).get("display_name") \
                        or (custom.get("email_category_v2") or {}).get("category") \
                        or "Chatwoot Deal"
+
+    # Deal-details gate: for bulk order / FHC / door the client requires the
+    # customer's phone + city (gathered by the auto-ask flow) before any deal is
+    # created. Block until both are captured — the bridge keeps requesting them.
+    _gate_cat = (custom.get("email_category_v2") or {}).get("category") \
+                or custom.get("phase2_category") or ""
+    _captured = custom.get("deal_customer_details") or {}
+    if (config.DEAL_DETAILS_GATE_ENABLED and _gate_cat in _DEAL_DETAILS_CATEGORIES
+            and not (_captured.get("phone") and _captured.get("city"))):
+        raise HTTPException(422, {
+            "code": "deal_details_missing",
+            "message": "Customer phone + city are required before creating this "
+                       "deal. The bridge is auto-requesting them — the deal can "
+                       "be created once the customer replies with both."})
+    # Feed the confirmed city into owner routing so it beats an AI guess.
+    if _captured.get("city"):
+        body_text = f"City: {_captured['city']}. {body_text}"
 
     # Deal-qualification flow: Govt buyer → govt owner; otherwise
     # location-wise owner. Ambiguous buyer type → 409 so the panel asks the

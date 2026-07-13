@@ -68,6 +68,14 @@ const DEAL_CATEGORIES = new Set([
 
 const showDeal = computed(() => DEAL_CATEGORIES.has(categoryKey.value));
 
+// Deal-details gate: when the bridge is still waiting on the customer's phone
+// + city (pending_deal_details set), block Create Deal — the backend rejects
+// it anyway (422). Only gates while actively pending, so it's a no-op when the
+// gate feature is off or the details are already captured.
+const awaitingDealDetails = computed(
+  () => !!props.customAttributes.pending_deal_details
+);
+
 const isCreatingDeal = ref(false);
 const confirmDealDialog = ref(null);
 // When the bridge can't confidently classify the buyer type (government vs
@@ -189,18 +197,27 @@ const requestCreateDeal = () => confirmDealDialog.value?.open();
       <button
         type="button"
         class="px-2.5 py-1 text-xs font-medium rounded-md text-white bg-n-brand hover:opacity-90 disabled:opacity-50"
-        :disabled="isCreatingDeal || !!dealId"
+        :disabled="isCreatingDeal || !!dealId || awaitingDealDetails"
         @click="requestCreateDeal"
       >
         <span class="i-lucide-plus align-middle" />
         {{
           dealId
             ? 'Deal already created'
-            : isCreatingDeal
-              ? 'Creating…'
-              : 'Create Deal'
+            : awaitingDealDetails
+              ? 'Waiting for phone + city'
+              : isCreatingDeal
+                ? 'Creating…'
+                : 'Create Deal'
         }}
       </button>
+    </div>
+    <div
+      v-if="showDeal && awaitingDealDetails && !dealId"
+      class="text-xs text-n-slate-10"
+    >
+      The customer hasn't shared their phone + city yet — the bot has requested
+      them. You can create the deal once they reply.
     </div>
 
     <!-- Buyer-type decision — shown when the bridge couldn't confidently
