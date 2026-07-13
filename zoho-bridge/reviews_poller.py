@@ -37,6 +37,20 @@ def _stars_bar(stars: int) -> str:
     return "★" * stars + "☆" * (5 - stars) if stars else "(rating unknown)"
 
 
+# Chatwoot's jsonb_attributes_length_validator rejects any additional_attributes
+# value longer than 1500 chars (create_conversation → 422). A long review would
+# fail to ingest EVERY sweep (never marked seen → retried forever). We clip the
+# stashed review_comment; the full text still lives in the conversation's
+# message body (no such limit), so nothing is lost for the agent — only the
+# Regenerate button's context is trimmed for very long reviews.
+_REVIEW_COMMENT_MAX = 1500
+
+
+def _clip_comment(text: str) -> str:
+    t = text or ""
+    return t if len(t) <= _REVIEW_COMMENT_MAX else t[:_REVIEW_COMMENT_MAX - 1] + "…"
+
+
 def _store_label(title: str) -> str:
     """Filterable label for the showroom a review came from, e.g.
     'Durian - Koramangala' → 'store-durian-koramangala'. Slugified so it's a
@@ -175,7 +189,7 @@ async def _ingest_review(loc: dict, rv: dict):
         # review date instead of when we happened to pull it in.
         additional_attributes={"type": "google_review", "location": title,
                                "stars": rv["stars"],
-                               "review_comment": rv["comment"] or "",
+                               "review_comment": _clip_comment(rv["comment"]),
                                "reviewer": rv["reviewer"] or "",
                                "review_created_at": rv["create_time"] or ""},
         custom_attributes={"review_path": rv["reply_path"]},
