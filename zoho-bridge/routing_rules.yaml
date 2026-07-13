@@ -1024,9 +1024,22 @@ system_notification_subjects:
   - "verify your otp"
   - "product low stock"
   - "product out of stock"
+  - "product high stock"
+  - "low stock"
+  - "high stock"
+  - "out of stock"
+  - "back in stock"
+  - "stock alert"
   - "your durian order"
   - "successfully shipped"
   - "has been shipped"
+
+# Internal / no-reply addresses whose mail is auto-filed as General Information
+# and auto-resolved (never classified, forwarded, or CRM-pushed). Catches the
+# client's own support address that CCs hello@durian.in on customer threads.
+# Full address matches exactly; a bare "@domain" entry matches the whole domain.
+auto_file_senders:
+  - "customersupport@durian.in"
 
 # Acknowledgment templates sent to the customer. {customer_name} is
 # substituted at send time; if the contact has no name on file the

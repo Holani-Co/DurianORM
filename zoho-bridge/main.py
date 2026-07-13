@@ -2334,29 +2334,52 @@ async def handle_message_created(data: dict) -> dict:
         or content[:80]
     )
 
-    # ── Automated system / transactional emails ───────────────────────────
-    # Durian's own no-reply notifications (order confirmations, shipping
-    # updates, OTP, newsletter opt-ins, stock alerts). Deterministically tag
-    # them General Information and STOP — no forward, no CRM Contact, no
-    # acknowledgment, no needs-review card, no team routing. Subject-matched
-    # (case-insensitive) from routing_rules.yaml:system_notification_subjects.
-    # Social DMs have no email subject, so this only applies to email inboxes.
-    if not is_social and classifier.is_system_notification(real_subject):
-        print(f"[system-notification] conv {conv_id}: subject matched — "
-              f"tagging General Information, skipping forward/CRM/ack/review")
+    # ── Automated system / transactional / internal emails ────────────────
+    # Two deterministic short-circuits that file mail as General Information,
+    # AUTO-RESOLVE it, and STOP — no forward, no CRM Contact, no acknowledgment,
+    # no needs-review card, no team routing. Auto-resolve keeps this noise out
+    # of the open Conversations list (a customer reply re-opens the thread):
+    #   1. Subject matches a system-notification phrase (order/OTP/shipping/
+    #      stock alerts) — routing_rules.yaml:system_notification_subjects.
+    #   2. An internal auto-file address (e.g. customersupport@durian.in) SENT
+    #      the mail (From only). These are the client's own support threads that
+    #      CC hello@durian.in. A customer who emails hello@durian.in and merely
+    #      CCs customersupport is a real enquiry — preserved and classified.
+    # Social DMs have no email subject/headers, so this only applies to email.
+    auto_file_reason: Optional[str] = None
+    if not is_social:
+        if classifier.is_system_notification(real_subject):
+            auto_file_reason = "subject-matched system/transactional email"
+        else:
+            # Match ONLY the From address — the internal address must have SENT
+            # the mail to auto-file it. A customer who emails hello@durian.in and
+            # merely CCs customersupport is a REAL enquiry that must be preserved
+            # and classified normally, so To/Cc are deliberately NOT matched.
+            _email_hdr = (data.get("content_attributes") or {}).get("email") or {}
+            _from = {sender_email.lower()} if sender_email else set()
+            for _a in (_email_hdr.get("from") or []):
+                _val = _a.get("email") if isinstance(_a, dict) else _a
+                if isinstance(_val, str):
+                    _from.add(_val.lower())
+            _from.discard("")
+            if any(classifier.is_auto_file_sender(a) for a in _from):
+                auto_file_reason = "internal auto-file sender (customersupport)"
+
+    if auto_file_reason:
+        print(f"[auto-file] conv {conv_id}: {auto_file_reason} — "
+              f"General Information + auto-resolve, skipping forward/CRM/ack/review")
         gi_rule = (classifier._ROUTING_RULES.get("categories") or {}).get(
             "general_information") or {}
         try:
             await chatwoot.add_label(conv_id, "general-information")
         except Exception as e:
-            print(f"[system-notification] add_label failed: {e}")
+            print(f"[auto-file] add_label failed: {e}")
         try:
             await chatwoot.merge_custom_attributes(conv_id, {
                 "email_category_v2": {
                     "category":     "general_information",
                     "confidence":   1.0,
-                    "reason":       "Automated system/transactional email "
-                                    "(subject-matched).",
+                    "reason":       f"Auto-filed: {auto_file_reason}.",
                     "action":       "in_channel",
                     "display_name": gi_rule.get("display_name")
                                     or "General Information",
@@ -2370,9 +2393,14 @@ async def handle_message_created(data: dict) -> dict:
                 "system_notification": True,
             })
         except Exception as e:
-            print(f"[system-notification] merge_custom_attributes failed: {e}")
-        return {"classified_email_type": "system_notification",
-                "category": "general_information", "auto_handled": True}
+            print(f"[auto-file] merge_custom_attributes failed: {e}")
+        try:
+            await chatwoot.toggle_status(conv_id, "resolved")
+        except Exception as e:
+            print(f"[auto-file] auto-resolve failed: {e}")
+        return {"classified_email_type": "auto_filed",
+                "category": "general_information",
+                "reason": auto_file_reason, "auto_handled": True, "resolved": True}
 
     # ── Email-type classification pipeline ────────────────────────────────
     # Layers (earliest-exit wins on inbox bypass; otherwise classifier runs):
@@ -2539,12 +2567,27 @@ async def handle_message_created(data: dict) -> dict:
             "auto_snoozed":          auto_snoozed,
         }
 
-    if email_category in ("promotional", "automated") and not category_confident:
-        print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
+    if email_category == "automated" and not category_confident:
+        # Automated / transactional mail with no confident business category —
+        # file as General Information and auto-resolve so it stays out of the
+        # open queue (a customer reply re-opens the thread).
+        print(f"[spam] conv {conv_id} labelled 'automated' → General Information + auto-resolve")
+        try:
+            await chatwoot.add_label(conv_id, "general-information")
+            await chatwoot.toggle_status(conv_id, "resolved")
+        except Exception as e:
+            print(f"[spam] automated auto-file/resolve failed: {e}")
         tracing.event(conv_id, "email-type-decision", parent=_lf, output={
-            "label": email_category, "action": "labelled_kept_in_queue",
+            "label": "automated", "action": "auto_filed_resolved",
         })
-        return {"classified_email_type": email_category, "auto_handled": True}
+        return {"classified_email_type": "automated", "auto_handled": True, "resolved": True}
+
+    if email_category == "promotional" and not category_confident:
+        print(f"[spam] conv {conv_id} labelled 'promotional', keeping in open queue")
+        tracing.event(conv_id, "email-type-decision", parent=_lf, output={
+            "label": "promotional", "action": "labelled_kept_in_queue",
+        })
+        return {"classified_email_type": "promotional", "auto_handled": True}
 
     if email_category in ("spam", "promotional", "automated") and category_confident:
         print(f"[category-v2] '{email_category}' label overridden — confident "
