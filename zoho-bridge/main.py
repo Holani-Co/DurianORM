@@ -2104,6 +2104,14 @@ async def _phase2_execute_actions(conv_id: int,
             f"ℹ️ Acknowledgment skipped — automated / no-reply sender "
             f"({sender_email})."
         )
+    elif cat_key == "existing_order_enquiry" and config.ORDER_LOOKUP_ENABLED:
+        # The BMS order-lookup flow (below) owns the customer-facing reply for
+        # existing-order enquiries — it thanks the customer AND either shares
+        # the order details or asks for the required order id + phone in ONE
+        # email. Sending the generic acknowledgment too would be a duplicate.
+        audit.append(
+            "ℹ️ Acknowledgment skipped — order-lookup owns the customer reply."
+        )
     elif template and sender_email:
         ack_body = (template.get("body") or "").format(
             customer_name    = name,
