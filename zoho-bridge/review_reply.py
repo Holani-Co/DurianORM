@@ -62,22 +62,20 @@ _HINTS = _load_hints()
 CHANNEL_LABELS = {
     "review":    "a Google review of one of our showrooms",
     "whatsapp":  "WhatsApp",
-    "instagram": "Instagram",
-    "facebook":  "Facebook Messenger",
-    # Instagram + Facebook both map to channel "social" (a DM by default; a
-    # public comment overrides the label/warning below when surface=="comment").
-    "social":    "an Instagram or Facebook direct message (DM)",
+    "instagram": "an Instagram direct message (DM)",
+    "facebook":  "a Facebook Messenger chat",
 }
 
 CHANNEL_WARNINGS = {
     "review":    "This reply is PUBLIC on Google — be extra careful. Never "
                  "quote prices, promise refunds/replacements, or admit fault.",
     "whatsapp":  "This reply is a private 1-to-1 WhatsApp message.",
-    "instagram": "This reply is a private Instagram DM.",
-    "facebook":  "This reply is a private Facebook Messenger message.",
-    "social":    "This reply is a PRIVATE 1-to-1 DM. Write the complete, helpful "
-                 "reply here — never tell the customer to 'check your DM', they "
-                 "are already in it.",
+    "instagram": "This reply is a PRIVATE Instagram DM. Write the complete, "
+                 "helpful reply here — never tell the customer to 'check your "
+                 "DM', they are already in it.",
+    "facebook":  "This reply is a PRIVATE Facebook Messenger chat. Write the "
+                 "complete, helpful reply here — never tell the customer to "
+                 "'check your inbox', they are already in it.",
 }
 
 
@@ -137,9 +135,10 @@ Respond as STRICT JSON, no markdown:
 
 # Human-friendly channel names for the chain-of-thought trace.
 _CHANNEL_LABELS = {
-    "review":   "Google review",
-    "social":   "Instagram / Facebook DM",
-    "whatsapp": "WhatsApp",
+    "review":    "Google review",
+    "instagram": "Instagram",
+    "facebook":  "Facebook",
+    "whatsapp":  "WhatsApp",
 }
 
 
@@ -371,7 +370,7 @@ async def draft(channel: str, message: str, contact_name: str,
             # No comment templates synced — NEVER post a DM body publicly.
             # Fall back to the redirect-to-DM catch-all, else hand off.
             templates = [t for t in all_templates
-                         if t.get("short_code") == "social_comment_redirect_to_dm"]
+                         if t.get("short_code") == f"{channel}_comment_redirect_to_dm"]
             if not templates:
                 return result("", "handoff")
     else:

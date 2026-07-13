@@ -2,10 +2,11 @@
 # Delete orphaned social canned responses from Chatwoot — any `social_*`
 # canned response whose short_code is no longer in social_templates.yaml.
 #
-# Needed after the DM/comment rename (social_* → social_dm_* / social_comment_*):
-# sync_social_templates.py CREATES the new codes but leaves the OLD ones behind
-# as orphans. This removes exactly those, keeping the canned-response page clean
-# (two blocks: social_comment_* and social_dm_*).
+# Needed after the platform/surface split (legacy social_* → instagram_dm_* /
+# instagram_comment_* / facebook_dm_* / facebook_comment_*): sync_social_templates.py
+# CREATES the new codes but leaves the OLD ones behind as orphans. This removes
+# exactly those, keeping the canned-response page clean (four platform×surface
+# blocks).
 #
 # SAFE BY DEFAULT: lists what WOULD be deleted and exits. Pass --apply to
 # actually delete. Only ever touches short_codes starting with "social_", and
@@ -43,8 +44,12 @@ async def main():
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(_url("/canned_responses"), headers=_headers())
         r.raise_for_status()
+        # Managed social prefixes: the current instagram_*/facebook_* families
+        # plus the legacy social_* codes (pre-4-way-split) so the migration
+        # leaves no orphans behind.
+        managed = ("social_", "instagram_", "facebook_")
         orphans = [cr for cr in r.json()
-                   if (cr.get("short_code") or "").startswith("social_")
+                   if (cr.get("short_code") or "").startswith(managed)
                    and cr["short_code"] not in valid]
 
         if not orphans:

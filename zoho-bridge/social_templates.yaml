@@ -1,23 +1,163 @@
 # Approved Durian social reply templates — source of truth for
 # sync_social_templates.py (pushes them to Chatwoot canned responses) and
 # review_reply.py (uses use_when/triggers to guide the AI's template pick).
-# Wording comes from the client's response sheets — keep it verbatim; edit
-# here (or in Chatwoot UI) and re-run sync_social_templates.py --update.
 #
-# Placeholders: [NAME] = customer's name, [PRODUCT_NAME] / [PRODUCT_URL] =
-# filled by the suggester per enquiry. surface: dm = private reply (DM or a
-# comment redirected to DM); comment = public reply posted on the post itself.
+# FOUR namespaces so the canned-response page and the AI's candidate pool are
+# cleanly separated by platform AND surface:
+#   instagram_dm_*       facebook_dm_*        — private 1-to-1 replies (full)
+#   instagram_comment_*  facebook_comment_*   — public post replies (short, → DM)
+#
+# Instagram and Facebook wording is the SAME except where a platform is named
+# (e.g. "Instagram DM" vs "Facebook inbox"). Keep each IG/FB pair in sync when
+# editing, then re-run sync_social_templates.py --update.
+#
+# Placeholders: [NAME] = customer's name, [PRODUCT_NAME] / [PRODUCT_URL] filled
+# by the suggester per enquiry.
 templates:
 
-  # ── Price / product enquiry (per vertical, DM) ──────────────────────────
 
-  - short_code: social_dm_price_furniture
+  # ═══════════════════ INSTAGRAM ═══════════════════
+
+
+  # ── instagram · comment ──
+
+  - short_code: instagram_comment_price_furniture
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a furniture item — redirect to DM
+      where the product link and price are shared.
+    triggers: ["PP", "Price please", "Pls tell the price", "What's the price?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Kindly check your DM for product details link and product price.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_price_door
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a door — redirect to DM.
+    triggers: ["What's the price of this door?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian doors.
+      Kindly check your DM for more details.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_price_wardrobe
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a wardrobe — redirect to DM.
+    triggers: ["What's the price of this wardrobe?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Wardrobes.
+
+      Kindly check your DM for more details.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_redirect_to_dm
+    surface: comment
+    use_when: >-
+      Public comment asking for a catalogue, product details, availability, or
+      anything else answered privately — generic redirect when no vertical-
+      specific price redirect fits.
+    triggers: ["Please share the catalog for door/ wardrobe/ etc.", "Is Online purchase possible", "Please share your catalogue for 3 +1+1 sofa set"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Kindly check the DM for the product details and price.
+
+      We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_praise
+    surface: comment
+    use_when: >-
+      Public comment praising the furniture, collection, design, or a post in
+      general — short warm thank-you with links.
+    triggers: ["Amazing furniture collection", "Wow, this furniture collection is absolutely stunning!", "I love the look, and the design is so stylish 😍"]
+    content: |
+      We're thrilled you liked it! There's more where that came from 💫
+      Take a closer look: www.durian.in/
+      And visit us at: www.durian.in/stores
+
+  - short_code: instagram_comment_product_mention
+    surface: comment
+    use_when: >-
+      Public comment calling out a specific product shown in the post ("loved
+      this sofa", "which product is this?").
+    triggers: ["Loved this particular sofa shown in the post", "Which product is this? It looks great"]
+    content: |
+      Thank you! Our pieces are designed for both style and everyday living 🤍
+      Explore the full collection here www.durian.in/
+      And visit us at: www.durian.in/stores
+
+  - short_code: instagram_comment_intent_to_visit
+    surface: comment
+    use_when: >-
+      Public comment saying they plan to visit a store or buy soon.
+    triggers: ["I'm definitely going soon", "Will visit your showroom this weekend"]
+    content: |
+      We can't wait to welcome you! Let us know if you'd like help locating your nearest store 🛋️
+      Visit us at: www.durian.in/stores
+
+  - short_code: instagram_comment_contest
+    surface: comment
+    use_when: >-
+      Public comment entering / responding to a Durian contest or giveaway —
+      tagging friends, "done", "I want to win", or answering the contest
+      question. Use only while a contest is actually running.
+    triggers: ["Done ✅", "Participated!", "I want to win this", "@friend @friend done", "Me 🙋"]
+    content: |
+      Hello [NAME],
+
+      Thank you for the contest entry! 🎉 Please check your Instagram DM for the form link to confirm your participation.
+
+      Good luck!
+      Team Durian.
+
+
+  # ── instagram · dm ──
+
+  - short_code: instagram_dm_price_furniture
     surface: dm
     use_when: >-
-      Customer asks the price or details of a specific furniture item
-      (sofa, bed, dining set, recliner, chair) in a DM, or a furniture
-      price comment was redirected to DM. Also fits "want to buy" messages
-      naming a furniture product.
+      Customer asks the price or details of a specific furniture item (sofa,
+      bed, dining set, recliner, chair) in a DM, or a furniture price comment
+      was redirected to DM. Also fits "want to buy" messages naming a
+      furniture product.
     triggers: ["PP", "Price please", "Pls tell the price", "Pp of complete set", "What's the price of this sofa?", "Sofa cum bed"]
     content: |
       Hello [NAME],
@@ -34,12 +174,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_price_door
+  - short_code: instagram_dm_price_door
     surface: dm
     use_when: >-
-      Customer asks the price of doors, or makes a general door enquiry
-      ("do you sell doors"). Prices vary by requirement, so this asks for
-      contact details and shares the door catalogue.
+      Customer asks the price of doors, or makes a general door enquiry ("do
+      you sell doors"). Prices vary by requirement, so this asks for contact
+      details and shares the door catalogue.
     triggers: ["What's the price of this door?", "PP", "Price please", "Door price please", "Do you sell doors?"]
     content: |
       Hello [NAME],
@@ -59,12 +199,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_price_wardrobe
+  - short_code: instagram_dm_price_wardrobe
     surface: dm
     use_when: >-
       Customer asks the price of a wardrobe or about the modular wardrobe
-      range. Prices vary by requirement, so this asks for contact details
-      and shares the wardrobe page.
+      range. Prices vary by requirement, so this asks for contact details and
+      shares the wardrobe page.
     triggers: ["What's the price of this wardrobe?", "PP", "Price please", "Wardrobe price?"]
     content: |
       Hello [NAME],
@@ -85,13 +225,13 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_price_fhc
+  - short_code: instagram_dm_price_fhc
     surface: dm
     use_when: >-
-      Customer asks the price or a quote for Full Home Customisation,
-      modular kitchen or interior work, or objects that FHC is expensive.
-      Solutions are tailored, so this invites them to book an appointment
-      with Design Experts.
+      Customer asks the price or a quote for Full Home Customisation, modular
+      kitchen or interior work, or objects that FHC is expensive. Solutions
+      are tailored, so this invites them to book an appointment with Design
+      Experts.
     triggers: ["PP", "Price please", "Pp of complete set", "What's the price?", "Expensive"]
     content: |
       Hello [NAME],
@@ -106,9 +246,7 @@ templates:
       Regards,
       Team Durian
 
-  # ── Catalogue requests (per vertical) ───────────────────────────────────
-
-  - short_code: social_dm_catalogue_furniture
+  - short_code: instagram_dm_catalogue_furniture
     surface: dm
     use_when: >-
       Customer asks for the furniture / bedroom collection catalogue or
@@ -127,7 +265,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_catalogue_door
+  - short_code: instagram_dm_catalogue_door
     surface: dm
     use_when: >-
       Customer asks for the doors catalogue or brochure.
@@ -145,7 +283,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_catalogue_wardrobe
+  - short_code: instagram_dm_catalogue_wardrobe
     surface: dm
     use_when: >-
       Customer asks for the wardrobe catalogue or brochure.
@@ -163,7 +301,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_catalogue_fhc
+  - short_code: instagram_dm_catalogue_fhc
     surface: dm
     use_when: >-
       Customer asks for the Full Home Customisation catalogue or brochure
@@ -182,13 +320,11 @@ templates:
       Regards,
       Team Durian.
 
-  # ── Store address / location ────────────────────────────────────────────
-
-  - short_code: social_dm_address
+  - short_code: instagram_dm_address
     surface: dm
     use_when: >-
-      Customer asks where our store/showroom is, whether there is an outlet
-      in their city, or how to visit us (furniture or wardrobe enquiries).
+      Customer asks where our store/showroom is, whether there is an outlet in
+      their city, or how to visit us (furniture or wardrobe enquiries).
     triggers: ["Any outlet in India", "Where is your showroom?", "Do you have a store near me?"]
     content: |
       Hello [NAME],
@@ -200,12 +336,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_address_door
+  - short_code: instagram_dm_address_door
     surface: dm
     use_when: >-
       Customer asks for a DOOR showroom/store in their city — the doors
-      division is only available in a few cities, so this lists them and
-      asks for contact details.
+      division is only available in a few cities, so this lists them and asks
+      for contact details.
     triggers: ["Any door showroom in my city?", "Where can I see your doors?", "Door store in Pune?"]
     content: |
       Hello [NAME],
@@ -223,11 +359,11 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_address_fhc
+  - short_code: instagram_dm_address_fhc
     surface: dm
     use_when: >-
-      Customer asks where the Full Home Customisation studio is or for an
-      FHC outlet in their city.
+      Customer asks where the Full Home Customisation studio is or for an FHC
+      outlet in their city.
     triggers: ["Any outlet in India", "Where is your FHC studio?", "Modular kitchen showroom near me?"]
     content: |
       Hello [NAME],
@@ -243,14 +379,12 @@ templates:
       Warm regards,
       Team Durian
 
-  # ── Callback / contact details ──────────────────────────────────────────
-
-  - short_code: social_dm_callback_details_request
+  - short_code: instagram_dm_callback_details_request
     surface: dm
     use_when: >-
-      Customer wants a call back or asks us to contact them ("can we
-      connect on call", "please call me"), or their request needs executive
-      follow-up but they have NOT yet shared a phone number or details.
+      Customer wants a call back or asks us to contact them ("can we connect
+      on call", "please call me"), or their request needs executive follow-up
+      but they have NOT yet shared a phone number or details.
     triggers: ["Can we connect on call?", "Please call me", "Call me for the details", "Office chair exchange is possible at pin code 700135?"]
     content: |
       Hello [NAME],
@@ -274,12 +408,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_contact_shared_ack
+  - short_code: instagram_dm_contact_shared_ack
     surface: dm
     use_when: >-
-      Customer shared their phone number or email along with an enquiry
-      (not a complaint) — thank them and promise an executive call back.
-      Also fits when a candidate/customer shares details after we asked.
+      Customer shared their phone number or email along with an enquiry (not a
+      complaint) — thank them and promise an executive call back. Also fits
+      when a candidate/customer shares details after we asked.
     triggers: ["I want this product Please contact me 9779751000", "PP 9535882883 trishakabadi@gmail.com", "Here is my number", "Contact: 973402 1212"]
     content: |
       Hello [NAME],
@@ -291,11 +425,11 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_contact_details
+  - short_code: instagram_dm_contact_details
     surface: dm
     use_when: >-
-      Customer asks for OUR contact details — a phone number or how to
-      reach customer support.
+      Customer asks for OUR contact details — a phone number or how to reach
+      customer support.
     triggers: ["Please share your contact details.", "I want to speak to your customer support", "What is your number?"]
     content: |
       Hello [NAME],
@@ -309,9 +443,7 @@ templates:
       Regards,
       Team Durian.
 
-  # ── Appreciation / greeting ─────────────────────────────────────────────
-
-  - short_code: social_dm_appreciation
+  - short_code: instagram_dm_appreciation
     surface: dm
     use_when: >-
       Customer sends a short compliment, praise, or a thank-you message —
@@ -325,7 +457,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_appreciation_5star
+  - short_code: instagram_dm_appreciation_5star
     surface: dm
     use_when: >-
       Customer shares detailed positive feedback about their purchase or
@@ -343,11 +475,11 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_dm_greeting
+  - short_code: instagram_dm_greeting
     surface: dm
     use_when: >-
-      Customer sends only a greeting, random/unclear text, or just a
-      contact number with no question — prompt them to state their query.
+      Customer sends only a greeting, random/unclear text, or just a contact
+      number with no question — prompt them to state their query.
     triggers: ["Hi", "Hello", "Hey", "Good morning", "Random text"]
     content: |
       Hello [NAME],
@@ -357,13 +489,11 @@ templates:
       Regards,
       Team Durian.
 
-  # ── Jobs / recruitment ──────────────────────────────────────────────────
-
-  - short_code: social_dm_recruitment
+  - short_code: instagram_dm_recruitment
     surface: dm
     use_when: >-
-      Customer asks about jobs, vacancies, hiring, or how to apply to work
-      at Durian — direct them to send a resume to HR.
+      Customer asks about jobs, vacancies, hiring, or how to apply to work at
+      Durian — direct them to send a resume to HR.
     triggers: ["JOB", "Any vacancy?", "How to apply job in here", "Job vacancy in sales", "I am looking for a job at Durian"]
     content: |
       Hello [NAME],
@@ -374,11 +504,11 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_recruitment_details_received
+  - short_code: instagram_dm_recruitment_details_received
     surface: dm
     use_when: >-
-      Candidate says they have already mailed/shared their resume or
-      details after a job enquiry — acknowledge and promise follow-up.
+      Candidate says they have already mailed/shared their resume or details
+      after a job enquiry — acknowledge and promise follow-up.
     triggers: ["Sir, mam I have mailed my resume", "I have shared my details/resume as asked"]
     content: |
       Hello [NAME],
@@ -389,9 +519,7 @@ templates:
       Regards,
       Team Durian.
 
-  # ── Franchise / collaboration / promotion pitches ───────────────────────
-
-  - short_code: social_dm_collaboration
+  - short_code: instagram_dm_collaboration
     surface: dm
     use_when: >-
       Influencer, vendor, or business partner pitch where the sender HAS
@@ -408,12 +536,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_franchise_enquiry
+  - short_code: instagram_dm_franchise_enquiry
     surface: dm
     use_when: >-
       Franchise or dealership request, business collaboration, promotion or
-      marketing/SEO pitch, or a manufacturer/vendor wanting to work with us
-      — when NO contact details were shared. Directs to hello@durian.in.
+      marketing/SEO pitch, or a manufacturer/vendor wanting to work with us —
+      when NO contact details were shared. Directs to hello@durian.in.
     triggers: ["I Want franchise for Kota Rajasthan", "Franchise enquiry", "We are a manufacturer, want to work with you", "We help businesses improve their presence on Google"]
     content: |
       Hello [NAME],
@@ -431,9 +559,7 @@ templates:
       Regards,
       Team Durian.
 
-  # ── Complaints ──────────────────────────────────────────────────────────
-
-  - short_code: social_dm_complaint_info_needed
+  - short_code: instagram_dm_complaint_info_needed
     surface: dm
     use_when: >-
       FIRST reply to a new complaint (defective product, poor service, no
@@ -456,11 +582,11 @@ templates:
       Warm regards,
       Team Durian
 
-  - short_code: social_dm_complaint_phone_shared
+  - short_code: instagram_dm_complaint_phone_shared
     surface: dm
     use_when: >-
-      Complaint message that already contains the customer's phone number,
-      or the customer shares their number in an ongoing complaint thread —
+      Complaint message that already contains the customer's phone number, or
+      the customer shares their number in an ongoing complaint thread —
       confirm the query is registered.
     triggers: ["Worst company Durian Furniture 9780461700", "Very poor quality and zero service. 9109111428", "Here is my number 9243199015"]
     content: |
@@ -473,12 +599,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_complaint_whatsapp_redirect
+  - short_code: instagram_dm_complaint_whatsapp_redirect
     surface: dm
     use_when: >-
-      Product-related complaint posted as an image only (no text details)
-      or an abusive message — redirect the customer to WhatsApp/email so
-      the support team can assist.
+      Product-related complaint posted as an image only (no text details) or
+      an abusive message — redirect the customer to WhatsApp/email so the
+      support team can assist.
     triggers: ["Their Nappa leather is extremely pathetic and doesn't last even 2 years", "Customer posts only a photo of the damaged product"]
     content: |
       Hello [NAME],
@@ -491,7 +617,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_complaint_apology
+  - short_code: instagram_dm_complaint_apology
     surface: dm
     use_when: >-
       Strongly-worded quality/service complaint, a "beware" warning to other
@@ -508,12 +634,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_complaint_in_progress
+  - short_code: instagram_dm_complaint_in_progress
     surface: dm
     use_when: >-
-      Customer follows up on a complaint the team is ALREADY actively
-      working on / already in touch about — ask for patience. Only use if
-      the thread shows the team is genuinely engaged.
+      Customer follows up on a complaint the team is ALREADY actively working
+      on / already in touch about — ask for patience. Only use if the thread
+      shows the team is genuinely engaged.
     triggers: ["No one responded, I will wait till Monday & file a case with the Ministry of Consumer Affairs", "Any update on my complaint?"]
     content: |
       Hello [NAME],
@@ -523,7 +649,7 @@ templates:
       Thanks & Regards
       Team Durian.
 
-  - short_code: social_dm_complaint_reconsider
+  - short_code: instagram_dm_complaint_reconsider
     surface: dm
     use_when: >-
       All possible resolutions have already been offered on a complaint and
@@ -539,12 +665,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_complaint_resolved_closure
+  - short_code: instagram_dm_complaint_resolved_closure
     surface: dm
     use_when: >-
       Post-resolution closure after a complaint has been handled, including
-      repeat negative brand comments from a customer whose concern was
-      already resolved.
+      repeat negative brand comments from a customer whose concern was already
+      resolved.
     triggers: ["Worst products and BRAND, use engineered wood products", "Durian is a big cheaters brand, zero after sale service"]
     content: |
       Hello [NAME],
@@ -558,12 +684,12 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_dm_negative_probe
+  - short_code: instagram_dm_negative_probe
     surface: dm
     use_when: >-
-      Vague negative comment or message with no actionable detail (no
-      order, product, or specific issue mentioned) — short probe to get
-      the customer to explain.
+      Vague negative comment or message with no actionable detail (no order,
+      product, or specific issue mentioned) — short probe to get the customer
+      to explain.
     triggers: ["No way ...... as they use engineered wood", "So Sad", "Not good"]
     content: |
       Hello [NAME],
@@ -573,12 +699,12 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_fraud_concern
+  - short_code: instagram_dm_fraud_concern
     surface: dm
     use_when: >-
       Accusations like "fraud" or "cheating", or general negative feedback
-      about the brand without a specific order/product complaint — thank
-      them for the feedback and offer support channels.
+      about the brand without a specific order/product complaint — thank them
+      for the feedback and offer support channels.
     triggers: ["Fraud sale", "You people are cheating only", "Negative feedback about the brand"]
     content: |
       Hello [NAME],
@@ -596,9 +722,7 @@ templates:
       Warm regards,
       Team Durian
 
-  # ── Product / vertical enquiries ────────────────────────────────────────
-
-  - short_code: social_dm_product_exchange
+  - short_code: instagram_dm_product_exchange
     surface: dm
     use_when: >-
       Customer asks about exchanging old furniture, the Exchange & Upgrade
@@ -617,7 +741,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_ready_stock
+  - short_code: instagram_dm_ready_stock
     surface: dm
     use_when: >-
       Customer asks for ready-stock items or a mixed bedroom/kitchen
@@ -638,12 +762,11 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_dm_fhc_intro
+  - short_code: instagram_dm_fhc_intro
     surface: dm
     use_when: >-
-      Enquiry about modular kitchens, interior design, customised wardrobes
-      or furniture, product customisation, or Full Home Customisation in
-      general.
+      Enquiry about modular kitchens, interior design, customised wardrobes or
+      furniture, product customisation, or Full Home Customisation in general.
     triggers: ["Do you provide modular kitchen solutions", "Interior design", "Customized wardrobe", "Full home customisation", "Product customisation"]
     content: |
       Hello [NAME],
@@ -657,7 +780,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_expensive
+  - short_code: instagram_dm_expensive
     surface: dm
     use_when: >-
       Customer says our furniture is expensive, too costly, or overpriced
@@ -678,7 +801,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_furniture_enquiry
+  - short_code: instagram_dm_furniture_enquiry
     surface: dm
     use_when: >-
       General furniture enquiry NOT about a specific product — "do you have
@@ -702,7 +825,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_veneer_laminates
+  - short_code: instagram_dm_veneer_laminates
     surface: dm
     use_when: >-
       Enquiry about veneers, laminates, plywood, or building materials.
@@ -724,11 +847,11 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_workspace_enquiry
+  - short_code: instagram_dm_workspace_enquiry
     surface: dm
     use_when: >-
-      Office/workspace furniture or a commercial/office project enquiry
-      (bulk office chairs, workstations, office interiors).
+      Office/workspace furniture or a commercial/office project enquiry (bulk
+      office chairs, workstations, office interiors).
     triggers: ["Office furniture enquiry", "Furniture for our office project", "Workspace"]
     content: |
       Hello [NAME],
@@ -747,11 +870,11 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_non_serviceable
+  - short_code: instagram_dm_non_serviceable
     surface: dm
     use_when: >-
-      Customer asks about delivery outside India or to a pin code / area we
-      do not service.
+      Customer asks about delivery outside India or to a pin code / area we do
+      not service.
     triggers: ["Do you deliver outside India?", "Can you ship to Dubai?", "Do you deliver to my pin code?"]
     content: |
       Dear Customer,
@@ -765,7 +888,7 @@ templates:
       Best regards,
       Team Durian
 
-  - short_code: social_dm_made_in_india
+  - short_code: instagram_dm_made_in_india
     surface: dm
     use_when: >-
       Customer asks whether our products are made in India or objects that
@@ -776,138 +899,7 @@ templates:
 
       Rooted in Indian craftsmanship, the majority of our extensive range is thoughtfully designed and made locally. With over 1000+ curated pieces, we take pride in blending homegrown design sensibilities with global inspirations. Explore the full collection at www.durian.in.
 
-  # ── Public comment replies (posted on the post itself) ──────────────────
-
-  - short_code: social_comment_price_furniture
-    surface: comment
-    use_when: >-
-      Public comment asking the price of a furniture item — redirect to DM
-      where the product link and price are shared.
-    triggers: ["PP", "Price please", "Pls tell the price", "What's the price?"]
-    content: |
-      Hello [NAME],
-
-      Thank you for your interest.
-
-      Kindly check your DM for product details link and product price.
-
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      You can also share your contact details for our customer executive to get in touch with you.
-
-      We'll be happy to help you.
-
-      Regards,
-      Team Durian.
-
-  - short_code: social_comment_price_door
-    surface: comment
-    use_when: >-
-      Public comment asking the price of a door — redirect to DM.
-    triggers: ["What's the price of this door?", "PP", "Price please"]
-    content: |
-      Hello [NAME],
-
-      Thank you for your interest in Durian doors.
-      Kindly check your DM for more details.
-
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      We'll be happy to help you.
-
-      Regards,
-      Team Durian.
-
-  - short_code: social_comment_price_wardrobe
-    surface: comment
-    use_when: >-
-      Public comment asking the price of a wardrobe — redirect to DM.
-    triggers: ["What's the price of this wardrobe?", "PP", "Price please"]
-    content: |
-      Hello [NAME],
-
-      Thank you for your interest in Durian Wardrobes.
-
-      Kindly check your DM for more details.
-
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      We'll be happy to help you.
-
-      Regards,
-      Team Durian.
-
-  - short_code: social_comment_redirect_to_dm
-    surface: comment
-    use_when: >-
-      Public comment asking for a catalogue, product details, availability,
-      or anything else answered privately — generic redirect when no
-      vertical-specific price redirect fits.
-    triggers: ["Please share the catalog for door/ wardrobe/ etc.", "Is Online purchase possible", "Please share your catalogue for 3 +1+1 sofa set"]
-    content: |
-      Hello [NAME],
-
-      Thank you for your interest.
-
-      Kindly check the DM for the product details and price.
-
-      We look forward to hearing from you.
-
-      Regards,
-      Team Durian.
-
-  - short_code: social_comment_praise
-    surface: comment
-    use_when: >-
-      Public comment praising the furniture, collection, design, or a post
-      in general — short warm thank-you with links.
-    triggers: ["Amazing furniture collection", "Wow, this furniture collection is absolutely stunning!", "I love the look, and the design is so stylish 😍"]
-    content: |
-      We're thrilled you liked it! There's more where that came from 💫
-      Take a closer look: www.durian.in/
-      And visit us at: www.durian.in/stores
-
-  - short_code: social_comment_product_mention
-    surface: comment
-    use_when: >-
-      Public comment calling out a specific product shown in the post
-      ("loved this sofa", "which product is this?").
-    triggers: ["Loved this particular sofa shown in the post", "Which product is this? It looks great"]
-    content: |
-      Thank you! Our pieces are designed for both style and everyday living 🤍
-      Explore the full collection here www.durian.in/
-      And visit us at: www.durian.in/stores
-
-  - short_code: social_comment_intent_to_visit
-    surface: comment
-    use_when: >-
-      Public comment saying they plan to visit a store or buy soon.
-    triggers: ["I'm definitely going soon", "Will visit your showroom this weekend"]
-    content: |
-      We can't wait to welcome you! Let us know if you'd like help locating your nearest store 🛋️
-      Visit us at: www.durian.in/stores
-
-  # ── New intent templates (2026-07, from Instagram OQM sheet analysis) ────
-
-  - short_code: social_comment_contest
-    surface: comment
-    use_when: >-
-      Public comment entering / responding to a Durian contest or giveaway —
-      tagging friends, "done", "I want to win", or answering the contest
-      question. Use only while a contest is actually running.
-    triggers: ["Done ✅", "Participated!", "I want to win this", "@friend @friend done", "Me 🙋"]
-    content: |
-      Hello [NAME],
-
-      Thank you for the contest entry! 🎉 Please check your Instagram DM for the form link to confirm your participation.
-
-      Good luck!
-      Team Durian.
-
-  - short_code: social_dm_design_collab_lead
+  - short_code: instagram_dm_design_collab_lead
     surface: dm
     use_when: >-
       A homeowner, interior designer, or architect says they are doing up /
@@ -931,7 +923,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_influencer_collab
+  - short_code: instagram_dm_influencer_collab
     surface: dm
     use_when: >-
       An influencer, content creator, blogger or media page pitches a brand /
@@ -948,7 +940,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_vendor_supplier_pitch
+  - short_code: instagram_dm_vendor_supplier_pitch
     surface: dm
     use_when: >-
       A manufacturer, supplier, exporter or vendor pitches to SELL their
@@ -965,11 +957,967 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_dm_marketing_spam_pitch
+  - short_code: instagram_dm_marketing_spam_pitch
     surface: dm
     use_when: >-
-      An unsolicited digital-marketing, SEO, web-development or link/guest-post
-      sales pitch.
+      An unsolicited digital-marketing, SEO, web-development or link/guest-
+      post sales pitch.
+    triggers: ["We help businesses improve their presence on Google", "I'm an outreach blogger selling links on high quality websites", "Do you need a website?", "SEO services for your brand"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out. We don't have a requirement for this at the moment, but you're welcome to share your proposal at hello@durian.in for our team's reference.
+
+      Regards,
+      Team Durian.
+
+
+  # ═══════════════════ FACEBOOK ═══════════════════
+
+
+  # ── facebook · comment ──
+
+  - short_code: facebook_comment_price_furniture
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a furniture item — redirect to DM
+      where the product link and price are shared.
+    triggers: ["PP", "Price please", "Pls tell the price", "What's the price?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Kindly check your DM for product details link and product price.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_price_door
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a door — redirect to DM.
+    triggers: ["What's the price of this door?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian doors.
+      Kindly check your DM for more details.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_price_wardrobe
+    surface: comment
+    use_when: >-
+      Public comment asking the price of a wardrobe — redirect to DM.
+    triggers: ["What's the price of this wardrobe?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Wardrobes.
+
+      Kindly check your DM for more details.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_redirect_to_dm
+    surface: comment
+    use_when: >-
+      Public comment asking for a catalogue, product details, availability, or
+      anything else answered privately — generic redirect when no vertical-
+      specific price redirect fits.
+    triggers: ["Please share the catalog for door/ wardrobe/ etc.", "Is Online purchase possible", "Please share your catalogue for 3 +1+1 sofa set"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Kindly check the DM for the product details and price.
+
+      We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_praise
+    surface: comment
+    use_when: >-
+      Public comment praising the furniture, collection, design, or a post in
+      general — short warm thank-you with links.
+    triggers: ["Amazing furniture collection", "Wow, this furniture collection is absolutely stunning!", "I love the look, and the design is so stylish 😍"]
+    content: |
+      We're thrilled you liked it! There's more where that came from 💫
+      Take a closer look: www.durian.in/
+      And visit us at: www.durian.in/stores
+
+  - short_code: facebook_comment_product_mention
+    surface: comment
+    use_when: >-
+      Public comment calling out a specific product shown in the post ("loved
+      this sofa", "which product is this?").
+    triggers: ["Loved this particular sofa shown in the post", "Which product is this? It looks great"]
+    content: |
+      Thank you! Our pieces are designed for both style and everyday living 🤍
+      Explore the full collection here www.durian.in/
+      And visit us at: www.durian.in/stores
+
+  - short_code: facebook_comment_intent_to_visit
+    surface: comment
+    use_when: >-
+      Public comment saying they plan to visit a store or buy soon.
+    triggers: ["I'm definitely going soon", "Will visit your showroom this weekend"]
+    content: |
+      We can't wait to welcome you! Let us know if you'd like help locating your nearest store 🛋️
+      Visit us at: www.durian.in/stores
+
+  - short_code: facebook_comment_contest
+    surface: comment
+    use_when: >-
+      Public comment entering / responding to a Durian contest or giveaway —
+      tagging friends, "done", "I want to win", or answering the contest
+      question. Use only while a contest is actually running.
+    triggers: ["Done ✅", "Participated!", "I want to win this", "@friend @friend done", "Me 🙋"]
+    content: |
+      Hello [NAME],
+
+      Thank you for the contest entry! 🎉 Please check your Facebook inbox for the form link to confirm your participation.
+
+      Good luck!
+      Team Durian.
+
+
+  # ── facebook · dm ──
+
+  - short_code: facebook_dm_price_furniture
+    surface: dm
+    use_when: >-
+      Customer asks the price or details of a specific furniture item (sofa,
+      bed, dining set, recliner, chair) in a DM, or a furniture price comment
+      was redirected to DM. Also fits "want to buy" messages naming a
+      furniture product.
+    triggers: ["PP", "Price please", "Pls tell the price", "Pp of complete set", "What's the price of this sofa?", "Sofa cum bed"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out. We are more than happy to help you.
+
+      🔗 Here's the link for the product details & price of [PRODUCT_NAME]: [PRODUCT_URL]
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you. We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_price_door
+    surface: dm
+    use_when: >-
+      Customer asks the price of doors, or makes a general door enquiry ("do
+      you sell doors"). Prices vary by requirement, so this asks for contact
+      details and shares the door catalogue.
+    triggers: ["What's the price of this door?", "PP", "Price please", "Door price please", "Do you sell doors?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian doors.
+
+      The price of doors may vary depending upon your requirement.
+      Hence, we request you to kindly share your contact details for our executive to get in touch with you for further assistance.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      For more information on Durian doors, check out our catalog https://www.durian.in/catalog/retail-door-catalog-2020
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_price_wardrobe
+    surface: dm
+    use_when: >-
+      Customer asks the price of a wardrobe or about the modular wardrobe
+      range. Prices vary by requirement, so this asks for contact details and
+      shares the wardrobe page.
+    triggers: ["What's the price of this wardrobe?", "PP", "Price please", "Wardrobe price?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian wardrobes.
+
+      We have a wide range of modular wardrobes. The price may vary depending upon your requirement.
+
+      Hence, we request you to kindly share your contact details for our executive to get in touch with you for further assistance.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      For more information on Durian wardrobe, please visit: https://www.durian.in/wardrobe
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_price_fhc
+    surface: dm
+    use_when: >-
+      Customer asks the price or a quote for Full Home Customisation, modular
+      kitchen or interior work, or objects that FHC is expensive. Solutions
+      are tailored, so this invites them to book an appointment with Design
+      Experts.
+    triggers: ["PP", "Price please", "Pp of complete set", "What's the price?", "Expensive"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Full Home Customisation.
+      As our solutions are tailored to your unique needs, we'd like to give you the most accurate quote.
+
+      Book your appointment today and connect with our Design Experts to discuss your design requirements in detail.
+
+      Contact us at 1800 209 3242 to book your appointment
+
+      Regards,
+      Team Durian
+
+  - short_code: facebook_dm_catalogue_furniture
+    surface: dm
+    use_when: >-
+      Customer asks for the furniture / bedroom collection catalogue or
+      brochure (not a specific product's price).
+    triggers: ["Please share the catalog", "Can you send me the brochure?", "Furniture catalogue please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian furniture.
+
+      Please find the link to Durian Bedroom Collection Catalogue:
+      https://www.durian.in/catalog/durian-furniture-collection-2020
+
+      We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_catalogue_door
+    surface: dm
+    use_when: >-
+      Customer asks for the doors catalogue or brochure.
+    triggers: ["Please share the catalog for doors", "Door catalogue please", "Can you send me the door brochure?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian doors.
+
+      Please find the link to Durian Doors Catalogue:
+      http://duriandoors.in/catalog/durian-doors-2020
+
+      We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_catalogue_wardrobe
+    surface: dm
+    use_when: >-
+      Customer asks for the wardrobe catalogue or brochure.
+    triggers: ["Please share the catalog for wardrobe", "Wardrobe catalogue please", "Send me the wardrobe brochure"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian wardrobes.
+
+      Please find the link to the catalog for Durian Modular Customised Wardrobes Catalogue:
+      https://www.durian.in/catalog/durian-wardrobe-collection
+
+      We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_catalogue_fhc
+    surface: dm
+    use_when: >-
+      Customer asks for the Full Home Customisation catalogue or brochure
+      (kitchens, customised wardrobes, interiors).
+    triggers: ["Please share the catalogue", "FHC brochure please", "Share your kitchen catalogue"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Please find the link to the catalogue for Durian Full Home Customisation.
+      [PRODUCT_URL]
+
+      Contact us at 1800 209 3242 to book your appointment. We look forward to hearing from you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_address
+    surface: dm
+    use_when: >-
+      Customer asks where our store/showroom is, whether there is an outlet in
+      their city, or how to visit us (furniture or wardrobe enquiries).
+    triggers: ["Any outlet in India", "Where is your showroom?", "Do you have a store near me?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      You can locate the Durian store near you by referring to this store locator link: https://www.durian.in/stores
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_address_door
+    surface: dm
+    use_when: >-
+      Customer asks for a DOOR showroom/store in their city — the doors
+      division is only available in a few cities, so this lists them and asks
+      for contact details.
+    triggers: ["Any door showroom in my city?", "Where can I see your doors?", "Door store in Pune?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest. You can locate the Durian store near you by referring to this store locator link: https://www.durian.in/stores
+
+      Currently, our doors division is only available in Indore, Bangalore, Delhi, Mumbai & Hyderabad.
+
+      However, we request you to share your contact details so that our executives can get in touch with you for assistance in the best way possible.
+
+      For more product details kindly visit: https://www.durian.in/catalog/retail-door-catalog-2020
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_address_fhc
+    surface: dm
+    use_when: >-
+      Customer asks where the Full Home Customisation studio is or for an FHC
+      outlet in their city.
+    triggers: ["Any outlet in India", "Where is your FHC studio?", "Modular kitchen showroom near me?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Full Home Customisation.
+
+      You can easily find your nearest Durian Full Home Customisation Studio by visiting: https://www.durian.in/stores.
+
+      We look forward to assisting you in creating your dream space!
+
+      For more information, feel free to reach out to us at 1800 209 3242.
+
+      Warm regards,
+      Team Durian
+
+  - short_code: facebook_dm_callback_details_request
+    surface: dm
+    use_when: >-
+      Customer wants a call back or asks us to contact them ("can we connect
+      on call", "please call me"), or their request needs executive follow-up
+      but they have NOT yet shared a phone number or details.
+    triggers: ["Can we connect on call?", "Please call me", "Call me for the details", "Office chair exchange is possible at pin code 700135?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      To assist you better, could you please provide the following details:
+      Full Name:
+      Contact Number:
+      Email Address:
+      Location -
+      Pincode -
+
+      Once we receive this information, we'll be able to proceed promptly with your request.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can locate the Durian store near you by referring to this store locator link: https://www.durian.in/stores
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_contact_shared_ack
+    surface: dm
+    use_when: >-
+      Customer shared their phone number or email along with an enquiry (not a
+      complaint) — thank them and promise an executive call back. Also fits
+      when a candidate/customer shares details after we asked.
+    triggers: ["I want this product Please contact me 9779751000", "PP 9535882883 trishakabadi@gmail.com", "Here is my number", "Contact: 973402 1212"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest and for sharing your contact details.
+
+      Our executives will get in touch with you shortly.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_contact_details
+    surface: dm
+    use_when: >-
+      Customer asks for OUR contact details — a phone number or how to reach
+      customer support.
+    triggers: ["Please share your contact details.", "I want to speak to your customer support", "What is your number?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Please find the contact details below :
+
+      📞 Customer support: 1800 209 3242
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_appreciation
+    surface: dm
+    use_when: >-
+      Customer sends a short compliment, praise, or a thank-you message —
+      including a plain "Thank you" at any point in a conversation.
+    triggers: ["Very nice", "Thank you", "Excellent", "So beautiful ❤️", "Super 👌", "Nice video"]
+    content: |
+      Hello [NAME],
+
+      Thank you for appreciating & motivating us.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_appreciation_5star
+    surface: dm
+    use_when: >-
+      Customer shares detailed positive feedback about their purchase or
+      experience with Durian (longer than a one-line compliment).
+    triggers: ["Great experience!", "Loved the sofa, thank you Durian", "Amazing quality, keep it up"]
+    content: |
+      Dear Customer,
+
+      Thank you so much for your feedback! Your review means a lot to us and we're really glad you enjoyed the experience.
+
+      We put customer experience and satisfaction as our priority, and your review reaffirms the hard work we put in every day.
+
+      Thanks for your kind words and we look forward to seeing you again.
+
+      Regards,
+      Team Durian
+
+  - short_code: facebook_dm_greeting
+    surface: dm
+    use_when: >-
+      Customer sends only a greeting, random/unclear text, or just a contact
+      number with no question — prompt them to state their query.
+    triggers: ["Hi", "Hello", "Hey", "Good morning", "Random text"]
+    content: |
+      Hello [NAME],
+
+      How can we help you?
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_recruitment
+    surface: dm
+    use_when: >-
+      Customer asks about jobs, vacancies, hiring, or how to apply to work at
+      Durian — direct them to send a resume to HR.
+    triggers: ["JOB", "Any vacancy?", "How to apply job in here", "Job vacancy in sales", "I am looking for a job at Durian"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+      Kindly share your resume at hrcoordinator@durian.in
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_recruitment_details_received
+    surface: dm
+    use_when: >-
+      Candidate says they have already mailed/shared their resume or details
+      after a job enquiry — acknowledge and promise follow-up.
+    triggers: ["Sir, mam I have mailed my resume", "I have shared my details/resume as asked"]
+    content: |
+      Hello [NAME],
+
+      Thank you for sharing your details.
+      Our executives will get in touch with you shortly.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_collaboration
+    surface: dm
+    use_when: >-
+      Influencer, vendor, or business partner pitch where the sender HAS
+      already shared their contact details — acknowledge and note we will
+      reach out if there is a requirement.
+    triggers: ["We have exciting content ideas to partner with you. I am available on 9739461963.", "Collaboration pitch with contact details shared"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest and for sharing your contact details.
+
+      In case if we have any requirement , Our executives will surely get in touch with you .
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_franchise_enquiry
+    surface: dm
+    use_when: >-
+      Franchise or dealership request, business collaboration, promotion or
+      marketing/SEO pitch, or a manufacturer/vendor wanting to work with us —
+      when NO contact details were shared. Directs to hello@durian.in.
+    triggers: ["I Want franchise for Kota Rajasthan", "Franchise enquiry", "We are a manufacturer, want to work with you", "We help businesses improve their presence on Google"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+      Mail ID - hello@durian.in
+
+      You can also share your contact details for our customer executive to get in touch with you for further assistance.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_info_needed
+    surface: dm
+    use_when: >-
+      FIRST reply to a new complaint (defective product, poor service, no
+      response, installation issue) when the customer has NOT shared their
+      contact details yet — ask them to share details so it can be routed.
+    triggers: ["Ordered online. Got a defective piece", "My sofa is damaged", "Very poor service", "Door installation issue, no one is responding", "102215 Complaint number no one is responding"]
+    content: |
+      Dear Customer,
+
+      We are sorry for the experience you had.
+      To ensure your concern is routed to the appropriate team, we kindly request you to re-share your contact details.
+
+      Our team will get in touch with you at the earliest. For immediate assistance, feel free to connect with us through:
+      📧 Email: customersupport@durian.in
+      📱 WhatsApp: 8591108987
+      📞 Customer Support: 1800 209 3242
+
+      We appreciate your patience and look forward to resolving your issue.
+
+      Warm regards,
+      Team Durian
+
+  - short_code: facebook_dm_complaint_phone_shared
+    surface: dm
+    use_when: >-
+      Complaint message that already contains the customer's phone number, or
+      the customer shares their number in an ongoing complaint thread —
+      confirm the query is registered.
+    triggers: ["Worst company Durian Furniture 9780461700", "Very poor quality and zero service. 9109111428", "Here is my number 9243199015"]
+    content: |
+      Hello [NAME],
+
+      We sincerely regret the inconvenience caused and will look into the matter at the earliest.
+
+      We have successfully registered your query. Our executives will get in touch with you shortly.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_whatsapp_redirect
+    surface: dm
+    use_when: >-
+      Product-related complaint posted as an image only (no text details) or
+      an abusive message — redirect the customer to WhatsApp/email so the
+      support team can assist.
+    triggers: ["Their Nappa leather is extremely pathetic and doesn't last even 2 years", "Customer posts only a photo of the damaged product"]
+    content: |
+      Hello [NAME],
+
+      We request you to kindly get in touch with our Customer Support Team via:
+      📱 WhatsApp: 8591108987
+      📧 Email: escalation@durian.in
+      for your product-related complaint so that we can assist you better.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_apology
+    surface: dm
+    use_when: >-
+      Strongly-worded quality/service complaint, a "beware" warning to other
+      customers, or a threat of legal/consumer-court action — empathetic
+      apology positioning the situation as an exception.
+    triggers: ["I will surely file a case but waiting for the response", "Beware durian furniture they sell on discount is used worn-out and second hand.", "Extremely pathetic customer service. Beware before wasting so much money."]
+    content: |
+      Hello [NAME],
+
+      We're very sorry you had this experience. Please know that your situation was an exception and we understand how frustrating this must have been for you. We take customer experience very seriously and our team will get in touch with you and work with you to resolve this as quickly as possible.
+
+      We are truly sorry for the inconvenience and we assure you that we will make things right. Thank you for your patience!
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_in_progress
+    surface: dm
+    use_when: >-
+      Customer follows up on a complaint the team is ALREADY actively working
+      on / already in touch about — ask for patience. Only use if the thread
+      shows the team is genuinely engaged.
+    triggers: ["No one responded, I will wait till Monday & file a case with the Ministry of Consumer Affairs", "Any update on my complaint?"]
+    content: |
+      Hello [NAME],
+
+      We completely understand your concern. Our team has been in touch with you and is working continuously to resolve the issue. We truly appreciate your patience and understanding.
+
+      Thanks & Regards
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_reconsider
+    surface: dm
+    use_when: >-
+      All possible resolutions have already been offered on a complaint and
+      the customer keeps posting — ask them to reconsider the presented
+      resolutions. Closing-stage reply only.
+    triggers: ["Extremely disappointed with the Nappa leather sofa. 5 years warranty is just a name sake."]
+    content: |
+      Hello [NAME],
+
+      We apologize for the less than perfect experience. At Durian, our customers are our top priority and we diligently work towards resolving every issue. We have presented you with all possible resolutions and would request you to reconsider the same. We will strive to offer you better services in the future to earn your continued trust and support. We truly regret the inconvenience caused.
+
+      Stay safe,
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_complaint_resolved_closure
+    surface: dm
+    use_when: >-
+      Post-resolution closure after a complaint has been handled, including
+      repeat negative brand comments from a customer whose concern was already
+      resolved.
+    triggers: ["Worst products and BRAND, use engineered wood products", "Durian is a big cheaters brand, zero after sale service"]
+    content: |
+      Hello [NAME],
+
+      We hope that we were able to resolve your concern satisfactorily and deliver the excellent experience we are known for.
+
+      We take pride in being able to cater to our customer's needs as much as possible, so we are truly sorry for the inconvenience caused and assure you to provide a better experience in the future.
+
+      Thank you for your patience and we hope to see you again.
+
+      Regards,
+      Team Durian
+
+  - short_code: facebook_dm_negative_probe
+    surface: dm
+    use_when: >-
+      Vague negative comment or message with no actionable detail (no order,
+      product, or specific issue mentioned) — short probe to get the customer
+      to explain.
+    triggers: ["No way ...... as they use engineered wood", "So Sad", "Not good"]
+    content: |
+      Hello [NAME],
+
+      How can we help you?
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_fraud_concern
+    surface: dm
+    use_when: >-
+      Accusations like "fraud" or "cheating", or general negative feedback
+      about the brand without a specific order/product complaint — thank them
+      for the feedback and offer support channels.
+    triggers: ["Fraud sale", "You people are cheating only", "Negative feedback about the brand"]
+    content: |
+      Hello [NAME],
+
+      Thank you for sharing your concerns with us.
+      We greatly value all feedback, whether positive or constructive, as it helps us continuously improve your experience with us.
+
+      Your input is highly appreciated, and we're here to assist you further. Please don't hesitate to reach out for any additional support.
+
+      📱 WhatsApp: 8591108987
+      📞 Customer Support: 1800 209 3242
+
+      Thank you for your understanding.
+
+      Warm regards,
+      Team Durian
+
+  - short_code: facebook_dm_product_exchange
+    surface: dm
+    use_when: >-
+      Customer asks about exchanging old furniture, the Exchange & Upgrade
+      Offer, buy-back, or upgrading an existing sofa/bed/dining set.
+    triggers: ["Old sofa exchange available", "I want to exchange my old furnitures", "Is the exchange offer available?", "Wanted to upgrade my sofa", "What's the cost is there any buy back"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+      You can avail our Exchange & Upgrade Offer at your nearest Durian store or online at durian.in.
+      To find your nearest store, refer to this store locator link: https://www.durian.in/stores
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_ready_stock
+    surface: dm
+    use_when: >-
+      Customer asks for ready-stock items or a mixed bedroom/kitchen
+      requirement — points to the bedroom furniture range and the custom
+      solutions page.
+    triggers: ["Send kitchen and bedroom sets. Ready stock", "Do you sell furniture?", "Ready stock available?"]
+    content: |
+      Hello [NAME],
+
+      Thanks for reaching out!
+
+      If you're looking for beds, bedside tables, or bedroom storage, explore our range here: https://www.durian.in/buy-furniture/bedroom-furniture
+
+      For modular kitchens or wardrobes, you can explore our custom solutions here: https://www.durian.in/full-home-customisation/products-offerings
+
+      If you have any other queries, please let us know and one of our executives will be happy to assist you.
+
+      Regards,
+      Team Durian
+
+  - short_code: facebook_dm_fhc_intro
+    surface: dm
+    use_when: >-
+      Enquiry about modular kitchens, interior design, customised wardrobes or
+      furniture, product customisation, or Full Home Customisation in general.
+    triggers: ["Do you provide modular kitchen solutions", "Interior design", "Customized wardrobe", "Full home customisation", "Product customisation"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in modular kitchen and furniture. Our Durian Full Home Customisation is just the place for you.
+
+      Please visit https://www.durian.in/full-home-customisation and fill in your details. Our Design Experts will contact you within 24 hours.
+
+      Please mail us at customersupport@durian.in or call our Design Experts at 1800 209 3242.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_expensive
+    surface: dm
+    use_when: >-
+      Customer says our furniture is expensive, too costly, or overpriced
+      (price objection, not an FHC quote request).
+    triggers: ["Expensive", "Too costly", "Overpriced", "No meaning of discount. Prices are exorbitant."]
+    content: |
+      Hello [NAME],
+
+      Our products are carefully designed and curated at the best rates possible.
+
+      For further enquiry, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you for further assistance.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_furniture_enquiry
+    surface: dm
+    use_when: >-
+      General furniture enquiry NOT about a specific product — "do you have
+      furniture", "interested", "tell me about your range". For a named
+      product use social_price_furniture instead.
+    triggers: ["Do you have furniture?", "Interested in your products", "Tell me about your furniture range", "Interested"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      🔗 Here's the link for the product details & its price: https://www.durian.in/
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_veneer_laminates
+    surface: dm
+    use_when: >-
+      Enquiry about veneers, laminates, plywood, or building materials.
+    triggers: ["Do you have veneers?", "Laminate sheets price", "Veneer / Laminates"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      🔗 Here's the link for the product details & its price: https://www.durian.in/building-material
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_workspace_enquiry
+    surface: dm
+    use_when: >-
+      Office/workspace furniture or a commercial/office project enquiry (bulk
+      office chairs, workstations, office interiors).
+    triggers: ["Office furniture enquiry", "Furniture for our office project", "Workspace"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      🔗 Here's the link for the product details & its price: https://www.durian.in/workspaces
+
+      For quick guidance, connect with us on:
+      📞 Customer support: 1800 209 3242
+
+      You can also share your contact details for our customer executive to get in touch with you.
+
+      We'll be happy to help you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_non_serviceable
+    surface: dm
+    use_when: >-
+      Customer asks about delivery outside India or to a pin code / area we do
+      not service.
+    triggers: ["Do you deliver outside India?", "Can you ship to Dubai?", "Do you deliver to my pin code?"]
+    content: |
+      Dear Customer,
+
+      Thank you for reaching out to us. We only service pin codes in the Indian subcontinent. We regret the inconvenience caused.
+
+      For any other queries, contact us at 1800 209 3242
+
+      Thank you for understanding.
+
+      Best regards,
+      Team Durian
+
+  - short_code: facebook_dm_made_in_india
+    surface: dm
+    use_when: >-
+      Customer asks whether our products are made in India or objects that
+      they look imported.
+    triggers: ["Are your products made in India?", "It's imported I think, we will only purchase indian manufacturing items"]
+    content: |
+      Hello [NAME],
+
+      Rooted in Indian craftsmanship, the majority of our extensive range is thoughtfully designed and made locally. With over 1000+ curated pieces, we take pride in blending homegrown design sensibilities with global inspirations. Explore the full collection at www.durian.in.
+
+  - short_code: facebook_dm_design_collab_lead
+    surface: dm
+    use_when: >-
+      A homeowner, interior designer, or architect says they are doing up /
+      furnishing their own home or a project and want to "collaborate" or get
+      in touch. A genuine design/furnishing LEAD — NOT an influencer pitching
+      content and NOT a vendor selling to us.
+    triggers: ["I'm doing interior for my new home, open for collabs?", "Shifting to a new house in Mumbai and would love to collaborate", "Doing up my flat, can we work together?", "I'm an interior designer, keen to collaborate for my projects"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out — we'd love to be part of your new space! ✨
+
+      Our Full Home Customisation team designs tailored furniture, wardrobes and modular kitchens for exactly this. Share a few details and our Design Experts will connect within 24 hours:
+      Full Name:
+      Contact Number:
+      City / Pincode:
+      What you're looking for:
+
+      You can also reach us at 📞 1800 209 3242 or explore https://www.durian.in/full-home-customisation
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_influencer_collab
+    surface: dm
+    use_when: >-
+      An influencer, content creator, blogger or media page pitches a brand /
+      paid / content collaboration (they make content — not furnishing their
+      own home, not selling a product to us).
+    triggers: ["Would love to collaborate for content", "I'm a content creator, open to brand collabs?", "Interested in a paid partnership", "We have exciting content ideas to partner with you"]
+    content: |
+      Hello [NAME],
+
+      Thank you for thinking of Durian for a collaboration!
+
+      Please email your profile and proposal to hello@durian.in — our marketing team reviews every pitch and will reach out if it's a fit.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_vendor_supplier_pitch
+    surface: dm
+    use_when: >-
+      A manufacturer, supplier, exporter or vendor pitches to SELL their
+      products / materials to Durian or become a supplier (resin tops, iron
+      furniture, handicrafts, raw materials).
+    triggers: ["We are manufacturer of resin tops, want to do business", "I want to be your supplier", "We manufacture iron & wooden furniture, please contact us", "We are exporter of handicraft items"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      For vendor and supplier proposals, please email your company profile and catalogue to hello@durian.in. Our procurement team will get in touch if there's a requirement.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_marketing_spam_pitch
+    surface: dm
+    use_when: >-
+      An unsolicited digital-marketing, SEO, web-development or link/guest-
+      post sales pitch.
     triggers: ["We help businesses improve their presence on Google", "I'm an outreach blogger selling links on high quality websites", "Do you need a website?", "SEO services for your brand"]
     content: |
       Hello [NAME],

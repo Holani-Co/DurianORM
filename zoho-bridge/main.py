@@ -2840,8 +2840,11 @@ async def handle_message_created(data: dict) -> dict:
 # Facebook share Durian's `social_*` templates (the sheet is "FB & IG DM").
 # Reviews aren't here — they're handled by the reviews poller.
 TEMPLATE_CHANNEL_FOR_INBOX_TYPE = {
-    "Channel::Instagram":    "social",
-    "Channel::FacebookPage": "social",
+    # Each platform is its own template channel so the AI's candidate pool is
+    # platform-specific (instagram_* / facebook_*), then split DM vs comment by
+    # surface inside review_reply.draft.
+    "Channel::Instagram":    "instagram",
+    "Channel::FacebookPage": "facebook",
     "Channel::Whatsapp":     "whatsapp",
 }
 
