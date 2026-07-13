@@ -15,6 +15,37 @@
 // (e.g. legacy `greeting`, `refund_policy`). Never hidden — shown under "Other".
 export const OTHER_CHANNEL = 'other';
 
+// Suggested categories for Instagram + Facebook (shared — same intents on both
+// platforms). Values carry the surface prefix (dm_ / comment_) so the guided
+// builder produces codes like `instagram_dm_price_furniture`. Suggestions only:
+// the team can type any category, and the YAML in zoho-bridge is the real
+// source of truth.
+const SOCIAL_CATEGORIES = [
+  { value: 'dm_price_furniture', label: 'DM · Price – Furniture' },
+  { value: 'dm_price_door', label: 'DM · Price – Door' },
+  { value: 'dm_price_wardrobe', label: 'DM · Price – Wardrobe' },
+  { value: 'dm_price_fhc', label: 'DM · Price – Full Home Customisation' },
+  { value: 'dm_catalogue_furniture', label: 'DM · Catalogue – Furniture' },
+  { value: 'dm_address', label: 'DM · Address / store enquiry' },
+  { value: 'dm_contact_details', label: 'DM · Contact details' },
+  { value: 'dm_appreciation', label: 'DM · Appreciation' },
+  { value: 'dm_greeting', label: 'DM · Greeting' },
+  { value: 'dm_recruitment', label: 'DM · Recruitment' },
+  { value: 'dm_design_collab_lead', label: 'DM · Design/collab lead' },
+  { value: 'dm_influencer_collab', label: 'DM · Influencer collaboration' },
+  { value: 'dm_vendor_supplier_pitch', label: 'DM · Vendor / supplier pitch' },
+  { value: 'dm_marketing_spam_pitch', label: 'DM · Marketing / SEO pitch' },
+  { value: 'dm_product_exchange', label: 'DM · Product exchange' },
+  { value: 'dm_fhc_intro', label: 'DM · FHC intro / modular kitchen' },
+  { value: 'dm_complaint_info_needed', label: 'DM · Complaint – info needed' },
+  { value: 'dm_fraud_concern', label: 'DM · Fraud / serious concern' },
+  { value: 'comment_contest', label: 'Comment · Contest entry' },
+  { value: 'comment_praise', label: 'Comment · Praise' },
+  { value: 'comment_redirect_to_dm', label: 'Comment · Redirect to DM' },
+  { value: 'comment_product_mention', label: 'Comment · Product mention' },
+  { value: 'comment_intent_to_visit', label: 'Comment · Intent to visit' },
+];
+
 // id MUST match the short_code prefix. label/icon are display-only.
 export const TEMPLATE_CHANNELS = [
   {
@@ -36,43 +67,21 @@ export const TEMPLATE_CHANNELS = [
       { value: 'resolved_negative', label: 'Resolved negative' },
     ],
   },
+  // Instagram and Facebook now have SEPARATE template sets (instagram_* /
+  // facebook_*), each split by surface (dm_* / comment_*). Wording is identical
+  // across platforms except platform terms ("DM" vs "inbox"). Same suggested
+  // categories for both — seeded by zoho-bridge/sync_social_templates.py.
   {
-    // Instagram + Facebook DMs share one template set — Durian's own sheet
-    // labels almost every template "FB & IG DM", so the wording is identical
-    // across both. Seeded by zoho-bridge/setup_social_templates.py.
-    id: 'social',
-    label: 'Instagram / Facebook',
-    icon: 'i-ph-chats-circle',
-    categories: [
-      { value: 'price_furniture', label: 'Price – Furniture' },
-      { value: 'price_door', label: 'Price – Door' },
-      { value: 'price_wardrobe', label: 'Price – Wardrobe' },
-      { value: 'price_fhc', label: 'Price – Full Home Customisation' },
-      { value: 'catalogue_door', label: 'Catalogue – Door' },
-      { value: 'catalogue_wardrobe', label: 'Catalogue – Wardrobe' },
-      { value: 'catalogue_furniture', label: 'Catalogue – Furniture' },
-      { value: 'catalogue_fhc', label: 'Catalogue – Full Home Customisation' },
-      { value: 'address', label: 'Address / store enquiry' },
-      { value: 'address_door', label: 'Address – door (limited cities)' },
-      { value: 'address_fhc', label: 'Address – FHC studio' },
-      { value: 'contact_shared_ack', label: 'Contact shared – acknowledge' },
-      { value: 'contact_details', label: 'Contact details' },
-      { value: 'appreciation_5star', label: 'Appreciation – 5★' },
-      { value: 'complaint_info_needed', label: 'Complaint – info needed' },
-      { value: 'complaint_phone_shared', label: 'Complaint – phone shared' },
-      { value: 'fraud_concern', label: 'Fraud / serious concern' },
-      { value: 'product_exchange', label: 'Product exchange' },
-      { value: 'ready_stock', label: 'Ready stock enquiry' },
-      { value: 'fhc_intro', label: 'FHC intro / modular kitchen' },
-      { value: 'expensive_fhc', label: 'Pricing objection – FHC' },
-      { value: 'greeting', label: 'Greeting' },
-      { value: 'recruitment', label: 'Recruitment' },
-      { value: 'collaboration', label: 'Collaboration' },
-      { value: 'comment_redirect_to_dm', label: 'Comment – redirect to DM' },
-      { value: 'comment_praise', label: 'Comment – praise' },
-      { value: 'comment_product_mention', label: 'Comment – product mention' },
-      { value: 'comment_intent_to_visit', label: 'Comment – intent to visit' },
-    ],
+    id: 'instagram',
+    label: 'Instagram',
+    icon: 'i-ph-instagram-logo',
+    categories: SOCIAL_CATEGORIES,
+  },
+  {
+    id: 'facebook',
+    label: 'Facebook',
+    icon: 'i-ph-facebook-logo',
+    categories: SOCIAL_CATEGORIES,
   },
   {
     id: 'whatsapp',
