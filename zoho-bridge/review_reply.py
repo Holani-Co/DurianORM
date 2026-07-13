@@ -62,16 +62,20 @@ _HINTS = _load_hints()
 CHANNEL_LABELS = {
     "review":    "a Google review of one of our showrooms",
     "whatsapp":  "WhatsApp",
-    "instagram": "Instagram",
-    "facebook":  "Facebook Messenger",
+    "instagram": "an Instagram direct message (DM)",
+    "facebook":  "a Facebook Messenger chat",
 }
 
 CHANNEL_WARNINGS = {
     "review":    "This reply is PUBLIC on Google — be extra careful. Never "
                  "quote prices, promise refunds/replacements, or admit fault.",
     "whatsapp":  "This reply is a private 1-to-1 WhatsApp message.",
-    "instagram": "This reply is a private Instagram DM.",
-    "facebook":  "This reply is a private Facebook Messenger message.",
+    "instagram": "This reply is a PRIVATE Instagram DM. Write the complete, "
+                 "helpful reply here — never tell the customer to 'check your "
+                 "DM', they are already in it.",
+    "facebook":  "This reply is a PRIVATE Facebook Messenger chat. Write the "
+                 "complete, helpful reply here — never tell the customer to "
+                 "'check your inbox', they are already in it.",
 }
 
 
@@ -131,9 +135,10 @@ Respond as STRICT JSON, no markdown:
 
 # Human-friendly channel names for the chain-of-thought trace.
 _CHANNEL_LABELS = {
-    "review":   "Google review",
-    "social":   "Instagram / Facebook DM",
-    "whatsapp": "WhatsApp",
+    "review":    "Google review",
+    "instagram": "Instagram",
+    "facebook":  "Facebook",
+    "whatsapp":  "WhatsApp",
 }
 
 
@@ -344,27 +349,34 @@ async def draft(channel: str, message: str, contact_name: str,
         }
 
     prefix = f"{channel}_"
-    templates = [
+    all_templates = [
         t for t in await chatwoot.list_canned_responses()
         if (t.get("short_code") or "").startswith(prefix)
     ]
-    if not templates:
+    if not all_templates:
         print(f"[template_reply] no {prefix} templates found — handing off")
         return result("", "handoff")
 
-    # Comment vs DM template pools. Comment-surface templates (marked in the
-    # YAML) are short public replies that redirect questions to DM — public
-    # comment drafts draw from those; DM drafts must EXCLUDE them (a DM must
-    # never say "kindly check your DM"). Either filter falls back to the full
-    # pool rather than going empty.
+    # Comment vs DM pools are kept STRICTLY separate so the two never get
+    # confused. Comment-surface templates (marked in the YAML, code prefix
+    # social_comment_) are short PUBLIC replies that redirect questions to DM;
+    # DM drafts must exclude them (a DM must never say "check your DM").
     comment_codes = {c for c, h in _HINTS.items()
                      if (h.get("surface") or "") == "comment"}
     if surface == "comment":
-        templates = [t for t in templates
-                     if t.get("short_code") in comment_codes] or templates
-    elif comment_codes:
-        templates = [t for t in templates
-                     if t.get("short_code") not in comment_codes] or templates
+        templates = [t for t in all_templates
+                     if t.get("short_code") in comment_codes]
+        if not templates:
+            # No comment templates synced — NEVER post a DM body publicly.
+            # Fall back to the redirect-to-DM catch-all, else hand off.
+            templates = [t for t in all_templates
+                         if t.get("short_code") == f"{channel}_comment_redirect_to_dm"]
+            if not templates:
+                return result("", "handoff")
+    else:
+        # DM (and review) pool: everything EXCEPT comment templates.
+        templates = [t for t in all_templates
+                     if t.get("short_code") not in comment_codes] or all_templates
 
     # Rating-only review (Google review with stars but no text): the AI has
     # nothing to read, so pick a template deterministically from the rating
@@ -405,7 +417,8 @@ async def draft(channel: str, message: str, contact_name: str,
         channel_warning = ("This reply is PUBLIC under our post. Keep it short "
                            "and brand-safe. NEVER quote prices publicly — "
                            "questions get redirected to DM (the comment "
-                           "templates already do this).")
+                           "templates already do this). Pick ONLY from the "
+                           "templates shown below; they are all comment-safe.")
     system_prompt = SYSTEM_PROMPT_FMT.format(
         channel_label=channel_label,
         channel_warning=channel_warning,
