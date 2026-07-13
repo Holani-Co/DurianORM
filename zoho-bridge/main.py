@@ -648,7 +648,8 @@ async def _pause_ticket_for_approval(conv_id: int, sender_email: str,
 async def _pause_for_agent_decision(conv_id: int,
                                     sender_email: str,
                                     escalation_label: str,
-                                    candidates: list[dict]) -> None:
+                                    candidates: list[dict],
+                                    attach_only: bool = False) -> None:
     """Write pending_zoho_ticket onto the conversation + post a private note.
 
     Best-effort: failure here means an agent might not see the banner, but
@@ -671,6 +672,7 @@ async def _pause_for_agent_decision(conv_id: int,
         "sender_email":     sender_email,
         "escalation_label": escalation_label,
         "candidates":       candidates,
+        "attach_only":      attach_only,
         "suggested_at":     _now_iso(),
     }
     try:
@@ -686,19 +688,38 @@ async def _pause_for_agent_decision(conv_id: int,
         "",
     ]
     if candidates:
-        lines.append(
-            f"This contact ({sender_email}) already has open Zoho tickets that "
-            f"may be related. The bridge would have escalated this conversation "
-            f"as **{escalation_label}**, but it's waiting for you to decide.")
+        # attach_only: the customer named an existing ticket, so this is a
+        # follow-up on THAT ticket — the agent attaches, never creates a
+        # duplicate. The plain path is a possible-duplicate judgement call.
+        if attach_only:
+            lines.append(
+                f"This message from {sender_email} refers to an existing Zoho "
+                f"ticket. Attach this conversation to it rather than creating a "
+                f"new one.")
+        else:
+            lines.append(
+                f"Existing Zoho tickets look related to this message from "
+                f"{sender_email}. The bridge would have escalated this "
+                f"conversation as **{escalation_label}**, but it's waiting for "
+                f"you to decide.")
         lines.append("")
-        lines.append("Existing open tickets:")
+        lines.append("Possibly related tickets:")
         for t in candidates[:5]:
             num = f"#{t.get('number')}" if t.get("number") else (t.get("id") or "?")
             subj = (t.get("subject") or "")[:80]
             url = t.get("url")
-            lines.append(f"- [{num}]({url}) — {subj}" if url else f"- {num} — {subj}")
+            entry = f"- [{num}]({url}) — {subj}" if url else f"- {num} — {subj}"
+            # Say WHY it surfaced (same contact / #N referenced / similar
+            # content) + status, so the agent can judge a cross-contact match
+            # — e.g. the same person writing from a second email address.
+            why = t.get("match")
+            status = t.get("status")
+            tag = ", ".join(x for x in (why, status) if x)
+            lines.append(f"{entry} _({tag})_" if tag else entry)
         lines.append("")
-        lines.append("Attach to one of the above, create a new ticket, or reject:")
+        lines.append("Attach this conversation to the referenced ticket, or reject:"
+                     if attach_only else
+                     "Attach to one of the above, create a new ticket, or reject:")
         lines.append("")
         lines.append("[**Open the Ticket decision panel →**](#cw-panel/ticket-decision)")
     else:
@@ -731,6 +752,9 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
 
     escalation_label = pending.get("escalation_label") or "manual_handoff"
     candidates       = pending.get("candidates") or []
+    sender           = (conv_data.get("meta") or {}).get("sender") or {}
+    sender_email     = pending.get("sender_email") or sender.get("email") or ""
+    customer_name    = _resolve_customer_name(sender.get("name") or "", sender_email)
 
     # We reconstruct a synthetic webhook payload from the live conversation
     # so the existing create_ticket + _surface_ticket_in_chatwoot helpers
@@ -757,15 +781,27 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
     elif choice == "create_new":
         try:
             messages, summary = await _ticket_context(conv_id)
+            # Complaint tickets carry the client's dedicated owner — preserve
+            # that when the paused complaint path lands here (the direct
+            # auto-create in _maybe_create_complaint_ticket does the same).
+            assignee_id = (config.COMPLAINT_TICKET_OWNER_DESK_ID or None) \
+                if escalation_label == "complaint" else None
             ticket = await zoho.create_ticket(
                 synthetic_payload, messages=messages, summary=summary,
                 priority=_priority_from_label(escalation_label),
+                assignee_id=assignee_id,
             )
             print(f"[zoho-dedup] conv {conv_id}: agent chose CREATE_NEW → "
                   f"ticket {ticket.get('id')}")
             await _surface_ticket_in_chatwoot(
                 conv_id, ticket, source=f"auto_{escalation_label}"
             )
+            # The paused-complaint customer got a number-less ack at pause
+            # time — deliver their reference number now the ticket exists.
+            if escalation_label == "complaint":
+                await _send_complaint_reference_ack(
+                    conv_id, sender_email, customer_name,
+                    ticket.get("ticketNumber"))
             result["ticket_id"] = ticket.get("id")
         except Exception as e:
             print(f"[zoho-dedup] create_new path failed for conv {conv_id}: {e}")
@@ -807,6 +843,11 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
                 conv_id, ticket_for_surface,
                 source=f"attached_to_existing({escalation_label})",
             )
+            # Attaching links this conversation to an existing ticket — give
+            # the customer that ticket's number as their reference too.
+            if escalation_label == "complaint":
+                await _send_complaint_reference_ack(
+                    conv_id, sender_email, customer_name, target.get("number"))
             print(f"[zoho-dedup] conv {conv_id}: agent chose USE_EXISTING → "
                   f"appended comment to ticket {ticket_id}")
             result["ticket_id"] = ticket_id
@@ -1295,6 +1336,50 @@ def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
     return templates.get(key)
 
 
+def _append_ticket_reference(ack_body: str, ticket_number: str) -> str:
+    """Append the Zoho ticket number as a footer on the customer complaint
+    acknowledgment so they have a reference for any future correspondence.
+
+    Plain-text footer after the signature — standard support-desk style, and
+    robust to template wording changes (no fragile signature surgery). Only
+    used on the complaint path, and only when a ticket was actually created."""
+    return (ack_body.rstrip() +
+            f"\n\nYour complaint reference number is #{ticket_number}. "
+            f"Please quote this number in any future correspondence about "
+            f"this complaint.")
+
+
+async def _send_complaint_reference_ack(conv_id: int, sender_email: str,
+                                        customer_name: str,
+                                        ticket_number: Optional[str]) -> None:
+    """Send the customer a short follow-up carrying their Zoho ticket number.
+
+    Used when a PAUSED complaint is resolved via the agent decision panel
+    (create-new or attach): the customer already got the "forwarded to our
+    team" ack at pause time — before any ticket existed — so the number is
+    delivered here, once it's known. (The auto-create path embeds the number
+    in the first ack instead, so this only covers the dedup-pause case.)
+
+    Gated on EMAIL_CUSTOMER_ACK_ENABLED — the same flag as the primary ack —
+    and scoped by the caller to the complaint label only. Best-effort: a send
+    failure logs but never breaks the agent's decision."""
+    if not _EMAIL_CUSTOMER_ACK_ENABLED or not sender_email or not ticket_number:
+        return
+    body = (
+        f"Dear {customer_name},\n\n"
+        f"Your complaint is being tracked under reference number "
+        f"#{ticket_number}. Please quote this number in any future "
+        f"correspondence about this complaint.\n\n"
+        f"Regards,\nTeam Durian"
+    )
+    try:
+        await chatwoot.send_outgoing_message(conv_id, body, to_emails=sender_email)
+        print(f"[zoho-dedup] conv {conv_id}: reference #{ticket_number} ack "
+              f"sent to {sender_email}")
+    except Exception as e:
+        print(f"[zoho-dedup] reference ack send failed for conv {conv_id}: {e}")
+
+
 async def _create_or_pause_zoho_ticket(conv_id: int,
                                        data: dict,
                                        sender_email: str,
@@ -1480,17 +1565,151 @@ async def _remember_crm_contact_id(conv_id: int, contact_id: str):
         print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
 
 
+# Ticket references customers quote in their emails: "ticket 253",
+# "complaint no. 253", "ref #253", "case id: 253", or a bare "#253".
+# Keyword-anchored so order/invoice numbers don't false-positive; the bare-#
+# form is filtered against money-ish prefixes below. Every extracted number
+# is validated by an actual Zoho lookup, so a stray match costs one API call
+# and resolves to nothing — precision here only needs to be "good enough".
+_TICKET_REF_KEYWORD_RE = re.compile(
+    r"\b(?:ticket|complaint|case|tkt|ref(?:erence)?)\s*"
+    r"(?:no\.?|number|id)?\s*[#:]?\s*(?:is|was)?\s*(\d{2,10})\b", re.I)
+_TICKET_REF_HASH_RE = re.compile(r"(?<![\w&])#\s?(\d{2,10})\b")
+_NOT_TICKET_PREFIXES = re.compile(
+    r"\b(?:order|invoice|payment|txn|transaction|awb|tracking|model|item)"
+    r"[\s:]*$", re.I)
+
+
+def _extract_ticket_refs(text: str, cap: int = 3) -> list[str]:
+    """Pull candidate Zoho ticket numbers a customer quoted in their message.
+    Order-preserving, deduped, capped — the caller validates each against
+    Zoho, so this only has to avoid drowning it in obvious non-tickets."""
+    refs: list[str] = []
+    text = text or ""
+    for m in _TICKET_REF_KEYWORD_RE.finditer(text):
+        refs.append(m.group(1))
+    for m in _TICKET_REF_HASH_RE.finditer(text):
+        # A bare "#102215" right after "Order" is an order number, not a
+        # ticket — check the few words before the hash.
+        if not _NOT_TICKET_PREFIXES.search(text[max(0, m.start() - 16):m.start()]):
+            refs.append(m.group(1))
+    seen: set[str] = set()
+    out = [r for r in refs if not (r in seen or seen.add(r))]
+    return out[:cap]
+
+
+async def _gather_ticket_candidates(sender_email: str, subject: str,
+                                    body: str) -> tuple[list[dict], bool]:
+    """Collect existing tickets that make auto-creating a new one a duplicate
+    risk, from three independent signals:
+
+      1. referenced    — ticket numbers quoted in the message ("#253"),
+                         any status: quoting a closed ticket usually means
+                         "my issue came back", which the agent must see.
+                         Checked FIRST so it wins the label and ordering — a
+                         customer who names a ticket is talking about THAT
+                         ticket, so it must not hide behind a "same contact"
+                         tag or fall off the end of the cap.
+      2. same contact  — open tickets under the sender's email
+      3. similar content — open tickets whose description matches the
+                         message keywords (catches the same complaint
+                         re-sent from a DIFFERENT email address)
+
+    Each candidate carries a `match` reason so the agent panel / private note
+    can say WHY it surfaced. Deduped by id, referenced-first, capped at 5.
+
+    Returns (candidates, referenced_present). `referenced_present=True` means
+    the customer named a real existing ticket → the caller offers attach-only
+    (creating a brand-new duplicate is never right when they've pointed at an
+    existing ticket)."""
+    candidates: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(tickets: list[dict], reason: str) -> None:
+        for t in tickets or []:
+            tid = str(t.get("id"))
+            if tid in seen:
+                continue
+            seen.add(tid)
+            candidates.append({**t, "match": reason})
+
+    referenced_present = False
+    for ref in _extract_ticket_refs(f"{subject}\n{body}"):
+        try:
+            t = await zoho.get_ticket_by_number(ref)
+        except Exception as e:
+            print(f"[zoho-dedup] ref #{ref} lookup failed: {e}")
+            continue
+        if t:
+            referenced_present = True
+            _add([t], f"#{ref} referenced in message")
+        else:
+            print(f"[zoho-dedup] message mentions #{ref} but no such ticket — ignoring")
+
+    if sender_email:
+        try:
+            _add(await zoho.search_open_tickets_by_email(sender_email, limit=5),
+                 "same contact")
+        except Exception as e:
+            print(f"[zoho-dedup] open-ticket lookup failed for {sender_email!r}: {e}")
+
+    try:
+        _add(await zoho.search_tickets_by_content(subject, body, limit=3),
+             "similar content")
+    except Exception as e:
+        print(f"[zoho-dedup] content search failed: {e}")
+
+    return candidates[:5], referenced_present
+
+
 async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
-                                         sender_email: str) -> list[str]:
+                                         sender_email: str,
+                                         subject: str = "",
+                                         body: str = "") -> tuple[list[str], bool, Optional[dict]]:
     """For product `complaint` emails: auto-create a Zoho Desk ticket assigned
     to the client's customersupport agent — in ADDITION to the email forward.
 
     Fully automatic: bypasses ZOHO_TICKET_REQUIRE_APPROVAL (this is a
     dedicated, client-requested auto path, not the escalation flow). Assigned to
     COMPLAINT_TICKET_OWNER_DESK_ID (empty → unassigned). Best-effort — any
-    failure logs and returns an audit line; it never blocks the forward."""
+    failure logs and returns an audit line; it never blocks the forward.
+
+    Dedup: pause for the agent decision instead of auto-creating whenever
+    _gather_ticket_candidates finds a duplicate risk — the sender's own open
+    tickets, a ticket number quoted in the message (even from a different
+    email address), or an open ticket with matching content (same complaint
+    re-sent from another address). The approval-gate bypass above only
+    applies when there is nothing to duplicate.
+
+    Returns (audit_lines, paused, ticket): `paused=True` means a decision is
+    pending and the caller must NOT auto-resolve the conversation — a resolved
+    conv drops out of the open queue, and the pending decision would sit unseen
+    until the customer complains a third time. `ticket` is the created Zoho
+    ticket dict when one was auto-created (None on the paused / failed / disabled
+    paths) so the caller can put its number in the customer acknowledgment."""
     if not config.COMPLAINT_AUTO_TICKET_ENABLED:
-        return []
+        return [], False, None
+    candidates, referenced = await _gather_ticket_candidates(
+        sender_email, subject, body)
+    if candidates:
+        reasons = ", ".join(sorted({c.get("match") or "?" for c in candidates}))
+        print(f"[zoho] conv {conv_id}: pausing complaint auto-create "
+              f"({len(candidates)} candidate(s): {reasons}"
+              f"{'; attach-only' if referenced else ''})")
+        await _pause_for_agent_decision(
+            conv_id=conv_id, sender_email=sender_email,
+            escalation_label="complaint", candidates=candidates,
+            attach_only=referenced,
+        )
+        # When the customer named an existing ticket, this is a follow-up on
+        # THAT ticket — attach, don't create a duplicate. Otherwise it's a
+        # possible-duplicate judgement call (attach vs create new).
+        line = ("⏸️ Complaint references an existing Zoho ticket — attach this "
+                "conversation to it (no new ticket needed); agent decision needed."
+                if referenced else
+                "⏸️ Complaint ticket paused — possibly duplicate of existing "
+                "Zoho ticket(s); agent decision needed (attach vs create new).")
+        return [line], True, None
     try:
         assignee_id = config.COMPLAINT_TICKET_OWNER_DESK_ID or None
         messages, summary = await _ticket_context(conv_id)
@@ -1507,10 +1726,10 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
         await _surface_ticket_in_chatwoot(conv_id, ticket, source="auto_complaint")
         who = f" → assigned to agent {assignee_id}" if assignee_id \
             else " (unassigned — no owner configured)"
-        return [f"🎫 Zoho Desk complaint ticket created{who}."]
+        return [f"🎫 Zoho Desk complaint ticket created{who}."], False, ticket
     except Exception as e:
         print(f"[zoho] complaint ticket failed for conv {conv_id}: {e}")
-        return [f"⚠️ Complaint ticket could not be created: {e}"]
+        return [f"⚠️ Complaint ticket could not be created: {e}"], False, None
 
 
 # ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────
@@ -1917,6 +2136,10 @@ async def _phase2_execute_actions(conv_id: int,
     # from the latest outgoing message rather than the in-flight one, so
     # the explicit recipient is what makes the upstream-patched mailer
     # do the right thing.
+    # Complaint acks are held back and sent AFTER the Zoho ticket is created
+    # (below), so the customer's reference number can ride along in the same
+    # email. Stashed as (recipient, base_body) when that path applies.
+    deferred_complaint_ack: Optional[tuple[str, str]] = None
     if not _EMAIL_CUSTOMER_ACK_ENABLED:
         audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
     elif cat_key in _NO_ACK_CATEGORIES:
@@ -1938,14 +2161,19 @@ async def _phase2_execute_actions(conv_id: int,
             customer_name    = name,
             original_subject = original_subject or "",
         )
-        try:
-            await chatwoot.send_outgoing_message(
-                conv_id, ack_body, to_emails=sender_email
-            )
-            audit.append(f"✅ Acknowledgment sent to the customer ({sender_email}).")
-        except Exception as e:
-            print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")
-            audit.append(f"⚠️ Acknowledgment could not be sent: {e}")
+        if cat_key == "complaint":
+            # Defer: the ticket doesn't exist yet. Sent after ticket creation
+            # so we can append the reference number for the customer.
+            deferred_complaint_ack = (sender_email, ack_body)
+        else:
+            try:
+                await chatwoot.send_outgoing_message(
+                    conv_id, ack_body, to_emails=sender_email
+                )
+                audit.append(f"✅ Acknowledgment sent to the customer ({sender_email}).")
+            except Exception as e:
+                print(f"[phase2b] acknowledgment send failed for conv {conv_id}: {e}")
+                audit.append(f"⚠️ Acknowledgment could not be sent: {e}")
 
     # ── Forward to the concerned department (forward categories only) ──
     # Uses Chatwoot's `to_emails` override so the email goes to the
@@ -1983,16 +2211,26 @@ async def _phase2_execute_actions(conv_id: int,
                 "Team Durian",
             ]
             forward_body = "\n".join(fwd_lines)
+            # suppress_forward: keep the full sector/region classification (it
+            # drives CRM deal creation) but DON'T email any team — the client
+            # wants bulk orders qualified in-channel, not forwarded. The
+            # sector/region audit + labels below still run for agent context.
+            suppress = bool(rule.get("suppress_forward"))
             try:
-                await chatwoot.send_outgoing_message(
-                    conv_id,
-                    forward_body,
-                    to_emails  = forward_to,
-                    cc_emails  = ", ".join(cc_list)  if cc_list  else None,
-                    bcc_emails = ", ".join(bcc_list) if bcc_list else None,
-                )
-                forwarded_ok = True
-                audit.append(f"📨 Forwarded to {forward_to}.")
+                if suppress:
+                    audit.append("📭 Not forwarded to any team (client policy) — "
+                                 "the lead is qualified in-channel; create the deal "
+                                 "to resolve.")
+                else:
+                    await chatwoot.send_outgoing_message(
+                        conv_id,
+                        forward_body,
+                        to_emails  = forward_to,
+                        cc_emails  = ", ".join(cc_list)  if cc_list  else None,
+                        bcc_emails = ", ".join(bcc_list) if bcc_list else None,
+                    )
+                    forwarded_ok = True
+                    audit.append(f"📨 Forwarded to {forward_to}.")
                 # For bulk orders, show which sector (government/private) drove
                 # the destination so the agent sees the routing decision.
                 if category_result.get("sector"):
@@ -2026,12 +2264,16 @@ async def _phase2_execute_actions(conv_id: int,
                 # send (manual=True) is tagged `manually-sent`; a fully automatic
                 # forward is tagged `auto-forwarded`. Best-effort — must not undo
                 # the forward.
-                fwd_label = "manually-sent" if manual else "auto-forwarded"
-                try:
-                    await chatwoot.add_label(conv_id, fwd_label)
-                    audit.append(f"🏷️ Tagged {fwd_label}.")
-                except Exception as e:
-                    print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
+                # Skip the forwarded/manually-sent tag when nothing was actually
+                # sent (suppress_forward) — those labels drive the "Auto-forwarded"
+                # sidebar view, which must not list un-forwarded conversations.
+                if not suppress:
+                    fwd_label = "manually-sent" if manual else "auto-forwarded"
+                    try:
+                        await chatwoot.add_label(conv_id, fwd_label)
+                        audit.append(f"🏷️ Tagged {fwd_label}.")
+                    except Exception as e:
+                        print(f"[phase2b] add_label failed for conv {conv_id}: {e}")
 
                 # Bulk orders also get a sector label (bulk-government /
                 # bulk-private) so agents can see + filter the buyer sector at a
@@ -2113,8 +2355,54 @@ async def _phase2_execute_actions(conv_id: int,
     # Product complaints ALSO spin up an assigned Zoho Desk ticket (on top of
     # the email forward + ack above). Only after a successful forward, so a
     # failed handoff doesn't leave a ticket with no email trail.
+    ticket_decision_pending = False
+    complaint_ticket: Optional[dict] = None
     if forwarded_ok and cat_key == "complaint":
-        audit += await _maybe_create_complaint_ticket(conv_id, sender_name, sender_email)
+        ticket_lines, ticket_decision_pending, complaint_ticket = \
+            await _maybe_create_complaint_ticket(
+                conv_id, sender_name, sender_email,
+                subject=original_subject, body=original_content)
+        audit += ticket_lines
+    elif cat_key != "complaint":
+        # Non-complaint messages can still quote a ticket number ("what is
+        # the status of ticket #253?" often classifies as an order enquiry).
+        # No dedup stakes here — nothing is being created — but the agent
+        # shouldn't have to hand-search Zoho for a number the customer
+        # already gave us. Lookup + link it in the audit note.
+        refs = _extract_ticket_refs(f"{original_subject}\n{original_content}")
+        for ref in refs:
+            try:
+                t = await zoho.get_ticket_by_number(ref)
+            except Exception as e:
+                print(f"[zoho] ref #{ref} lookup failed: {e}")
+                continue
+            if t:
+                link = f"[#{t['number']}]({t['url']})" if t.get("url") else f"#{t['number']}"
+                audit.append(
+                    f"🔎 Message references Zoho ticket {link} — "
+                    f"{t.get('status')}: {(t.get('subject') or '')[:80]}")
+
+    # ── Send the deferred complaint acknowledgment ──────────────────────
+    # Now that the ticket outcome is known, send the complaint ack — with the
+    # reference number embedded when a ticket was auto-created. On the paused
+    # (dedup) or failed paths there's no number yet, so the ack goes out
+    # as-is; the customer still gets acknowledged either way.
+    if deferred_complaint_ack:
+        recipient, ack_body = deferred_complaint_ack
+        ref_num = complaint_ticket.get("ticketNumber") if complaint_ticket else None
+        if ref_num:
+            ack_body = _append_ticket_reference(ack_body, ref_num)
+        try:
+            await chatwoot.send_outgoing_message(
+                conv_id, ack_body, to_emails=recipient
+            )
+            suffix = f" with reference #{ref_num}" if ref_num else ""
+            audit.append(
+                f"✅ Acknowledgment sent to the customer ({recipient}){suffix}.")
+        except Exception as e:
+            print(f"[phase2b] complaint acknowledgment send failed for "
+                  f"conv {conv_id}: {e}")
+            audit.append(f"⚠️ Acknowledgment could not be sent: {e}")
 
     # Mark the conversation as Phase-2-handled so subsequent webhook fires
     # on this conv (e.g. department replies landing as new incoming
@@ -2137,7 +2425,12 @@ async def _phase2_execute_actions(conv_id: int,
     # Only after a SUCCESSFUL forward — a failed/skipped forward stays open.
     # A customer reply auto-reopens the conversation in Chatwoot, so nothing
     # gets lost. In-channel categories never reach here (forwarded_ok=False).
-    if forwarded_ok and config.RESOLVE_AFTER_FORWARD:
+    # EXCEPT when the complaint dedup paused for an agent decision: resolving
+    # would bury the pending attach-vs-create choice in the resolved queue,
+    # and nothing would ever surface it again.
+    if ticket_decision_pending:
+        audit.append("ℹ️ Left open — a Zoho ticket decision is pending above.")
+    elif forwarded_ok and config.RESOLVE_AFTER_FORWARD:
         try:
             await chatwoot.toggle_status(conv_id, "resolved")
             audit.append("✅ Conversation resolved (handed to the team).")
@@ -2436,29 +2729,52 @@ async def handle_message_created(data: dict) -> dict:
         or content[:80]
     )
 
-    # ── Automated system / transactional emails ───────────────────────────
-    # Durian's own no-reply notifications (order confirmations, shipping
-    # updates, OTP, newsletter opt-ins, stock alerts). Deterministically tag
-    # them General Information and STOP — no forward, no CRM Contact, no
-    # acknowledgment, no needs-review card, no team routing. Subject-matched
-    # (case-insensitive) from routing_rules.yaml:system_notification_subjects.
-    # Social DMs have no email subject, so this only applies to email inboxes.
-    if not is_social and classifier.is_system_notification(real_subject):
-        print(f"[system-notification] conv {conv_id}: subject matched — "
-              f"tagging General Information, skipping forward/CRM/ack/review")
+    # ── Automated system / transactional / internal emails ────────────────
+    # Two deterministic short-circuits that file mail as General Information,
+    # AUTO-RESOLVE it, and STOP — no forward, no CRM Contact, no acknowledgment,
+    # no needs-review card, no team routing. Auto-resolve keeps this noise out
+    # of the open Conversations list (a customer reply re-opens the thread):
+    #   1. Subject matches a system-notification phrase (order/OTP/shipping/
+    #      stock alerts) — routing_rules.yaml:system_notification_subjects.
+    #   2. An internal auto-file address (e.g. customersupport@durian.in) SENT
+    #      the mail (From only). These are the client's own support threads that
+    #      CC hello@durian.in. A customer who emails hello@durian.in and merely
+    #      CCs customersupport is a real enquiry — preserved and classified.
+    # Social DMs have no email subject/headers, so this only applies to email.
+    auto_file_reason: Optional[str] = None
+    if not is_social:
+        if classifier.is_system_notification(real_subject):
+            auto_file_reason = "subject-matched system/transactional email"
+        else:
+            # Match ONLY the From address — the internal address must have SENT
+            # the mail to auto-file it. A customer who emails hello@durian.in and
+            # merely CCs customersupport is a REAL enquiry that must be preserved
+            # and classified normally, so To/Cc are deliberately NOT matched.
+            _email_hdr = (data.get("content_attributes") or {}).get("email") or {}
+            _from = {sender_email.lower()} if sender_email else set()
+            for _a in (_email_hdr.get("from") or []):
+                _val = _a.get("email") if isinstance(_a, dict) else _a
+                if isinstance(_val, str):
+                    _from.add(_val.lower())
+            _from.discard("")
+            if any(classifier.is_auto_file_sender(a) for a in _from):
+                auto_file_reason = "internal auto-file sender (customersupport)"
+
+    if auto_file_reason:
+        print(f"[auto-file] conv {conv_id}: {auto_file_reason} — "
+              f"General Information + auto-resolve, skipping forward/CRM/ack/review")
         gi_rule = (classifier._ROUTING_RULES.get("categories") or {}).get(
             "general_information") or {}
         try:
             await chatwoot.add_label(conv_id, "general-information")
         except Exception as e:
-            print(f"[system-notification] add_label failed: {e}")
+            print(f"[auto-file] add_label failed: {e}")
         try:
             await chatwoot.merge_custom_attributes(conv_id, {
                 "email_category_v2": {
                     "category":     "general_information",
                     "confidence":   1.0,
-                    "reason":       "Automated system/transactional email "
-                                    "(subject-matched).",
+                    "reason":       f"Auto-filed: {auto_file_reason}.",
                     "action":       "in_channel",
                     "display_name": gi_rule.get("display_name")
                                     or "General Information",
@@ -2472,9 +2788,14 @@ async def handle_message_created(data: dict) -> dict:
                 "system_notification": True,
             })
         except Exception as e:
-            print(f"[system-notification] merge_custom_attributes failed: {e}")
-        return {"classified_email_type": "system_notification",
-                "category": "general_information", "auto_handled": True}
+            print(f"[auto-file] merge_custom_attributes failed: {e}")
+        try:
+            await chatwoot.toggle_status(conv_id, "resolved")
+        except Exception as e:
+            print(f"[auto-file] auto-resolve failed: {e}")
+        return {"classified_email_type": "auto_filed",
+                "category": "general_information",
+                "reason": auto_file_reason, "auto_handled": True, "resolved": True}
 
     # ── Email-type classification pipeline ────────────────────────────────
     # Layers (earliest-exit wins on inbox bypass; otherwise classifier runs):
@@ -2641,12 +2962,27 @@ async def handle_message_created(data: dict) -> dict:
             "auto_snoozed":          auto_snoozed,
         }
 
-    if email_category in ("promotional", "automated") and not category_confident:
-        print(f"[spam] conv {conv_id} labelled '{email_category}', keeping in open queue")
+    if email_category == "automated" and not category_confident:
+        # Automated / transactional mail with no confident business category —
+        # file as General Information and auto-resolve so it stays out of the
+        # open queue (a customer reply re-opens the thread).
+        print(f"[spam] conv {conv_id} labelled 'automated' → General Information + auto-resolve")
+        try:
+            await chatwoot.add_label(conv_id, "general-information")
+            await chatwoot.toggle_status(conv_id, "resolved")
+        except Exception as e:
+            print(f"[spam] automated auto-file/resolve failed: {e}")
         tracing.event(conv_id, "email-type-decision", parent=_lf, output={
-            "label": email_category, "action": "labelled_kept_in_queue",
+            "label": "automated", "action": "auto_filed_resolved",
         })
-        return {"classified_email_type": email_category, "auto_handled": True}
+        return {"classified_email_type": "automated", "auto_handled": True, "resolved": True}
+
+    if email_category == "promotional" and not category_confident:
+        print(f"[spam] conv {conv_id} labelled 'promotional', keeping in open queue")
+        tracing.event(conv_id, "email-type-decision", parent=_lf, output={
+            "label": "promotional", "action": "labelled_kept_in_queue",
+        })
+        return {"classified_email_type": "promotional", "auto_handled": True}
 
     if email_category in ("spam", "promotional", "automated") and category_confident:
         print(f"[category-v2] '{email_category}' label overridden — confident "
@@ -3873,6 +4209,16 @@ async def chatwoot_crm_create_deal(request: Request):
         )
     except Exception as e:
         print(f"[crm] Deal audit note failed for conv {conv_id}: {e}")
+
+    # A created deal means the enquiry is qualified and handled → resolve the
+    # conversation so it leaves the open queue (bulk orders in particular no
+    # longer forward, so deal creation is their close signal). Customer replies
+    # auto-reopen in Chatwoot. Best-effort — never fail the deal response.
+    if config.RESOLVE_AFTER_DEAL:
+        try:
+            await chatwoot.toggle_status(int(conv_id), "resolved")
+        except Exception as e:
+            print(f"[crm] resolve-after-deal failed for conv {conv_id}: {e}")
 
     return {"deal_id": deal_id, "created": True,
             "url": zoho_crm.deal_url(deal_id)}

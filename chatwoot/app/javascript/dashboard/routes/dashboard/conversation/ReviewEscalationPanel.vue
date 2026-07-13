@@ -100,7 +100,7 @@ const inputClass =
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 py-1 text-sm">
+  <div class="flex flex-col gap-2 px-4 py-3 text-sm">
     <p class="text-xs text-n-slate-11">
       {{ t('CONVERSATION.REVIEW_ESCALATION.HINT', { stars }) }}
     </p>

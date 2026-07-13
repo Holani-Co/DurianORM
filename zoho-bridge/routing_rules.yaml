@@ -576,7 +576,14 @@ categories:
   project_bulk_order:
     display_name: Project / Bulk Order
     action: forward
-    forward_to: saharsh@durian.in
+    forward_to: marketing@durian.in
+    # Client 2026-07: bulk orders are NO LONGER emailed to any team. The
+    # sector (govt/private) + region classification below still runs (it drives
+    # CRM deal creation), but the outbound forward is suppressed — the customer
+    # just gets the acknowledgment and the team qualifies the lead in-channel
+    # (Create Deal → conversation auto-resolves). Flip to false to restore the
+    # email forward to the addresses above / the sector desks.
+    suppress_forward: true
     cc: []
     bcc: []
     include_customer_in_cc: false
@@ -1017,9 +1024,22 @@ system_notification_subjects:
   - "verify your otp"
   - "product low stock"
   - "product out of stock"
+  - "product high stock"
+  - "low stock"
+  - "high stock"
+  - "out of stock"
+  - "back in stock"
+  - "stock alert"
   - "your durian order"
   - "successfully shipped"
   - "has been shipped"
+
+# Internal / no-reply addresses whose mail is auto-filed as General Information
+# and auto-resolved (never classified, forwarded, or CRM-pushed). Catches the
+# client's own support address that CCs hello@durian.in on customer threads.
+# Full address matches exactly; a bare "@domain" entry matches the whole domain.
+auto_file_senders:
+  - "customersupport@durian.in"
 
 # Acknowledgment templates sent to the customer. {customer_name} is
 # substituted at send time; if the contact has no name on file the
@@ -1088,7 +1108,7 @@ acknowledgment_template_for:
   marketing_advertising:    forward_generic
   collaboration_request:    forward_generic
   career_job_enquiry:       forward_hr
-  project_bulk_order:       forward_generic
+  project_bulk_order:       in_channel   # no forward now → accurate "team is reviewing" ack
   full_home_customization:  forward_generic
   doors_veneer_plywood:     forward_generic
   fallback:                 in_channel

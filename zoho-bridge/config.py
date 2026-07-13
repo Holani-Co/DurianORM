@@ -43,11 +43,13 @@ ZOHO_CRM_ENABLED       = bool(ZOHO_CRM_REFRESH_TOKEN)
 # bridge at prod without accidentally pushing test data into the real CRM.
 ZOHO_CRM_DRY_RUN       = os.environ.get("ZOHO_CRM_DRY_RUN", "false").lower() == "true"
 # Categories that trigger auto Contact+Note. Comma-separated, override via env.
+# Default is EMPTY: no email auto-creates a CRM contact. The CRM is written to
+# only via the manual "Create Deal" button (the bulk-order / sales-qualified
+# flow). Set this env to re-enable auto Contact+Note for specific categories.
 ZOHO_CRM_AUTO_CATEGORIES = tuple(
     c.strip() for c in os.environ.get(
         "ZOHO_CRM_AUTO_CATEGORIES",
-        "product_enquiry,general_information,existing_order_enquiry,"
-        "franchise_dealership",
+        "",
     ).split(",") if c.strip()
 )
 # Categories that show the "Create Deal" button in the CRM sidebar panel.
@@ -386,10 +388,10 @@ ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 # is at or above this bar. Below it, the email is NOT forwarded — instead a
 # "Category decision" card is posted in the conversation showing the AI's best
 # guess + alternatives, and an agent confirms the category before any action.
-# 0.9 = 90%. Tune on the VM (e.g. CATEGORY_AUTO_CONFIDENCE=0.8) without a code
+# 0.85 = 85%. Tune on the VM (e.g. CATEGORY_AUTO_CONFIDENCE=0.8) without a code
 # change. Note: this is a HIGHER bar than the classifier's own
 # `confidence_threshold` (0.6) which only decides fallback vs a real category.
-CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9"))
+CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.85"))
 
 # Auto-resolve a conversation once its email has been successfully forwarded
 # to the internal team — auto-forwarded AND agent-confirmed sends alike. The
@@ -397,6 +399,12 @@ CATEGORY_AUTO_CONFIDENCE = float(os.environ.get("CATEGORY_AUTO_CONFIDENCE", "0.9
 # replies auto-reopen the conversation in Chatwoot. Set to false to disable
 # without a code change.
 RESOLVE_AFTER_FORWARD = os.environ.get("RESOLVE_AFTER_FORWARD", "true").lower() == "true"
+
+# Auto-resolve a conversation once an agent creates a CRM Deal from it — a
+# created deal means the enquiry is qualified and handled, so it drops out of
+# the open queue (e.g. bulk orders, which no longer forward, are closed by
+# creating the deal). Customer replies auto-reopen. Set false to disable.
+RESOLVE_AFTER_DEAL = os.environ.get("RESOLVE_AFTER_DEAL", "true").lower() == "true"
 
 # Bulk orders are sub-classified into government vs private buyers and routed to
 # different handlers. At/above this bar the sector is auto-routed; below it the

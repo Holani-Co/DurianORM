@@ -482,6 +482,31 @@ def is_system_notification(subject: str) -> bool:
     return any(pat in s for pat in _SYSTEM_NOTIFICATION_SUBJECTS)
 
 
+# Internal / no-reply addresses whose mail is auto-filed as General Information
+# and resolved — never classified, forwarded, or CRM-pushed. Full addresses
+# ("customersupport@durian.in") match exactly; a bare "@domain" entry matches
+# any address on that domain.
+_AUTO_FILE_SENDERS = tuple(
+    str(s).lower().strip() for s in (_ROUTING_RULES.get("auto_file_senders") or [])
+    if str(s).strip()
+)
+
+
+def is_auto_file_sender(email: str) -> bool:
+    """True when `email` is a configured internal auto-file address. Matches a
+    full address exactly, or a bare "@domain" entry by suffix. Empty → False."""
+    s = (email or "").lower().strip()
+    if not s:
+        return False
+    for pat in _AUTO_FILE_SENDERS:
+        if pat.startswith("@"):
+            if s.endswith(pat):
+                return True
+        elif s == pat:
+            return True
+    return False
+
+
 def category_choices() -> list[dict]:
     """[{category, display_name}] for every routing category — used to build
     the dropdown on the human-in-the-loop Category decision card."""

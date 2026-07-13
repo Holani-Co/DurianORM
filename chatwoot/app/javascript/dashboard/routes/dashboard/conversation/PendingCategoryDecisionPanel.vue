@@ -93,14 +93,14 @@ async function confirm(category) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <div class="px-1 text-xs text-n-slate-11">
+  <div class="flex flex-col gap-3 px-4 py-3">
+    <div class="text-xs text-n-slate-11">
       <span class="text-n-slate-12">Low confidence — confirm the category</span>
       <span v-if="suggestedDisplay" class="text-n-slate-10">
         · best guess {{ suggestedDisplay }} ({{ confidencePct }}%)
       </span>
     </div>
-    <p v-if="reason" class="px-1 text-xs text-n-slate-11 italic">
+    <p v-if="reason" class="text-xs text-n-slate-11 italic">
       {{ reason }}
     </p>
 
@@ -167,7 +167,7 @@ async function confirm(category) {
     </div>
 
     <!-- Full dropdown for anything not in the top picks -->
-    <div class="flex items-center gap-2 px-1">
+    <div class="flex items-center gap-2">
       <select
         v-model="selected"
         class="flex-1 h-8 px-2 text-sm rounded-md bg-n-background border border-n-weak"
