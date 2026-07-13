@@ -11,7 +11,7 @@ templates:
 
   # ── Price / product enquiry (per vertical, DM) ──────────────────────────
 
-  - short_code: social_price_furniture
+  - short_code: social_dm_price_furniture
     surface: dm
     use_when: >-
       Customer asks the price or details of a specific furniture item
@@ -34,7 +34,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_price_door
+  - short_code: social_dm_price_door
     surface: dm
     use_when: >-
       Customer asks the price of doors, or makes a general door enquiry
@@ -59,7 +59,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_price_wardrobe
+  - short_code: social_dm_price_wardrobe
     surface: dm
     use_when: >-
       Customer asks the price of a wardrobe or about the modular wardrobe
@@ -85,7 +85,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_price_fhc
+  - short_code: social_dm_price_fhc
     surface: dm
     use_when: >-
       Customer asks the price or a quote for Full Home Customisation,
@@ -108,7 +108,7 @@ templates:
 
   # ── Catalogue requests (per vertical) ───────────────────────────────────
 
-  - short_code: social_catalogue_furniture
+  - short_code: social_dm_catalogue_furniture
     surface: dm
     use_when: >-
       Customer asks for the furniture / bedroom collection catalogue or
@@ -127,7 +127,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_catalogue_door
+  - short_code: social_dm_catalogue_door
     surface: dm
     use_when: >-
       Customer asks for the doors catalogue or brochure.
@@ -145,7 +145,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_catalogue_wardrobe
+  - short_code: social_dm_catalogue_wardrobe
     surface: dm
     use_when: >-
       Customer asks for the wardrobe catalogue or brochure.
@@ -163,7 +163,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_catalogue_fhc
+  - short_code: social_dm_catalogue_fhc
     surface: dm
     use_when: >-
       Customer asks for the Full Home Customisation catalogue or brochure
@@ -184,7 +184,7 @@ templates:
 
   # ── Store address / location ────────────────────────────────────────────
 
-  - short_code: social_address
+  - short_code: social_dm_address
     surface: dm
     use_when: >-
       Customer asks where our store/showroom is, whether there is an outlet
@@ -200,7 +200,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_address_door
+  - short_code: social_dm_address_door
     surface: dm
     use_when: >-
       Customer asks for a DOOR showroom/store in their city — the doors
@@ -223,7 +223,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_address_fhc
+  - short_code: social_dm_address_fhc
     surface: dm
     use_when: >-
       Customer asks where the Full Home Customisation studio is or for an
@@ -245,7 +245,7 @@ templates:
 
   # ── Callback / contact details ──────────────────────────────────────────
 
-  - short_code: social_callback_details_request
+  - short_code: social_dm_callback_details_request
     surface: dm
     use_when: >-
       Customer wants a call back or asks us to contact them ("can we
@@ -274,7 +274,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_contact_shared_ack
+  - short_code: social_dm_contact_shared_ack
     surface: dm
     use_when: >-
       Customer shared their phone number or email along with an enquiry
@@ -291,7 +291,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_contact_details
+  - short_code: social_dm_contact_details
     surface: dm
     use_when: >-
       Customer asks for OUR contact details — a phone number or how to
@@ -311,7 +311,7 @@ templates:
 
   # ── Appreciation / greeting ─────────────────────────────────────────────
 
-  - short_code: social_appreciation
+  - short_code: social_dm_appreciation
     surface: dm
     use_when: >-
       Customer sends a short compliment, praise, or a thank-you message —
@@ -325,7 +325,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_appreciation_5star
+  - short_code: social_dm_appreciation_5star
     surface: dm
     use_when: >-
       Customer shares detailed positive feedback about their purchase or
@@ -343,7 +343,7 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_greeting
+  - short_code: social_dm_greeting
     surface: dm
     use_when: >-
       Customer sends only a greeting, random/unclear text, or just a
@@ -359,7 +359,7 @@ templates:
 
   # ── Jobs / recruitment ──────────────────────────────────────────────────
 
-  - short_code: social_recruitment
+  - short_code: social_dm_recruitment
     surface: dm
     use_when: >-
       Customer asks about jobs, vacancies, hiring, or how to apply to work
@@ -374,7 +374,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_recruitment_details_received
+  - short_code: social_dm_recruitment_details_received
     surface: dm
     use_when: >-
       Candidate says they have already mailed/shared their resume or
@@ -391,7 +391,7 @@ templates:
 
   # ── Franchise / collaboration / promotion pitches ───────────────────────
 
-  - short_code: social_collaboration
+  - short_code: social_dm_collaboration
     surface: dm
     use_when: >-
       Influencer, vendor, or business partner pitch where the sender HAS
@@ -408,7 +408,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_franchise_enquiry
+  - short_code: social_dm_franchise_enquiry
     surface: dm
     use_when: >-
       Franchise or dealership request, business collaboration, promotion or
@@ -433,7 +433,7 @@ templates:
 
   # ── Complaints ──────────────────────────────────────────────────────────
 
-  - short_code: social_complaint_info_needed
+  - short_code: social_dm_complaint_info_needed
     surface: dm
     use_when: >-
       FIRST reply to a new complaint (defective product, poor service, no
@@ -456,7 +456,7 @@ templates:
       Warm regards,
       Team Durian
 
-  - short_code: social_complaint_phone_shared
+  - short_code: social_dm_complaint_phone_shared
     surface: dm
     use_when: >-
       Complaint message that already contains the customer's phone number,
@@ -473,7 +473,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_complaint_whatsapp_redirect
+  - short_code: social_dm_complaint_whatsapp_redirect
     surface: dm
     use_when: >-
       Product-related complaint posted as an image only (no text details)
@@ -491,7 +491,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_complaint_apology
+  - short_code: social_dm_complaint_apology
     surface: dm
     use_when: >-
       Strongly-worded quality/service complaint, a "beware" warning to other
@@ -508,7 +508,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_complaint_in_progress
+  - short_code: social_dm_complaint_in_progress
     surface: dm
     use_when: >-
       Customer follows up on a complaint the team is ALREADY actively
@@ -523,7 +523,7 @@ templates:
       Thanks & Regards
       Team Durian.
 
-  - short_code: social_complaint_reconsider
+  - short_code: social_dm_complaint_reconsider
     surface: dm
     use_when: >-
       All possible resolutions have already been offered on a complaint and
@@ -539,7 +539,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_complaint_resolved_closure
+  - short_code: social_dm_complaint_resolved_closure
     surface: dm
     use_when: >-
       Post-resolution closure after a complaint has been handled, including
@@ -558,7 +558,7 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_negative_probe
+  - short_code: social_dm_negative_probe
     surface: dm
     use_when: >-
       Vague negative comment or message with no actionable detail (no
@@ -573,7 +573,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_fraud_concern
+  - short_code: social_dm_fraud_concern
     surface: dm
     use_when: >-
       Accusations like "fraud" or "cheating", or general negative feedback
@@ -598,7 +598,7 @@ templates:
 
   # ── Product / vertical enquiries ────────────────────────────────────────
 
-  - short_code: social_product_exchange
+  - short_code: social_dm_product_exchange
     surface: dm
     use_when: >-
       Customer asks about exchanging old furniture, the Exchange & Upgrade
@@ -617,7 +617,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_ready_stock
+  - short_code: social_dm_ready_stock
     surface: dm
     use_when: >-
       Customer asks for ready-stock items or a mixed bedroom/kitchen
@@ -638,7 +638,7 @@ templates:
       Regards,
       Team Durian
 
-  - short_code: social_fhc_intro
+  - short_code: social_dm_fhc_intro
     surface: dm
     use_when: >-
       Enquiry about modular kitchens, interior design, customised wardrobes
@@ -657,7 +657,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_expensive
+  - short_code: social_dm_expensive
     surface: dm
     use_when: >-
       Customer says our furniture is expensive, too costly, or overpriced
@@ -678,7 +678,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_furniture_enquiry
+  - short_code: social_dm_furniture_enquiry
     surface: dm
     use_when: >-
       General furniture enquiry NOT about a specific product — "do you have
@@ -702,7 +702,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_veneer_laminates
+  - short_code: social_dm_veneer_laminates
     surface: dm
     use_when: >-
       Enquiry about veneers, laminates, plywood, or building materials.
@@ -724,7 +724,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_workspace_enquiry
+  - short_code: social_dm_workspace_enquiry
     surface: dm
     use_when: >-
       Office/workspace furniture or a commercial/office project enquiry
@@ -747,7 +747,7 @@ templates:
       Regards,
       Team Durian.
 
-  - short_code: social_non_serviceable
+  - short_code: social_dm_non_serviceable
     surface: dm
     use_when: >-
       Customer asks about delivery outside India or to a pin code / area we
@@ -765,7 +765,7 @@ templates:
       Best regards,
       Team Durian
 
-  - short_code: social_made_in_india
+  - short_code: social_dm_made_in_india
     surface: dm
     use_when: >-
       Customer asks whether our products are made in India or objects that
@@ -889,3 +889,92 @@ templates:
     content: |
       We can't wait to welcome you! Let us know if you'd like help locating your nearest store 🛋️
       Visit us at: www.durian.in/stores
+
+  # ── New intent templates (2026-07, from Instagram OQM sheet analysis) ────
+
+  - short_code: social_comment_contest
+    surface: comment
+    use_when: >-
+      Public comment entering / responding to a Durian contest or giveaway —
+      tagging friends, "done", "I want to win", or answering the contest
+      question. Use only while a contest is actually running.
+    triggers: ["Done ✅", "Participated!", "I want to win this", "@friend @friend done", "Me 🙋"]
+    content: |
+      Hello [NAME],
+
+      Thank you for the contest entry! 🎉 Please check your Instagram DM for the form link to confirm your participation.
+
+      Good luck!
+      Team Durian.
+
+  - short_code: social_dm_design_collab_lead
+    surface: dm
+    use_when: >-
+      A homeowner, interior designer, or architect says they are doing up /
+      furnishing their own home or a project and want to "collaborate" or get
+      in touch. A genuine design/furnishing LEAD — NOT an influencer pitching
+      content and NOT a vendor selling to us.
+    triggers: ["I'm doing interior for my new home, open for collabs?", "Shifting to a new house in Mumbai and would love to collaborate", "Doing up my flat, can we work together?", "I'm an interior designer, keen to collaborate for my projects"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out — we'd love to be part of your new space! ✨
+
+      Our Full Home Customisation team designs tailored furniture, wardrobes and modular kitchens for exactly this. Share a few details and our Design Experts will connect within 24 hours:
+      Full Name:
+      Contact Number:
+      City / Pincode:
+      What you're looking for:
+
+      You can also reach us at 📞 1800 209 3242 or explore https://www.durian.in/full-home-customisation
+
+      Regards,
+      Team Durian.
+
+  - short_code: social_dm_influencer_collab
+    surface: dm
+    use_when: >-
+      An influencer, content creator, blogger or media page pitches a brand /
+      paid / content collaboration (they make content — not furnishing their
+      own home, not selling a product to us).
+    triggers: ["Would love to collaborate for content", "I'm a content creator, open to brand collabs?", "Interested in a paid partnership", "We have exciting content ideas to partner with you"]
+    content: |
+      Hello [NAME],
+
+      Thank you for thinking of Durian for a collaboration!
+
+      Please email your profile and proposal to hello@durian.in — our marketing team reviews every pitch and will reach out if it's a fit.
+
+      Regards,
+      Team Durian.
+
+  - short_code: social_dm_vendor_supplier_pitch
+    surface: dm
+    use_when: >-
+      A manufacturer, supplier, exporter or vendor pitches to SELL their
+      products / materials to Durian or become a supplier (resin tops, iron
+      furniture, handicrafts, raw materials).
+    triggers: ["We are manufacturer of resin tops, want to do business", "I want to be your supplier", "We manufacture iron & wooden furniture, please contact us", "We are exporter of handicraft items"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      For vendor and supplier proposals, please email your company profile and catalogue to hello@durian.in. Our procurement team will get in touch if there's a requirement.
+
+      Regards,
+      Team Durian.
+
+  - short_code: social_dm_marketing_spam_pitch
+    surface: dm
+    use_when: >-
+      An unsolicited digital-marketing, SEO, web-development or link/guest-post
+      sales pitch.
+    triggers: ["We help businesses improve their presence on Google", "I'm an outreach blogger selling links on high quality websites", "Do you need a website?", "SEO services for your brand"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out. We don't have a requirement for this at the moment, but you're welcome to share your proposal at hello@durian.in for our team's reference.
+
+      Regards,
+      Team Durian.
