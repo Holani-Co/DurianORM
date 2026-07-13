@@ -4338,6 +4338,13 @@ async def chatwoot_crm_create_deal(request: Request):
     closing = (datetime.now(timezone.utc)
                + timedelta(days=config.ZOHO_CRM_DEAL_CLOSING_DAYS))
     extra_fields.setdefault("Closing_Date", closing.strftime("%Y-%m-%d"))
+    # Customer phone → the Deal's Mobile field (the gate-captured number, else
+    # the Chatwoot contact's). Env-gated by the field's api_name so a wrong/
+    # unset name can't fail the create.
+    deal_phone = (_captured.get("phone")
+                  or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or "")
+    if config.ZOHO_CRM_MOBILE_FIELD and deal_phone:
+        extra_fields.setdefault(config.ZOHO_CRM_MOBILE_FIELD, str(deal_phone))
 
     description = await _deal_description(
         conv_id=int(conv_id), conv=conv, messages=messages,
