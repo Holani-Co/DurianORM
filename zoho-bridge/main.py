@@ -2341,27 +2341,29 @@ async def handle_message_created(data: dict) -> dict:
     # of the open Conversations list (a customer reply re-opens the thread):
     #   1. Subject matches a system-notification phrase (order/OTP/shipping/
     #      stock alerts) — routing_rules.yaml:system_notification_subjects.
-    #   2. An internal auto-file address (e.g. customersupport@durian.in) is on
-    #      the mail — as sender OR To/Cc. These are the client's own support
-    #      threads that CC hello@durian.in; they must never be re-classified.
+    #   2. An internal auto-file address (e.g. customersupport@durian.in) SENT
+    #      the mail (From only). These are the client's own support threads that
+    #      CC hello@durian.in. A customer who emails hello@durian.in and merely
+    #      CCs customersupport is a real enquiry — preserved and classified.
     # Social DMs have no email subject/headers, so this only applies to email.
     auto_file_reason: Optional[str] = None
     if not is_social:
         if classifier.is_system_notification(real_subject):
             auto_file_reason = "subject-matched system/transactional email"
         else:
-            # Gather every address on the incoming email (from + to + cc) so an
-            # internal address is caught whether it sent the mail or was CC'd.
+            # Match ONLY the From address — the internal address must have SENT
+            # the mail to auto-file it. A customer who emails hello@durian.in and
+            # merely CCs customersupport is a REAL enquiry that must be preserved
+            # and classified normally, so To/Cc are deliberately NOT matched.
             _email_hdr = (data.get("content_attributes") or {}).get("email") or {}
-            _addrs = {sender_email.lower()} if sender_email else set()
-            for _k in ("from", "to", "cc"):
-                for _a in (_email_hdr.get(_k) or []):
-                    _val = _a.get("email") if isinstance(_a, dict) else _a
-                    if isinstance(_val, str):
-                        _addrs.add(_val.lower())
-            _addrs.discard("")
-            if any(classifier.is_auto_file_sender(a) for a in _addrs):
-                auto_file_reason = "internal auto-file address (customersupport)"
+            _from = {sender_email.lower()} if sender_email else set()
+            for _a in (_email_hdr.get("from") or []):
+                _val = _a.get("email") if isinstance(_a, dict) else _a
+                if isinstance(_val, str):
+                    _from.add(_val.lower())
+            _from.discard("")
+            if any(classifier.is_auto_file_sender(a) for a in _from):
+                auto_file_reason = "internal auto-file sender (customersupport)"
 
     if auto_file_reason:
         print(f"[auto-file] conv {conv_id}: {auto_file_reason} — "
