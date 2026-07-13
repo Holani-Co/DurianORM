@@ -980,7 +980,7 @@ templates:
   - short_code: facebook_comment_price_furniture
     surface: comment
     use_when: >-
-      Public comment asking the price of a furniture item — redirect to DM
+      Public comment asking the price of a furniture item — redirect to inbox
       where the product link and price are shared.
     triggers: ["PP", "Price please", "Pls tell the price", "What's the price?"]
     content: |
@@ -988,7 +988,7 @@ templates:
 
       Thank you for your interest.
 
-      Kindly check your DM for product details link and product price.
+      Kindly check your inbox for product details link and product price.
 
       For quick guidance, connect with us on:
       📞 Customer support: 1800 209 3242
@@ -1003,13 +1003,13 @@ templates:
   - short_code: facebook_comment_price_door
     surface: comment
     use_when: >-
-      Public comment asking the price of a door — redirect to DM.
+      Public comment asking the price of a door — redirect to inbox.
     triggers: ["What's the price of this door?", "PP", "Price please"]
     content: |
       Hello [NAME],
 
       Thank you for your interest in Durian doors.
-      Kindly check your DM for more details.
+      Kindly check your inbox for more details.
 
       For quick guidance, connect with us on:
       📞 Customer support: 1800 209 3242
@@ -1022,14 +1022,14 @@ templates:
   - short_code: facebook_comment_price_wardrobe
     surface: comment
     use_when: >-
-      Public comment asking the price of a wardrobe — redirect to DM.
+      Public comment asking the price of a wardrobe — redirect to inbox.
     triggers: ["What's the price of this wardrobe?", "PP", "Price please"]
     content: |
       Hello [NAME],
 
       Thank you for your interest in Durian Wardrobes.
 
-      Kindly check your DM for more details.
+      Kindly check your inbox for more details.
 
       For quick guidance, connect with us on:
       📞 Customer support: 1800 209 3242
@@ -1051,7 +1051,7 @@ templates:
 
       Thank you for your interest.
 
-      Kindly check the DM for the product details and price.
+      Kindly check the inbox for the product details and price.
 
       We look forward to hearing from you.
 
@@ -1111,8 +1111,8 @@ templates:
     surface: dm
     use_when: >-
       Customer asks the price or details of a specific furniture item (sofa,
-      bed, dining set, recliner, chair) in a DM, or a furniture price comment
-      was redirected to DM. Also fits "want to buy" messages naming a
+      bed, dining set, recliner, chair) in a inbox, or a furniture price comment
+      was redirected to inbox. Also fits "want to buy" messages naming a
       furniture product.
     triggers: ["PP", "Price please", "Pls tell the price", "Pp of complete set", "What's the price of this sofa?", "Sofa cum bed"]
     content: |
