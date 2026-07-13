@@ -375,12 +375,11 @@ BMS_API_TOKEN          = os.environ.get("BMS_API_TOKEN", "").strip()
 # How many times the bridge drafts a "please share your details" ask before
 # giving up and leaving the conversation to the agent entirely.
 ORDER_LOOKUP_MAX_ASKS  = int(os.environ.get("ORDER_LOOKUP_MAX_ASKS", "2"))
-# When true, a successfully-fetched order reply is emailed to the customer
-# AUTOMATICALLY (no agent card) — but ONLY when the sender's email matches the
-# order's billing email (proof they own the order). Orders are full of PII
-# (name, phone, home address) and order ids are sequential/guessable, so an
-# unverified requester must never get an auto-reply. When the sender can't be
-# verified as the owner, the flow falls back to the agent review-send card.
+# When true, the "please share your order number + phone" ASK email is sent
+# to the customer AUTOMATICALLY (it carries no order data, so it's safe). The
+# order DETAILS reply is ALWAYS an agent review-send card regardless of this
+# flag — order PII (name, phone, address) must never auto-email. False (test
+# mode) makes the ask an agent card too, so nothing goes out without a click.
 ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 
 # ── Human-in-the-loop email categorisation ─────────────────────────────────
