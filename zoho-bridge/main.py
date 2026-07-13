@@ -2068,7 +2068,6 @@ Thank you for your interest in Durian.
 To register your enquiry and connect you with the right team, could you please share:
 1. The phone number we can reach you on
 2. Your city
-3. A brief note on your requirement (quantity, timeline, budget if any)
 
 We'll take it forward as soon as we receive these.
 
@@ -2114,7 +2113,7 @@ async def _deal_details_gate_llm(customer_name: str, text: str,
         "present. If the phone is missing OR the city is empty, write a short, "
         "warm reply that: thanks them, says we'd love to help with their "
         "requirement, and asks ONLY for what's still missing (phone and/or "
-        "city) plus a brief note on their requirement (quantity/timeline). "
+        "city). Do not ask for quantity, timeline or budget. "
         f"Address them as '{customer_name}', plain text, sign off exactly:\n"
         "Regards,\nTeam Durian\n"
         "If BOTH phone and city are already present, return ask_reply as an "
