@@ -786,10 +786,17 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
             # auto-create in _maybe_create_complaint_ticket does the same).
             assignee_id = (config.COMPLAINT_TICKET_OWNER_DESK_ID or None) \
                 if escalation_label == "complaint" else None
+            cdetails = None
+            if escalation_label == "complaint":
+                try:
+                    cdetails = ((await chatwoot.get_conversation(conv_id)).get(
+                        "custom_attributes") or {}).get("complaint_details") or None
+                except Exception:
+                    pass
             ticket = await zoho.create_ticket(
                 synthetic_payload, messages=messages, summary=summary,
                 priority=_priority_from_label(escalation_label),
-                assignee_id=assignee_id,
+                assignee_id=assignee_id, complaint_details=cdetails,
             )
             print(f"[zoho-dedup] conv {conv_id}: agent chose CREATE_NEW → "
                   f"ticket {ticket.get('id')}")
@@ -1367,7 +1374,8 @@ async def _send_complaint_reference_ack(conv_id: int, sender_email: str,
         return
     body = (
         f"Dear {customer_name},\n\n"
-        f"Your complaint is being tracked under reference number "
+        f"Thank you for the details. Your complaint has been forwarded to our "
+        f"support team and is being tracked under reference number "
         f"#{ticket_number}. Please quote this number in any future "
         f"correspondence about this complaint.\n\n"
         f"Regards,\nTeam Durian"
@@ -2351,28 +2359,65 @@ async def _run_complaint_details_gate(conv_id: int, sender_name: str,
             f"holding forward + ticket."], False
 
 
+def _complaint_thread_transcript(messages: list, sender_name: str,
+                                 max_chars: int = 8000) -> str:
+    """The full PUBLIC back-and-forth of the complaint (oldest first), Customer
+    / Team Durian labelled — forwarded to the team so they have the whole
+    thread, not just the first message. Private agent notes are excluded."""
+    lines = []
+    for m in messages:
+        if m.get("private"):
+            continue
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        mtype = m.get("message_type")
+        if mtype in (0, "incoming"):
+            who = sender_name or "Customer"
+        elif mtype in (1, "outgoing"):
+            who = "Team Durian"
+        else:
+            continue
+        lines.append(f"{who}:\n{content}")
+    return "\n\n----\n\n".join(lines)[:max_chars]
+
+
 async def _handle_complaint_details_reply(conv_id: int, data: dict,
                                           conv: dict, pending: dict) -> dict:
     """Customer replied on a complaint awaiting details. Re-runs the gate; if it
     now has everything (or hits the cap) it runs the full complaint action layer
     (forward + ticket) via _phase2_execute_actions."""
-    content = data.get("content") or ""
-    subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
+    reply   = data.get("content") or ""
     sender  = (conv.get("meta") or {}).get("sender") or {}
+    name, email = sender.get("name") or "", sender.get("email") or ""
+    # The ORIGINAL complaint (first incoming) is what we forward to the team —
+    # not the customer's reply (which quotes our ask email). It also gives the
+    # gate full context: the reason usually lives in the original complaint,
+    # while the order id / phone come in the reply.
+    try:
+        messages = await chatwoot.get_conversation_messages(conv_id)
+    except Exception:
+        messages = []
+    orig_subject, orig_content = _conv_first_incoming_body(messages)
+    orig_subject = orig_subject or \
+        ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
+    combined = "\n\n".join(t for t in (orig_content, reply) if t).strip() or reply
     audit, proceed = await _run_complaint_details_gate(
-        conv_id, sender.get("name") or "", sender.get("email") or "",
-        subject, content, attempt=int(pending.get("attempts") or 1))
+        conv_id, name, email, orig_subject, combined,
+        attempt=int(pending.get("attempts") or 1))
     if not proceed:
         print(f"[complaint-gate] conv {conv_id}: reply re-entry → still missing")
         return {"handled": "complaint_details_reply", "audit": audit}
-    # Details complete (or cap) → run the complaint action layer now.
+    # Details complete (or cap) → run the complaint action layer, forwarding the
+    # ENTIRE thread (complaint → our ask → their reply) rather than one message.
     custom = conv.get("custom_attributes") or {}
     category_result = custom.get("email_category_v2") or {"category": "complaint",
                                                           "action": "forward"}
     rule = (classifier._ROUTING_RULES.get("categories") or {}).get("complaint")
+    thread = _complaint_thread_transcript(messages, name) or (orig_content or reply)
     extra = await _phase2_execute_actions(
-        conv_id, category_result, rule, sender.get("name") or "",
-        sender.get("email") or "", content, subject,
+        conv_id, category_result, rule, name, email,
+        thread, orig_subject,
         email_category="legitimate", complaint_gate_done=True)
     print(f"[complaint-gate] conv {conv_id}: details complete → ran action layer")
     return {"handled": "complaint_details_reply", "audit": audit + (extra or [])}
@@ -2501,10 +2546,27 @@ async def _phase2_execute_actions(conv_id: int,
             # it must NOT expose internal routing jargon ("auto-forwarded by
             # routing bridge", category enum, etc.). Reads like a normal
             # professional internal forward of the customer's message.
-            fwd_lines = [
-                f"Forwarding the message below from {sender_name or sender_email} "
-                "for your review and necessary action.",
-                "",
+            if cat_key == "complaint":
+                fwd_lines = [f"Forwarding this complaint from {sender_name or sender_email} "
+                             "for your review and necessary action.", ""]
+                # Structured slots gathered by the complaint-details gate, so the
+                # team has the key facts up front.
+                try:
+                    _cd = ((await chatwoot.get_conversation(conv_id)).get(
+                        "custom_attributes") or {}).get("complaint_details") or {}
+                except Exception:
+                    _cd = {}
+                det = [f"Reason: {_cd['reason']}" if _cd.get("reason") else "",
+                       f"Order ID: {_cd['order_id']}" if _cd.get("order_id") else "",
+                       f"Registered phone: {_cd['phone']}" if _cd.get("phone") else ""]
+                det = [d for d in det if d]
+                if det:
+                    fwd_lines += det + [""]
+            else:
+                fwd_lines = [f"Forwarding the message below from "
+                             f"{sender_name or sender_email} for your review and "
+                             "necessary action.", ""]
+            fwd_lines += [
                 f"From: {sender_name or '(unknown)'} <{sender_email}>",
                 f"Subject: {original_subject or '(no subject)'}",
                 "",
@@ -2702,11 +2764,15 @@ async def _phase2_execute_actions(conv_id: int,
                     f"{t.get('status')}: {(t.get('subject') or '')[:80]}")
 
     # ── Send the deferred complaint acknowledgment ──────────────────────
-    # Now that the ticket outcome is known, send the complaint ack — with the
-    # reference number embedded when a ticket was auto-created. On the paused
-    # (dedup) or failed paths there's no number yet, so the ack goes out
-    # as-is; the customer still gets acknowledged either way.
-    if deferred_complaint_ack:
+    # Sent with the reference number once the ticket is CREATED. When the dedup
+    # paused for an agent decision (no ticket yet), HOLD the ack — it goes out
+    # from the decision panel the moment the agent creates/attaches the ticket
+    # (_send_complaint_reference_ack), so the customer gets ONE email with the
+    # reference, not a number-less one now and another later.
+    if deferred_complaint_ack and ticket_decision_pending:
+        audit.append("⏸️ Complaint ack held — ticket decision pending; it goes "
+                     "out with the reference once the ticket is created.")
+    elif deferred_complaint_ack:
         recipient, ack_body = deferred_complaint_ack
         ref_num = complaint_ticket.get("ticketNumber") if complaint_ticket else None
         if ref_num:
