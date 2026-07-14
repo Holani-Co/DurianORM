@@ -215,6 +215,23 @@ async def _ingest_review(loc: dict, rv: dict):
         except Exception as e:
             print(f"[reviews] add_label({lbl}) failed for conv {conv_id}: {e}")
 
+    # 1b. Already answered on Google — a reply was posted directly in the GBP
+    # console, or the review was re-ingested after its reply. Don't draft or
+    # hand it off (that path tags review-unreplied and drops it into the
+    # unreplied queue even though it's already answered). Mirror the existing
+    # reply so the agent can see it, mark replied + resolved, and stop here.
+    if rv["has_reply"]:
+        if rv.get("reply_comment"):
+            await chatwoot.create_message(conv_id, rv["reply_comment"],
+                                          message_type="outgoing",
+                                          content_attributes=AUTO_MARKER)
+        await chatwoot.toggle_status(conv_id, "resolved")
+        await tag_reply_status(conv_id, LBL_REPLIED, remove=(LBL_UNREPLIED,))
+        state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
+                        replied=True, update_time=rv["update_time"])
+        print(f"[reviews] {rv['stars']}★ @ {title} already replied on Google — marked replied")
+        return
+
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag
     # below only gates auto-posting (we won't re-post to Google), not the card.
