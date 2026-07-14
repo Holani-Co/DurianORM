@@ -258,7 +258,18 @@ class Conversation < ApplicationRecord
     return handle_campaign_status if campaign.present?
 
     # TODO: make this an inbox config instead of assuming bot conversations should start as pending
-    self.status = :pending if inbox.active_bot?
+    # Public post comments (Instagram/Facebook) have no bot-menu flow — they
+    # surface an AI-suggested reply the agent sends. Keep them OPEN so they show
+    # up in the agent's normal Open list like DMs, instead of being hidden in
+    # Pending. (The comment bot path ignores conversation status, so an enabled
+    # comment auto-reply still works.)
+    self.status = :pending if inbox.active_bot? && !comment_type_conversation?
+  end
+
+  # A public post-comment conversation (Instagram/Facebook), tagged via
+  # additional_attributes.type = 'instagram_comment' / 'facebook_comment'.
+  def comment_type_conversation?
+    additional_attributes&.dig('type').to_s.include?('comment')
   end
 
   def handle_campaign_status
