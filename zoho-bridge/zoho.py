@@ -196,7 +196,8 @@ async def create_ticket(payload: dict, priority: str | None = None,
                         due_at: "datetime | None" = None,
                         messages: list | None = None,
                         summary: dict | None = None,
-                        assignee_id: str | None = None) -> dict:
+                        assignee_id: str | None = None,
+                        complaint_details: dict | None = None) -> dict:
     """Create a Zoho Desk ticket from a Chatwoot webhook payload.
 
     Optional kwargs:
@@ -239,7 +240,23 @@ async def create_ticket(payload: dict, priority: str | None = None,
         f"<p><b>Priority:</b> {html.escape(body.get('priority') or 'Medium')}"
         f"<br><b>Handled by:</b> {html.escape(handled_by)}</p><hr/>"
     )
-    body["description"] = meta_html + (body.get("description") or "")
+    # Structured complaint slots (order id / phone / reason) gathered by the
+    # complaint-details gate — surfaced at the top so the support agent has the
+    # key facts without reading the transcript.
+    details_html = ""
+    if complaint_details:
+        rows = []
+        if complaint_details.get("order_id"):
+            rows.append(f"<b>Order ID:</b> {html.escape(str(complaint_details['order_id']))}")
+        if complaint_details.get("phone"):
+            rows.append(f"<b>Registered phone:</b> {html.escape(str(complaint_details['phone']))}")
+        if complaint_details.get("reason"):
+            rows.append(f"<b>Reason:</b> {html.escape(str(complaint_details['reason']))}")
+        if complaint_details.get("partial"):
+            rows.append("<i>(some details still pending from the customer)</i>")
+        if rows:
+            details_html = "<p>" + "<br>".join(rows) + "</p><hr/>"
+    body["description"] = meta_html + details_html + (body.get("description") or "")
 
     if due_at is not None:
         try:
