@@ -1713,13 +1713,21 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
     try:
         assignee_id = config.COMPLAINT_TICKET_OWNER_DESK_ID or None
         messages, summary = await _ticket_context(conv_id)
+        # Structured slots gathered by the complaint-details gate (order id /
+        # phone / reason) → surfaced at the top of the ticket for support.
+        complaint_details = None
+        try:
+            conv_now = await chatwoot.get_conversation(conv_id)
+            complaint_details = (conv_now.get("custom_attributes") or {}).get("complaint_details") or None
+        except Exception:
+            pass
         payload = {"conversation": {
             "id": conv_id,
             "meta": {"sender": {"name": sender_name, "email": sender_email}},
         }}
         ticket = await zoho.create_ticket(
             payload, messages=messages, summary=summary,
-            assignee_id=assignee_id)
+            assignee_id=assignee_id, complaint_details=complaint_details)
         ticket_id = ticket.get("id")
         print(f"[zoho] complaint ticket created for conv {conv_id}: "
               f"{ticket_id} assignee={assignee_id or '(none)'}")
@@ -2209,6 +2217,167 @@ async def _handle_deal_details_reply(conv_id: int, data: dict,
     return {"handled": "deal_details_reply", "audit": audit}
 
 
+# ── Complaint-details gate ─────────────────────────────────────────────────
+# A complaint is forwarded + ticketed only once the customer has given all
+# three: order id + registered phone + reason. Missing any → auto-send ONE
+# empathetic ask and hold. After the cap, forward + ticket anyway (never lose
+# a complaint). The captured slots populate the Zoho ticket.
+COMPLAINT_DETAILS_NEEDED_LABEL = "complaint-details-needed"
+
+_COMPLAINT_DETAILS_FALLBACK_ASK = """Dear {customer_name},
+
+Thank you for registering your complaint, and we're truly sorry for the trouble.
+
+So we can escalate this to the right team quickly, could you please share:
+1. Your order ID (it looks like D#12345)
+2. The phone number the order was registered with
+3. A brief description of the issue
+
+As soon as we have these, we'll raise it with our support team right away.
+
+Regards,
+Team Durian"""
+
+
+async def _complaint_gate_llm(customer_name: str, text: str,
+                              have_order: bool, have_phone: bool) -> dict:
+    """One LLM call for the complaint gate: judge whether the message states a
+    clear REASON for the complaint (what went wrong / which product), and —
+    when order id / phone / reason is still missing — draft a warm, empathetic
+    reply asking ONLY for what's missing. Returns {"reason": str, "ask_reply":
+    str}; reason is a short summary (empty if none stated), ask_reply is "" when
+    nothing is missing. Best-effort — empties on failure so the flow never breaks."""
+    from llm_client import client
+    schema = {
+        "name": "complaint_gate", "strict": True,
+        "schema": {"type": "object", "additionalProperties": False,
+                   "required": ["reason", "ask_reply"],
+                   "properties": {"reason": {"type": "string"},
+                                  "ask_reply": {"type": "string"}}},
+    }
+    system = (
+        "You are a warm, empathetic customer-support agent for Durian, an Indian "
+        "furniture brand, handling a customer COMPLAINT.\n"
+        "Return two fields:\n"
+        "1. reason — a short (<=140 char) summary of the specific complaint if "
+        "the customer states one (the product + what's wrong, e.g. 'recliner "
+        "leather peeling within warranty'). Empty string if the message is only "
+        "a vague grievance with no actionable specifics ('worst brand', 'very "
+        "bad service') and no product/issue named.\n"
+        "2. ask_reply — to escalate we REQUIRE the order id, the registered "
+        "phone, AND a clear reason. 'Already have order id' / 'Already have "
+        "phone' below tell you which are present. If ANY of the three is "
+        "missing (order id, phone, or a clear reason), write a short, warm reply "
+        "that: thanks them for registering the complaint, says we're sorry to "
+        "hear it, and asks ONLY for what's still missing. "
+        f"Address them as '{customer_name}', plain text, sign off exactly:\n"
+        "Regards,\nTeam Durian\n"
+        "If all three are already present, return ask_reply as an empty string."
+    )
+    user = (f"Already have order id: {have_order}\nAlready have phone: {have_phone}\n\n"
+            f"COMPLAINT MESSAGE:\n{text[:2000]}")
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            response_format={"type": "json_schema", "json_schema": schema},
+        )
+        parsed = json.loads(resp.choices[0].message.content) or {}
+        return {"reason": (parsed.get("reason") or "").strip(),
+                "ask_reply": (parsed.get("ask_reply") or "").strip()}
+    except Exception as e:
+        print(f"[complaint-gate] LLM gate failed: {e}")
+        return {"reason": "", "ask_reply": ""}
+
+
+async def _run_complaint_details_gate(conv_id: int, sender_name: str,
+                                      sender_email: str, subject: str, body: str,
+                                      *, attempt: int) -> tuple[list[str], bool]:
+    """One pass of the complaint gate. Returns (audit, proceed).
+    proceed=True  → all three slots present, OR the ask cap was reached
+                    (forward + ticket anyway); the caller runs its normal
+                    forward/ticket, and the captured slots are on
+                    complaint_details for the ticket.
+    proceed=False → a detail was missing and we auto-sent the ask; the caller
+                    MUST skip the forward, ticket, and acknowledgment this pass."""
+    text = f"{subject}\n{body}"
+    order_ids = _extract_order_ids(text)
+    phones    = _extract_phones(text)
+    have_order, have_phone = bool(order_ids), bool(phones)
+    name = _resolve_customer_name(sender_name, sender_email)
+
+    gate = await _complaint_gate_llm(name, text, have_order, have_phone)
+    reason = gate.get("reason") or ""
+    have_reason = bool(reason)
+
+    def _capture(partial: bool) -> dict:
+        return {"order_id": order_ids[0] if order_ids else "",
+                "phone": phones[0] if phones else "",
+                "reason": reason, "captured_at": _now_iso(),
+                **({"partial": True} if partial else {})}
+
+    if have_order and have_phone and have_reason:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "complaint_details": _capture(False), "pending_complaint_details": None})
+        try:
+            await chatwoot.remove_label(conv_id, COMPLAINT_DETAILS_NEEDED_LABEL)
+        except Exception:
+            pass
+        return ["🎫 Complaint details complete (order id + phone + reason) — "
+                "forwarding + ticketing."], True
+
+    missing = ", ".join(x for x in ("order id" if not have_order else "",
+                                    "phone" if not have_phone else "",
+                                    "reason" if not have_reason else "") if x)
+    if attempt >= config.COMPLAINT_DETAILS_MAX_ASKS:
+        # Never lose a complaint: proceed with whatever we have, flagged partial.
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "complaint_details": _capture(True), "pending_complaint_details": None})
+        return [f"🎫 Complaint details ({missing}) still missing after {attempt} "
+                f"ask(s) — forwarding + ticketing anyway."], True
+
+    ask = gate.get("ask_reply") or _COMPLAINT_DETAILS_FALLBACK_ASK.format(customer_name=name)
+    await chatwoot.merge_custom_attributes(conv_id, {
+        "pending_complaint_details": {"attempts": attempt + 1, "asked_at": _now_iso()}})
+    if sender_email:
+        try:
+            await chatwoot.send_outgoing_message(conv_id, ask, to_emails=sender_email)
+        except Exception as e:
+            print(f"[complaint-gate] ask send failed for conv {conv_id}: {e}")
+    await _label_conversation(conv_id, COMPLAINT_DETAILS_NEEDED_LABEL)
+    print(f"[complaint-gate] conv {conv_id}: auto-sent ask for {missing} (attempt {attempt + 1})")
+    return [f"🎫 Complaint details ({missing}) missing — auto-sent request; "
+            f"holding forward + ticket."], False
+
+
+async def _handle_complaint_details_reply(conv_id: int, data: dict,
+                                          conv: dict, pending: dict) -> dict:
+    """Customer replied on a complaint awaiting details. Re-runs the gate; if it
+    now has everything (or hits the cap) it runs the full complaint action layer
+    (forward + ticket) via _phase2_execute_actions."""
+    content = data.get("content") or ""
+    subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
+    sender  = (conv.get("meta") or {}).get("sender") or {}
+    audit, proceed = await _run_complaint_details_gate(
+        conv_id, sender.get("name") or "", sender.get("email") or "",
+        subject, content, attempt=int(pending.get("attempts") or 1))
+    if not proceed:
+        print(f"[complaint-gate] conv {conv_id}: reply re-entry → still missing")
+        return {"handled": "complaint_details_reply", "audit": audit}
+    # Details complete (or cap) → run the complaint action layer now.
+    custom = conv.get("custom_attributes") or {}
+    category_result = custom.get("email_category_v2") or {"category": "complaint",
+                                                          "action": "forward"}
+    rule = (classifier._ROUTING_RULES.get("categories") or {}).get("complaint")
+    extra = await _phase2_execute_actions(
+        conv_id, category_result, rule, sender.get("name") or "",
+        sender.get("email") or "", content, subject,
+        email_category="legitimate", complaint_gate_done=True)
+    print(f"[complaint-gate] conv {conv_id}: details complete → ran action layer")
+    return {"handled": "complaint_details_reply", "audit": audit + (extra or [])}
+
+
 async def _phase2_execute_actions(conv_id: int,
                                   category_result: dict,
                                   rule: Optional[dict],
@@ -2217,7 +2386,8 @@ async def _phase2_execute_actions(conv_id: int,
                                   original_content: str,
                                   original_subject: str,
                                   email_category: str = "",
-                                  manual: bool = False) -> list[str]:
+                                  manual: bool = False,
+                                  complaint_gate_done: bool = False) -> list[str]:
     """Phase 2B action layer: when PHASE_2_DRY_RUN is off, ACTUALLY send the
     acknowledgment + (for forward categories) the forwarded email via
     Chatwoot's outbound channel. Both use the conversation's existing
@@ -2231,6 +2401,20 @@ async def _phase2_execute_actions(conv_id: int,
     name    = _resolve_customer_name(sender_name, sender_email)
     template = _resolve_acknowledgment_template(cat_key)
     audit: list[str] = []
+
+    # ── Complaint-details gate ──────────────────────────────────────────
+    # Before forwarding a complaint to support AND creating its Zoho ticket,
+    # require order id + registered phone + reason. Missing any → auto-send one
+    # empathetic ask and STOP this pass (no ack, no forward, no ticket); the
+    # customer's reply re-enters via _handle_complaint_details_reply. Skipped
+    # when the re-entry already ran the gate (complaint_gate_done).
+    if (cat_key == "complaint" and config.COMPLAINT_DETAILS_GATE_ENABLED
+            and not complaint_gate_done):
+        gate_audit, proceed = await _run_complaint_details_gate(
+            conv_id, sender_name, sender_email,
+            original_subject, original_content, attempt=0)
+        if not proceed:
+            return gate_audit
 
     # ── Customer acknowledgment ─────────────────────────────────────────
     # Sent only when EMAIL_CUSTOMER_ACK_ENABLED=true. During the prod test
@@ -2838,6 +3022,13 @@ async def handle_message_created(data: dict) -> dict:
     if (pending_deal and config.DEAL_DETAILS_GATE_ENABLED
             and data.get("message_type") in (0, "incoming")):
         return await _handle_deal_details_reply(conv_id, data, conv, pending_deal)
+
+    # Complaint-details re-entry: a complaint waiting on order id + phone +
+    # reason gets the customer's reply routed back into the gate.
+    pending_complaint = existing_attrs.get("pending_complaint_details")
+    if (pending_complaint and config.COMPLAINT_DETAILS_GATE_ENABLED
+            and data.get("message_type") in (0, "incoming")):
+        return await _handle_complaint_details_reply(conv_id, data, conv, pending_complaint)
 
     # Idempotency: already-classified conversations skip both classifiers.
     existing_category = existing_attrs.get("email_category")

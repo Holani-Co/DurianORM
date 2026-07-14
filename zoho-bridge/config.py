@@ -401,6 +401,18 @@ ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 DEAL_DETAILS_GATE_ENABLED = _bool("DEAL_DETAILS_GATE_ENABLED", "false")
 DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "2"))
 
+# ── Complaint-details gate ─────────────────────────────────────────────────
+# Client rule: before a complaint is forwarded to support AND a Zoho ticket is
+# created, the customer must have provided all three of order id + registered
+# phone + reason. When enabled, the bridge checks each complaint; if any of the
+# three is missing it auto-sends ONE empathetic AI-drafted ask (replacing the
+# generic acknowledgment) and holds the forward + ticket until the reply. After
+# COMPLAINT_DETAILS_MAX_ASKS the complaint is forwarded + ticketed ANYWAY (with
+# whatever's present) so an upset customer's complaint is never lost. The ticket
+# is populated with the captured order id / phone / reason.
+COMPLAINT_DETAILS_GATE_ENABLED = _bool("COMPLAINT_DETAILS_GATE_ENABLED", "false")
+COMPLAINT_DETAILS_MAX_ASKS     = int(os.environ.get("COMPLAINT_DETAILS_MAX_ASKS", "2"))
+
 # ── Human-in-the-loop email categorisation ─────────────────────────────────
 # The categoriser auto-acts (forward + label + team) ONLY when its confidence
 # is at or above this bar. Below it, the email is NOT forwarded — instead a
