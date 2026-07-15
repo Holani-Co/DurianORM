@@ -403,6 +403,16 @@ ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 DEAL_DETAILS_GATE_ENABLED = _bool("DEAL_DETAILS_GATE_ENABLED", "false")
 DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "2"))
 
+# ── Retail routing gate ────────────────────────────────────────────────────
+# Retail furniture product enquiries (a few pieces, NOT bulk) route by
+# city -> showroom -> CRM owner (retail_showrooms.yaml). The gate asks the
+# customer's city, lists that city's showrooms, and on their pick captures the
+# showroom owner for the agent's Create Deal. City not in the directory ->
+# customer support.
+RETAIL_ROUTING_ENABLED = _bool("RETAIL_ROUTING_ENABLED", "false")
+RETAIL_DETAILS_MAX_ASKS = int(os.environ.get("RETAIL_DETAILS_MAX_ASKS", "2"))
+RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@durian.in")
+
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is
 # created, the customer must have provided all three of order id + registered
