@@ -2237,7 +2237,7 @@ _COMPLAINT_DETAILS_FALLBACK_ASK = """Dear {customer_name},
 Thank you for registering your complaint, and we're truly sorry for the trouble.
 
 So we can escalate this to the right team quickly, could you please share:
-1. Your order ID (it looks like D#12345)
+1. Your order ID (online orders) or invoice/bill number (store purchases)
 2. The phone number the order was registered with
 3. A brief description of the issue
 
@@ -2248,7 +2248,7 @@ Team Durian"""
 
 
 async def _complaint_gate_llm(customer_name: str, text: str,
-                              have_order: bool, have_phone: bool) -> dict:
+                              have_phone: bool) -> dict:
     """One LLM call for the complaint gate: judge whether the message states a
     clear REASON for the complaint (what went wrong / which product), and —
     when order id / phone / reason is still missing — draft a warm, empathetic
@@ -2259,30 +2259,42 @@ async def _complaint_gate_llm(customer_name: str, text: str,
     schema = {
         "name": "complaint_gate", "strict": True,
         "schema": {"type": "object", "additionalProperties": False,
-                   "required": ["reason", "ask_reply"],
+                   "required": ["reason", "order_ref", "ask_reply"],
                    "properties": {"reason": {"type": "string"},
+                                  "order_ref": {"type": "string"},
                                   "ask_reply": {"type": "string"}}},
     }
     system = (
         "You are a warm, empathetic customer-support agent for Durian, an Indian "
         "furniture brand, handling a customer COMPLAINT.\n"
-        "Return two fields:\n"
+        "Return three fields:\n"
         "1. reason — a short (<=140 char) summary of the specific complaint if "
         "the customer states one (the product + what's wrong, e.g. 'recliner "
         "leather peeling within warranty'). Empty string if the message is only "
         "a vague grievance with no actionable specifics ('worst brand', 'very "
         "bad service') and no product/issue named.\n"
-        "2. ask_reply — to escalate we REQUIRE the order id, the registered "
-        "phone, AND a clear reason. 'Already have order id' / 'Already have "
-        "phone' below tell you which are present. If ANY of the three is "
-        "missing (order id, phone, or a clear reason), write a short, warm reply "
-        "that: thanks them for registering the complaint, says we're sorry to "
-        "hear it, and asks ONLY for what's still missing. "
+        "2. order_ref — the customer's ORDER ID or INVOICE / BILL number if the "
+        "message provides one, copied verbatim. ACCEPT a bare value with no "
+        "keyword (e.g. '83452 HG', 'D#12345', 'Invoice 948', 'Bill 7788') — this "
+        "is how the customer identifies their purchase: an order id for online "
+        "orders OR an invoice/bill number for offline store purchases. Empty "
+        "string if none is provided. Do NOT treat a GST number, a quantity "
+        "(e.g. '8342 hg'), a price/amount, a pincode, or a 10-digit phone number "
+        "as an order_ref.\n"
+        "3. ask_reply — to escalate we REQUIRE (a) an order id OR invoice/bill "
+        "number, (b) the registered phone, and (c) a clear reason. The reference "
+        "is PRESENT if and only if you set order_ref above; the phone is present "
+        "per 'Already have phone' below; the reason is present if you set a "
+        "non-empty reason. If ANY of the three is still missing, write a short, "
+        "warm reply that thanks them for registering the complaint, says we're "
+        "sorry to hear it, and asks ONLY for what's still missing — when asking "
+        "for the reference, ask for 'your order ID or invoice/bill number'. Never "
+        "ask for something already provided. "
         f"Address them as '{customer_name}', plain text, sign off exactly:\n"
         "Regards,\nTeam Durian\n"
         "If all three are already present, return ask_reply as an empty string."
     )
-    user = (f"Already have order id: {have_order}\nAlready have phone: {have_phone}\n\n"
+    user = (f"Already have phone: {have_phone}\n\n"
             f"COMPLAINT MESSAGE:\n{text[:2000]}")
     try:
         resp = await client.chat.completions.create(
@@ -2293,10 +2305,11 @@ async def _complaint_gate_llm(customer_name: str, text: str,
         )
         parsed = json.loads(resp.choices[0].message.content) or {}
         return {"reason": (parsed.get("reason") or "").strip(),
+                "order_ref": (parsed.get("order_ref") or "").strip(),
                 "ask_reply": (parsed.get("ask_reply") or "").strip()}
     except Exception as e:
         print(f"[complaint-gate] LLM gate failed: {e}")
-        return {"reason": "", "ask_reply": ""}
+        return {"reason": "", "order_ref": "", "ask_reply": ""}
 
 
 async def _run_complaint_details_gate(conv_id: int, sender_name: str,
@@ -2312,15 +2325,21 @@ async def _run_complaint_details_gate(conv_id: int, sender_name: str,
     text = f"{subject}\n{body}"
     order_ids = _extract_order_ids(text)
     phones    = _extract_phones(text)
-    have_order, have_phone = bool(order_ids), bool(phones)
+    have_phone = bool(phones)
     name = _resolve_customer_name(sender_name, sender_email)
 
-    gate = await _complaint_gate_llm(name, text, have_order, have_phone)
+    gate = await _complaint_gate_llm(name, text, have_phone)
     reason = gate.get("reason") or ""
     have_reason = bool(reason)
+    # Order reference: prefer the keyword/D#-matched regex value; otherwise
+    # accept the bare order id / invoice-bill number the LLM pulled from the
+    # message — so a customer who just replies "83452 HG" (no keyword) is
+    # recognised, and an offline invoice/bill number counts too.
+    order_ref = order_ids[0] if order_ids else (gate.get("order_ref") or "").strip()
+    have_order = bool(order_ref)
 
     def _capture(partial: bool) -> dict:
-        return {"order_id": order_ids[0] if order_ids else "",
+        return {"order_id": order_ref,
                 "phone": phones[0] if phones else "",
                 "reason": reason, "captured_at": _now_iso(),
                 **({"partial": True} if partial else {})}
