@@ -4573,11 +4573,36 @@ async def chatwoot_crm_create_deal(request: Request):
     _captured = custom.get("deal_customer_details") or {}
     if (config.DEAL_DETAILS_GATE_ENABLED and _gate_cat in _DEAL_DETAILS_CATEGORIES
             and not (_captured.get("phone") and _captured.get("city"))):
-        raise HTTPException(422, {
-            "code": "deal_details_missing",
-            "message": "Customer phone + city are required before creating this "
-                       "deal. The bridge is auto-requesting them — the deal can "
-                       "be created once the customer replies with both."})
+        # The gate may never have captured phone + city on this conversation —
+        # e.g. a bulk order with an uncertain region posts the "route manually"
+        # card and returns BEFORE the deal-details gate runs. Rather than block a
+        # deal the customer already qualified, extract phone + city from the
+        # thread now; only 422 if they genuinely aren't there.
+        recover_text = "\n".join(
+            [subject, body_text] + [(m.get("content") or "") for m in messages
+                                    if m.get("message_type") in (0, "incoming")])
+        r_phones = _extract_phones(recover_text)
+        r_city = ""
+        if r_phones:
+            try:
+                r_city = (await _deal_details_gate_llm(name, recover_text, True)).get("city") or ""
+            except Exception as e:
+                print(f"[crm] deal-details recover city failed for conv {conv_id}: {e}")
+        if r_phones and r_city:
+            _captured = {"phone": r_phones[0], "city": r_city,
+                         "captured_at": _now_iso(), "recovered": True}
+            try:
+                await chatwoot.merge_custom_attributes(
+                    int(conv_id), {"deal_customer_details": _captured})
+            except Exception as e:
+                print(f"[crm] deal-details recover merge failed for conv {conv_id}: {e}")
+            print(f"[crm] conv {conv_id}: recovered phone + city ({r_city}) at Create Deal")
+        else:
+            raise HTTPException(422, {
+                "code": "deal_details_missing",
+                "message": "Customer phone + city are required before creating this "
+                           "deal. The bridge is auto-requesting them — the deal can "
+                           "be created once the customer replies with both."})
     # Feed the confirmed city into owner routing so it beats an AI guess.
     if _captured.get("city"):
         body_text = f"City: {_captured['city']}. {body_text}"
