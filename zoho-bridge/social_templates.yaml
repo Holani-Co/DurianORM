@@ -32,14 +32,7 @@ templates:
 
       Thank you for your interest.
 
-      Kindly check your DM for product details link and product price.
-
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      You can also share your contact details for our customer executive to get in touch with you.
-
-      We'll be happy to help you.
+      Please send us a DM so we can assist you better with the details.
 
       Regards,
       Team Durian.
@@ -162,14 +155,15 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for reaching out. We are more than happy to help you.
+      Thank you for your interest.
 
-      🔗 Here's the link for the product details & price of [PRODUCT_NAME]: [PRODUCT_URL]
+      To help you better, please share the following details with us here:
+      1. Full Name
+      2. Location
+      3. Zip Code
+      4. Contact Number
 
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      You can also share your contact details for our customer executive to get in touch with you. We'll be happy to help you.
+      Our customer support specialist will connect with you shortly to assist further.
 
       Regards,
       Team Durian.
@@ -236,15 +230,18 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest in Full Home Customisation.
-      As our solutions are tailored to your unique needs, we'd like to give you the most accurate quote.
+      Thank you for your interest in Durian Full Home Customisation.
 
-      Book your appointment today and connect with our Design Experts to discuss your design requirements in detail.
+      As our solutions are tailored to your unique needs, please share the following details with us here so our Design Expert can give you the most accurate guidance:
+      1. Full Name
+      2. Location
+      3. Zip Code
+      4. Contact Number
 
-      Contact us at 1800 209 3242 to book your appointment
+      Our customer support specialist will connect with you shortly to book your appointment.
 
       Regards,
-      Team Durian
+      Team Durian.
 
   - short_code: instagram_dm_catalogue_furniture
     surface: dm
@@ -331,7 +328,7 @@ templates:
 
       Thank you for your interest.
 
-      You can locate the Durian store near you by referring to this store locator link: https://www.durian.in/stores
+      You can find your nearest Durian store here: https://www.durian.in/stores
 
       Regards,
       Team Durian.
@@ -368,16 +365,12 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest in Full Home Customisation.
+      Thank you for your interest in Durian Full Home Customisation.
 
-      You can easily find your nearest Durian Full Home Customisation Studio by visiting: https://www.durian.in/stores.
+      You can find your nearest Durian Full Home Customisation Studio here: https://www.durian.in/stores
 
-      We look forward to assisting you in creating your dream space!
-
-      For more information, feel free to reach out to us at 1800 209 3242.
-
-      Warm regards,
-      Team Durian
+      Regards,
+      Team Durian.
 
   - short_code: instagram_dm_callback_details_request
     surface: dm
@@ -416,11 +409,9 @@ templates:
       when a candidate/customer shares details after we asked.
     triggers: ["I want this product Please contact me 9779751000", "PP 9535882883 trishakabadi@gmail.com", "Here is my number", "Contact: 973402 1212"]
     content: |
-      Hello [NAME],
+      Thank you for sharing your details with us.
 
-      Thank you for your interest and for sharing your contact details.
-
-      Our executives will get in touch with you shortly.
+      Our team will get in touch with you shortly.
 
       Regards,
       Team Durian.
@@ -434,10 +425,9 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest.
+      Thank you for reaching out.
 
-      Please find the contact details below :
-
+      You can reach us at:
       📞 Customer support: 1800 209 3242
 
       Regards,
@@ -450,9 +440,7 @@ templates:
       including a plain "Thank you" at any point in a conversation.
     triggers: ["Very nice", "Thank you", "Excellent", "So beautiful ❤️", "Super 👌", "Nice video"]
     content: |
-      Hello [NAME],
-
-      Thank you for appreciating & motivating us.
+      Thank you so much for your kind words! We truly appreciate your support.
 
       Regards,
       Team Durian.
@@ -482,9 +470,9 @@ templates:
       number with no question — prompt them to state their query.
     triggers: ["Hi", "Hello", "Hey", "Good morning", "Random text"]
     content: |
-      Hello [NAME],
+      Hello [NAME]! 👋
 
-      How can we help you?
+      Thank you for reaching out to Durian. How can we help you today?
 
       Regards,
       Team Durian.
@@ -496,10 +484,9 @@ templates:
       Durian — direct them to send a resume to HR.
     triggers: ["JOB", "Any vacancy?", "How to apply job in here", "Job vacancy in sales", "I am looking for a job at Durian"]
     content: |
-      Hello [NAME],
+      Thank you for your interest in joining Durian.
 
-      Thank you for your interest.
-      Kindly share your resume at hrcoordinator@durian.in
+      Please share your resume/portfolio at hrcoordinator@durian.in and our team will get back to you.
 
       Regards,
       Team Durian.
@@ -877,16 +864,15 @@ templates:
       not service.
     triggers: ["Do you deliver outside India?", "Can you ship to Dubai?", "Do you deliver to my pin code?"]
     content: |
-      Dear Customer,
+      Hello [NAME],
 
-      Thank you for reaching out to us. We only service pin codes in the Indian subcontinent. We regret the inconvenience caused.
+      Thank you for reaching out. We regret to inform you that we currently do not deliver/service your area. We hope to serve you soon as we expand.
 
-      For any other queries, contact us at 1800 209 3242
+      For any other queries, you can reach us at:
+      📞 Customer support: 1800 209 3242
 
-      Thank you for understanding.
-
-      Best regards,
-      Team Durian
+      Regards,
+      Team Durian.
 
   - short_code: instagram_dm_made_in_india
     surface: dm
@@ -988,14 +974,7 @@ templates:
 
       Thank you for your interest.
 
-      Kindly check your inbox for product details link and product price.
-
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      You can also share your contact details for our customer executive to get in touch with you.
-
-      We'll be happy to help you.
+      Please send us a message so we can assist you better with the details.
 
       Regards,
       Team Durian.
@@ -1118,14 +1097,15 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for reaching out. We are more than happy to help you.
+      Thank you for your interest.
 
-      🔗 Here's the link for the product details & price of [PRODUCT_NAME]: [PRODUCT_URL]
+      To help you better, please share the following details with us here:
+      1. Full Name
+      2. Location
+      3. Zip Code
+      4. Contact Number
 
-      For quick guidance, connect with us on:
-      📞 Customer support: 1800 209 3242
-
-      You can also share your contact details for our customer executive to get in touch with you. We'll be happy to help you.
+      Our customer support specialist will connect with you shortly to assist further.
 
       Regards,
       Team Durian.
@@ -1192,15 +1172,18 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest in Full Home Customisation.
-      As our solutions are tailored to your unique needs, we'd like to give you the most accurate quote.
+      Thank you for your interest in Durian Full Home Customisation.
 
-      Book your appointment today and connect with our Design Experts to discuss your design requirements in detail.
+      As our solutions are tailored to your unique needs, please share the following details with us here so our Design Expert can give you the most accurate guidance:
+      1. Full Name
+      2. Location
+      3. Zip Code
+      4. Contact Number
 
-      Contact us at 1800 209 3242 to book your appointment
+      Our customer support specialist will connect with you shortly to book your appointment.
 
       Regards,
-      Team Durian
+      Team Durian.
 
   - short_code: facebook_dm_catalogue_furniture
     surface: dm
@@ -1287,7 +1270,7 @@ templates:
 
       Thank you for your interest.
 
-      You can locate the Durian store near you by referring to this store locator link: https://www.durian.in/stores
+      You can find your nearest Durian store here: https://www.durian.in/stores
 
       Regards,
       Team Durian.
@@ -1324,16 +1307,12 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest in Full Home Customisation.
+      Thank you for your interest in Durian Full Home Customisation.
 
-      You can easily find your nearest Durian Full Home Customisation Studio by visiting: https://www.durian.in/stores.
+      You can find your nearest Durian Full Home Customisation Studio here: https://www.durian.in/stores
 
-      We look forward to assisting you in creating your dream space!
-
-      For more information, feel free to reach out to us at 1800 209 3242.
-
-      Warm regards,
-      Team Durian
+      Regards,
+      Team Durian.
 
   - short_code: facebook_dm_callback_details_request
     surface: dm
@@ -1372,11 +1351,9 @@ templates:
       when a candidate/customer shares details after we asked.
     triggers: ["I want this product Please contact me 9779751000", "PP 9535882883 trishakabadi@gmail.com", "Here is my number", "Contact: 973402 1212"]
     content: |
-      Hello [NAME],
+      Thank you for sharing your details with us.
 
-      Thank you for your interest and for sharing your contact details.
-
-      Our executives will get in touch with you shortly.
+      Our team will get in touch with you shortly.
 
       Regards,
       Team Durian.
@@ -1390,10 +1367,9 @@ templates:
     content: |
       Hello [NAME],
 
-      Thank you for your interest.
+      Thank you for reaching out.
 
-      Please find the contact details below :
-
+      You can reach us at:
       📞 Customer support: 1800 209 3242
 
       Regards,
@@ -1406,9 +1382,7 @@ templates:
       including a plain "Thank you" at any point in a conversation.
     triggers: ["Very nice", "Thank you", "Excellent", "So beautiful ❤️", "Super 👌", "Nice video"]
     content: |
-      Hello [NAME],
-
-      Thank you for appreciating & motivating us.
+      Thank you so much for your kind words! We truly appreciate your support.
 
       Regards,
       Team Durian.
@@ -1438,9 +1412,9 @@ templates:
       number with no question — prompt them to state their query.
     triggers: ["Hi", "Hello", "Hey", "Good morning", "Random text"]
     content: |
-      Hello [NAME],
+      Hello [NAME]! 👋
 
-      How can we help you?
+      Thank you for reaching out to Durian. How can we help you today?
 
       Regards,
       Team Durian.
@@ -1452,10 +1426,9 @@ templates:
       Durian — direct them to send a resume to HR.
     triggers: ["JOB", "Any vacancy?", "How to apply job in here", "Job vacancy in sales", "I am looking for a job at Durian"]
     content: |
-      Hello [NAME],
+      Thank you for your interest in joining Durian.
 
-      Thank you for your interest.
-      Kindly share your resume at hrcoordinator@durian.in
+      Please share your resume/portfolio at hrcoordinator@durian.in and our team will get back to you.
 
       Regards,
       Team Durian.
@@ -1833,16 +1806,15 @@ templates:
       not service.
     triggers: ["Do you deliver outside India?", "Can you ship to Dubai?", "Do you deliver to my pin code?"]
     content: |
-      Dear Customer,
+      Hello [NAME],
 
-      Thank you for reaching out to us. We only service pin codes in the Indian subcontinent. We regret the inconvenience caused.
+      Thank you for reaching out. We regret to inform you that we currently do not deliver/service your area. We hope to serve you soon as we expand.
 
-      For any other queries, contact us at 1800 209 3242
+      For any other queries, you can reach us at:
+      📞 Customer support: 1800 209 3242
 
-      Thank you for understanding.
-
-      Best regards,
-      Team Durian
+      Regards,
+      Team Durian.
 
   - short_code: facebook_dm_made_in_india
     surface: dm
@@ -1926,3 +1898,302 @@ templates:
 
       Regards,
       Team Durian.
+
+  # ═══ Added / refreshed from 'Updated Social Media Automated Response' sheet (2026-07) ═══
+
+  - short_code: instagram_comment_address
+    surface: comment
+    use_when: >-
+      Public comment asking for store/showroom location — redirect to DM to share store details.
+    triggers: ["Any outlet in India", "Where is your store?", "Store address?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Please send us a DM and we'll share the store details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_address
+    surface: comment
+    use_when: >-
+      Public comment asking for store/showroom location — redirect to inbox to share store details.
+    triggers: ["Any outlet in India", "Where is your store?", "Store address?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest.
+
+      Please send us a message and we'll share the store details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_contact
+    surface: comment
+    use_when: >-
+      Public comment asking for contact details / customer support number — redirect to DM.
+    triggers: ["Please share your contact details", "I want to speak to customer support"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      Please send us a DM and we'll share our contact details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_contact
+    surface: comment
+    use_when: >-
+      Public comment asking for contact details / customer support number — redirect to inbox.
+    triggers: ["Please share your contact details", "I want to speak to customer support"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      Please send us a message and we'll share our contact details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_greeting
+    surface: comment
+    use_when: >-
+      Public comment that is just a greeting with no specific ask.
+    triggers: ["Hey", "Hi", "Hello"]
+    content: |
+      Hello [NAME]! 👋
+
+      Thank you for reaching out to Durian. How can we help you today?
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_greeting
+    surface: comment
+    use_when: >-
+      Public comment that is just a greeting with no specific ask.
+    triggers: ["Hey", "Hi", "Hello"]
+    content: |
+      Hello [NAME]! 👋
+
+      Thank you for reaching out to Durian. How can we help you today?
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_non_serviceable
+    surface: comment
+    use_when: >-
+      Public comment asking about delivery/service to an area Durian does not serve — redirect to DM.
+    triggers: ["Do you ship worldwide?", "Delivery to Sydney Australia?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out. We regret to inform you that we currently do not deliver/service your area.
+
+      Please send us a DM for further assistance.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_non_serviceable
+    surface: comment
+    use_when: >-
+      Public comment asking about delivery/service to an area Durian does not serve — redirect to inbox.
+    triggers: ["Do you ship worldwide?", "Delivery to Sydney Australia?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out. We regret to inform you that we currently do not deliver/service your area.
+
+      Please send us a message for further assistance.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_ambiguous
+    surface: comment
+    use_when: >-
+      Public comment whose intent is unclear (job or product) — redirect to DM for details.
+    triggers: ["Unclear comment", "Can you help?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      Please send us a DM with more details so we can assist you better.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_ambiguous
+    surface: comment
+    use_when: >-
+      Public comment whose intent is unclear (job or product) — redirect to inbox for details.
+    triggers: ["Unclear comment", "Can you help?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      Please send us a message with more details so we can assist you better.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_dm_ambiguous
+    surface: dm
+    use_when: >-
+      DM whose intent is unclear — offer both the recruitment email and the product detail-capture path.
+    triggers: ["Unclear message", "Can you help?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      For job/recruitment enquiries, please write to us at hrcoordinator@durian.in.
+
+      For product enquiries, please share your Full Name, Location, Zip Code and Contact Number so our specialist can assist you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_ambiguous
+    surface: dm
+    use_when: >-
+      DM whose intent is unclear — offer both the recruitment email and the product detail-capture path.
+    triggers: ["Unclear message", "Can you help?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for reaching out.
+
+      For job/recruitment enquiries, please write to us at hrcoordinator@durian.in.
+
+      For product enquiries, please share your Full Name, Location, Zip Code and Contact Number so our specialist can assist you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_price_fhc
+    surface: comment
+    use_when: >-
+      Public comment asking price / product enquiry for Full Home Customisation — redirect to DM.
+    triggers: ["Do you provide modular kitchen?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Full Home Customisation.
+
+      Please send us a DM so we can assist you better with the details.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_price_fhc
+    surface: comment
+    use_when: >-
+      Public comment asking price / product enquiry for Full Home Customisation — redirect to inbox.
+    triggers: ["Do you provide modular kitchen?", "PP", "Price please"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Full Home Customisation.
+
+      Please send us a message so we can assist you better with the details.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_comment_address_fhc
+    surface: comment
+    use_when: >-
+      Public comment asking for Full Home Customisation studio location — redirect to DM.
+    triggers: ["Any FHC studio in India", "Studio address?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Full Home Customisation.
+
+      Please send us a DM and we'll share the studio details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_comment_address_fhc
+    surface: comment
+    use_when: >-
+      Public comment asking for Full Home Customisation studio location — redirect to inbox.
+    triggers: ["Any FHC studio in India", "Studio address?"]
+    content: |
+      Hello [NAME],
+
+      Thank you for your interest in Durian Full Home Customisation.
+
+      Please send us a message and we'll share the studio details with you.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_dm_fhc_details_shared
+    surface: dm
+    use_when: >-
+      FHC customer shared details in DM — acknowledge and invite them to explore the FHC collection.
+    triggers: ["Here are my details", "Name/Location/Contact shared"]
+    content: |
+      Thank you for sharing your details with us.
+
+      Our team will get in touch with you shortly.
+
+      Meanwhile, we invite you to explore our beautifully curated collections at https://www.durian.in/full-home-customisation — where thoughtful design meets timeless elegance.
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_fhc_details_shared
+    surface: dm
+    use_when: >-
+      FHC customer shared details in inbox — acknowledge and invite them to explore the FHC collection.
+    triggers: ["Here are my details", "Name/Location/Contact shared"]
+    content: |
+      Thank you for sharing your details with us.
+
+      Our team will get in touch with you shortly.
+
+      Meanwhile, we invite you to explore our beautifully curated collections at https://www.durian.in/full-home-customisation — where thoughtful design meets timeless elegance.
+
+      Regards,
+      Team Durian.
+
+  - short_code: instagram_dm_appreciation_fhc
+    surface: dm
+    use_when: >-
+      DM praising Full Home Customisation — thank them and share the FHC collection link.
+    triggers: ["Beautiful work", "5 star rating", "Love your designs"]
+    content: |
+      Thank you so much for your kind words! We truly appreciate your support.
+
+      We'd love for you to continue your journey with us. Explore our full collection of thoughtfully designed spaces here: https://www.durian.in/full-home-customisation
+
+      Regards,
+      Team Durian.
+
+  - short_code: facebook_dm_appreciation_fhc
+    surface: dm
+    use_when: >-
+      DM praising Full Home Customisation — thank them and share the FHC collection link.
+    triggers: ["Beautiful work", "5 star rating", "Love your designs"]
+    content: |
+      Thank you so much for your kind words! We truly appreciate your support.
+
+      We'd love for you to continue your journey with us. Explore our full collection of thoughtfully designed spaces here: https://www.durian.in/full-home-customisation
+
+      Regards,
+      Team Durian.
+
