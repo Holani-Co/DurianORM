@@ -256,6 +256,19 @@ async def handle_status_changed(data: dict) -> dict:
     conv       = data.get("conversation") or data
     conv_id    = conv.get("id") or data.get("id")
     new_status = (conv.get("status") or data.get("status") or "").lower()
+    if new_status == "resolved":
+        # Handoff handled → clear the agent-needed markers so the channel
+        # sections only show conversations still awaiting a human. Only touch
+        # labels present on the payload, so the frequent auto-resolves that were
+        # never handoffs don't fire needless remove_label calls.
+        present = [l for l in (conv.get("labels") or []) if l in _AGENT_NEEDED_ALL]
+        for lbl in present:
+            try:
+                await chatwoot.remove_label(conv_id, lbl)
+            except Exception:
+                pass
+        return {"handled": "agent_needed_cleared", "removed": present} if present \
+            else {"ignored": True, "reason": "resolved_no_agent_labels"}
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
 
@@ -1939,6 +1952,26 @@ async def _label_conversation(conv_id: int, label: str) -> None:
         print(f"[order-lookup] labelling {conv_id} '{label}' failed: {e}")
 
 
+# Umbrella handoff marker: applied when the automation gives up and a human must
+# take over (a gate hit its ask cap with details still missing, a review was
+# flagged, a social DM bot handed off). The per-channel variant gives the Labels
+# sidebar a ready-made, channel-segregated "needs an agent" section. NOTE: the
+# email CATEGORY handoffs keep using `needs-review` (their own section) — this
+# marker is for the gate cap-outs and the other channels only.
+AGENT_NEEDED_LABEL = "agent-needed"
+# Cleared on resolve (handle_status_changed) — kept in one place so the resolve
+# cleanup and the flaggers can't drift.
+_AGENT_NEEDED_ALL = [AGENT_NEEDED_LABEL] + [
+    f"{AGENT_NEEDED_LABEL}-{c}" for c in ("email", "instagram", "facebook", "whatsapp", "reviews")]
+
+
+async def _flag_agent_needed(conv_id: int, channel: str) -> None:
+    """Mark a conversation as awaiting a human: the shared agent-needed umbrella
+    plus a per-channel label (agent-needed-email / -instagram / …). Best-effort."""
+    for lbl in (AGENT_NEEDED_LABEL, f"{AGENT_NEEDED_LABEL}-{channel}"):
+        await _label_conversation(conv_id, lbl)
+
+
 async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") -> None:
     """Post the drafted customer reply as an interactive 'Send to customer'
     card (content_attributes.type == 'ai_order_reply'), NOT a plain private
@@ -1991,6 +2024,7 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
     async def _ask_for_details(reason: str) -> list[str]:
         if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
             await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
+            await _flag_agent_needed(conv_id, "email")
             print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
             return [f"📦 Order lookup: {reason}; ask cap ({attempt}) reached — left to the team."]
         draft = _ASK_DETAILS_TEMPLATE.format(
@@ -2204,6 +2238,7 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
                                     "city" if not have_city else "") if x)
     if attempt >= config.DEAL_DETAILS_MAX_ASKS:
         await chatwoot.merge_custom_attributes(conv_id, {"pending_deal_details": None})
+        await _flag_agent_needed(conv_id, "email")
         print(f"[deal-gate] conv {conv_id}: ask cap ({attempt}) — leaving to agent")
         return [f"📝 Deal details ({missing}) still missing after {attempt} ask(s) — left to the team."]
     ask = gate.get("ask_reply") or _DEAL_DETAILS_FALLBACK_ASK.format(customer_name=name)
@@ -2371,6 +2406,7 @@ async def _run_complaint_details_gate(conv_id: int, sender_name: str,
         # Never lose a complaint: proceed with whatever we have, flagged partial.
         await chatwoot.merge_custom_attributes(conv_id, {
             "complaint_details": _capture(True), "pending_complaint_details": None})
+        await _flag_agent_needed(conv_id, "email")
         return [f"🎫 Complaint details ({missing}) still missing after {attempt} "
                 f"ask(s) — forwarding + ticketing anyway."], True
 
@@ -3752,6 +3788,10 @@ async def handle_template_suggest(conv: dict, channel: str,
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
+
+    # Social DM/comment handoff — the bot drafted a suggestion but a human must
+    # send it. Flag it for this channel's agent-needed section.
+    await _flag_agent_needed(conv_id, channel)
 
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"

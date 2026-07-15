@@ -277,6 +277,15 @@ async def _ingest_review(loc: dict, rv: dict):
     # box on every review is just noise. The conversation stays in the reviews
     # inbox (unassigned, open) for an agent to pick up directly.
     await tag_reply_status(conv_id, LBL_UNREPLIED)
+    # Also surface in the cross-channel handoff section (Labels sidebar). Unlike
+    # the reply-status labels (dropdown-only), these are sidebar-visible so the
+    # reviews handoffs sit alongside email/social ones under agent-needed*.
+    for lbl in ("agent-needed", "agent-needed-reviews"):
+        try:
+            await chatwoot.ensure_label(lbl, show_on_sidebar=True)
+            await chatwoot.add_label(conv_id, lbl)
+        except Exception as e:
+            print(f"[reviews] agent-needed label failed for conv {conv_id}: {e}")
     state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
                     replied=False, update_time=rv["update_time"])
     print(f"[reviews] handoff {rv['stars']}★ @ {title} → human")
