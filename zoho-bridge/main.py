@@ -2075,6 +2075,16 @@ _DEAL_DETAILS_CATEGORIES = {
 }
 DEAL_DETAILS_NEEDED_LABEL = "deal-details-needed"
 DEAL_READY_LABEL          = "deal-ready"
+# Applied when a CRM Deal is actually created, so agents can filter every
+# conversation that produced a deal — plus a per-vertical tag for what kind.
+DEAL_CREATED_LABEL        = "deal-created"
+_DEAL_VERTICAL_LABEL = {
+    "project_bulk_order":      "deal-bulk",
+    "full_home_customization": "deal-fhc",
+    "doors_veneer_plywood":    "deal-doors",
+    "product_enquiry":         "deal-product",
+    "franchise_dealership":    "deal-franchise",
+}
 
 # Fallback ask when the LLM draft is unavailable (keeps the flow moving).
 _DEAL_DETAILS_FALLBACK_ASK = """Dear {customer_name},
@@ -4651,6 +4661,20 @@ async def chatwoot_crm_create_deal(request: Request):
                            "crm_deal_url": zoho_crm.deal_url(deal_id)})
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
+
+    # Tag the conversation so agents can see/filter every deal-creating enquiry,
+    # plus a per-vertical label for what kind of deal it was. Permanent markers
+    # (kept even after the deal auto-resolves the conversation).
+    try:
+        cat_key = (custom.get("email_category_v2") or {}).get("category") or ""
+        deal_labels = [DEAL_CREATED_LABEL]
+        vlabel = _DEAL_VERTICAL_LABEL.get(cat_key)
+        if vlabel:
+            deal_labels.append(vlabel)
+        for lbl in deal_labels:
+            await _label_conversation(int(conv_id), lbl)
+    except Exception as e:
+        print(f"[crm] deal-created label failed for conv {conv_id}: {e}")
 
     try:
         agent_name = body.get("agent_name") or "an agent"
