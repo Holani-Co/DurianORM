@@ -3491,19 +3491,17 @@ async def handle_message_created(data: dict) -> dict:
             return await _post_category_decision(conv_id, category_result,
                                                  sector_review_only=True)
 
-    # ── Bulk-order region gate (private only) ────────────────────────────
-    # A confident PRIVATE bulk order routes by the customer's state. If the
-    # region is unclear or a state we have no handler for, don't guess — leave
-    # the conversation in-channel for an agent to route.
-    if (category_result is not None and category_auto
-            and category_result.get("region_uncertain")
-            and not _PHASE_2_DRY_RUN and not is_social):
-        tracing.event(conv_id, "bulk-region-review-card", parent=_lf, output={
-            "action": "left_in_channel_for_agent_routing",
-            "region": category_result.get("region"),
-            "region_confidence": category_result.get("region_confidence"),
-        })
-        return await _post_bulk_region_review(conv_id, category_result)
+    # ── Bulk-order region ────────────────────────────────────────────────
+    # NO "region needs an agent decision" card. Bulk orders no longer forward
+    # (suppress_forward), and the deal OWNER is resolved at Create Deal time by
+    # _resolve_deal_owner, whose fallback chain ALWAYS routes: private state →
+    # govt city/state (round-robin) → Saharsh catch-all ("balance states"). So an
+    # "uncertain" region is never actually unroutable — carding it wrongly held
+    # resolvable enquiries (Kolkata / West Bengal private, Amethi / UP govt) and
+    # even skipped the deal-details capture. Let a region-uncertain bulk order
+    # flow through phase 2 exactly like a matched one (deal-details gate captures
+    # phone + city → deal-ready); the agent creates the deal and the owner is
+    # tagged automatically. (_post_bulk_region_review is kept but now unused.)
 
     # ── Categorizer ACTION (acknowledge + forward) + agent note ──────────
     # Phase 2A (PHASE_2_DRY_RUN=true): render a preview note, send nothing.
