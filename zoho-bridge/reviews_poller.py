@@ -230,13 +230,12 @@ async def _ingest_review(loc: dict, rv: dict):
     )
     reply, action = drafted["reply"], drafted["action"]
 
-    # Client policy: EVERY 4-5★ review is auto-replied — with or without text —
-    # regardless of the AI's handoff call. A cautious AI sometimes returned
-    # "handoff" on a positive review, leaving it stuck as a suggestion card
-    # instead of auto-replying. High-star reviews are never a complaint, so
-    # force the auto path whenever we have a draft. Only ≤3★ can hand off.
-    if (rv["stars"] or 0) >= 4 and reply:
-        action = "auto"
+    # Client policy (zero-touch): auto vs handoff is decided uniformly for ALL
+    # ratings by the severity gate inside review_reply.draft() — a review
+    # auto-replies + resolves UNLESS its content is "really bad" (legal / fraud /
+    # abuse / safety), which hands off to the agent card. No star-based override
+    # here: an ordinary 1★ complaint auto-replies, while a 5★ carrying a legal
+    # threat is held for a human.
 
     # Flag genuinely-bad reviews for the "Escalate to team" button: the AI
     # hands off (action == "handoff") for any complaint/criticism or low
