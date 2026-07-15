@@ -1,0 +1,590 @@
+# Durian retail showroom directory — generated from 'Matrix - Enquiry'
+# (Zoho CRM - Enquiry tab, Q=Retail rows only). Retail product-purchase
+# enquiries route by city -> showroom -> owner_id (CRM deal owner to tag).
+# Excludes doors/FHC/bulk/private (their own flows). Mobile + store-type
+# (COCO/FOFO) omitted per client. DO NOT hand-edit — regenerate from sheet.
+cities:
+  agra:
+    display: 'Agra'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Agra - Sikandra'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  ahmedabad:
+    display: 'Ahmedabad'
+    state: 'Gujarat'
+    showrooms:
+      - location: 'Ahmedabad - Bodakev'
+        owner_name: 'Ahmedabad Showroom'
+        salesperson: 'Yash Bhatt'
+        crm_email: 'ahmedabad@durian.in'
+        owner_id: "3608871000048969130"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  aizawl:
+    display: 'Aizawl'
+    state: 'Mizoram'
+    showrooms:
+      - location: 'Aizawl'
+        owner_name: 'Aizawl Dealer Showroom'
+        salesperson: 'AIZAWL DEALER SHOWROOM - MIKAMA'
+        crm_email: 'lbslifestyle.azl@gmail.com'
+        owner_id: "3608871000112689864"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  ajmer:
+    display: 'Ajmer'
+    state: 'Rajasthan'
+    showrooms:
+      - location: 'Ajmer - Vaishali Nagar'
+        owner_name: 'Ajmer Dealer Showroom'
+        salesperson: 'AJMER DEALER SHOWROOM - SUNNY'
+        crm_email: 'durian.ajmer@gmail.com'
+        owner_id: "3608871000177980396"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  anand:
+    display: 'Anand'
+    state: 'Gujarat'
+    showrooms:
+      - location: 'Anand'
+        owner_name: 'Anand Dealer Showroom'
+        salesperson: 'ANAND DEALER SHOWROOM'
+        crm_email: 'durian.petlad@gmail.com'
+        owner_id: "3608871000201573749"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  aurangabad:
+    display: 'Aurangabad'
+    state: 'Maharashtra'
+    showrooms:
+      - location: 'Chhatrapati Sambhajinagar(Aurangabad)'
+        owner_name: 'Aurangabad Showroom'
+        salesperson: 'Suryakant L Shriramwar'
+        crm_email: 'aurangabad@durian.in'
+        owner_id: "3608871000000333392"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  bangalore:
+    display: 'Bangalore'
+    state: 'Karnataka'
+    showrooms:
+      - location: 'Bengaluru - Marathahalli'
+        owner_name: 'Bangalore Marathahalli Showroom'
+        salesperson: 'Jyothi R'
+        crm_email: 'marathahallistore.bangalore@durian.in'
+        owner_id: "3608871000181199067"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Bengaluru - JP Nagar'
+        owner_name: 'Bangalore Dealer Showroom'
+        salesperson: 'NISHA CHOUDHARY - BANGALORE JP NAGAR'
+        crm_email: 'bangalore@durian.in'
+        owner_id: "3608871000013515676"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Bengaluru - Shivaji Nagar'
+        owner_name: 'Bangalore Dealer Showroom'
+        salesperson: 'NISHA CHOUDHARY - BANGALORE JP NAGAR'
+        crm_email: 'bangalore@durian.in'
+        owner_id: "3608871000013515676"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Banaswadi'
+        owner_name: ''
+        salesperson: 'Mr. Damodharan'
+        crm_email: 'bangalore.banaswadi@durian.in'
+        owner_id: "3608871000564447689"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  bhubaneswar:
+    display: 'Bhubaneswar'
+    state: 'Odisha'
+    showrooms:
+      - location: 'Bhubaneshwar - Samantarapur'
+        owner_name: 'Bhubaneswar Showroom'
+        salesperson: 'Anil Mohapatra'
+        crm_email: 'bhubaneswar@durian.in'
+        owner_id: "3608871000000333379"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Bhubaneshwar - Patia'
+        owner_name: 'Bhubaneswar Dealer Showroom'
+        salesperson: 'NIBEDITA BEHERA'
+        crm_email: 'durian.patia@gmail.com'
+        owner_id: "3608871000177980419"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  bikaner:
+    display: 'Bikaner'
+    state: 'Rajasthan'
+    showrooms:
+      - location: 'Bikaner - Rani Baraz'
+        owner_name: 'Bikaner Dealer Showroom'
+        salesperson: 'Shristi Chandak'
+        crm_email: 'durian.bikaner@gmail.com'
+        owner_id: "3608871000560226015"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  chennai:
+    display: 'Chennai'
+    state: 'Tamil Nadu'
+    showrooms:
+      - location: 'Chennai - Nungambakkam'
+        owner_name: 'Chennai KNK Showroom'
+        salesperson: 'Balasubramanian M S S'
+        crm_email: 'chennai@durian.in'
+        owner_id: "3608871000000333353"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Chennai-Perungudi'
+        owner_name: 'Chennai KNK Showroom'
+        salesperson: 'Balasubramanian M S S'
+        crm_email: 'chennai@durian.in'
+        owner_id: "3608871000000333353"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Chennai - OMR'
+        owner_name: 'Chennai OMR Showroom'
+        salesperson: 'M Selvaraj'
+        crm_email: 'chennaiomr@durian.in'
+        owner_id: "3608871000184905066"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  coimbatore:
+    display: 'Coimbatore'
+    state: 'Tamil Nadu'
+    showrooms:
+      - location: 'Coimbatore - RS Puram'
+        owner_name: 'Coimbatore Showroom'
+        salesperson: 'Arun R'
+        crm_email: 'coimbatore@durian.in'
+        owner_id: "3608871000000333366"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Coimbatore'
+        owner_name: 'Coimbatore SR'
+        salesperson: 'RAJKUMAR RAJENDRAN'
+        crm_email: 'sales@prabhumahalingam.com'
+        owner_id: "3608871000573539114"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  delhi:
+    display: 'Delhi'
+    state: 'Delhi'
+    showrooms:
+      - location: 'Delhi - Kirti Nagar'
+        owner_name: 'Kirti Nagar ShowRoom'
+        salesperson: 'Raghvendra Mishra'
+        crm_email: 'durian.kirtinagar@durian.in'
+        owner_id: "3608871000000333444"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Faridabad - Mewla Maharajpur'
+        owner_name: 'Faridabad Showroom'
+        salesperson: 'Sonu Chawla'
+        crm_email: 'faridabad.retail@durian.in'
+        owner_id: "3608871000349910642"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Delhi - Ghitorni'
+        owner_name: 'Ghitorni Showroom'
+        salesperson: 'Ramesh Yadav'
+        crm_email: 'ghitorni@durian.in'
+        owner_id: "3608871000001206086"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Delhi - Sohna Road'
+        owner_name: 'Sohnaroad Showroom'
+        salesperson: 'Pankaj Jha'
+        crm_email: 'sohnaroad@durian.in'
+        owner_id: "3608871000156761363"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Gurgaon - JMD'
+        owner_name: 'Gurgaon Showroom'
+        salesperson: 'Avnish Kumar'
+        crm_email: 'durian.gurgaon@durian.in'
+        owner_id: "3608871000000333502"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Noida - Sector 49'
+        owner_name: 'Noida Dealer Showroom'
+        salesperson: 'MANJARI SARKAR'
+        crm_email: 'duriannoida49@gmail.com'
+        owner_id: "3608871000486870231"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Noida - Sector 10'
+        owner_name: 'Noida Showroom'
+        salesperson: 'Mohit Singh'
+        crm_email: 'durian.noida@durian.in'
+        owner_id: "3608871000001206109"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  dhanbad:
+    display: 'Dhanbad'
+    state: 'Jharkhand'
+    showrooms:
+      - location: 'Dhanbad - Hirapur'
+        owner_name: 'Dhanbad Dealer Showroom'
+        salesperson: 'DINESH MANDAL'
+        crm_email: 'durian.dhanbad@gmail.com'
+        owner_id: "3608871000211724213"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  gorakhpur:
+    display: 'Gorakhpur'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Gorakhpur'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  guwahati:
+    display: 'Guwahati'
+    state: 'Assam'
+    showrooms:
+      - location: 'Guwahati - Lachitnagar'
+        owner_name: 'Guwahati Showroom'
+        salesperson: 'Dipak Kumar Yadav'
+        crm_email: 'guwahati.lachitnagar@durian.in'
+        owner_id: "3608871000267793048"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  hyderabad:
+    display: 'Hyderabad'
+    state: 'Telangana'
+    showrooms:
+      - location: 'Hyderabad - Kompally'
+        owner_name: 'Hyderabad Kompally Showroom'
+        salesperson: 'Bodakuntla Ramesh'
+        crm_email: 'hydkompally.retail@durian.in'
+        owner_id: "3608871000433075236"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Hyderabad - Banjara Hills'
+        owner_name: 'Hyderabad Banjara Hill Showroom'
+        salesperson: 'Allada Durgabhavani'
+        crm_email: 'banjarahills.hyderabad@durian.in'
+        owner_id: "3608871000175445523"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Hyderabad - Sarath City'
+        owner_name: 'Hyderabad Sarath City Showroom'
+        salesperson: 'Ashok Gaddi'
+        crm_email: 'sarathcity.hyderabad@durian.in'
+        owner_id: "3608871000198605455"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  indore:
+    display: 'Indore'
+    state: 'Madhya Pradesh'
+    showrooms:
+      - location: 'Indore - Vijay Nagar'
+        owner_name: 'Indore Showroom'
+        salesperson: 'Amit Gupta'
+        crm_email: 'indore@durian.in'
+        owner_id: "3608871000000333340"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  jaipur:
+    display: 'Jaipur'
+    state: 'Rajasthan'
+    showrooms:
+      - location: 'Jaipur - Vaishali Nagar'
+        owner_name: 'Jaipur Showroom'
+        salesperson: 'Rajesh Sharma'
+        crm_email: 'jaipur@durian.in'
+        owner_id: "3608871000231624664"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  jammu:
+    display: 'Jammu'
+    state: 'Jammu & Kashmir'
+    showrooms:
+      - location: 'Jammu - Kunjwani'
+        owner_name: 'Jammu Showroom'
+        salesperson: 'Naresh Kumar'
+        crm_email: 'jammu@durian.in'
+        owner_id: "3608871000212096386"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  jamshedpur:
+    display: 'Jamshedpur'
+    state: 'Jharkhand'
+    showrooms:
+      - location: 'Jamshedpur - Adityapur'
+        owner_name: 'Jamshedpur Showroom'
+        salesperson: 'Mani Kant Choudhary'
+        crm_email: 'tata@durian.in'
+        owner_id: "3608871000000333520"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  kanpur:
+    display: 'Kanpur'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Kanpur - Acharya Nagar'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  kolkata:
+    display: 'Kolkata'
+    state: 'West Bengal'
+    showrooms:
+      - location: 'Kolkata - Topsia'
+        owner_name: 'Kolkata Showroom'
+        salesperson: 'Bikash Das'
+        crm_email: 'kolkata.store@durian.in'
+        owner_id: "3608871000308502001"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  lucknow:
+    display: 'Lucknow'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Lucknow - Arjunganj'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Lucknow - Indira Nagar'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  ludhiana:
+    display: 'Ludhiana'
+    state: 'Punjab'
+    showrooms:
+      - location: 'Ludhiana - Daad Village'
+        owner_name: 'Ludhiana Showroom'
+        salesperson: 'Bhumika Chauhan'
+        crm_email: 'ludhiana@durian.in'
+        owner_id: "3608871000000333001"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  mohali:
+    display: 'Mohali'
+    state: 'Punjab'
+    showrooms:
+      - location: 'Mohali'
+        owner_name: 'Mohali Dealer Showroom'
+        salesperson: 'LOVEPREET KAUR'
+        crm_email: 'durian.mohali@integroupe.com'
+        owner_id: "3608871000246009411"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  motihari:
+    display: 'Motihari'
+    state: 'Bihar'
+    showrooms:
+      - location: 'Motihari'
+        owner_name: 'Motihari Dealer Showroom'
+        salesperson: 'SAGAR KUMAR SINGH'
+        crm_email: 'durian.motihari@gmail.com'
+        owner_id: "3608871000205381001"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  mumbai:
+    display: 'Mumbai'
+    state: 'Maharashtra'
+    showrooms:
+      - location: 'Thane - Subhash Nagar'
+        owner_name: 'Thane Dealer Showroom'
+        salesperson: 'THANE DEALER - BINDER YADAV'
+        crm_email: 'furnituredurian@gmail.com'
+        owner_id: "3608871000104057837"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Mumbai - Worli'
+        owner_name: 'Worli Showroom'
+        salesperson: 'Arvind Nageshwar Rai'
+        crm_email: 'worli@durian.in'
+        owner_id: "3608871000000320763"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Mumbai - Goregaon'
+        owner_name: 'Goregaon Showroom'
+        salesperson: 'Nazneen Merchant'
+        crm_email: 'goregaon@durian.in'
+        owner_id: "3608871000000804001"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  panchkula:
+    display: 'Panchkula'
+    state: 'Chandigarh'
+    showrooms:
+      - location: 'Chandigarh - Panchkula'
+        owner_name: 'Chandigarh Dealer Showroom'
+        salesperson: 'SUNIL KUMAR'
+        crm_email: 'chd.durian@gmail.com'
+        owner_id: "3608871000167558016"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  patna:
+    display: 'Patna'
+    state: 'Bihar'
+    showrooms:
+      - location: 'Patna - Danapur'
+        owner_name: 'Patna Showroom'
+        salesperson: 'Atish Sinha'
+        crm_email: 'patna@durian.in'
+        owner_id: "3608871000000320493"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  prayagraj:
+    display: 'Prayagraj'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Prayagraj - Lal Bahadur Shastri Marg'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  pune:
+    display: 'Pune'
+    state: 'Maharashtra'
+    showrooms:
+      - location: 'Pune - Creaticity'
+        owner_name: 'Pune Creaticity Showroom'
+        salesperson: 'Bikash Saha'
+        crm_email: 'punecreaticity@durian.in'
+        owner_id: "3608871000257149336"
+        vertical: 'Furniture'
+        layout: 'Standard'
+      - location: 'Pune - Baner'
+        owner_name: 'Baner Showroom'
+        salesperson: 'GANESH RADHAKISAN KHETRE'
+        crm_email: 'pune.baner@durian.in'
+        owner_id: "3608871000000333405"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  raipur:
+    display: 'Raipur'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Raipur - Telibandha'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  ranchi:
+    display: 'Ranchi'
+    state: 'Jharkhand'
+    showrooms:
+      - location: 'Ranchi - Ashok Nagar'
+        owner_name: 'Ranchi Showroom'
+        salesperson: 'Anamika Bharti'
+        crm_email: 'ranchi.retail@durian.in'
+        owner_id: "3608871000364635008"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  sambalpur:
+    display: 'Sambalpur'
+    state: 'Odisha'
+    showrooms:
+      - location: 'Odisha - Sambalpur'
+        owner_name: 'SAMBALPUR DEALER SHOWROOM'
+        salesperson: 'ANKUR BHARALAWALA'
+        crm_email: 'dreamdecor.sbp@gmail.com'
+        owner_id: "3608871000515672227"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  shillong:
+    display: 'Shillong'
+    state: 'Meghalaya'
+    showrooms:
+      - location: 'Shillong - Demseiniong'
+        owner_name: 'Shillong Dealer Showroom'
+        salesperson: 'Rebecca'
+        crm_email: 'durianfurnitureshillong@gmail.com'
+        owner_id: "3608871000427746775"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  siliguri:
+    display: 'Siliguri'
+    state: 'West Bengal'
+    showrooms:
+      - location: 'Siliguri - Sevoke Road'
+        owner_name: 'Siliguri Dealer Showroom'
+        salesperson: 'Pratima'
+        crm_email: 'durian.siliguri@gmail.com'
+        owner_id: "3608871000231011311"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  surat:
+    display: 'Surat'
+    state: 'Gujarat'
+    showrooms:
+      - location: 'Surat - Dumas'
+        owner_name: 'Surat Showroom'
+        salesperson: 'Kuldeep Singh'
+        crm_email: 'surat@durian.in'
+        owner_id: "3608871000000333431"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  tirupati:
+    display: 'Tirupati'
+    state: 'Andhra Pradesh'
+    showrooms:
+      - location: 'Tirupati - Avilala'
+        owner_name: 'Tirupati Dealer Showroom'
+        salesperson: 'Mr. Yadukondalu'
+        crm_email: 'durian.tirupati@gmail.com'
+        owner_id: "3608871000336987964"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  vadodara:
+    display: 'Vadodara'
+    state: 'Gujarat'
+    showrooms:
+      - location: 'Vadodara - Centre Square Mall'
+        owner_name: 'Vadodara Dealer Showroom'
+        salesperson: 'VADODARA DEALER SHOWROOM - VIKAS KUMAR MESHRAM'
+        crm_email: 'bnbenterprise0@gmail.com'
+        owner_id: "3608871000135120345"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  varanasi:
+    display: 'Varanasi'
+    state: 'Uttar Pradesh'
+    showrooms:
+      - location: 'Varanasi - Shivpur Bypass Rd'
+        owner_name: 'UP Dealer Showroom'
+        salesperson: 'PRAVESH TRIPATHI'
+        crm_email: 'durianlko@gmail.com'
+        owner_id: "3608871000102742316"
+        vertical: 'Furniture'
+        layout: 'Standard'
+  visakhapatnam:
+    display: 'Visakhapatnam'
+    state: 'Andhra Pradesh'
+    showrooms:
+      - location: 'Visakhapatnam - Dondaparthy'
+        owner_name: 'Visakhapatnam Dealer Showroom'
+        salesperson: 'BHARATH'
+        crm_email: 'durianvsp@gmail.com'
+        owner_id: "3608871000223622883"
+        vertical: 'Furniture'
+        layout: 'Standard'
