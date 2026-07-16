@@ -4014,6 +4014,49 @@ def _recent_incoming(messages: list, n: int = 3) -> str:
     return "\n".join(texts[-n:])
 
 
+# Bare greetings / filler the client does NOT engage with on public post
+# comments. Praise ("beautiful sofa", "love it") is deliberately NOT here — it
+# still gets the AI's warm reply. Roman + a few Devanagari forms.
+_LOW_VALUE_COMMENT_PHRASES = {
+    "good morning", "good afternoon", "good evening", "good night", "good day",
+    "gm", "gn", "gud mrng", "hi", "hii", "hiii", "hello", "helo", "hey", "yo",
+    "hola", "namaste", "namaskar", "namastey", "jai shri krishna",
+    "jai shree krishna", "jai shri krishn", "jsk", "radhe radhe", "ram ram",
+    "jai mata di", "jai hind", "jai shri ram", "jai shree ram", "ya fir",
+    "ok", "okay", "k", "hmm", "hmmm", "done", "thanks", "thank you", "thankyou",
+    "welcome", "jsr", "jai jinendra",
+    # Devanagari
+    "जय श्री कृष्ण", "राधे राधे", "नमस्ते", "नमस्कार", "सुप्रभात", "शुभ प्रभात",
+    "जय हिंद", "राम राम", "जय श्री राम",
+}
+# Emoji / pictographs / symbols / regional-indicator (flag) / variation selectors.
+_EMOJI_SYMBOL_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF"
+    "\U0001F1E6-\U0001F1FF\U0000FE00-\U0000FE0F\U00002190-\U000021FF"
+    "\U00002460-\U000024FF‍♀♂❤]")
+
+
+def _is_low_value_comment(text: str) -> bool:
+    """Cheap, no-AI guardrail: True when a public comment isn't worth a reply —
+    emoji/symbol-only, empty, or a bare greeting/filler phrase. Anything with a
+    real word, question, or praise returns False (falls through to the AI)."""
+    raw = (text or "").strip()
+    if not raw:
+        return True
+    # Meaningful tokens after stripping emojis/symbols: latin or devanagari.
+    words = re.findall(r"[0-9a-zA-Zऀ-ॿ]+", _EMOJI_SYMBOL_RE.sub("", raw))
+    if not words:
+        return True  # emoji / symbol only
+    norm = " ".join(w.lower() for w in words)
+    if norm in _LOW_VALUE_COMMENT_PHRASES:
+        return True
+    # Short (<=3 tokens) and EVERY token is a greeting/filler word.
+    filler = {w for p in _LOW_VALUE_COMMENT_PHRASES for w in p.lower().split()}
+    if len(words) <= 3 and all(w.lower() in filler for w in words):
+        return True
+    return False
+
+
 async def handle_template_suggest(conv: dict, channel: str,
                                   surface: str = "") -> dict:
     """Post a Durian-template AI reply suggestion as a private note for a
@@ -4031,10 +4074,6 @@ async def handle_template_suggest(conv: dict, channel: str,
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
 
-    # Social DM/comment handoff — the bot drafted a suggestion but a human must
-    # send it. Flag it for this channel's agent-needed section.
-    await _flag_agent_needed(conv_id, channel)
-
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
     # Fetch ALL messages including private notes — get_conversation_messages
@@ -4047,6 +4086,18 @@ async def handle_template_suggest(conv: dict, channel: str,
     message = _recent_incoming(all_messages)
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
+
+    # Guardrail (no AI): skip low-value PUBLIC comments — emoji-only, a bare
+    # greeting ('good morning', 'jai shri krishna', 'ya fir'), or filler the
+    # client does not engage with. No AI call, no card, no agent-needed. Real
+    # questions / praise fall through to the AI as before. DMs are unaffected.
+    if surface == "comment" and _is_low_value_comment(message):
+        print(f"[template-suggest] conv {conv_id} — low-value comment, no reply (no AI)")
+        return {"ignored": True, "reason": "low_value_comment"}
+
+    # Social DM/comment handoff — flag it for this channel's agent-needed section.
+    await _flag_agent_needed(conv_id, channel)
+
     # id of that same latest incoming message, for the Langfuse message span.
     msg_id = next((m.get("id") for m in reversed(all_messages)
                    if m.get("message_type") in (0, "incoming")
