@@ -1,0 +1,209 @@
+# Durian WhatsApp reply templates — from the client's Working-Team sheet
+# ('Whats msg templates' tab). Synced into Chatwoot canned responses by
+# sync_whatsapp_templates.py so agents can pick them (WhatsApp inbox future).
+# Internal 'Reply msg to zoho' notes stripped. Placeholders like <Arrival
+# Date> / <Product Link> are filled by the agent at send time.
+templates:
+  - short_code: whatsapp_product_link
+    title: 'Cx is interested and wants the product link/catalogue'
+    content: |
+      Hello Sir/Madam,
+
+      Thank you for your interest. Please visit our website to explore all available products.
+      If you need any assistance or recommendations, feel free to message me.
+      Sushil Kanoujia
+      8976988202
+      Team Durian
+      🌐 www.durian.in
+  - short_code: whatsapp_no_response
+    title: 'Not responding to the call'
+    content: |
+      Dear Sir/Madam,
+
+
+      This is Sushil Kanoujia from Durian Industries.
+      I tried to connect with you regarding your valued enquiry, but couldn’t reach you over the phone.
+      We would be delighted to assist you in finding the perfect furniture as per your requirements.
+      Kindly let me know a convenient time between 10:00 AM – 6:00 PM for a quick call back. 📞✨
+      Looking forward to serving you with the best of Durian. 🌟
+      Warm regards,
+      Sushil Kanoujia
+      Durian Industries Ltd
+      🌐 www.durian.in
+  - short_code: whatsapp_store_location
+    title: 'Share the store Location'
+    content: |
+      Dear Customer,
+      Greetings from Durian!
+      We invite you to visit our nearby showroom to explore the products in person. Please find the store location below for your convenience:
+      📍 https://maps.app.goo.gl/UVeW85RzRXbhKWFR9
+      We look forward to welcoming you to our store.
+      Sushil Kanoujia
+      Durian Industries Ltd
+      🌐 www.durian.in
+  - short_code: whatsapp_coupon_code
+    title: 'Coupon Code'
+    content: |
+      🛍️🛋️ *Exclusive Coupon Alert!* 🪑🛏️
+      *DURIAN INDUSTRIES LTD* Celebrate You!
+
+      🎉 Missed out earlier? Don’t worry!
+      Enjoy a surprise discount on our best-selling furniture range!
+
+      🔑 Use Code: lthqwg
+      🗓️ Valid for 24 hours or until stocks last — hurry!
+
+
+      📞 Call or WhatsApp us at 8976988202
+      🛒 Shop now: www.durian.in
+      🛋️ Upgrade your space. Save more. Shop smart. 🛍️
+
+
+      Durian Industries Ltd
+      🌐 www.durian.in
+  - short_code: whatsapp_preorder
+    title: 'Pre order'
+    content: |
+      Hello Sir,
+      Great news! We received your pre-order form for the highly anticipated CANYON 1 Seater Recliner!
+      Just a reminder: It's currently OOS, but the new shipment arrives approx 28th Feb.
+      Don't miss out! Since you already showed interest, you get first priority to lock in your unit from this upcoming stock.
+      Please reply YES to confirm your reservation now or call 8976988202.
+      Sushil Kanoujia
+      Team Durian.
+  - short_code: whatsapp_sold_out
+    title: 'Sold Out Msg'
+    content: |
+      Hello,
+
+       We appreciate your interest. The item is currently sold out, but fresh stock is expected to arrive on <Arrival Date>.
+      We can take a pre-order for you, or we can update you immediately once the product is back in stock.
+      Please let us know how you would like to proceed.
+
+      <Product Link>
+
+      Sushil Kanoujia
+      🌐 www.durian.in
+  - short_code: whatsapp_oos_no_date
+    title: 'OOS & arrival date not available'
+    content: |
+      Hello,
+      We have received your pre-order request for the highly anticipated Eldora office chair!
+      Please note, the product is currently out of stock, and the next arrival date is yet to be confirmed by our warehouse team.
+      Don’t worry—since you’ve already shown interest, you will receive first priority once the new stock arrives.
+      Please reply YES to confirm your reservation, or call 8976988202 for assistance.
+      Thank you,
+       Sushil Kanoujia
+       Durian Industries Ltd.
+  - short_code: whatsapp_back_in_stock
+    title: 'Back-in-Stock Message'
+    content: |
+      Hello Sir,
+      The product you were waiting for is now back in stock.
+      You can place your order directly using the link below:
+      https://www.durian.in/product/milburn-walnut-brown-engineered-wood-coffee-&-center-table
+      If you need any help with booking, feel free to let us know.
+      Thank you for your patience.
+      Sushil Kanoujia
+      🌐 www.durian.in
+  - short_code: whatsapp_quotation
+    title: 'For Quotation'
+    content: |
+      Dear Sir,
+      Thank you for sharing your inquiry with us.
+      As per your requirement, we are pleased to share the quotation for the Benjamin Sofa.
+      Please let us know if you have any further queries or require additional information.
+      Thank you for your time and consideration.
+      Warm regards,
+      Sushil Kanoujia
+  - short_code: whatsapp_long_pending
+    title: 'For Long pending deals'
+    content: |
+      Hello Sir/Madam,
+
+      This is Neha Singh from Durian Industries.
+
+      Thank you for your interest. Please visit our website to explore all available products.
+
+      If you need any assistance or recommendations, feel free to reach us.
+
+      Kindly let me know a convenient time between 10:00 AM – 6:00 PM for a quick call back. 📞✨
+
+      Looking forward to serving you with the best of Durian. 🌟
+
+      Warm regards,
+      Neha Singh
+      7208916569
+      Durian Industries Ltd
+      🌐 www.durian.in
+  - short_code: whatsapp_closed_lost
+    title: 'Closed Lost MSg'
+    content: |
+      Dear Sir/Mam,
+
+      Thank you for your request for an additional discount.
+
+      We have carefully reviewed it, and the quoted price is already our best and most competitive offer. Unfortunately, we are unable to provide any further discount at this time.
+
+      We assure you that the price reflects the quality and service we provide, and we hope for your understanding. We look forward to your confirmation.
+
+      Team Durian
+      Neha Singh
+      🌐 www.durian.in
+  - short_code: whatsapp_customer_support
+    title: 'Customer support'
+    content: |
+      Dear Customer,
+      We kindly request you to share the following documents so that we can assist you as quickly as possible with your product-related complaint on given details below :
+
+      📩 Email: customersupport@durian.in
+
+      📞 Contact Number: 8591109183
+
+      Required Documents:
+      1️⃣ Three clear photos of the product
+      2️⃣ Invoice copy
+
+      Please share these documents at your earliest convenience.
+      As soon as we receive them, our team will contact you and ensure your complaint is processed without any delay.
+
+      Thank you for your cooperation.
+  - short_code: whatsapp_exchange_offer
+    title: 'Exchange offer'
+    content: |
+      Dear Customer,
+
+      Thank you for your interest in our ongoing exchange offers.
+
+
+      You can check the latest offers on our official website: https://www.durian.in/
+
+
+      If you are interested, kindly share three photos of your old furniture from different angles on the given WhatsApp number for easier assistance.
+
+
+      In case you do not have any product to exchange, you may still contact us between 10:30 AM to 6:30 PM to know the best available offers.
+
+
+      For assistance, feel free to connect with us:
+      📞 E-COM Expert: [89769 88202]
+
+
+      Regards,
+      Team Durian
+  - short_code: whatsapp_catalog
+    title: 'Catalog Msg'
+    content: |
+      Dear Customer,
+      Greetings for the day! 😊
+
+      Please find the Durian catalog attached for your review.
+      Thank you for speaking with us. We have shared your requirements with our team. Our representative will connect with you shortly to assist you further.
+      For your reference, please find the contact details below:
+      Ms. Neha Singh
+      📞 7208916569
+      🕒 Timings: 10:00 AM to 06:00 PM
+      📩 Email: hello@durian.in
+      🌐 www.durian.in
+      For any urgent support, feel free to contact us.
+      Thank you for choosing Durian Furniture! 🙏
