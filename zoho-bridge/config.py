@@ -129,6 +129,14 @@ ZOHO_CRM_DEAL_AMOUNT_DEFAULT = float(os.environ.get("ZOHO_CRM_DEAL_AMOUNT_DEFAUL
 ZOHO_CRM_DEAL_CLOSING_DAYS   = int(os.environ.get("ZOHO_CRM_DEAL_CLOSING_DAYS", "30"))
 ZOHO_CRM_PIPELINE_RETAIL     = os.environ.get("ZOHO_CRM_PIPELINE_RETAIL", "")
 ZOHO_CRM_PIPELINE_PROJECT    = os.environ.get("ZOHO_CRM_PIPELINE_PROJECT", "")
+# Billing-type picklist (the org's legacy `Business_Type` field — shown as
+# "Billing Type" in the Deals UI). Retail deals bill as NON-GST; set the retail
+# value here rather than the generic EXTRA_FIELDS so it can differ from the
+# project/bulk default. Project/bulk deals keep whatever EXTRA_FIELDS sets. Set
+# ZOHO_CRM_BILLING_TYPE_RETAIL="" to disable the override. Confirm the field API
+# name matches the key used in ZOHO_CRM_DEAL_EXTRA_FIELDS.
+ZOHO_CRM_BILLING_TYPE_FIELD  = os.environ.get("ZOHO_CRM_BILLING_TYPE_FIELD", "Business_Type")
+ZOHO_CRM_BILLING_TYPE_RETAIL = os.environ.get("ZOHO_CRM_BILLING_TYPE_RETAIL", "Retail Non-GST Billing")
 import json as _json  # noqa: E402
 try:
     ZOHO_CRM_DEAL_EXTRA_FIELDS = _json.loads(

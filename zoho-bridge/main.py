@@ -5077,6 +5077,12 @@ async def chatwoot_crm_create_deal(request: Request):
         # "Retail A & ID" is agent-set in CRM afterwards.
         extra_fields[config.ZOHO_CRM_BUSINESS_TYPE_FIELD] = \
             "Project" if is_project else "Retail"
+    # Billing type: retail deals bill as non-GST → override the EXTRA_FIELDS
+    # default (which is GST) for them. Project/bulk deals keep the EXTRA_FIELDS
+    # value untouched.
+    if (not is_project and config.ZOHO_CRM_BILLING_TYPE_FIELD
+            and config.ZOHO_CRM_BILLING_TYPE_RETAIL):
+        extra_fields[config.ZOHO_CRM_BILLING_TYPE_FIELD] = config.ZOHO_CRM_BILLING_TYPE_RETAIL
     # Pipeline — retail deals go on the Retail pipeline, project/govt deals
     # on the tender pipeline. Empty config = field not sent (Zoho uses the
     # layout's default pipeline; the entry stage exists in both).
