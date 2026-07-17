@@ -4254,8 +4254,12 @@ async def handle_template_suggest(conv: dict, channel: str,
     # Auto-send when the client approved it, the drafter is confident enough,
     # AND it's an ordinary reply — anything flagged handoff (abuse / legal /
     # spam / serious complaint) always goes to a human regardless of score.
+    # Ordinary complaints (drafter set action=auto, not a serious escalation) are
+    # always auto-replied with the apology template — the client wants complaints
+    # answered, and the apology is safe regardless of the confidence score.
     auto_send = (config.SOCIAL_AUTO_SEND_ENABLED and action == "auto"
-                 and confidence >= config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE)
+                 and (confidence >= config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE
+                      or drafted.get("is_complaint")))
 
     if auto_send:
         try:
