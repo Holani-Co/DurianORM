@@ -2316,6 +2316,12 @@ async def _handle_deal_details_reply(conv_id: int, data: dict,
 # not in the directory → customer support.
 RETAIL_NEEDED_LABEL = "retail-details-needed"
 
+# Appended to a retail ask when the customer hasn't shared a phone number
+# anywhere in the email yet. Their reply lands in the thread, and Create Deal
+# extracts the number from there into the deal's Mobile field.
+_RETAIL_PHONE_REQUEST = ("\n\nAlso, could you please share the best contact number "
+                         "for you, so our showroom team can reach out and assist you?")
+
 _RETAIL_CITY_FALLBACK_ASK = """Dear {customer_name},
 
 Thank you for your interest in Durian furniture!
@@ -2388,11 +2394,16 @@ async def _retail_gate_llm(customer_name: str, text: str, *, stage: str,
 
 
 async def _retail_ask(conv_id: int, sender_email: str, ask: str,
-                      pending_extra: dict, attempt: int, what: str) -> list[str]:
+                      pending_extra: dict, attempt: int, what: str,
+                      need_phone: bool = False) -> list[str]:
     if attempt >= config.RETAIL_DETAILS_MAX_ASKS:
         await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": None})
         await _flag_agent_needed(conv_id, "email")
         return [f"🛍️ Retail: {what} still missing after {attempt} ask(s) — left to the team."]
+    # No phone anywhere in the email yet → ask for it too (its reply is captured
+    # into the deal's Mobile field at Create Deal, from the thread).
+    if need_phone:
+        ask = ask.rstrip() + _RETAIL_PHONE_REQUEST
     pending = {"attempts": attempt + 1, "asked_at": _now_iso(), **pending_extra}
     await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": pending})
     if sender_email:
@@ -2406,9 +2417,11 @@ async def _retail_ask(conv_id: int, sender_email: str, ask: str,
 
 async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
                                 city_key: str, city_data: dict,
-                                showroom: dict) -> list[str]:
+                                showroom: dict, need_phone: bool = False) -> list[str]:
     """A showroom is settled → stash its CRM owner for the agent's Create Deal,
-    confirm to the customer, and post the agent note."""
+    confirm to the customer, and post the agent note. When need_phone, the
+    confirmation also requests a contact number (the customer never gave one) —
+    their reply is picked up for the deal's Mobile field at Create Deal."""
     owner = {"owner_id": str(showroom.get("owner_id") or ""),
              "owner_name": showroom.get("owner_name") or "",
              "crm_email": showroom.get("crm_email") or "",
@@ -2422,12 +2435,13 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
         pass
     await _label_conversation(conv_id, "retail-routed")
     if _EMAIL_CUSTOMER_ACK_ENABLED and sender_email:
+        confirm = (f"Dear {name},\n\nThank you! Our {owner['location']} showroom team "
+                   "will assist you with your purchase and reach out to you shortly.")
+        if need_phone:
+            confirm += _RETAIL_PHONE_REQUEST
+        confirm += "\n\nRegards,\nTeam Durian"
         try:
-            await chatwoot.send_outgoing_message(
-                conv_id,
-                f"Dear {name},\n\nThank you! Our {owner['location']} showroom team "
-                "will assist you with your purchase and reach out to you shortly.\n\n"
-                "Regards,\nTeam Durian", to_emails=sender_email)
+            await chatwoot.send_outgoing_message(conv_id, confirm, to_emails=sender_email)
         except Exception as e:
             print(f"[retail-gate] confirm send failed for conv {conv_id}: {e}")
     try:
@@ -2465,12 +2479,21 @@ async def _retail_route_to_support(conv_id: int, city_name: str) -> list[str]:
 
 async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
                            subject: str, body: str, *, attempt: int,
-                           city_key: str = "") -> list[str]:
+                           city_key: str = "", phone_on_file: bool = False) -> list[str]:
     """One pass of the retail gate. Without city_key it resolves the city (and
     lists showrooms / captures a single-showroom owner / routes to support).
     With city_key set (re-entry after listing) it matches the chosen showroom."""
     text = f"{subject}\n{body}"
     name = _resolve_customer_name(sender_name, sender_email)
+
+    # Capture a phone the customer typed anywhere in this message (incl. their
+    # signature footer) so we (a) stop asking for it and (b) have it for the
+    # deal's Mobile field. `phone_on_file` means an earlier pass already found
+    # one; either way, need_phone decides whether the ask requests a number.
+    _found = _extract_phones(text)
+    if _found:
+        await chatwoot.merge_custom_attributes(conv_id, {"retail_customer_phone": _found[0]})
+    need_phone = not (phone_on_file or _found)
 
     if city_key:
         # Re-entry: the customer is picking a showroom from the listed options.
@@ -2485,9 +2508,11 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
             return await _retail_ask(
                 conv_id, sender_email,
                 gate.get("ask_reply") or _retail_showroom_ask(name, city_data),
-                {"stage": "showroom", "city_key": city_key}, attempt, "a showroom choice")
+                {"stage": "showroom", "city_key": city_key}, attempt, "a showroom choice",
+                need_phone=need_phone)
         return await _retail_capture_owner(conv_id, sender_email, name,
-                                           city_key, city_data, chosen)
+                                           city_key, city_data, chosen,
+                                           need_phone=need_phone)
 
     # First pass: resolve the city.
     gate = await _retail_gate_llm(name, text, stage="city")
@@ -2496,7 +2521,7 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
         return await _retail_ask(
             conv_id, sender_email,
             gate.get("ask_reply") or _RETAIL_CITY_FALLBACK_ASK.format(customer_name=name),
-            {"stage": "city"}, attempt, "their city")
+            {"stage": "city"}, attempt, "their city", need_phone=need_phone)
     found = retail.lookup_city(city_name)
     if not found:
         return await _retail_route_to_support(conv_id, city_name)
@@ -2506,11 +2531,13 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
         if not rooms:
             return await _retail_route_to_support(conv_id, city_name)
         return await _retail_capture_owner(conv_id, sender_email, name,
-                                           ckey, city_data, rooms[0])
+                                           ckey, city_data, rooms[0],
+                                           need_phone=need_phone)
     # Multiple showrooms → list them and ask which is nearest.
     return await _retail_ask(conv_id, sender_email,
                              _retail_showroom_ask(name, city_data),
-                             {"stage": "showroom", "city_key": ckey}, attempt, "a showroom choice")
+                             {"stage": "showroom", "city_key": ckey}, attempt, "a showroom choice",
+                             need_phone=need_phone)
 
 
 async def _handle_retail_reply(conv_id: int, data: dict, conv: dict,
@@ -2519,10 +2546,11 @@ async def _handle_retail_reply(conv_id: int, data: dict, conv: dict,
     content = data.get("content") or ""
     subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
     sender  = (conv.get("meta") or {}).get("sender") or {}
+    phone_on_file = bool((conv.get("custom_attributes") or {}).get("retail_customer_phone"))
     audit = await _run_retail_gate(
         conv_id, sender.get("name") or "", sender.get("email") or "",
         subject, content, attempt=int(pending.get("attempts") or 1),
-        city_key=str(pending.get("city_key") or ""))
+        city_key=str(pending.get("city_key") or ""), phone_on_file=phone_on_file)
     return {"handled": "retail_reply", "audit": audit}
 
 
@@ -5064,11 +5092,23 @@ async def chatwoot_crm_create_deal(request: Request):
     extra_fields.setdefault("Closing_Date", closing.strftime("%Y-%m-%d"))
     # Structured fields → the Deal record (all env-gated by api_name so a
     # wrong/unset name can't fail the create):
-    #   Mobile ← gate-captured phone, else the Chatwoot contact's number
+    #   Mobile ← gate-captured phone, else the retail-captured phone, else the
+    #            Chatwoot contact's number, else a phone found ANYWHERE in the
+    #            email thread (body / signature footer / a later reply). The
+    #            last fallback covers product enquiries, which skip the phone+city
+    #            gate — the customer often puts the number only in their signature.
     #   City   ← gate-captured city
     #   Email  ← the inbox sender's email address
     deal_phone = (_captured.get("phone")
+                  or custom.get("retail_customer_phone")
                   or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or "")
+    if not deal_phone:
+        thread_text = "\n".join(
+            [subject, body_text] + [(m.get("content") or "") for m in messages
+                                    if m.get("message_type") in (0, "incoming")])
+        _tp = _extract_phones(thread_text)
+        if _tp:
+            deal_phone = _tp[0]
     if config.ZOHO_CRM_MOBILE_FIELD and deal_phone:
         extra_fields.setdefault(config.ZOHO_CRM_MOBILE_FIELD, str(deal_phone))
     if config.ZOHO_CRM_CITY_FIELD and _captured.get("city"):
