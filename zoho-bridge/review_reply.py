@@ -151,8 +151,14 @@ cover, mixes several requests, needs specifics you don't have, or could be
 sensitive — those should reach a human. Use 80+ only for a clear, ordinary
 message that one template answers well.
 
+"order_status_enquiry" = true ONLY when the customer is asking about an order they
+have ALREADY placed — its status / delivery / tracking ("where is my order", "I
+bought a sofa last week, what's the status?", "my order hasn't arrived"). FALSE
+for a NEW purchase enquiry ("I want to buy", "is X available", "price of X"), and
+FALSE for general conversation or a complaint with no order-status question.
+
 Respond as STRICT JSON, no markdown:
-{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false, "confidence": <integer 0-100>}}
+{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false, "confidence": <integer 0-100>, "order_status_enquiry": true | false}}
 """
 
 # Human-friendly channel names for the chain-of-thought trace.
@@ -290,11 +296,13 @@ async def draft(channel: str, message: str, contact_name: str,
     low-rated reviews always need a human regardless of model output."""
     import json
 
-    def result(reply, action, short_code="", reasoning="", confidence=0):
+    def result(reply, action, short_code="", reasoning="", confidence=0,
+               order_status_enquiry=False):
         return {
             "reply": reply, "action": action,
             "short_code": short_code, "reasoning": reasoning,
             "confidence": confidence,
+            "order_status_enquiry": order_status_enquiry,
             "trace": build_trace(channel, short_code, reasoning, action),
         }
 
@@ -416,11 +424,15 @@ async def draft(channel: str, message: str, contact_name: str,
             confidence = max(0, min(100, int(parsed.get("confidence") or 0)))
         except (TypeError, ValueError):
             confidence = 0
+        # order_status_enquiry: the customer is asking about an EXISTING order —
+        # routes social DMs into the BMS order-lookup flow (handle_template_suggest).
+        order_status_enquiry = bool(parsed.get("order_status_enquiry"))
     except Exception as e:
         print(f"[template_reply] ERROR ({type(e).__name__}): {e} — falling back")
         reply, action, short_code, reasoning = "", "handoff", "", ""
         needs_human = True  # fail safe → a human looks at it
         confidence = 0
+        order_status_enquiry = False
 
     # Universal safety net for reviews: if the AI returned no usable reply
     # (error, empty, hallucinated empty content), drop to the deterministic
@@ -446,6 +458,8 @@ async def draft(channel: str, message: str, contact_name: str,
                   f"content flagged needs_human")
 
     if force_human or action != "auto":
-        return result(reply, "handoff", short_code, reasoning, confidence)
+        return result(reply, "handoff", short_code, reasoning, confidence,
+                      order_status_enquiry)
 
-    return result(reply, "auto", short_code, reasoning, confidence)
+    return result(reply, "auto", short_code, reasoning, confidence,
+                  order_status_enquiry)

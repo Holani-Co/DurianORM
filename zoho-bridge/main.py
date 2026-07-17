@@ -1869,6 +1869,15 @@ Kindly reply with these details and we'll share your order status right away.
 Regards,
 Team Durian"""
 
+# Shorter, DM-friendly variant for Instagram / Facebook order enquiries (the
+# agent sends this from the card). Same {needed} slot as the email template.
+_ASK_DETAILS_TEMPLATE_SOCIAL = """Hi {customer_name}, thanks for reaching out to Durian! 🙏
+
+To check your order status, could you please share:
+{needed}
+
+Just reply here with these and we'll pull up your order right away."""
+
 _ORDER_NO_LINE = "Your order number (it looks like D#12345)"
 _PHONE_LINE    = "The phone number used at the time of purchase"
 
@@ -2031,12 +2040,19 @@ async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") ->
 
 
 async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
-                            subject: str, body: str, *, attempt: int) -> list[str]:
+                            subject: str, body: str, *, attempt: int,
+                            auto_send: Optional[bool] = None, channel: str = "email",
+                            ask_template: Optional[str] = None) -> list[str]:
     """One pass of the order-lookup flow. Client's safety rule: reveal order
     details ONLY when the customer supplied BOTH an order number AND the phone,
-    and the phone matches that order's registered number. Otherwise auto-send a
-    single ask for the still-missing/unverified detail(s). `attempt` = asks
-    already sent (0 on first pass; from pending_order_lookup on re-entry)."""
+    and the phone matches that order's registered number. Otherwise ask for the
+    still-missing/unverified detail(s). `attempt` = asks already sent (0 on first
+    pass; from pending_order_lookup on re-entry). `auto_send`: None → the email
+    default (config.ORDER_LOOKUP_AUTO_SEND); False forces card-only (social DMs).
+    `channel` tags the agent-needed section; `ask_template` overrides the ask
+    wording (social gets a shorter DM version)."""
+    _auto = config.ORDER_LOOKUP_AUTO_SEND if auto_send is None else auto_send
+    _tmpl = ask_template or _ASK_DETAILS_TEMPLATE
     text = f"{subject}\n{body}"
     order_ids = _extract_order_ids(text)
     phones    = _extract_phones(text)
@@ -2062,16 +2078,16 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
     async def _ask_for_details(reason: str) -> list[str]:
         if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
             await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
-            await _flag_agent_needed(conv_id, "email")
+            await _flag_agent_needed(conv_id, channel)
             print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
             return [f"📦 Order lookup: {reason}; ask cap ({attempt}) reached — left to the team."]
-        draft = _ASK_DETAILS_TEMPLATE.format(
+        draft = _tmpl.format(
             customer_name=name, needed=_needed_details(have_id, have_phone))
         ctx = f"📦 Order lookup: {reason} — requesting the required details from the customer."
         await chatwoot.merge_custom_attributes(conv_id, {
             "pending_order_lookup": {"attempts": attempt + 1, "asked_at": _now_iso(),
                                      "category": "existing_order_enquiry"}})
-        if config.ORDER_LOOKUP_AUTO_SEND:
+        if _auto:
             await chatwoot.send_outgoing_message(conv_id, draft)
             await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** request for order details. {ctx}")
             await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
@@ -2136,6 +2152,23 @@ async def _handle_order_lookup_reply(conv_id: int, data: dict,
     )
     print(f"[order-lookup] conv {conv_id}: reply re-entry → {audit}")
     return {"handled": "order_lookup_reply", "audit": audit}
+
+
+async def _run_social_order_lookup(conv_id: int, contact_name: str, channel: str,
+                                   *, attempt: int = 0) -> dict:
+    """Instagram / Facebook order-status enquiry → the BMS order-lookup flow in
+    CARD-ONLY mode: the order-details reply (verified) AND the request-for-details
+    ask are both agent send-cards, never auto-sent. Body is built from the
+    customer's incoming DMs so an order id / phone split across messages is seen."""
+    all_msgs = await chatwoot.get_conversation_messages_raw(conv_id)
+    body = "\n".join((m.get("content") or "") for m in all_msgs
+                     if m.get("message_type") in (0, "incoming")
+                     and (m.get("content") or "").strip())
+    audit = await _run_order_lookup(
+        conv_id, contact_name, "", "", body, attempt=attempt,
+        auto_send=False, channel=channel, ask_template=_ASK_DETAILS_TEMPLATE_SOCIAL)
+    print(f"[order-lookup] conv {conv_id}: social ({channel}) pass → {audit}")
+    return {"handled": "social_order_lookup", "channel": channel, "audit": audit}
 
 
 # ── Deal-details gate (bulk order / FHC / door) ────────────────────────────
@@ -3435,6 +3468,15 @@ async def handle_message_created(data: dict) -> dict:
     # handoff as before.
     bot_off = os.environ.get("DM_BOT_AUTO_REPLY_ENABLED", "false").lower() != "true"
     if is_social and bot_off:
+        # Order-lookup re-entry: a DM already awaiting order details routes the
+        # customer's reply back into the order flow (card), NOT the general
+        # auto-reply — otherwise the auto-reply would answer the detail message.
+        pending_ol = (conv.get("custom_attributes") or {}).get("pending_order_lookup")
+        if pending_ol and config.ORDER_LOOKUP_ENABLED:
+            contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") or "Customer"
+            return await _run_social_order_lookup(
+                conv_id, contact_name, social_channel,
+                attempt=int(pending_ol.get("attempts") or 1))
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
         return await handle_template_suggest(full_conv, social_channel)
 
@@ -4196,6 +4238,16 @@ async def handle_template_suggest(conv: dict, channel: str,
 
     reply, action = drafted["reply"], drafted["action"]
     confidence = drafted.get("confidence", 0)
+
+    # Existing-order enquiry on a DM ("where is my order?") → hand to the BMS
+    # order-lookup flow (card, never auto-sent) instead of the general reply.
+    # Comments never do a BMS lookup (order details must not go public) — they
+    # fall through to the normal redirect-to-DM reply below.
+    if (surface != "comment" and drafted.get("order_status_enquiry")
+            and config.ORDER_LOOKUP_ENABLED):
+        print(f"[template-suggest] conv {conv_id} — order-status enquiry → order-lookup flow")
+        return await _run_social_order_lookup(conv_id, contact_name, channel, attempt=0)
+
     if not reply:
         return {"ignored": True, "reason": "no_draft"}
 
