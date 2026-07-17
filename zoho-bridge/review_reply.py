@@ -144,8 +144,15 @@ EVERYTHING ELSE is needs_human=FALSE. Ordinary negativity — even strongly word
 get their apology template AUTOMATICALLY. Do NOT flag a review needs_human just
 because it is angry or 1★; only an explicit escalation above qualifies.
 
+"confidence" (0-100) is how sure you are that the chosen template is the correct,
+complete, and safe reply to send to this customer AS-IS. Be conservative: use a
+value BELOW 80 when the message is ambiguous, asks something the templates don't
+cover, mixes several requests, needs specifics you don't have, or could be
+sensitive — those should reach a human. Use 80+ only for a clear, ordinary
+message that one template answers well.
+
 Respond as STRICT JSON, no markdown:
-{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false}}
+{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false, "confidence": <integer 0-100>}}
 """
 
 # Human-friendly channel names for the chain-of-thought trace.
@@ -283,10 +290,11 @@ async def draft(channel: str, message: str, contact_name: str,
     low-rated reviews always need a human regardless of model output."""
     import json
 
-    def result(reply, action, short_code="", reasoning=""):
+    def result(reply, action, short_code="", reasoning="", confidence=0):
         return {
             "reply": reply, "action": action,
             "short_code": short_code, "reasoning": reasoning,
+            "confidence": confidence,
             "trace": build_trace(channel, short_code, reasoning, action),
         }
 
@@ -401,10 +409,18 @@ async def draft(channel: str, message: str, contact_name: str,
         # fraud / safety) that a person must handle. Rides on this same call —
         # no separate classifier — and is used only by the review flow below.
         needs_human = bool(parsed.get("needs_human"))
+        # confidence (0-100): how sure the model is the template fits as-is.
+        # Drives social auto-send (handle_template_suggest); a bad/missing value
+        # falls to 0 → not confident → review card, not auto-send.
+        try:
+            confidence = max(0, min(100, int(parsed.get("confidence") or 0)))
+        except (TypeError, ValueError):
+            confidence = 0
     except Exception as e:
         print(f"[template_reply] ERROR ({type(e).__name__}): {e} — falling back")
         reply, action, short_code, reasoning = "", "handoff", "", ""
         needs_human = True  # fail safe → a human looks at it
+        confidence = 0
 
     # Universal safety net for reviews: if the AI returned no usable reply
     # (error, empty, hallucinated empty content), drop to the deterministic
@@ -430,6 +446,6 @@ async def draft(channel: str, message: str, contact_name: str,
                   f"content flagged needs_human")
 
     if force_human or action != "auto":
-        return result(reply, "handoff", short_code, reasoning)
+        return result(reply, "handoff", short_code, reasoning, confidence)
 
-    return result(reply, "auto", short_code, reasoning)
+    return result(reply, "auto", short_code, reasoning, confidence)

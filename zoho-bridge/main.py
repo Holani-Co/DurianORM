@@ -4138,9 +4138,6 @@ async def handle_template_suggest(conv: dict, channel: str,
         print(f"[template-suggest] conv {conv_id} — low-value comment, no reply (no AI)")
         return {"ignored": True, "reason": "low_value_comment"}
 
-    # Social DM/comment handoff — flag it for this channel's agent-needed section.
-    await _flag_agent_needed(conv_id, channel)
-
     # id of that same latest incoming message, for the Langfuse message span.
     msg_id = next((m.get("id") for m in reversed(all_messages)
                    if m.get("message_type") in (0, "incoming")
@@ -4170,23 +4167,54 @@ async def handle_template_suggest(conv: dict, channel: str,
         return {"ignored": True, "reason": "draft_failed"}
 
     reply, action = drafted["reply"], drafted["action"]
+    confidence = drafted.get("confidence", 0)
     if not reply:
         return {"ignored": True, "reason": "no_draft"}
 
+    # Auto-send when the client approved it, the drafter is confident enough,
+    # AND it's an ordinary reply — anything flagged handoff (abuse / legal /
+    # spam / serious complaint) always goes to a human regardless of score.
+    auto_send = (config.SOCIAL_AUTO_SEND_ENABLED and action == "auto"
+                 and confidence >= config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE)
+
+    if auto_send:
+        try:
+            # Public outgoing message → Chatwoot delivers it to the customer on
+            # the inbox's own channel (Instagram / Facebook DM or comment).
+            await chatwoot.create_message(conv_id, reply, message_type="outgoing")
+        except Exception as e:
+            print(f"[template-suggest] auto-send failed for conv {conv_id}: {e}")
+            return {"ignored": True, "reason": "auto_send_failed"}
+        try:
+            await chatwoot.post_private_note(
+                conv_id,
+                f"🤖 **Auto-sent** {channel} reply (confidence {confidence}%) — "
+                f"template `{drafted.get('short_code') or '—'}`.")
+        except Exception:
+            pass
+        print(f"[template-suggest] {channel} AUTO-SENT on conv {conv_id} "
+              f"(confidence {confidence}%)")
+        return {"auto_sent": True, "channel": channel, "confidence": confidence}
+
+    # Below the confidence bar, a handoff, or auto-send disabled → post the
+    # review card for an agent and flag it in the Agent Needed section.
+    await _flag_agent_needed(conv_id, channel)
     try:
         await chatwoot.create_message(
             conv_id, reply, message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion",
                                 "suggestion": reply, "channel": channel,
-                                "surface": surface,
+                                "surface": surface, "confidence": confidence,
                                 "ai_trace": drafted["trace"]},
         )
     except Exception as e:
         print(f"[template-suggest] post failed for conv {conv_id}: {e}")
         return {"ignored": True, "reason": "post_failed"}
 
-    print(f"[template-suggest] {channel} card posted on conv {conv_id} ({action})")
-    return {"posted": True, "channel": channel, "action": action}
+    print(f"[template-suggest] {channel} card posted on conv {conv_id} "
+          f"({action}, confidence {confidence}%)")
+    return {"posted": True, "channel": channel, "action": action,
+            "confidence": confidence}
 
 
 # ── Handler: agent reply on a review → post to Google ─────────────────────

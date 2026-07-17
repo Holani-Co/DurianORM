@@ -413,6 +413,17 @@ RETAIL_ROUTING_ENABLED = _bool("RETAIL_ROUTING_ENABLED", "false")
 RETAIL_DETAILS_MAX_ASKS = int(os.environ.get("RETAIL_DETAILS_MAX_ASKS", "2"))
 RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@durian.in")
 
+# ── Social auto-send (Instagram / Facebook DM + comment) ───────────────────
+# The drafter (review_reply.draft) rates 0-100 how sure it is that the chosen
+# Durian template is the right, safe reply for a social message. At/above this
+# threshold the reply is SENT to the customer automatically; below it — or
+# anything the drafter flags as handoff (abuse / legal / spam / serious
+# complaint) — is posted as a review card for an agent instead. On by default;
+# set SOCIAL_AUTO_SEND_ENABLED=false to revert to review-card-only, or raise the
+# confidence bar to auto-send less.
+SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
+SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
+
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is
 # created, the customer must have provided all three of order id + registered
