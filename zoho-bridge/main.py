@@ -1878,6 +1878,24 @@ To check your order status, could you please share:
 
 Just reply here with these and we'll pull up your order right away."""
 
+# Used when the customer DID give an order number AND phone but they couldn't be
+# verified (order not found, or phone doesn't match that order). We deliberately
+# reveal NOTHING about which one is wrong / whether the order exists (client
+# safety rule) — just ask them to double-check both, so it doesn't read like the
+# earlier "please share" ask they already answered.
+_ASK_VERIFY_FAILED_TEMPLATE = """Dear {customer_name},
+
+Thank you for those details. We're sorry, but we couldn't verify them against our records.
+
+Could you please double-check your order number and the phone number registered with that order, and reply again? Both need to match for us to pull up your order.
+
+Regards,
+Team Durian"""
+
+_ASK_VERIFY_FAILED_TEMPLATE_SOCIAL = """Hi {customer_name}, thanks for those details! 🙏
+
+We couldn't verify them against our records, though. Could you please double-check your order number and the phone number registered with that order, and reply again? Both need to match for us to pull up your order."""
+
 _ORDER_NO_LINE = "Your order number (it looks like D#12345)"
 _PHONE_LINE    = "The phone number used at the time of purchase"
 
@@ -2042,7 +2060,8 @@ async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") ->
 async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
                             subject: str, body: str, *, attempt: int,
                             auto_send: Optional[bool] = None, channel: str = "email",
-                            ask_template: Optional[str] = None) -> list[str]:
+                            ask_template: Optional[str] = None,
+                            verify_failed_template: Optional[str] = None) -> list[str]:
     """One pass of the order-lookup flow. Client's safety rule: reveal order
     details ONLY when the customer supplied BOTH an order number AND the phone,
     and the phone matches that order's registered number. Otherwise ask for the
@@ -2053,6 +2072,7 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
     wording (social gets a shorter DM version)."""
     _auto = config.ORDER_LOOKUP_AUTO_SEND if auto_send is None else auto_send
     _tmpl = ask_template or _ASK_DETAILS_TEMPLATE
+    _vtmpl = verify_failed_template or _ASK_VERIFY_FAILED_TEMPLATE
     text = f"{subject}\n{body}"
     order_ids = _extract_order_ids(text)
     phones    = _extract_phones(text)
@@ -2075,14 +2095,17 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
     # ── Helper: ask for the missing/unverified details ────────────────────
     # Carries NO order data → safe to auto-send. Order DETAILS (PII) are always
     # an agent card; only this ask is auto-sent (when ORDER_LOOKUP_AUTO_SEND).
-    async def _ask_for_details(reason: str) -> list[str]:
+    async def _ask_for_details(reason: str, verify_failed: bool = False) -> list[str]:
         if attempt >= config.ORDER_LOOKUP_MAX_ASKS:
             await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
             await _flag_agent_needed(conv_id, channel)
             print(f"[order-lookup] conv {conv_id}: ask cap reached ({attempt}) — leaving to agent")
             return [f"📦 Order lookup: {reason}; ask cap ({attempt}) reached — left to the team."]
-        draft = _tmpl.format(
-            customer_name=name, needed=_needed_details(have_id, have_phone))
+        # Both were supplied but didn't verify → a "couldn't verify, double-check
+        # both" message; otherwise the "please share the missing bit(s)" ask.
+        draft = (_vtmpl.format(customer_name=name) if verify_failed
+                 else _tmpl.format(customer_name=name,
+                                   needed=_needed_details(have_id, have_phone)))
         ctx = f"📦 Order lookup: {reason} — requesting the required details from the customer."
         await chatwoot.merge_custom_attributes(conv_id, {
             "pending_order_lookup": {"attempts": attempt + 1, "asked_at": _now_iso(),
@@ -2116,7 +2139,8 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
     if not order or not any(_phones_match(ph, order.get("customer_phone")) for ph in phones):
         # Not found OR the phone doesn't match. Reveal NOTHING (don't even
         # confirm the order exists) — just ask them to re-check both.
-        return await _ask_for_details("order number + phone could not be verified")
+        return await _ask_for_details("order number + phone could not be verified",
+                                      verify_failed=True)
 
     # ── Verified → draft the order details as an agent card (never auto-sent).
     await chatwoot.merge_custom_attributes(conv_id, {"pending_order_lookup": None})
@@ -2166,7 +2190,8 @@ async def _run_social_order_lookup(conv_id: int, contact_name: str, channel: str
                      and (m.get("content") or "").strip())
     audit = await _run_order_lookup(
         conv_id, contact_name, "", "", body, attempt=attempt,
-        auto_send=False, channel=channel, ask_template=_ASK_DETAILS_TEMPLATE_SOCIAL)
+        auto_send=False, channel=channel, ask_template=_ASK_DETAILS_TEMPLATE_SOCIAL,
+        verify_failed_template=_ASK_VERIFY_FAILED_TEMPLATE_SOCIAL)
     print(f"[order-lookup] conv {conv_id}: social ({channel}) pass → {audit}")
     return {"handled": "social_order_lookup", "channel": channel, "audit": audit}
 
