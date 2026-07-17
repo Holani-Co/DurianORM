@@ -136,7 +136,7 @@ ZOHO_CRM_PIPELINE_PROJECT    = os.environ.get("ZOHO_CRM_PIPELINE_PROJECT", "")
 # ZOHO_CRM_BILLING_TYPE_RETAIL="" to disable the override. Confirm the field API
 # name matches the key used in ZOHO_CRM_DEAL_EXTRA_FIELDS.
 ZOHO_CRM_BILLING_TYPE_FIELD  = os.environ.get("ZOHO_CRM_BILLING_TYPE_FIELD", "Business_Type")
-ZOHO_CRM_BILLING_TYPE_RETAIL = os.environ.get("ZOHO_CRM_BILLING_TYPE_RETAIL", "Retail Non-GST Billing")
+ZOHO_CRM_BILLING_TYPE_RETAIL = os.environ.get("ZOHO_CRM_BILLING_TYPE_RETAIL", "Non-GST Billing")
 import json as _json  # noqa: E402
 try:
     ZOHO_CRM_DEAL_EXTRA_FIELDS = _json.loads(
