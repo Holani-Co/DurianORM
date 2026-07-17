@@ -9,6 +9,7 @@ import {
 
 import ChatListHeader from './ChatListHeader.vue';
 import ReviewInboxFilters from './widgets/conversation/ReviewInboxFilters.vue';
+import AgentNeedsChannelFilter from './widgets/conversation/AgentNeedsChannelFilter.vue';
 import ConversationList from './ConversationList.vue';
 import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
 import ConversationFilter from 'next/filter/ConversationFilter.vue';
@@ -696,6 +697,24 @@ const agentFilterOptions = computed(() =>
 
 const isReviewsInbox = computed(() => inbox.value?.name === 'Google Reviews');
 
+// Unified "Agent needs" view — any `agent-needed*` label route. The in-view
+// channel dropdown swaps the umbrella label for a per-channel one, so the same
+// list shows all channels or one at a time (no separate route/store needed).
+const isAgentNeedsView = computed(() =>
+  Boolean(props.label && props.label.startsWith('agent-needed'))
+);
+const agentNeedsChannel = computed(() =>
+  props.label === 'agent-needed' ? '' : props.label.replace('agent-needed-', '')
+);
+const onAgentNeedsChannelChange = channel => {
+  const label = channel ? `agent-needed-${channel}` : 'agent-needed';
+  if (label === props.label) return;
+  router.push({
+    name: 'label_conversations',
+    params: { accountId: currentAccountId.value, label },
+  });
+};
+
 // Store options carry their COCO/FOFO segment so the dropdown can group the
 // showrooms — the reviews team wants to see at a glance which stores are
 // company-owned (COCO) vs franchise (FOFO).
@@ -1125,6 +1144,12 @@ watch(conversationFilters, (newVal, oldVal) => {
       :store-options="storeFilterOptions"
       :agent-options="agentFilterOptions"
       @change="onReviewFilterChange"
+    />
+
+    <AgentNeedsChannelFilter
+      v-if="isAgentNeedsView"
+      :channel="agentNeedsChannel"
+      @change="onAgentNeedsChannelChange"
     />
 
     <TeleportWithDirection

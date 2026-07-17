@@ -272,6 +272,20 @@ const menuItems = computed(() => {
           label: t('SIDEBAR.UNATTENDED_CONVERSATIONS'),
           to: accountScopedRoute('conversation_unattended'),
         },
+        // Unified "Agent needs" section — one permanent view for everything
+        // awaiting a human across ALL channels (email ticket/deal/category
+        // decisions, gate cap-out handoffs, social DM/comment handoffs, reviews).
+        // Links to the umbrella `agent-needed` label; the in-view channel
+        // dropdown (ChatList → AgentNeedsChannelFilter) narrows it per channel.
+        {
+          name: 'AgentNeeds',
+          label: 'Agent Needed',
+          icon: 'i-lucide-user-round-check',
+          activeOn: ['conversations_through_label'],
+          to: accountScopedRoute('label_conversations', {
+            label: 'agent-needed',
+          }),
+        },
         // Email handling: always-on views for the AI email router — auto-sent
         // (auto-forwarded) and human-in-the-loop (needs-review).
         // Hard-coded so they're permanent; no agent can remove them.
@@ -393,17 +407,20 @@ const menuItems = computed(() => {
           label: t('SIDEBAR.LABELS'),
           icon: 'i-lucide-tag',
           activeOn: ['conversations_through_label'],
-          // Filter out labels that are surfaced in the Spam Bin group above —
-          // otherwise spam/promotional/automated would appear twice in the
-          // sidebar (once under Spam Bin, once under Labels).
+          // Filter out labels surfaced in their own groups above — Spam Bin
+          // (spam/promotional/automated), Email handling (auto-forwarded/…),
+          // and every `agent-needed*` marker (shown in the Agent needs view +
+          // its channel dropdown) — so none appear twice in the sidebar.
           children: labels.value
-            .filter(
-              label =>
+            .filter(label => {
+              const title = label.title?.toLowerCase();
+              return (
                 ![
                   ...CLASSIFIER_MANAGED_LABELS,
                   ...EMAIL_HANDLING_LABELS,
-                ].includes(label.title?.toLowerCase())
-            )
+                ].includes(title) && !title?.startsWith('agent-needed')
+              );
+            })
             .map(label => ({
               name: `${label.title}-${label.id}`,
               label: label.title,

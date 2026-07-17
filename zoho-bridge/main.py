@@ -258,17 +258,12 @@ async def handle_status_changed(data: dict) -> dict:
     conv_id    = conv.get("id") or data.get("id")
     new_status = (conv.get("status") or data.get("status") or "").lower()
     if new_status == "resolved":
-        # Handoff handled → clear the agent-needed markers so the channel
-        # sections only show conversations still awaiting a human. Only touch
-        # labels present on the payload, so the frequent auto-resolves that were
-        # never handoffs don't fire needless remove_label calls.
-        present = [l for l in (conv.get("labels") or []) if l in _AGENT_NEEDED_ALL]
-        for lbl in present:
-            try:
-                await chatwoot.remove_label(conv_id, lbl)
-            except Exception:
-                pass
-        return {"handled": "agent_needed_cleared", "removed": present} if present \
+        # Handoff handled → clear the agent-needed markers so the unified section
+        # only shows conversations still awaiting a human. Pass the payload conv
+        # so only labels actually present get a remove_label call (the frequent
+        # auto-resolves that were never handoffs stay cheap).
+        removed = await _clear_agent_needed(conv_id, conv)
+        return {"handled": "agent_needed_cleared", "removed": removed} if removed \
             else {"ignored": True, "reason": "resolved_no_agent_labels"}
     if new_status != "open":
         return {"ignored": True, "reason": f"status={new_status}"}
@@ -694,6 +689,10 @@ async def _pause_for_agent_decision(conv_id: int,
     except Exception as e:
         print(f"[zoho-dedup] merge_custom_attributes failed for {conv_id}: {e}")
 
+    # Ticket creation is now waiting on a human → surface in the unified
+    # "Agent needs" section (Email channel). Cleared in _resolve_ticket_decision.
+    await _flag_agent_needed(conv_id, "email")
+
     # Post a private note so agents notice without watching the sidebar. The
     # wording differs for the two pause reasons: a possible duplicate (open
     # tickets exist) vs. the approval gate (no duplicate, just needs sign-off).
@@ -888,6 +887,9 @@ async def _resolve_ticket_decision(conv_id: int, choice: str,
     except Exception as e:
         print(f"[zoho-dedup] failed to clear pending flag on {conv_id}: {e}")
 
+    # Agent acted on the ticket decision → drop it from the "Agent needs" section.
+    await _clear_agent_needed(conv_id)
+
     return result
 
 
@@ -1014,6 +1016,13 @@ async def _post_category_decision(conv_id: int, category_result: dict,
     except Exception as e:
         print(f"[category-decision] add_label({NEEDS_REVIEW_UMBRELLA_LABEL}) failed: {e}")
 
+    # ALSO surface in the unified "Agent needs" section (Email channel) — the
+    # category call is a human decision like any other. `needs-review` above keeps
+    # its own dedicated view; this umbrella is what makes it show in the unified
+    # All/Email view. Cleared when the agent confirms the category (see
+    # _resolve_category_decision, which re-flags only if the pick is a deal vertical).
+    await _flag_agent_needed(conv_id, "email")
+
     print(f"[category-decision] conv {conv_id}: card posted "
           f"(suggested={suggested!r} conf={conf})")
     return {"category_decision": True, "suggested": suggested, "confidence": conf}
@@ -1127,6 +1136,12 @@ async def _resolve_category_decision(conv_id: int, category: str,
     # action layer can suppress the customer acknowledgment for automated mail
     # on the agent-confirmed path too — not just the auto path.
     email_category = (conv.get("custom_attributes") or {}).get("email_category") or ""
+
+    # The category decision itself is now handled → drop the agent-needed marker.
+    # _phase2_execute_actions below RE-flags it only when the confirmed category
+    # is a deal vertical (Create Deal still pending) or a paused ticket, so a
+    # plain routed email leaves the section while a deal lead stays in it.
+    await _clear_agent_needed(conv_id, conv)
 
     action_section = []
     try:
@@ -1953,15 +1968,17 @@ async def _label_conversation(conv_id: int, label: str) -> None:
         print(f"[order-lookup] labelling {conv_id} '{label}' failed: {e}")
 
 
-# Umbrella handoff marker: applied when the automation gives up and a human must
-# take over (a gate hit its ask cap with details still missing, a review was
-# flagged, a social DM bot handed off). The per-channel variant gives the Labels
-# sidebar a ready-made, channel-segregated "needs an agent" section. NOTE: the
-# email CATEGORY handoffs keep using `needs-review` (their own section) — this
-# marker is for the gate cap-outs and the other channels only.
+# Umbrella marker for the unified "Agent needs" sidebar section: applied at
+# EVERY point where a human must decide/act — a gate hit its ask cap with details
+# still missing, a review or social DM was handed off, an email needs a category
+# decision, a Zoho ticket is paused for approval, or a deal-vertical lead is
+# waiting on Create Deal. The per-channel variant (agent-needed-email / -instagram
+# / …) backs the in-view channel dropdown. Category emails ALSO keep `needs-review`
+# (their own dedicated view) — this umbrella is what makes them show in the
+# unified section too. Cleared once the human acts (deal/ticket created, category
+# resolved) or the conversation resolves — see _clear_agent_needed.
 AGENT_NEEDED_LABEL = "agent-needed"
-# Cleared on resolve (handle_status_changed) — kept in one place so the resolve
-# cleanup and the flaggers can't drift.
+# Kept in one place so the flaggers and the cleanup can't drift.
 _AGENT_NEEDED_ALL = [AGENT_NEEDED_LABEL] + [
     f"{AGENT_NEEDED_LABEL}-{c}" for c in ("email", "instagram", "facebook", "whatsapp", "reviews")]
 
@@ -1971,6 +1988,26 @@ async def _flag_agent_needed(conv_id: int, channel: str) -> None:
     plus a per-channel label (agent-needed-email / -instagram / …). Best-effort."""
     for lbl in (AGENT_NEEDED_LABEL, f"{AGENT_NEEDED_LABEL}-{channel}"):
         await _label_conversation(conv_id, lbl)
+
+
+async def _clear_agent_needed(conv_id: int, conv: Optional[dict] = None) -> list[str]:
+    """Remove the agent-needed umbrella + per-channel labels once a human has
+    acted (deal/ticket created, category resolved) or the conversation resolved.
+    When `conv` actually carries a `labels` list we only touch labels present, so
+    the frequent auto-resolves stay cheap. When it's absent (None) — e.g. a fetch
+    that doesn't include labels — we try every marker (remove_label no-ops on the
+    ones not set, so this is safe, just a few extra GETs). Best-effort."""
+    labels = conv.get("labels") if conv is not None else None
+    targets = ([l for l in labels if l in _AGENT_NEEDED_ALL]
+               if labels is not None else _AGENT_NEEDED_ALL)
+    removed: list[str] = []
+    for lbl in targets:
+        try:
+            await chatwoot.remove_label(conv_id, lbl)
+            removed.append(lbl)
+        except Exception:
+            pass
+    return removed
 
 
 async def _post_order_reply_card(conv_id: int, draft: str, context: str = "") -> None:
@@ -2730,6 +2767,12 @@ async def _phase2_execute_actions(conv_id: int,
     name    = _resolve_customer_name(sender_name, sender_email)
     template = _resolve_acknowledgment_template(cat_key)
     audit: list[str] = []
+
+    # Deal-vertical lead → an agent still has to click Create Deal. Surface it in
+    # the unified "Agent needs" section (Email channel) now; _clear_agent_needed
+    # fires when the deal is created (create-deal endpoint) or the conv resolves.
+    if cat_key in _DEAL_VERTICAL_LABEL:
+        await _flag_agent_needed(conv_id, "email")
 
     # ── Complaint-details gate ──────────────────────────────────────────
     # Before forwarding a complaint to support AND creating its Zoho ticket,
@@ -5042,6 +5085,10 @@ async def chatwoot_crm_create_deal(request: Request):
             await _label_conversation(int(conv_id), lbl)
     except Exception as e:
         print(f"[crm] deal-created label failed for conv {conv_id}: {e}")
+
+    # Deal is created → the "Create Deal" agent-need is satisfied; drop it from the
+    # unified section (the permanent deal-created / deal-<vertical> tags stay).
+    await _clear_agent_needed(int(conv_id), conv)
 
     try:
         agent_name = body.get("agent_name") or "an agent"
