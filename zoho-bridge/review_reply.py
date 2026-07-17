@@ -157,8 +157,14 @@ bought a sofa last week, what's the status?", "my order hasn't arrived"). FALSE
 for a NEW purchase enquiry ("I want to buy", "is X available", "price of X"), and
 FALSE for general conversation or a complaint with no order-status question.
 
+"is_complaint" = true when the customer is dissatisfied / raising a grievance —
+"I'm not happy", "poor quality", "damaged", "delayed", "worst service", "I have a
+complaint". This is SEPARATE from needs_human: an ordinary complaint is
+is_complaint=true, needs_human=false (we reply with the apology template
+automatically); only an EXPLICIT escalation is also needs_human=true.
+
 Respond as STRICT JSON, no markdown:
-{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false, "confidence": <integer 0-100>, "order_status_enquiry": true | false}}
+{{"short_code": "<chosen template short_code>", "reasoning": "<one short sentence: why this template fits this message>", "reply": "<final reply text>", "action": "auto" | "handoff", "needs_human": true | false, "confidence": <integer 0-100>, "order_status_enquiry": true | false, "is_complaint": true | false}}
 """
 
 # Human-friendly channel names for the chain-of-thought trace.
@@ -297,12 +303,13 @@ async def draft(channel: str, message: str, contact_name: str,
     import json
 
     def result(reply, action, short_code="", reasoning="", confidence=0,
-               order_status_enquiry=False):
+               order_status_enquiry=False, is_complaint=False):
         return {
             "reply": reply, "action": action,
             "short_code": short_code, "reasoning": reasoning,
             "confidence": confidence,
             "order_status_enquiry": order_status_enquiry,
+            "is_complaint": is_complaint,
             "trace": build_trace(channel, short_code, reasoning, action),
         }
 
@@ -427,12 +434,16 @@ async def draft(channel: str, message: str, contact_name: str,
         # order_status_enquiry: the customer is asking about an EXISTING order —
         # routes social DMs into the BMS order-lookup flow (handle_template_suggest).
         order_status_enquiry = bool(parsed.get("order_status_enquiry"))
+        # is_complaint: ordinary dissatisfaction → social auto-replies the apology
+        # template (unless needs_human flags a serious escalation → still a human).
+        is_complaint = bool(parsed.get("is_complaint"))
     except Exception as e:
         print(f"[template_reply] ERROR ({type(e).__name__}): {e} — falling back")
         reply, action, short_code, reasoning = "", "handoff", "", ""
         needs_human = True  # fail safe → a human looks at it
         confidence = 0
         order_status_enquiry = False
+        is_complaint = False
 
     # Universal safety net for reviews: if the AI returned no usable reply
     # (error, empty, hallucinated empty content), drop to the deterministic
@@ -457,9 +468,19 @@ async def draft(channel: str, message: str, contact_name: str,
             print(f"[template_reply] {stars}★ review held for a human — "
                   f"content flagged needs_human")
 
+    # Social (Instagram / Facebook / WhatsApp): serious escalations always go to a
+    # human; an ordinary complaint gets its apology template auto-replied (client
+    # rule — complaints should be answered, not carded). Reviews are unchanged
+    # (their auto/handoff was already decided by needs_human above).
+    if channel != "review" and reply:
+        if needs_human:
+            action = "handoff"
+        elif is_complaint:
+            action = "auto"
+
     if force_human or action != "auto":
         return result(reply, "handoff", short_code, reasoning, confidence,
-                      order_status_enquiry)
+                      order_status_enquiry, is_complaint)
 
     return result(reply, "auto", short_code, reasoning, confidence,
-                  order_status_enquiry)
+                  order_status_enquiry, is_complaint)
