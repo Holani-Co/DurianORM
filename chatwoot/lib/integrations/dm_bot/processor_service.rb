@@ -85,23 +85,19 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   def should_run_processor?(message)
     return if message.private?
     return unless processable_message?(message)
+    return comment_bot_enabled? if comment_conversation?
 
-    if comment_conversation?
-      # A persona account (demo) runs its own bot; Durian stays on the global flag.
-      return true if persona
-      return false unless ENV.fetch('DM_BOT_COMMENT_AUTO_REPLY_ENABLED', 'false') == 'true'
+    dm_bot_enabled? && conversation.pending?
+  end
 
-      return true
-    end
+  # A persona (demo) account runs its bot on its own; Durian stays gated on the
+  # env flag — OFF in the prod-test phase, so production behaviour is unchanged.
+  def dm_bot_enabled?
+    persona ? true : ENV.fetch('DM_BOT_AUTO_REPLY_ENABLED', 'false') == 'true'
+  end
 
-    # A persona account (demo) runs its bot on its own; Durian stays gated on the
-    # (prod-test OFF) flag, so production behaviour is unchanged.
-    unless persona
-      return unless ENV.fetch('DM_BOT_AUTO_REPLY_ENABLED', 'false') == 'true'
-    end
-    return unless conversation.pending?
-
-    true
+  def comment_bot_enabled?
+    persona ? true : ENV.fetch('DM_BOT_COMMENT_AUTO_REPLY_ENABLED', 'false') == 'true'
   end
 
   # Called by base class with (source_id, user_message_text)
@@ -504,12 +500,14 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   end
 
   def system_prompt
+    if persona
+      return comment_conversation? ? persona[:comment_system_prompt] : persona[:dm_system_prompt]
+    end
+
     comment_conversation? ? comment_system_prompt : dm_system_prompt
   end
 
   def comment_system_prompt
-    return persona[:comment_system_prompt] if persona
-
     <<~PROMPT
       You are the social-media voice of Durian, an Indian premium furniture
       retailer (furniture, doors, wardrobes, and Full Home Customisation),
@@ -543,8 +541,6 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
 
   # rubocop:disable Metrics/MethodLength
   def dm_system_prompt
-    return persona[:dm_system_prompt] if persona
-
     b = Integrations::DmBot::Tools::Base
 
     <<~PROMPT

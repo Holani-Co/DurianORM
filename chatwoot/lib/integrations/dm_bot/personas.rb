@@ -9,6 +9,7 @@
 #   DM_BOT_PERSONA_MAP="4:kisnemanga,7:kisnemanga"   # account_id:persona_key
 # Unmapped accounts (or an unknown key) fall back to the Durian defaults, so
 # production behaviour is unchanged unless an account is explicitly mapped.
+# rubocop:disable Metrics/ModuleLength -- persona data (prompts/menus), not logic
 module Integrations::DmBot::Personas
   KISNEMANGA = {
     key: 'kisnemanga',
@@ -173,3 +174,4 @@ module Integrations::DmBot::Personas
     REGISTRY[key]
   end
 end
+# rubocop:enable Metrics/ModuleLength
