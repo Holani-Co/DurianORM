@@ -279,7 +279,7 @@ const menuItems = computed(() => {
         // dropdown (ChatList → AgentNeedsChannelFilter) narrows it per channel.
         {
           name: 'AgentNeeds',
-          label: 'Agent needs',
+          label: 'Agent Needed',
           icon: 'i-lucide-user-round-check',
           activeOn: ['conversations_through_label'],
           to: accountScopedRoute('label_conversations', {
