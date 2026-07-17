@@ -346,8 +346,8 @@ categories:
   franchise_dealership:
     display_name: Franchise / Dealership Enquiry
     action: forward
-    forward_to: nagender.rao@durian.in
-    cc: [sneha.gaikwad@durian.in, sujitha.acharya@durian.in]
+    forward_to: ram.sai@durian.in
+    cc: []
     bcc: []
     include_customer_in_cc: false
     description: |
