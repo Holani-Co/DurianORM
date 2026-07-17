@@ -37,12 +37,36 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     { title: '👤 Talk to a Human',     value: 'human'      }
   ].freeze
 
+  # Durian welcome + option replies, extracted so a persona account can override
+  # them (persona nil → these exact strings are used, unchanged for production).
+  DURIAN_WELCOME = 'Hello! 👋 Welcome to Durian — premium furniture, doors, wardrobes & ' \
+                   'Full Home Customisation. How can we help you today?'
+  DURIAN_OPTION_REPLIES = {
+    'products' => "Tell us what you're looking for — furniture, doors, wardrobes, " \
+                  'or a Full Home makeover — and we\'ll share the details. ' \
+                  'You can also explore everything at https://www.durian.in 🛋️',
+    'find_store' => 'Find your nearest Durian store here: https://www.durian.in/stores 📍',
+    'ask_ai' => "Sure! Go ahead and ask me anything about Durian and I'll do my best to help 🤖"
+  }.freeze
+
   # Public reply posted on a comment the AI flags as serious (abuse, scam/sue
   # accusations, legal threats). We always respond publicly AND hand to a
   # human, instead of silently handing off with no visible reply.
   COMMENT_HANDOFF_REPLY = "We're sorry to hear this 🙏 Please DM us so our team can look into it right away."
 
   private
+
+  # Account-specific persona override (e.g. the kisnemanga demo store on the
+  # demo account). nil for Durian/production accounts, in which case every
+  # persona-aware branch below falls back to the built-in Durian
+  # strings / prompts / tools — production behaviour is unchanged.
+  def persona
+    return @persona if defined?(@persona)
+
+    @persona = Integrations::DmBot::Personas.for_account(
+      event_data[:message].conversation.account_id
+    )
+  end
 
   # Comments must be answered regardless of conversation status. All comments
   # on a post are grouped into ONE conversation that gets resolved/reopened/
@@ -61,17 +85,19 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   def should_run_processor?(message)
     return if message.private?
     return unless processable_message?(message)
+    return comment_bot_enabled? if comment_conversation?
 
-    if comment_conversation?
-      return false unless ENV.fetch('DM_BOT_COMMENT_AUTO_REPLY_ENABLED', 'false') == 'true'
+    dm_bot_enabled? && conversation.pending?
+  end
 
-      return true
-    end
+  # A persona (demo) account runs its bot on its own; Durian stays gated on the
+  # env flag — OFF in the prod-test phase, so production behaviour is unchanged.
+  def dm_bot_enabled?
+    persona ? true : ENV.fetch('DM_BOT_AUTO_REPLY_ENABLED', 'false') == 'true'
+  end
 
-    return unless ENV.fetch('DM_BOT_AUTO_REPLY_ENABLED', 'false') == 'true'
-    return unless conversation.pending?
-
-    true
+  def comment_bot_enabled?
+    persona ? true : ENV.fetch('DM_BOT_COMMENT_AUTO_REPLY_ENABLED', 'false') == 'true'
   end
 
   # Called by base class with (source_id, user_message_text)
@@ -147,32 +173,23 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   # ── Option routing ────────────────────────────────────────────────────────
 
   def handle_option_selection(value)
-    case value
-    when 'products'
-      { content: "Tell us what you're looking for — furniture, doors, wardrobes, " \
-                 'or a Full Home makeover — and we\'ll share the details. ' \
-                 'You can also explore everything at https://www.durian.in 🛋️' }
-    when 'find_store'
-      { content: 'Find your nearest Durian store here: https://www.durian.in/stores 📍' }
-    when 'ask_ai'
-      # Bot stays active — next message will go through ai_reply
-      { content: "Sure! Go ahead and ask me anything about Durian and I'll do my best to help 🤖" }
-    when 'human'
-      :handoff
-    else
-      :welcome_menu
-    end
+    return :handoff if value == 'human'
+
+    # ask_ai keeps the bot active (next message goes through ai_reply); a matched
+    # option returns its reply, an unknown one re-shows the menu.
+    replies = persona ? persona[:option_replies] : DURIAN_OPTION_REPLIES
+    content = replies[value]
+    content ? { content: content } : :welcome_menu
   end
 
   # ── Welcome menu ──────────────────────────────────────────────────────────
 
   def send_welcome_menu(message)
     create_bot_message(message, {
-                         content: 'Hello! 👋 Welcome to Durian — premium furniture, doors, wardrobes & ' \
-                                  'Full Home Customisation. How can we help you today?',
+                         content: persona ? persona[:welcome_content] : DURIAN_WELCOME,
                          content_type: 'input_select',
                          content_attributes: {
-                           items: MENU_OPTIONS
+                           items: persona ? persona[:menu_options] : MENU_OPTIONS
                          }
                        })
   end
@@ -366,6 +383,9 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
     if comment_conversation?
       [Integrations::DmBot::Tools::RedirectToDm.new,
        Integrations::DmBot::Tools::Handoff.new]
+    elsif persona
+      # Demo persona (e.g. kisnemanga) ships its own DM toolset.
+      persona[:dm_tool_classes].map { |klass| klass.constantize.new }
     else
       # Durian DMs are lead-gen + support: the bot answers from the store facts
       # in the prompt and hands off when it genuinely can't help. No catalog/
@@ -480,6 +500,10 @@ class Integrations::DmBot::ProcessorService < Integrations::BotProcessorService
   end
 
   def system_prompt
+    if persona
+      return comment_conversation? ? persona[:comment_system_prompt] : persona[:dm_system_prompt]
+    end
+
     comment_conversation? ? comment_system_prompt : dm_system_prompt
   end
 

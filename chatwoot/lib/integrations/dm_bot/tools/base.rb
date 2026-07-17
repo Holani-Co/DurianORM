@@ -32,4 +32,20 @@ class Integrations::DmBot::Tools::Base < RubyLLM::Tool
 
   # Durian doors retail is only available in these cities.
   DOOR_CITIES = 'Indore, Bangalore, Delhi, Mumbai & Hyderabad'
+
+  # ── Demo-store data (kisnemanga persona only) ──────────────────────────────
+  # Used by the restored demo tools (search_catalog / order_status / place_order)
+  # and the kisnemanga DM prompt, for demo accounts mapped via
+  # DM_BOT_PERSONA_MAP. Not referenced anywhere in the Durian flow.
+  CATALOG = [
+    { sku: 'AOT-V1',   title: 'Attack on Titan — Vol. 1 (English)',     price: 499 },
+    { sku: 'OP-V1',    title: 'One Piece — Vol. 1 (English)',           price: 549 },
+    { sku: 'DS-BOX',   title: 'Demon Slayer — Complete Box Set (1-23)', price: 8_999 },
+    { sku: 'NRT-V1',   title: 'Naruto — Vol. 1 (English)',              price: 449 },
+    { sku: 'BRK-DLX1', title: 'Berserk — Deluxe Edition Vol. 1',        price: 2_499 }
+  ].freeze
+
+  SHIPPING = 'Flat ₹99 across India. Free over ₹2,000. Delivery in 4-7 days.'
+  RETURNS  = '7-day return window, item must be unopened.'
+  PAYMENT  = 'UPI, debit/credit cards, net banking, popular wallets, and Cash on Delivery (COD).'
 end
