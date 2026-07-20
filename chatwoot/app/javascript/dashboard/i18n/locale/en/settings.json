@@ -1,4 +1,45 @@
 {
+  "ROUTING_CONFIG": {
+    "HEADER": "Routing Config",
+    "DESCRIPTION": "How inbound emails are categorised, forwarded, and assigned to CRM owners. These rules run on the zoho-bridge; the defaults come from routing_rules.yaml.",
+    "READ_ONLY_NOTE": "Read-only view. Editing from here is coming in a later phase; for now these values reflect what the bridge is using live.",
+    "LOADING": "Loading routing configuration…",
+    "BRIDGE_UNAVAILABLE": "Could not reach the routing bridge. Make sure the zoho-bridge is running and ROUTING_ADMIN_SECRET is set on both services.",
+    "LIVE_BADGE": "Live",
+    "CUSTOMISED_BADGE": "Customised",
+    "DEFAULTS_BADGE": "Defaults (YAML)",
+    "VERSION_INFO": "Active override: version {version} by {actor} · {when}",
+    "NO_OVERRIDE": "No override published — running the YAML defaults.",
+    "TABS": {
+      "CATEGORIES": "Categories",
+      "OWNERS": "CRM Owners",
+      "SETTINGS": "Thresholds & Misc"
+    },
+    "CATEGORIES": {
+      "TITLE": "Email categories",
+      "SUBTITLE": "{count} categories. Each inbound email is classified into one of these; forward categories send the email out, in-channel categories stay in the inbox.",
+      "COL_NAME": "Category",
+      "COL_ACTION": "Action",
+      "COL_FORWARD": "Forwards to",
+      "COL_KEYWORDS": "Keywords",
+      "ACTION_FORWARD": "Forward",
+      "ACTION_IN_CHANNEL": "In channel",
+      "NONE": "—"
+    },
+    "OWNERS": {
+      "TITLE": "CRM owners",
+      "SUBTITLE": "{count} unique owner (email + Zoho ID) pairs referenced across the territory maps.",
+      "COL_EMAIL": "Owner email",
+      "COL_ID": "Zoho owner ID"
+    },
+    "SETTINGS": {
+      "TITLE": "Thresholds & miscellaneous",
+      "CONFIDENCE": "Classifier confidence threshold",
+      "CACHE_TTL": "Live-reload cache (seconds)",
+      "SYSTEM_SUBJECTS": "System-notification subjects",
+      "AUTO_FILE_SENDERS": "Auto-file senders"
+    }
+  },
   "PROFILE_SETTINGS": {
     "LINK": "Profile Settings",
     "TITLE": "Profile Settings",
@@ -328,6 +369,7 @@
     "NOTIFICATIONS": "Notifications",
     "CANNED_RESPONSES": "Canned Responses",
     "INTEGRATIONS": "Integrations",
+    "ROUTING_CONFIG": "Routing Config",
     "PROFILE_SETTINGS": "Profile Settings",
     "ACCOUNT_SETTINGS": "Account Settings",
     "APPLICATIONS": "Applications",
