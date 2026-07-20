@@ -9,8 +9,8 @@
 //   • map  — { territory: {owner_email, owner_id, ...} }   (homestudio, private, doors)
 //   • flat — { owner_email, owner_id, ... }                (franchise, fallback)
 //   • list — { territory: [ {owner_email, owner_id}, ... ] } round-robin (govt_bulk)
-// The single-owner shapes are editable here; the round-robin rotation is shown
-// read-only for now (its own editing step is next).
+// All three are editable: single-owner shapes via one dropdown; the round-robin
+// rotation as a list of dropdowns with add/remove (a territory keeps ≥1 owner).
 import { ref, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
@@ -103,6 +103,42 @@ function reassign(mapKey, territory, email) {
   else edits.push({ mapKey, territory, value });
 }
 
+// --- round-robin (list) editing ---
+function currentList(mapKey, territory) {
+  const e = findEdit(mapKey, territory);
+  const list = e ? e.value : (props.effective[mapKey] || {})[territory] || [];
+  return Array.isArray(list) ? list : [];
+}
+
+function commitList(mapKey, territory, list) {
+  const existing = findEdit(mapKey, territory);
+  if (existing) existing.value = list;
+  else edits.push({ mapKey, territory, value: list });
+}
+
+function setListOwner(mapKey, territory, index, email) {
+  const owner = allOwners.value.find(o => o.owner_email === email);
+  if (!owner) return;
+  const list = currentList(mapKey, territory).map(o => ({ ...o }));
+  list[index] = { owner_email: owner.owner_email, owner_id: owner.owner_id };
+  commitList(mapKey, territory, list);
+}
+
+function addListOwner(mapKey, territory) {
+  const owner = allOwners.value[0];
+  if (!owner) return;
+  const list = currentList(mapKey, territory).map(o => ({ ...o }));
+  list.push({ owner_email: owner.owner_email, owner_id: owner.owner_id });
+  commitList(mapKey, territory, list);
+}
+
+function removeListOwner(mapKey, territory, index) {
+  const list = currentList(mapKey, territory).map(o => ({ ...o }));
+  if (list.length <= 1) return; // keep at least one owner in the rotation
+  list.splice(index, 1);
+  commitList(mapKey, territory, list);
+}
+
 function addOwner() {
   const email = newEmail.value.trim();
   const id = newId.value.trim();
@@ -129,11 +165,14 @@ async function publish() {
   errors.value = [];
   const doc = JSON.parse(JSON.stringify(props.override || {}));
   edits.forEach(({ mapKey, territory, value }) => {
+    const v = Array.isArray(value)
+      ? value.filter(o => o && o.owner_email)
+      : value;
     if (territory === null) {
-      doc[mapKey] = value;
+      doc[mapKey] = v;
     } else {
       doc[mapKey] = doc[mapKey] || {};
-      doc[mapKey][territory] = value;
+      doc[mapKey][territory] = v;
     }
   });
 
@@ -279,10 +318,10 @@ async function publish() {
         </table>
       </div>
 
-      <!-- list (round-robin): read-only for now -->
+      <!-- list (round-robin): editable rotation -->
       <div v-else class="overflow-x-auto border rounded-xl border-n-weak">
-        <div class="px-3 py-2 text-xs text-n-slate-10 bg-n-amber-2">
-          {{ t('ROUTING_CONFIG.OWNERS.ROTATION_NOTE') }}
+        <div class="px-3 py-2 text-xs text-n-slate-10 bg-n-alpha-1">
+          {{ t('ROUTING_CONFIG.OWNERS.ROTATION_HINT') }}
         </div>
         <table class="w-full text-sm">
           <tbody>
@@ -291,13 +330,50 @@ async function publish() {
               :key="ter"
               class="border-t border-n-weak align-top"
             >
-              <td class="px-3 py-2 text-n-slate-12 w-1/2">{{ ter }}</td>
-              <td class="px-3 py-2 text-n-slate-11">
-                {{
-                  (props.effective[m.key][ter] || [])
-                    .map(o => o.owner_email)
-                    .join(', ')
-                }}
+              <td class="w-1/3 px-3 py-3 text-n-slate-12">{{ ter }}</td>
+              <td class="px-3 py-3">
+                <div class="flex flex-col gap-2">
+                  <div
+                    v-for="(o, idx) in currentList(m.key, ter)"
+                    :key="idx"
+                    class="flex items-center gap-2"
+                  >
+                    <select
+                      class="flex-1 max-w-sm px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                      :class="findEdit(m.key, ter) ? 'border-n-brand' : ''"
+                      :value="o.owner_email"
+                      @change="
+                        setListOwner(m.key, ter, idx, $event.target.value)
+                      "
+                    >
+                      <option value="" disabled>
+                        {{ t('ROUTING_CONFIG.OWNERS.CHOOSE') }}
+                      </option>
+                      <option
+                        v-for="opt in allOwners"
+                        :key="opt.owner_email"
+                        :value="opt.owner_email"
+                      >
+                        {{ opt.owner_email }}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:bg-n-ruby-2 disabled:opacity-40"
+                      :disabled="currentList(m.key, ter).length <= 1"
+                      @click="removeListOwner(m.key, ter, idx)"
+                    >
+                      {{ t('ROUTING_CONFIG.OWNERS.REMOVE') }}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    class="self-start px-2 py-1 text-xs font-medium rounded-lg text-n-brand hover:bg-n-alpha-1"
+                    @click="addListOwner(m.key, ter)"
+                  >
+                    {{ t('ROUTING_CONFIG.OWNERS.ADD_TO_ROTATION') }}
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
