@@ -13,7 +13,31 @@
     "TABS": {
       "CATEGORIES": "Categories",
       "OWNERS": "CRM Owners",
-      "SETTINGS": "Thresholds & Misc"
+      "SETTINGS": "Thresholds & Misc",
+      "PREVIEW": "Preview"
+    },
+    "PREVIEW": {
+      "TITLE": "Test a sample email",
+      "SUBTITLE": "See how an email would be classified and routed against the live rules — the category, whether it stays in the inbox or forwards, and where. Nothing is sent or saved.",
+      "SUBJECT": "Subject",
+      "SUBJECT_PH": "e.g. Where is my order #102215",
+      "SENDER": "From (sender email)",
+      "SENDER_PH": "customer@example.com",
+      "BODY": "Email body",
+      "BODY_PH": "Paste the message the customer sent…",
+      "TEST": "Test this email",
+      "TESTING": "Classifying…",
+      "NEED_BODY": "Enter an email body to test.",
+      "RESULT": "Result",
+      "CATEGORY": "Category",
+      "CONFIDENCE": "Confidence:",
+      "ACTION": "Action",
+      "FORWARD_TO": "Would forward to",
+      "REASON": "Why",
+      "ALTERNATIVES": "Other likely categories",
+      "IN_CHANNEL": "Stays in inbox",
+      "FORWARD": "Forwarded out",
+      "ERROR": "Couldn't run the test. Check the bridge is reachable and try again."
     },
     "CATEGORIES": {
       "TITLE": "Email categories",

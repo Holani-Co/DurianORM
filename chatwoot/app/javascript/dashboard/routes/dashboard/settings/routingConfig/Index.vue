@@ -7,6 +7,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import CrmOwnersEditor from './CrmOwnersEditor.vue';
+import PreviewPanel from './PreviewPanel.vue';
 
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
@@ -63,6 +64,7 @@ const tabs = computed(() => [
   { key: 'categories', label: t('ROUTING_CONFIG.TABS.CATEGORIES') },
   { key: 'owners', label: t('ROUTING_CONFIG.TABS.OWNERS') },
   { key: 'settings', label: t('ROUTING_CONFIG.TABS.SETTINGS') },
+  { key: 'preview', label: t('ROUTING_CONFIG.TABS.PREVIEW') },
 ]);
 </script>
 
@@ -110,7 +112,7 @@ const tabs = computed(() => [
       </div>
 
       <div
-        v-if="activeTab !== 'owners'"
+        v-if="activeTab === 'categories' || activeTab === 'settings'"
         class="p-3 mb-4 text-xs border rounded-lg border-n-amber-6 bg-n-amber-2 text-n-amber-12"
       >
         {{ t('ROUTING_CONFIG.READ_ONLY_NOTE') }}
@@ -221,6 +223,10 @@ const tabs = computed(() => [
             </dd>
           </div>
         </dl>
+      </div>
+
+      <div v-else-if="activeTab === 'preview'">
+        <PreviewPanel :override="override" />
       </div>
     </div>
   </div>
