@@ -15,6 +15,7 @@
 # wiring it in the dispatcher at the bottom.
 
 import asyncio
+import difflib
 import hashlib
 import hmac
 import html
@@ -4167,6 +4168,17 @@ def _conversation_transcript(messages: list, limit: int = 14) -> str:
     return "\n".join(lines[-limit:])
 
 
+def _reply_is_repeat(candidate: str, previous: str, thresh: float = 0.85) -> bool:
+    """True when the candidate reply is essentially what we already sent (a
+    repeated webhook, or the customer split their details across messages — both
+    draft the same ack). Fuzzy so a name/placeholder difference still counts."""
+    a = (candidate or "").strip().lower()
+    b = (previous or "").strip().lower()
+    if not a or not b:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= thresh
+
+
 # Bare greetings / filler the client does NOT engage with on public post
 # comments. Praise ("beautiful sofa", "love it") is deliberately NOT here — it
 # still gets the AI's warm reply. Roman + a few Devanagari forms.
@@ -4265,6 +4277,16 @@ async def handle_template_suggest(conv: dict, channel: str,
         print(f"[template-suggest] conv {conv_id} — card already pending, skipping")
         return {"ignored": True, "reason": "card_already_pending"}
 
+    # Idempotency: if the newest PUBLIC message is already our own reply (a
+    # repeated/duplicate webhook, with nothing new from the customer since we
+    # replied), don't reply again. Private cards are excluded, so a pending card
+    # doesn't count as "already replied".
+    last_public = next((m for m in reversed(all_messages)
+                        if not m.get("private") and (m.get("content") or "").strip()), None)
+    if last_public and last_public.get("message_type") in (1, "outgoing"):
+        print(f"[template-suggest] conv {conv_id} — already replied, nothing new — skipping")
+        return {"ignored": True, "reason": "already_replied"}
+
     # Full two-sided conversation so the drafter chooses the template for the whole
     # exchange in context — no re-asking for details already given, follow-ups
     # understood, and a confident hand-off when nothing genuinely fits.
@@ -4307,6 +4329,14 @@ async def handle_template_suggest(conv: dict, channel: str,
                       or drafted.get("is_complaint")))
 
     if auto_send:
+        # Don't auto-send the same reply twice — a repeated trigger or details
+        # split across messages can both draft the same ack.
+        prev_reply = next(((m.get("content") or "") for m in reversed(all_messages)
+                           if m.get("message_type") in (1, "outgoing") and not m.get("private")
+                           and (m.get("content") or "").strip()), "")
+        if _reply_is_repeat(reply, prev_reply):
+            print(f"[template-suggest] conv {conv_id} — duplicate of our last reply, not re-sending")
+            return {"ignored": True, "reason": "duplicate_reply"}
         try:
             # Public outgoing message → Chatwoot delivers it to the customer on
             # the inbox's own channel (Instagram / Facebook DM or comment).
