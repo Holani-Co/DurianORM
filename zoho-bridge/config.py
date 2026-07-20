@@ -490,3 +490,9 @@ BULK_REGION_AUTO_CONFIDENCE = float(os.environ.get("BULK_REGION_AUTO_CONFIDENCE"
 # confidence. Lower it (e.g. =40) to trim prompt size/cost if needed. Applied
 # at startup — restart the bridge after changing.
 CATEGORY_KEYWORDS_IN_PROMPT = int(os.environ.get("CATEGORY_KEYWORDS_IN_PROMPT", "200"))
+
+# Shared secret guarding the /admin/routing-config API (the routing-config UI).
+# The Chatwoot Rails proxy — which has already checked the user is an admin —
+# sends it as the X-Routing-Admin-Secret header. Empty => the admin API is
+# DISABLED (returns 503), so the endpoints are never open without a secret set.
+ROUTING_ADMIN_SECRET = os.environ.get("ROUTING_ADMIN_SECRET", "")

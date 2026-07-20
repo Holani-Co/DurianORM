@@ -382,6 +382,7 @@ async def classify_email_type(content: str, sender_email: str = "",
 # classification accuracy on real traffic for a week before flipping any
 # behavioural switches.
 
+import contextvars
 import os
 import threading
 import time
@@ -497,10 +498,29 @@ def _effective_rules() -> dict:
     return _deep_merge(base, override) if override else base
 
 
+# Preview override: when the UI dry-runs an UNPUBLISHED edit, the /admin preview
+# handler stashes the already-merged candidate rules here for the duration of one
+# classify call (a contextvar → visible to this async task and its sub-classifier
+# awaits, invisible to concurrent real traffic). Nothing is persisted.
+_preview_rules = contextvars.ContextVar("routing_preview_rules", default=None)
+
+
+def set_preview_rules(rules: dict):
+    """Stash candidate rules for a preview classify; returns a reset token."""
+    return _preview_rules.set(rules)
+
+
+def reset_preview_rules(token) -> None:
+    _preview_rules.reset(token)
+
+
 def get_routing_rules(force: bool = False) -> dict:
     """The effective routing rules (YAML ⊕ UI override), TTL-cached. EVERY
     consumer — the classifier here and the forwarder/CRM router in main.py —
     reads through this, so UI edits reflect live across the whole pipeline."""
+    preview = _preview_rules.get()
+    if preview is not None:
+        return preview
     now = time.monotonic()
     with _rules_lock:
         if (not force and _rules_cache["data"] is not None
@@ -518,6 +538,13 @@ def invalidate_routing_cache() -> None:
     with _rules_lock:
         _rules_cache["data"] = None
         _rules_cache["ts"] = 0.0
+
+
+def merge_over_base(doc: dict) -> dict:
+    """YAML (+ file layers) deep-merged with an arbitrary override `doc`, WITHOUT
+    consulting the store. Used by the admin preview endpoint to dry-run an
+    unpublished candidate override."""
+    return _deep_merge(_load_routing_rules(), doc or {})
 
 
 # Back-compat shim: main.py reads `classifier._ROUTING_RULES` in ~20 places and
