@@ -1,12 +1,12 @@
 <script setup>
-// Read-only view of the live email-routing configuration (Phase 1 of the
-// routing-config UI). Fetches the effective rules from the zoho-bridge through
-// the admin Rails proxy and shows categories, CRM owners, and thresholds.
-// Editing arrives in a later phase — this proves the whole pipe
-// (dashboard → Rails proxy → bridge) and lets an admin SEE what routing is live.
+// Routing-config settings screen. Reads the live email-routing rules from the
+// zoho-bridge (via the admin Rails proxy) and shows them across three tabs.
+// Categories and Thresholds are read-only for now; CRM Owners is editable
+// (Phase 2) — reassign a territory's owner and publish, live in seconds.
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
+import CrmOwnersEditor from './CrmOwnersEditor.vue';
 
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
@@ -35,6 +35,7 @@ const fetchConfig = async () => {
 onMounted(fetchConfig);
 
 const effective = computed(() => data.value?.effective || {});
+const override = computed(() => data.value?.override || {});
 const activeVersion = computed(() => data.value?.active_version || null);
 const knownOwners = computed(() => data.value?.known_owners || []);
 const cacheTtl = computed(() => data.value?.cache_ttl_seconds);
@@ -109,6 +110,7 @@ const tabs = computed(() => [
       </div>
 
       <div
+        v-if="activeTab !== 'owners'"
         class="p-3 mb-4 text-xs border rounded-lg border-n-amber-6 bg-n-amber-2 text-n-amber-12"
       >
         {{ t('ROUTING_CONFIG.READ_ONLY_NOTE') }}
@@ -192,35 +194,12 @@ const tabs = computed(() => [
       </div>
 
       <div v-else-if="activeTab === 'owners'">
-        <p class="mb-3 text-sm text-n-slate-11">
-          {{
-            t('ROUTING_CONFIG.OWNERS.SUBTITLE', { count: knownOwners.length })
-          }}
-        </p>
-        <table class="w-full text-sm border rounded-lg border-n-weak">
-          <thead>
-            <tr class="text-left text-n-slate-11 bg-n-alpha-1">
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.OWNERS.COL_EMAIL') }}
-              </th>
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.OWNERS.COL_ID') }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="o in knownOwners"
-              :key="o.owner_email + o.owner_id"
-              class="border-t border-n-weak"
-            >
-              <td class="px-3 py-2 text-n-slate-12">{{ o.owner_email }}</td>
-              <td class="px-3 py-2 font-mono text-xs text-n-slate-11">
-                {{ o.owner_id }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <CrmOwnersEditor
+          :effective="effective"
+          :override="override"
+          :known-owners="knownOwners"
+          @published="fetchConfig"
+        />
       </div>
 
       <div v-else-if="activeTab === 'settings'" class="text-sm">
