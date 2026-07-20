@@ -22,14 +22,75 @@ const axios = window.axios;
 
 const catEdits = reactive({}); // { catKey: { changedField: value } }
 const kwInput = reactive({}); // { catKey: 'draft keyword' }
+const newKeys = reactive([]); // categories added this session, not yet published
 const busy = ref(false);
 const errors = ref([]);
 
-const categoryKeys = computed(() =>
-  Object.keys(props.effective.categories || {})
-);
+const showAdd = ref(false);
+const addForm = reactive({
+  key: '',
+  name: '',
+  action: 'in_channel',
+  forward: '',
+  desc: '',
+});
+const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((e || '').trim());
+
+// New categories are listed first so they're obvious after adding.
+const categoryKeys = computed(() => [
+  ...newKeys,
+  ...Object.keys(props.effective.categories || {}),
+]);
 const dirtyCount = computed(() => Object.keys(catEdits).length);
 const isEdited = key => key in catEdits;
+const isNew = key => newKeys.includes(key);
+
+function resetAddForm() {
+  Object.assign(addForm, {
+    key: '',
+    name: '',
+    action: 'in_channel',
+    forward: '',
+    desc: '',
+  });
+}
+
+function confirmAdd() {
+  const key = addForm.key.trim();
+  const name = addForm.name.trim();
+  if (!/^[a-z][a-z0-9_]*$/.test(key)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.KEY_INVALID'));
+    return;
+  }
+  if (categoryKeys.value.includes(key)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.KEY_DUPLICATE'));
+    return;
+  }
+  if (!name) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.NAME_REQUIRED'));
+    return;
+  }
+  if (addForm.action === 'forward' && !validEmail(addForm.forward)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.FORWARD_REQUIRED'));
+    return;
+  }
+  const value = {
+    display_name: name,
+    action: addForm.action,
+    description: addForm.desc.trim(),
+    keywords: [],
+  };
+  if (addForm.action === 'forward') value.forward_to = addForm.forward.trim();
+  newKeys.unshift(key);
+  catEdits[key] = value;
+  resetAddForm();
+  showAdd.value = false;
+}
+
+function cancelAdd() {
+  resetAddForm();
+  showAdd.value = false;
+}
 
 function base(key) {
   return (props.effective.categories || {})[key] || {};
@@ -70,6 +131,7 @@ function setExamples(key, text) {
 
 function discard() {
   Object.keys(catEdits).forEach(k => delete catEdits[k]);
+  newKeys.splice(0, newKeys.length);
   errors.value = [];
 }
 
@@ -120,6 +182,112 @@ async function publish() {
       {{ t('ROUTING_CONFIG.CATEGORIES.EDIT_HINT') }}
     </p>
 
+    <!-- Add category -->
+    <div class="mb-4">
+      <button
+        v-if="!showAdd"
+        type="button"
+        class="px-3 py-1.5 text-sm font-medium border rounded-lg border-n-weak text-n-brand hover:bg-n-alpha-1"
+        @click="showAdd = true"
+      >
+        {{ t('ROUTING_CONFIG.CATEGORIES.ADD_CATEGORY') }}
+      </button>
+      <div v-else class="p-4 border rounded-xl border-n-brand bg-n-alpha-1">
+        <div class="text-sm font-medium text-n-slate-12">
+          {{ t('ROUTING_CONFIG.CATEGORIES.ADD_TITLE') }}
+        </div>
+        <div class="mb-3 text-xs text-n-slate-10">
+          {{ t('ROUTING_CONFIG.CATEGORIES.ADD_SUB') }}
+        </div>
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-wrap gap-3">
+            <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.KEY_LABEL')
+              }}</span>
+              <input
+                v-model="addForm.key"
+                type="text"
+                :placeholder="t('ROUTING_CONFIG.CATEGORIES.KEY_PH')"
+                class="px-2.5 py-1.5 font-mono text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+              />
+              <span class="text-xs text-n-slate-10">{{
+                t('ROUTING_CONFIG.CATEGORIES.KEY_HINT')
+              }}</span>
+            </label>
+            <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.DISPLAY_NAME')
+              }}</span>
+              <input
+                v-model="addForm.name"
+                type="text"
+                class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+              />
+            </label>
+          </div>
+          <div class="flex flex-wrap items-end gap-3">
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.COL_ACTION')
+              }}</span>
+              <select
+                v-model="addForm.action"
+                class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+              >
+                <option value="in_channel">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.ACTION_IN_CHANNEL') }}
+                </option>
+                <option value="forward">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.ACTION_FORWARD') }}
+                </option>
+              </select>
+            </label>
+            <label
+              v-if="addForm.action === 'forward'"
+              class="flex flex-col flex-1 gap-1 min-w-[14rem]"
+            >
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
+              }}</span>
+              <input
+                v-model="addForm.forward"
+                type="email"
+                :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
+                class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+              />
+            </label>
+          </div>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-n-slate-11">{{
+              t('ROUTING_CONFIG.CATEGORIES.DESCRIPTION_LABEL')
+            }}</span>
+            <textarea
+              v-model="addForm.desc"
+              rows="3"
+              class="px-2.5 py-1.5 text-sm border rounded-lg outline-none resize-y border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+            />
+          </label>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-n-brand hover:opacity-90"
+              @click="confirmAdd"
+            >
+              {{ t('ROUTING_CONFIG.CATEGORIES.ADD_CONFIRM') }}
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1.5 text-sm rounded-lg text-n-slate-11 hover:text-n-slate-12"
+              @click="cancelAdd"
+            >
+              {{ t('ROUTING_CONFIG.CATEGORIES.ADD_CANCEL') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <details
       v-for="key in categoryKeys"
       :key="key"
@@ -132,6 +300,12 @@ async function publish() {
         <span class="font-medium text-n-slate-12">{{
           field(key, 'display_name') || key
         }}</span>
+        <span
+          v-if="isNew(key)"
+          class="px-1.5 py-0.5 text-[0.65rem] font-medium rounded-full bg-n-alpha-2 text-n-brand"
+        >
+          {{ t('ROUTING_CONFIG.CATEGORIES.NEW_BADGE') }}
+        </span>
         <span
           class="px-2 py-0.5 text-xs font-medium rounded-full"
           :class="
