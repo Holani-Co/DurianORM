@@ -95,6 +95,11 @@ ones are context. Your job:
    second. When the customer asks for something specific (a catalogue, a
    price, a store address, a callback, a job), NEVER pick a generic greeting
    template if a specific one exists.
+   CRUCIAL: if "Our last reply to this customer" is shown and it asked them for
+   details (name / phone / address / pincode / email), and their new message
+   now PROVIDES those details, pick the "shared their details / thank you"
+   acknowledgment template — NEVER re-send the same request-for-details template.
+   Do not ask again for anything you already have.
 2. PERSONALISE it lightly:
    - Replace the [NAME] placeholder (or "Dear Customer") with the sender's
      first name if one is given (e.g. "Hello Rajiv,"). If no real name is
@@ -281,7 +286,7 @@ def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> l
 
 async def draft(channel: str, message: str, contact_name: str,
                 stars: int = 0, location: str = "", lf_parent: dict = None,
-                surface: str = ""):
+                surface: str = "", last_reply: str = ""):
     """Pick + personalise an approved template for the given channel.
 
     Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
@@ -393,7 +398,13 @@ async def draft(channel: str, message: str, contact_name: str,
         context_lines.append(f"Star rating: {stars or 'unknown'}/5")
         if location:
             context_lines.append(f"Showroom: {location}")
-    context_lines.append(f"Message(s):\n{message or '(empty)'}")
+    # Our own last reply, so the drafter knows what it already said. Without this
+    # it's blind to its own asks and loops (asks for details the customer just
+    # gave). If our last reply requested details and this message provides them,
+    # the model should acknowledge — not repeat the request.
+    if last_reply:
+        context_lines.append(f"Our last reply to this customer was:\n\"{last_reply.strip()}\"")
+    context_lines.append(f"Their new message(s):\n{message or '(empty)'}")
 
     user_msg = (
         f"── APPROVED TEMPLATES ──\n{_format_templates(templates)}\n\n"

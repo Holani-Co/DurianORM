@@ -4225,12 +4225,20 @@ async def handle_template_suggest(conv: dict, channel: str,
         print(f"[template-suggest] conv {conv_id} — card already pending, skipping")
         return {"ignored": True, "reason": "card_already_pending"}
 
+    # Our last customer-facing reply (public outgoing, not a private card), so the
+    # drafter knows what it already said and won't re-ask for details the customer
+    # just provided (the "please share your details" loop).
+    last_bot_reply = next(
+        ((m.get("content") or "") for m in reversed(all_messages)
+         if m.get("message_type") in (1, "outgoing") and not m.get("private")
+         and (m.get("content") or "").strip()), "")
+
     try:
         _lf = tracing.message_parent(conv_id, msg_id, name="template-suggest",
                                      channel=channel)
         drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
-            lf_parent=_lf, surface=surface,
+            lf_parent=_lf, surface=surface, last_reply=last_bot_reply,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
