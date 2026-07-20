@@ -18,6 +18,8 @@
 # Best-effort like zoho.py: every public function returns None/[] on any
 # failure and never raises — an order lookup must never break the webhook.
 
+import asyncio
+
 import httpx
 
 import config
@@ -30,22 +32,35 @@ def _headers() -> dict:
     }
 
 
-async def _get(path: str) -> dict | None:
-    """GET {base}{path} → parsed JSON body, or None on any failure."""
+async def _get(path: str, *, retries: int = 2) -> dict | None:
+    """GET {base}{path} → parsed JSON body, or None on any failure.
+
+    Retries a TRANSIENT failure (network error / timeout / 5xx) a couple of
+    times before giving up: a flaky or momentarily-slow BMS must never make us
+    wrongly tell a customer their order 'could not be verified'. A 4xx (genuine
+    client error / not found) is returned as None immediately — no retry."""
     if not (config.BMS_API_BASE_URL and config.BMS_API_TOKEN):
         print("[bms] lookup skipped — BMS_API_BASE_URL/TOKEN not configured")
         return None
     url = f"{config.BMS_API_BASE_URL.rstrip('/')}{path}"
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(url, headers=_headers())
-        if r.status_code >= 300:
-            print(f"[bms] GET {path} → HTTP {r.status_code}: {r.text[:200]!r}")
-            return None
-        return r.json()
-    except Exception as e:
-        print(f"[bms] GET {path} failed: {type(e).__name__}: {e}")
-        return None
+    for attempt in range(retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(url, headers=_headers())
+            if r.status_code < 300:
+                return r.json()
+            if r.status_code < 500:          # 4xx → genuine, don't retry
+                print(f"[bms] GET {path} → HTTP {r.status_code}: {r.text[:200]!r}")
+                return None
+            # 5xx → transient server error, fall through to retry
+            print(f"[bms] GET {path} → HTTP {r.status_code} "
+                  f"(attempt {attempt + 1}/{retries + 1})")
+        except Exception as e:
+            print(f"[bms] GET {path} failed "
+                  f"(attempt {attempt + 1}/{retries + 1}): {type(e).__name__}: {e}")
+        if attempt < retries:
+            await asyncio.sleep(0.5 * (attempt + 1))
+    return None
 
 
 def _normalize_order(entry: dict) -> dict | None:
