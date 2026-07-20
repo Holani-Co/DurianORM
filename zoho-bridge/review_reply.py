@@ -90,16 +90,28 @@ usually USE WHEN guidance plus TYPICAL MESSAGES examples) and the customer's
 recent message(s) — the LAST message is the one you are replying to; earlier
 ones are context. Your job:
 
-1. PICK the single template that best fits the LATEST message's intent.
-   Match against each template's USE WHEN / TYPICAL MESSAGES first, sentiment
-   second. When the customer asks for something specific (a catalogue, a
-   price, a store address, a callback, a job), NEVER pick a generic greeting
-   template if a specific one exists.
-   CRUCIAL: if "Our last reply to this customer" is shown and it asked them for
-   details (name / phone / address / pincode / email), and their new message
-   now PROVIDES those details, pick the "shared their details / thank you"
-   acknowledgment template — NEVER re-send the same request-for-details template.
-   Do not ask again for anything you already have.
+1. PICK the single approved template that fits what the customer needs RIGHT NOW,
+   read IN THE CONTEXT OF THE WHOLE CONVERSATION above — not the latest line in
+   isolation. Match each template's USE WHEN / TYPICAL MESSAGES first, sentiment
+   second.
+   - Resolve follow-ups from the conversation: if we already asked for details and
+     the latest message PROVIDES them (name / phone / address / pincode / email),
+     pick the "shared their details / thank you" acknowledgment template — NEVER
+     re-send a request for details you already have.
+   - When the customer asks for something specific (catalogue, price, store
+     address, callback, job), never pick a generic greeting template if a
+     specific one exists.
+   HAND OFF INSTEAD OF GUESSING — the most important rule: if NO approved template
+   genuinely fits what the customer is asking (they need an answer / price /
+   decision no template covers, the request is outside these templates, or you'd
+   have to invent or guess), set "action": "handoff" and leave "reply" EMPTY. A
+   human is ALWAYS better than a loosely-related or wrong template. Only reply
+   when a template clearly and fully fits the conversation.
+   Do NOT stretch a template because a KEYWORD matches — the template's USE WHEN
+   must match the customer's actual INTENT. (E.g. the word "supplier" does not
+   make a "become our vendor/supplier" template fit a customer asking to buy from
+   our suppliers.) When the intent doesn't clearly match any template's USE WHEN,
+   hand off.
 2. PERSONALISE it lightly:
    - Replace the [NAME] placeholder (or "Dear Customer") with the sender's
      first name if one is given (e.g. "Hello Rajiv,"). If no real name is
@@ -286,7 +298,7 @@ def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> l
 
 async def draft(channel: str, message: str, contact_name: str,
                 stars: int = 0, location: str = "", lf_parent: dict = None,
-                surface: str = "", last_reply: str = ""):
+                surface: str = "", conversation: str = ""):
     """Pick + personalise an approved template for the given channel.
 
     Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
@@ -398,13 +410,12 @@ async def draft(channel: str, message: str, contact_name: str,
         context_lines.append(f"Star rating: {stars or 'unknown'}/5")
         if location:
             context_lines.append(f"Showroom: {location}")
-    # Our own last reply, so the drafter knows what it already said. Without this
-    # it's blind to its own asks and loops (asks for details the customer just
-    # gave). If our last reply requested details and this message provides them,
-    # the model should acknowledge — not repeat the request.
-    if last_reply:
-        context_lines.append(f"Our last reply to this customer was:\n\"{last_reply.strip()}\"")
-    context_lines.append(f"Their new message(s):\n{message or '(empty)'}")
+    # The FULL conversation (both sides), so the template is chosen for the whole
+    # exchange in context — not a single message in isolation. This is what stops
+    # re-asking for details already given and lets follow-ups be understood.
+    if conversation:
+        context_lines.append(f"── CONVERSATION SO FAR (oldest first) ──\n{conversation}")
+    context_lines.append(f"── THE CUSTOMER'S LATEST MESSAGE(S) TO REPLY TO ──\n{message or '(empty)'}")
 
     user_msg = (
         f"── APPROVED TEMPLATES ──\n{_format_templates(templates)}\n\n"

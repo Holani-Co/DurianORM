@@ -4127,6 +4127,21 @@ def _recent_incoming(messages: list, n: int = 3) -> str:
     return "\n".join(texts[-n:])
 
 
+def _conversation_transcript(messages: list, limit: int = 14) -> str:
+    """The recent conversation as a two-sided transcript (oldest first), for the
+    drafter's full context — so a template is chosen for the whole exchange, not
+    a message in isolation. Private notes / suggestion cards are internal, so
+    they're excluded (only real customer + sent-to-customer messages)."""
+    lines = []
+    for m in messages or []:
+        content = (m.get("content") or "").strip()
+        if not content or m.get("private"):
+            continue
+        who = "Customer" if m.get("message_type") in (0, "incoming") else "Durian"
+        lines.append(f"{who}: {content}")
+    return "\n".join(lines[-limit:])
+
+
 # Bare greetings / filler the client does NOT engage with on public post
 # comments. Praise ("beautiful sofa", "love it") is deliberately NOT here — it
 # still gets the AI's warm reply. Roman + a few Devanagari forms.
@@ -4225,20 +4240,17 @@ async def handle_template_suggest(conv: dict, channel: str,
         print(f"[template-suggest] conv {conv_id} — card already pending, skipping")
         return {"ignored": True, "reason": "card_already_pending"}
 
-    # Our last customer-facing reply (public outgoing, not a private card), so the
-    # drafter knows what it already said and won't re-ask for details the customer
-    # just provided (the "please share your details" loop).
-    last_bot_reply = next(
-        ((m.get("content") or "") for m in reversed(all_messages)
-         if m.get("message_type") in (1, "outgoing") and not m.get("private")
-         and (m.get("content") or "").strip()), "")
+    # Full two-sided conversation so the drafter chooses the template for the whole
+    # exchange in context — no re-asking for details already given, follow-ups
+    # understood, and a confident hand-off when nothing genuinely fits.
+    conversation = _conversation_transcript(all_messages)
 
     try:
         _lf = tracing.message_parent(conv_id, msg_id, name="template-suggest",
                                      channel=channel)
         drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
-            lf_parent=_lf, surface=surface, last_reply=last_bot_reply,
+            lf_parent=_lf, surface=surface, conversation=conversation,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
