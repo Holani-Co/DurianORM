@@ -6,6 +6,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
+import CategoriesEditor from './CategoriesEditor.vue';
 import CrmOwnersEditor from './CrmOwnersEditor.vue';
 import PreviewPanel from './PreviewPanel.vue';
 
@@ -40,25 +41,6 @@ const override = computed(() => data.value?.override || {});
 const activeVersion = computed(() => data.value?.active_version || null);
 const knownOwners = computed(() => data.value?.known_owners || []);
 const cacheTtl = computed(() => data.value?.cache_ttl_seconds);
-
-const categories = computed(() => {
-  const cats = effective.value.categories || {};
-  return Object.keys(cats).map(key => {
-    const c = cats[key] || {};
-    const keywords = c.keywords || [];
-    const shown = keywords.slice(0, 6);
-    const extra = keywords.length - shown.length;
-    return {
-      key,
-      displayName: c.display_name || key,
-      action: c.action || 'in_channel',
-      forwardTo: c.forward_to || '',
-      keywordsLabel: shown.length
-        ? shown.join(', ') + (extra > 0 ? ` +${extra}` : '')
-        : '',
-    };
-  });
-});
 
 const tabs = computed(() => [
   { key: 'categories', label: t('ROUTING_CONFIG.TABS.CATEGORIES') },
@@ -112,7 +94,7 @@ const tabs = computed(() => [
       </div>
 
       <div
-        v-if="activeTab === 'categories' || activeTab === 'settings'"
+        v-if="activeTab === 'settings'"
         class="p-3 mb-4 text-xs border rounded-lg border-n-amber-6 bg-n-amber-2 text-n-amber-12"
       >
         {{ t('ROUTING_CONFIG.READ_ONLY_NOTE') }}
@@ -135,64 +117,11 @@ const tabs = computed(() => [
       </div>
 
       <div v-if="activeTab === 'categories'">
-        <p class="mb-3 text-sm text-n-slate-11">
-          {{
-            t('ROUTING_CONFIG.CATEGORIES.SUBTITLE', {
-              count: categories.length,
-            })
-          }}
-        </p>
-        <table class="w-full text-sm border rounded-lg border-n-weak">
-          <thead>
-            <tr class="text-left text-n-slate-11 bg-n-alpha-1">
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.CATEGORIES.COL_NAME') }}
-              </th>
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.CATEGORIES.COL_ACTION') }}
-              </th>
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD') }}
-              </th>
-              <th class="px-3 py-2 font-medium">
-                {{ t('ROUTING_CONFIG.CATEGORIES.COL_KEYWORDS') }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="c in categories"
-              :key="c.key"
-              class="border-t border-n-weak"
-            >
-              <td class="px-3 py-2 align-top text-n-slate-12">
-                <div class="font-medium">{{ c.displayName }}</div>
-                <div class="text-xs text-n-slate-10">{{ c.key }}</div>
-              </td>
-              <td class="px-3 py-2 align-top">
-                <span
-                  :class="
-                    c.action === 'forward'
-                      ? 'text-n-amber-11'
-                      : 'text-n-teal-11'
-                  "
-                >
-                  {{
-                    c.action === 'forward'
-                      ? t('ROUTING_CONFIG.CATEGORIES.ACTION_FORWARD')
-                      : t('ROUTING_CONFIG.CATEGORIES.ACTION_IN_CHANNEL')
-                  }}
-                </span>
-              </td>
-              <td class="px-3 py-2 align-top text-n-slate-11">
-                {{ c.forwardTo || t('ROUTING_CONFIG.CATEGORIES.NONE') }}
-              </td>
-              <td class="px-3 py-2 text-xs align-top text-n-slate-10">
-                {{ c.keywordsLabel || t('ROUTING_CONFIG.CATEGORIES.NONE') }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <CategoriesEditor
+          :effective="effective"
+          :override="override"
+          @published="fetchConfig"
+        />
       </div>
 
       <div v-else-if="activeTab === 'owners'">
