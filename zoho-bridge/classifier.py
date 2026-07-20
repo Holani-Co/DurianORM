@@ -383,6 +383,8 @@ async def classify_email_type(content: str, sender_email: str = "",
 # behavioural switches.
 
 import os
+import threading
+import time
 from pathlib import Path
 
 try:
@@ -463,15 +465,74 @@ def _load_routing_rules() -> dict:
     return merged
 
 
-_ROUTING_RULES = _load_routing_rules()
-_CATEGORY_KEYS = list((_ROUTING_RULES.get("categories") or {}).keys())
-_CONFIDENCE_THRESHOLD = float(_ROUTING_RULES.get("confidence_threshold", 0.6))
+# ── Live routing-config accessor ──────────────────────────────────────────
+# The committed routing_rules.yaml (+ .local / env-override layers, loaded by
+# _load_routing_rules above) is the DEFAULT FLOOR. On top of it we deep-merge an
+# optional OVERRIDE document that the client edits from the ORM UI (persisted in
+# config_store; served by the /admin/config API in main.py). The merged result
+# is cached for a few seconds so we don't re-read on every email; publishing an
+# edit invalidates the cache, so a change goes live in seconds with NO restart.
+# An absent, empty, or broken override => the YAML wins (routing never breaks).
+try:
+    import config_store as _config_store
+except Exception:                                   # pragma: no cover
+    _config_store = None
 
-# Subject substrings (lower-cased) for Durian's automated system emails.
-# main.py short-circuits these to General Information without forward/CRM/review.
-_SYSTEM_NOTIFICATION_SUBJECTS = tuple(
-    str(s).lower() for s in (_ROUTING_RULES.get("system_notification_subjects") or [])
-)
+_RULES_CACHE_TTL = float(os.getenv("DURIAN_ROUTING_CACHE_TTL", "30"))
+_rules_cache = {"data": None, "ts": 0.0}
+_rules_lock = threading.Lock()
+
+
+def _effective_rules() -> dict:
+    """YAML (+ file layers) deep-merged with the active UI override, if any."""
+    base = _load_routing_rules()
+    if _config_store is None:
+        return base
+    try:
+        override = _config_store.get_active_override() or {}
+    except Exception as e:
+        print(f"[classifier:category] config_store read failed "
+              f"({type(e).__name__}: {e}) — using YAML defaults")
+        return base
+    return _deep_merge(base, override) if override else base
+
+
+def get_routing_rules(force: bool = False) -> dict:
+    """The effective routing rules (YAML ⊕ UI override), TTL-cached. EVERY
+    consumer — the classifier here and the forwarder/CRM router in main.py —
+    reads through this, so UI edits reflect live across the whole pipeline."""
+    now = time.monotonic()
+    with _rules_lock:
+        if (not force and _rules_cache["data"] is not None
+                and (now - _rules_cache["ts"]) < _RULES_CACHE_TTL):
+            return _rules_cache["data"]
+        data = _effective_rules()
+        _rules_cache["data"] = data
+        _rules_cache["ts"] = now
+        return data
+
+
+def invalidate_routing_cache() -> None:
+    """Drop the cached rules so the next read rebuilds from YAML + override.
+    Called right after the UI publishes/rolls back → the change is live now."""
+    with _rules_lock:
+        _rules_cache["data"] = None
+        _rules_cache["ts"] = 0.0
+
+
+# Back-compat shim: main.py reads `classifier._ROUTING_RULES` in ~20 places and
+# it must stay LIVE. PEP 562 module __getattr__ resolves that attribute (and the
+# two derived ones) through the cache above, so those call sites need no change.
+# NOTE: only EXTERNAL `classifier.<attr>` access reaches here; inside THIS module
+# always call get_routing_rules() directly — bare-name lookups skip __getattr__.
+def __getattr__(name: str):
+    if name == "_ROUTING_RULES":
+        return get_routing_rules()
+    if name == "_CATEGORY_KEYS":
+        return list((get_routing_rules().get("categories") or {}).keys())
+    if name == "_CONFIDENCE_THRESHOLD":
+        return float(get_routing_rules().get("confidence_threshold", 0.6))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def is_system_notification(subject: str) -> bool:
@@ -479,26 +540,26 @@ def is_system_notification(subject: str) -> bool:
     phrase (order confirmations, OTP, newsletter, stock alerts). Case-
     insensitive substring match; empty list / subject → False."""
     s = (subject or "").lower()
-    return any(pat in s for pat in _SYSTEM_NOTIFICATION_SUBJECTS)
+    subjects = (get_routing_rules().get("system_notification_subjects") or [])
+    return any(str(pat).lower() in s for pat in subjects)
 
 
 # Internal / no-reply addresses whose mail is auto-filed as General Information
 # and resolved — never classified, forwarded, or CRM-pushed. Full addresses
 # ("customersupport@durian.in") match exactly; a bare "@domain" entry matches
 # any address on that domain.
-_AUTO_FILE_SENDERS = tuple(
-    str(s).lower().strip() for s in (_ROUTING_RULES.get("auto_file_senders") or [])
-    if str(s).strip()
-)
-
-
 def is_auto_file_sender(email: str) -> bool:
     """True when `email` is a configured internal auto-file address. Matches a
     full address exactly, or a bare "@domain" entry by suffix. Empty → False."""
     s = (email or "").lower().strip()
     if not s:
         return False
-    for pat in _AUTO_FILE_SENDERS:
+    senders = [
+        str(x).lower().strip()
+        for x in (get_routing_rules().get("auto_file_senders") or [])
+        if str(x).strip()
+    ]
+    for pat in senders:
         if pat.startswith("@"):
             if s.endswith(pat):
                 return True
@@ -510,7 +571,7 @@ def is_auto_file_sender(email: str) -> bool:
 def category_choices() -> list[dict]:
     """[{category, display_name}] for every routing category — used to build
     the dropdown on the human-in-the-loop Category decision card."""
-    cats = _ROUTING_RULES.get("categories") or {}
+    cats = get_routing_rules().get("categories") or {}
     return [
         {"category": key,
          "display_name": (cfg or {}).get("display_name") or key.replace("_", " ").title()}
@@ -520,7 +581,7 @@ def category_choices() -> list[dict]:
 
 def category_display_name(category: str) -> str:
     """Human label for a category key (falls back to a title-cased key)."""
-    cfg = (_ROUTING_RULES.get("categories") or {}).get(category) or {}
+    cfg = (get_routing_rules().get("categories") or {}).get(category) or {}
     return cfg.get("display_name") or (category or "").replace("_", " ").title()
 
 
@@ -586,47 +647,48 @@ def _build_category_system_prompt(rules: dict) -> str:
     return "\n".join(lines)
 
 
-_CATEGORY_SYSTEM_PROMPT = (
-    _build_category_system_prompt(_ROUTING_RULES) if _ROUTING_RULES else ""
-)
-
-_CATEGORY_RESPONSE_SCHEMA = {
-    "name":   "email_category_classification",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "category": {
-                "type": "string",
-                "enum": _CATEGORY_KEYS or ["fallback"],
-                "description": "Which of the 12 routing categories this email belongs to.",
-            },
-            "confidence": {
-                "type":        "number",
-                "description": "0.0–1.0 confidence. Below 0.6 → treated as uncategorised.",
-            },
-            "reason": {
-                "type":        "string",
-                "description": "One short sentence: which signal in the email drove the choice.",
-            },
-            "alternatives": {
-                "type": "array",
-                "description": "Up to 2 next-most-likely categories, most likely first.",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "category":   {"type": "string", "enum": _CATEGORY_KEYS or ["fallback"]},
-                        "confidence": {"type": "number"},
+def _category_response_schema(category_keys: list) -> dict:
+    """Build the JSON-schema response spec for the current category set. Built
+    per call (not baked at import) so categories added via the UI appear in the
+    enum without a restart."""
+    keys = category_keys or ["fallback"]
+    return {
+        "name":   "email_category_classification",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": keys,
+                    "description": "Which routing category this email belongs to.",
+                },
+                "confidence": {
+                    "type":        "number",
+                    "description": "0.0–1.0 confidence. Below the threshold → treated as uncategorised.",
+                },
+                "reason": {
+                    "type":        "string",
+                    "description": "One short sentence: which signal in the email drove the choice.",
+                },
+                "alternatives": {
+                    "type": "array",
+                    "description": "Up to 2 next-most-likely categories, most likely first.",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "category":   {"type": "string", "enum": keys},
+                            "confidence": {"type": "number"},
+                        },
+                        "required": ["category", "confidence"],
                     },
-                    "required": ["category", "confidence"],
                 },
             },
+            "required": ["category", "confidence", "reason", "alternatives"],
         },
-        "required": ["category", "confidence", "reason", "alternatives"],
-    },
-}
+    }
 
 
 _SAFE_CATEGORY_DEFAULT = {
@@ -654,7 +716,11 @@ async def classify_email_category(content: str, sender_email: str = "",
     input, missing config, LLM error, unparseable response. The categorizer
     can ALWAYS no-op without affecting other routing logic.
     """
-    if not content or not content.strip() or not _CATEGORY_KEYS:
+    # One snapshot of the effective rules (YAML ⊕ UI override) for this call —
+    # so a mid-flight publish can't change the category set half-way through.
+    rules         = get_routing_rules()
+    category_keys = list((rules.get("categories") or {}).keys())
+    if not content or not content.strip() or not category_keys:
         return dict(_SAFE_CATEGORY_DEFAULT)
 
     ctx_parts = []
@@ -672,10 +738,10 @@ async def classify_email_category(content: str, sender_email: str = "",
             max_tokens=200,
             response_format={
                 "type":        "json_schema",
-                "json_schema": _CATEGORY_RESPONSE_SCHEMA,
+                "json_schema": _category_response_schema(category_keys),
             },
             messages=[
-                {"role": "system", "content": _CATEGORY_SYSTEM_PROMPT},
+                {"role": "system", "content": _build_category_system_prompt(rules)},
                 {"role": "user",   "content": user_msg},
             ],
             name="email-12-category-classification",
@@ -706,19 +772,20 @@ async def classify_email_category(content: str, sender_email: str = "",
     alternatives = [
         {"category": a.get("category"), "confidence": float(a.get("confidence") or 0)}
         for a in (parsed.get("alternatives") or [])
-        if a.get("category") in _CATEGORY_KEYS and a.get("category") != cat
+        if a.get("category") in category_keys and a.get("category") != cat
     ][:3]
 
     # Below threshold → treat as fallback. Phase 1 logs both the
     # original LLM pick AND the resolved category so we can later
     # tune the threshold from observed accuracy.
-    if confidence < _CONFIDENCE_THRESHOLD or cat not in _CATEGORY_KEYS:
+    threshold = float(rules.get("confidence_threshold", 0.6))
+    if confidence < threshold or cat not in category_keys:
         rule_key = "fallback"
     else:
         rule_key = cat
 
     if rule_key == "fallback":
-        fallback_cfg = _ROUTING_RULES.get("fallback") or {}
+        fallback_cfg = rules.get("fallback") or {}
         return {
             "category":   "fallback",
             "confidence": confidence,
@@ -732,7 +799,7 @@ async def classify_email_category(content: str, sender_email: str = "",
             "alternatives": alternatives,
         }
 
-    rule = (_ROUTING_RULES["categories"] or {}).get(rule_key) or {}
+    rule = (rules.get("categories") or {}).get(rule_key) or {}
     result = {
         "category":   rule_key,
         "confidence": confidence,
@@ -853,11 +920,6 @@ def _build_bulk_sector_prompt(sector_routing: dict) -> str:
     )
 
 
-_BULK_SECTOR_PROMPT = _build_bulk_sector_prompt(
-    ((_ROUTING_RULES.get("categories") or {}).get("project_bulk_order") or {}).get("sector_routing") or {}
-) if _ROUTING_RULES else ""
-
-
 async def classify_bulk_sector(content: str, sender_email: str = "",
                                subject: str = "", lf_parent: dict = None) -> dict:
     """For a project_bulk_order email, decide government vs private buyer.
@@ -872,6 +934,12 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
         return {"sector": "government", "confidence": 0.99,
                 "reason": f"Sender domain {domain} is a government domain."}
 
+    # Built from live rules (UI-editable government/private keyword signals).
+    sector_routing = (
+        (get_routing_rules().get("categories") or {}).get("project_bulk_order") or {}
+    ).get("sector_routing") or {}
+    bulk_sector_prompt = _build_bulk_sector_prompt(sector_routing)
+
     ctx = []
     if subject:
         ctx.append(f"Subject: {subject}")
@@ -885,7 +953,7 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
             max_tokens=120,
             response_format={"type": "json_schema", "json_schema": _BULK_SECTOR_SCHEMA},
             messages=[
-                {"role": "system", "content": _BULK_SECTOR_PROMPT},
+                {"role": "system", "content": bulk_sector_prompt},
                 {"role": "user",   "content": "\n".join(ctx)},
             ],
             name="bulk-order-sector-classification",

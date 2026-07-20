@@ -43,8 +43,10 @@ import review_reply
 import reviews_poller
 import reviews_state
 import crm_state
+import config_store
 
-crm_state.init()  # round-robin counters for govt/bulk owner rotation
+crm_state.init()     # round-robin counters for govt/bulk owner rotation
+config_store.init()  # routing-config override layer edited from the ORM UI
 
 app = FastAPI()
 
