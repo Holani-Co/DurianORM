@@ -382,7 +382,7 @@ categories:
     display_name: Vendor / Supplier Enquiry
     action: forward
     forward_to: ganguli@durian.in
-    cc: [shilpa@durian.in]
+    cc: []
     bcc: []
     include_customer_in_cc: false
     description: |
