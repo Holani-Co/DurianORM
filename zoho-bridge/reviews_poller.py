@@ -297,10 +297,13 @@ LBL_EDITED = "review-edited"
 async def _ingest_edit(loc: dict, rv: dict, rec: dict):
     """A previously-seen review was EDITED on Google (same reviewId, newer
     updateTime). Re-surface it in the EXISTING conversation — new text as an
-    incoming message, a fresh AI suggestion card, reopened + back to unreplied
-    — so the team is prompted to send an updated reply (the client's case: a
+    incoming message — then reply to the EDITED text (the client's case: a
     customer turns a complaint into praise and now wants a warm response).
-    Never auto-posts to Google — an edit always goes to a human."""
+
+    An edit is answered on the same terms as a new review: the severity gate in
+    review_reply.draft() picks auto vs handoff, so an ordinary edit auto-replies
+    and resolves, while one that turns nasty (legal / fraud / abuse) still lands
+    on the agent card, reopened and back to unreplied."""
     conv_id = rec.get("conversation_id")
     if not conv_id:
         # Seeded/link-less record — no conversation to update; ingest fresh.
@@ -366,13 +369,34 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
         contact_name=rv["reviewer"] or "Customer",
         stars=rv["stars"] or 0, location=title, lf_parent=_lf,
     )
-    reply = drafted["reply"]
+    reply, action = drafted["reply"], drafted["action"]
     # Re-evaluate the escalate flag — an edit can flip a complaint to praise.
     try:
         await chatwoot.merge_custom_attributes(
-            conv_id, {"review_negative": drafted["action"] == "handoff"})
+            conv_id, {"review_negative": action == "handoff"})
     except Exception as e:
         print(f"[reviews] edit: review_negative flag failed for conv {conv_id}: {e}")
+
+    # Auto-reply to the edited text, same gate as a new review. Note we do NOT
+    # skip on rv["has_reply"] the way _ingest_review does: an edited review
+    # normally still carries OUR earlier reply, and Google's reply endpoint is a
+    # PUT (upsert) — so posting again REPLACES the now-stale reply with one
+    # written for the edited review, which is exactly what we want.
+    if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
+        try:
+            await gr.post_reply(rv["reply_path"], reply)
+            await chatwoot.create_message(conv_id, reply, message_type="outgoing",
+                                          content_attributes=AUTO_MARKER)
+            await chatwoot.toggle_status(conv_id, "resolved")
+            await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED,
+                                   remove=(LBL_UNREPLIED, LBL_MANUALLY_REPLIED))
+            state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
+                            replied=True, update_time=rv["update_time"])
+            print(f"[reviews] EDIT auto-replied {rv['stars']}★ @ {title} (conv {conv_id})")
+            return
+        except Exception as e:
+            print(f"[reviews] edit auto-reply failed, handing off: {e}")
+
     note = reply or "(AI flagged this edited review for human handling — no draft.)"
     await chatwoot.create_message(
         conv_id, note, message_type="outgoing", private=True,
