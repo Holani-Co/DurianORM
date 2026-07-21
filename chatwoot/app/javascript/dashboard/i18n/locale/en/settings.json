@@ -122,7 +122,24 @@
       "CONFIDENCE": "Classifier confidence threshold",
       "CACHE_TTL": "Live-reload cache (seconds)",
       "SYSTEM_SUBJECTS": "System-notification subjects",
-      "AUTO_FILE_SENDERS": "Auto-file senders"
+      "AUTO_FILE_SENDERS": "Auto-file senders",
+      "EDIT_HINT": "Fine-tune how confident the classifier must be, and which emails skip classification entirely.",
+      "CONFIDENCE_HINT": "Below this score the classifier treats an email as uncategorised and asks an agent instead of routing it. Between 0 and 1 — higher is stricter.",
+      "CONFIDENCE_RANGE": "Must be a number between 0 and 1.",
+      "CACHE_TTL_HINT": "How long the bridge caches the rules before re-reading. Set on the server, not editable here.",
+      "READ_ONLY_TAG": "server setting",
+      "SYSTEM_SUBJECTS_HINT": "Subject phrases from Durian's own automated emails (order confirmations, OTP, newsletters, stock alerts). A matching email is filed as General Information — never forwarded or pushed to CRM.",
+      "ADD_SUBJECT_PH": "Add a subject phrase and press Enter",
+      "AUTO_FILE_SENDERS_HINT": "Internal / no-reply addresses whose mail is auto-filed and resolved without classification. Use a full address, or @domain.com to match a whole domain.",
+      "ADD_SENDER_PH": "address@durian.in or @durian.in, then Enter",
+      "INVALID_SENDER": "Enter a full email address, or @domain.com to match a domain.",
+      "DIRTY": "{count} unpublished change(s)",
+      "DISCARD": "Discard",
+      "PUBLISH": "Publish changes",
+      "PUBLISHING": "Publishing…",
+      "PUBLISHED": "Settings published — live now.",
+      "PUBLISH_FAILED": "Couldn't publish. Please try again.",
+      "VALIDATION_FAILED": "Can't publish yet:"
     }
   },
   "PROFILE_SETTINGS": {

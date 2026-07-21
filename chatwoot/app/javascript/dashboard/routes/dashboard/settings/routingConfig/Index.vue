@@ -9,6 +9,7 @@ import { useMapGetter } from 'dashboard/composables/store';
 import CategoriesEditor from './CategoriesEditor.vue';
 import CrmOwnersEditor from './CrmOwnersEditor.vue';
 import PreviewPanel from './PreviewPanel.vue';
+import ThresholdsEditor from './ThresholdsEditor.vue';
 
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
@@ -93,13 +94,6 @@ const tabs = computed(() => [
         </span>
       </div>
 
-      <div
-        v-if="activeTab === 'settings'"
-        class="p-3 mb-4 text-xs border rounded-lg border-n-amber-6 bg-n-amber-2 text-n-amber-12"
-      >
-        {{ t('ROUTING_CONFIG.READ_ONLY_NOTE') }}
-      </div>
-
       <div class="flex gap-1 mb-4 border-b border-n-weak">
         <button
           v-for="tab in tabs"
@@ -133,25 +127,13 @@ const tabs = computed(() => [
         />
       </div>
 
-      <div v-else-if="activeTab === 'settings'" class="text-sm">
-        <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div class="p-3 border rounded-lg border-n-weak">
-            <dt class="text-xs text-n-slate-10">
-              {{ t('ROUTING_CONFIG.SETTINGS.CONFIDENCE') }}
-            </dt>
-            <dd class="mt-1 font-medium text-n-slate-12">
-              {{ effective.confidence_threshold ?? '—' }}
-            </dd>
-          </div>
-          <div class="p-3 border rounded-lg border-n-weak">
-            <dt class="text-xs text-n-slate-10">
-              {{ t('ROUTING_CONFIG.SETTINGS.CACHE_TTL') }}
-            </dt>
-            <dd class="mt-1 font-medium text-n-slate-12">
-              {{ cacheTtl ?? '—' }}
-            </dd>
-          </div>
-        </dl>
+      <div v-else-if="activeTab === 'settings'">
+        <ThresholdsEditor
+          :effective="effective"
+          :override="override"
+          :cache-ttl="cacheTtl"
+          @published="fetchConfig"
+        />
       </div>
 
       <div v-else-if="activeTab === 'preview'">
