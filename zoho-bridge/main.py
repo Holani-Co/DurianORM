@@ -4222,12 +4222,64 @@ def _is_low_value_comment(text: str) -> bool:
     return False
 
 
+# One in-flight social draft per conversation.
+#
+# The dedup guards below read the conversation's messages and THEN spend a couple
+# of seconds inside the LLM draft. Without serialising, a customer who sends their
+# details across several quick messages ("Siddharth Singh", "Varanasi", "221005",
+# "89575…") spawns one handler per message; every one of them reads the thread
+# BEFORE any reply exists, so every one of them passes the "already replied" and
+# "duplicate reply" checks and sends. That is how the same acknowledgement went
+# out twice with different confidence scores — two independent drafts racing.
+#
+# Holding a per-conversation lock across fetch → guards → draft → send means the
+# second handler only starts reading once the first has finished replying, so it
+# sees that reply and the existing guards do their job. Comparing text was never
+# the weak point; reading stale state was.
+#
+# An in-process lock is sufficient because the bridge runs as a single uvicorn
+# process (no --workers). If it is ever scaled to multiple workers this must move
+# to a shared lock (e.g. a row in config_store.db).
+_conv_draft_locks: dict[int, asyncio.Lock] = {}
+_conv_draft_locks_guard = asyncio.Lock()
+
+
+async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
+    async with _conv_draft_locks_guard:
+        lock = _conv_draft_locks.get(conv_id)
+        if lock is None:
+            lock = _conv_draft_locks[conv_id] = asyncio.Lock()
+        return lock
+
+
 async def handle_template_suggest(conv: dict, channel: str,
                                   surface: str = "") -> dict:
+    """Serialise social drafting per conversation, then run the real handler.
+    See the comment above for why this lock exists."""
+    conv_id = conv.get("id")
+    if not conv_id:
+        return {"ignored": True, "reason": "no_conversation_id"}
+    lock = await _conversation_draft_lock(conv_id)
+    try:
+        async with lock:
+            return await _template_suggest_locked(conv, channel, surface)
+    finally:
+        # Drop the lock once nobody holds or awaits it, so the registry doesn't
+        # grow for the process lifetime. A waiter will have taken it already.
+        async with _conv_draft_locks_guard:
+            if not lock.locked() and _conv_draft_locks.get(conv_id) is lock:
+                del _conv_draft_locks[conv_id]
+
+
+async def _template_suggest_locked(conv: dict, channel: str,
+                                   surface: str = "") -> dict:
     """Post a Durian-template AI reply suggestion as a private note for a
     social DM (or, with surface="comment", a public post comment). The agent
     gets the best-matching Durian template (edit / regenerate / send) instead
     of a blank reply box.
+
+    Always called under the per-conversation lock above, so the message fetch
+    below reflects any reply a concurrent trigger just sent.
 
     Dedup rule: post a fresh card on every customer message that lands AFTER
     the team's last reply (or on the very first message). If a previous card
