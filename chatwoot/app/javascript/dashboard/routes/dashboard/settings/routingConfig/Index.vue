@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import CategoriesEditor from './CategoriesEditor.vue';
 import CrmOwnersEditor from './CrmOwnersEditor.vue';
+import HistoryPanel from './HistoryPanel.vue';
 import PreviewPanel from './PreviewPanel.vue';
 import ThresholdsEditor from './ThresholdsEditor.vue';
 
@@ -48,6 +49,7 @@ const tabs = computed(() => [
   { key: 'owners', label: t('ROUTING_CONFIG.TABS.OWNERS') },
   { key: 'settings', label: t('ROUTING_CONFIG.TABS.SETTINGS') },
   { key: 'preview', label: t('ROUTING_CONFIG.TABS.PREVIEW') },
+  { key: 'history', label: t('ROUTING_CONFIG.TABS.HISTORY') },
 ]);
 </script>
 
@@ -138,6 +140,10 @@ const tabs = computed(() => [
 
       <div v-else-if="activeTab === 'preview'">
         <PreviewPanel :override="override" />
+      </div>
+
+      <div v-else-if="activeTab === 'history'">
+        <HistoryPanel @restored="fetchConfig" />
       </div>
     </div>
   </div>

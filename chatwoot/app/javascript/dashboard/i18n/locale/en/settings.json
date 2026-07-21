@@ -14,7 +14,29 @@
       "CATEGORIES": "Categories",
       "OWNERS": "CRM Owners",
       "SETTINGS": "Thresholds & Misc",
-      "PREVIEW": "Preview"
+      "PREVIEW": "Preview",
+      "HISTORY": "History"
+    },
+    "HISTORY": {
+      "SUBTITLE": "Every publish is saved as a version. Restore any earlier one to undo a change — it goes live in seconds, and the restore itself is recorded.",
+      "LOADING": "Loading history…",
+      "EMPTY": "No versions yet. Publishing a change from any tab will create the first one.",
+      "ERROR": "Couldn't load history. Check the bridge is reachable.",
+      "ACTIVE": "live now",
+      "RESTORE": "Restore",
+      "CONFIRM_RESTORE": "Confirm restore",
+      "CONFIRM_HINT": "This replaces the live routing config with this version.",
+      "CANCEL": "Cancel",
+      "RESTORED": "Restored — that version is live now.",
+      "RESTORE_FAILED": "Couldn't restore that version. Please try again.",
+      "VIEW": "View changes",
+      "HIDE": "Hide",
+      "NO_CHANGES": "This version publishes no overrides — the YAML defaults apply.",
+      "VERSION": "Version",
+      "BY": "by",
+      "AUDIT_TITLE": "Activity log",
+      "AUDIT_PUBLISH": "published",
+      "AUDIT_ROLLBACK": "restored"
     },
     "PREVIEW": {
       "TITLE": "Test a sample email",
