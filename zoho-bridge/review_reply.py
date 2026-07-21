@@ -57,6 +57,120 @@ def _load_hints() -> dict:
 
 _HINTS = _load_hints()
 
+# Review templates deliberately live OUTSIDE social_templates.yaml — that file is
+# the SOCIAL canned-response source (its sync requires a `content` body), while the
+# review wording is owned by setup_review_templates.py. Their SELECTION guidance
+# still belongs with the other hints, so it's defined here and merged in below.
+#
+# Without this the model saw no USE WHEN for any review template and fell back to
+# "sentiment", so every strongly-worded 1★ landed on the most apologetic body —
+# review_issue_not_resolved. That template is only right for someone who has
+# ALREADY chased us and is still waiting; a first-time complaint needs
+# review_negative_info_needed so we can collect details and actually act on it.
+_REVIEW_HINTS = {
+    "review_negative_info_needed": {
+        "use_when": (
+            "THE DEFAULT for a negative review. The customer describes a bad "
+            "experience — damage, defect, delay, poor quality, bad service, rude "
+            "staff, no accountability — but gives us nothing to act on: no "
+            "complaint/ticket number and no sign they have contacted us about it "
+            "before. However long or angry the review is, if this is the first we "
+            "are hearing of it, we need their contact details to route it."
+        ),
+        "triggers": [
+            "I had the worst experience with Durian. Chairs arrived damaged and the sofa is still not ready",
+            "Worst quality and even worse services, I would advise never to buy from them",
+            "Delivery delayed well past the promised date and nobody is taking accountability",
+            "Poor product quality and very disappointing experience",
+        ],
+    },
+    "review_issue_not_resolved": {
+        "use_when": (
+            "ONLY when the review itself shows the customer ALREADY engaged us and "
+            "is STILL waiting — they cite a complaint/ticket/docket number, say "
+            "they have complained or followed up multiple times, or say we "
+            "promised a fix that never came. That prior-contact history must be "
+            "present in the text. NEVER use this for a first-time complaint, "
+            "however severe — that is review_negative_info_needed."
+        ),
+        "triggers": [
+            "I have complained more than five times and nobody has resolved it",
+            "Complaint number 102215 was raised a month ago and there is still no resolution",
+            "Your team promised a replacement weeks ago and I am still waiting",
+            "I keep following up and the issue is still not fixed",
+        ],
+    },
+    "review_negative_will_work_on_it": {
+        "use_when": (
+            "Mild or vague dissatisfaction with NO specific problem we could act "
+            "on and no prior contact — the experience simply did not meet "
+            "expectations. If the customer names a concrete problem (damage, "
+            "delay, defect, service failure), use review_negative_info_needed "
+            "instead so we can collect their details."
+        ),
+        "triggers": [
+            "Not up to the mark",
+            "Expected better from this brand",
+            "Average experience, nothing special",
+        ],
+    },
+    "review_issue_resolved": {
+        "use_when": (
+            "The customer indicates their problem HAS since been sorted out, or is "
+            "updating a earlier complaint to say it was handled. Never use this "
+            "while a complaint is still open."
+        ),
+        "triggers": [
+            "Update: the team replaced it and everything is fine now",
+            "Issue has been resolved by your service team, thank you",
+        ],
+    },
+    "review_resolved_negative": {
+        "use_when": (
+            "We have already offered every possible resolution and the customer "
+            "remains unhappy — a post-resolution standoff, visible in the text as "
+            "the customer rejecting or dismissing what was offered."
+        ),
+        "triggers": [
+            "They offered a repair but I wanted a refund, still not acceptable",
+            "You have done nothing useful despite all your so-called resolutions",
+        ],
+    },
+    "review_acknowledge_feedback": {
+        "use_when": (
+            "Neutral, mixed, or suggestion-style feedback with no real complaint to "
+            "resolve — the customer is offering an opinion or an idea rather than "
+            "reporting a problem."
+        ),
+        "triggers": [
+            "Good range but the showroom could use more seating options",
+            "Please consider opening a store in our city",
+        ],
+    },
+    "review_positive_5star": {
+        "use_when": (
+            "Clear praise with no criticism at all — the customer is happy with the "
+            "product, the staff, or the experience."
+        ),
+        "triggers": [
+            "Excellent quality and great service, very happy with my purchase",
+            "Loved the showroom and the staff were very helpful",
+        ],
+    },
+    "review_positive_can_improve": {
+        "use_when": (
+            "Positive overall, but the customer adds a small suggestion or a minor "
+            "niggle alongside the praise."
+        ),
+        "triggers": [
+            "Great sofa and good service, delivery could have been a bit quicker",
+            "Happy with the purchase, wish there were more colour options",
+        ],
+    },
+}
+# YAML wins if a review code is ever added to social_templates.yaml.
+_HINTS = {**_REVIEW_HINTS, **_HINTS}
+
 # Display labels + warnings the system prompt weaves into the channel-specific
 # instructions. Keep these short; the model adapts tone from the templates.
 CHANNEL_LABELS = {
@@ -216,7 +330,11 @@ _STAR_TEMPLATE_FALLBACK = {
     4: "review_positive_can_improve",
     3: "review_acknowledge_feedback",
     2: "review_negative_will_work_on_it",
-    1: "review_issue_not_resolved",
+    # A rating-only 1★ tells us nothing beyond "unhappy" — no complaint history,
+    # nothing to act on — so it takes the same route as any first-time complaint:
+    # ask for contact details. review_issue_not_resolved is reserved for customers
+    # who have already chased us (see _REVIEW_HINTS).
+    1: "review_negative_info_needed",
 }
 
 
