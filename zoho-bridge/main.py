@@ -4337,10 +4337,27 @@ async def handle_template_suggest(conv: dict, channel: str,
         if _reply_is_repeat(reply, prev_reply):
             print(f"[template-suggest] conv {conv_id} — duplicate of our last reply, not re-sending")
             return {"ignored": True, "reason": "duplicate_reply"}
+        # Chain of thought rides ON the sent reply, so an agent can open any
+        # auto-reply and see how it was read, why this template, and why it went
+        # out without a human. content_attributes are internal — the customer
+        # only ever receives `reply`.
+        sent_trace = review_reply.add_outcome_step(
+            drafted["trace"], sent=True,
+            detail=(f"Sent automatically on {channel} — an ordinary complaint is "
+                    f"answered with its apology template (confidence {confidence}%)."
+                    if drafted.get("is_complaint") and
+                    confidence < config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE
+                    else f"Sent automatically on {channel} — confidence {confidence}% "
+                         f"met the {config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% bar."))
         try:
             # Public outgoing message → Chatwoot delivers it to the customer on
             # the inbox's own channel (Instagram / Facebook DM or comment).
-            await chatwoot.create_message(conv_id, reply, message_type="outgoing")
+            await chatwoot.create_message(
+                conv_id, reply, message_type="outgoing",
+                content_attributes={"source": "ai_auto_reply", "channel": channel,
+                                    "confidence": confidence,
+                                    "short_code": drafted.get("short_code") or "",
+                                    "ai_trace": sent_trace})
         except Exception as e:
             print(f"[template-suggest] auto-send failed for conv {conv_id}: {e}")
             return {"ignored": True, "reason": "auto_send_failed"}
@@ -4358,13 +4375,25 @@ async def handle_template_suggest(conv: dict, channel: str,
     # Below the confidence bar, a handoff, or auto-send disabled → post the
     # review card for an agent and flag it in the Agent Needed section.
     await _flag_agent_needed(conv_id, channel)
+    # Spell out WHY this didn't go out on its own — the three gates are the only
+    # ways to land here, so an agent never has to guess.
+    if not config.SOCIAL_AUTO_SEND_ENABLED:
+        hold_reason = "Auto-send is switched off for social channels."
+    elif action != "auto":
+        hold_reason = ("The drafter handed this to a human — a serious escalation, "
+                       "or no approved template fitted what they asked.")
+    else:
+        hold_reason = (f"Confidence {confidence}% is below the "
+                       f"{config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% auto-send bar.")
+    held_trace = review_reply.add_outcome_step(drafted["trace"], sent=False,
+                                               detail=hold_reason)
     try:
         await chatwoot.create_message(
             conv_id, reply, message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion",
                                 "suggestion": reply, "channel": channel,
                                 "surface": surface, "confidence": confidence,
-                                "ai_trace": drafted["trace"]},
+                                "ai_trace": held_trace},
         )
     except Exception as e:
         print(f"[template-suggest] post failed for conv {conv_id}: {e}")
