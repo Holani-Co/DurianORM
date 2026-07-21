@@ -490,3 +490,12 @@ BULK_REGION_AUTO_CONFIDENCE = float(os.environ.get("BULK_REGION_AUTO_CONFIDENCE"
 # confidence. Lower it (e.g. =40) to trim prompt size/cost if needed. Applied
 # at startup — restart the bridge after changing.
 CATEGORY_KEYWORDS_IN_PROMPT = int(os.environ.get("CATEGORY_KEYWORDS_IN_PROMPT", "200"))
+
+# Domains that belong to Durian itself. Used to spot a colleague forwarding a
+# customer's email into hello@durian.in — an address on one of these is staff,
+# never the customer behind the forward. Comma-separated.
+INTERNAL_EMAIL_DOMAINS = tuple(
+    d.strip().lower().lstrip("@")
+    for d in os.environ.get("INTERNAL_EMAIL_DOMAINS", "durian.in").split(",")
+    if d.strip()
+)

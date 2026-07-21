@@ -39,6 +39,7 @@ import tracing
 import zoho
 import zoho_crm
 import google_reviews as gr
+import forwarded_email
 import review_reply
 import reviews_poller
 import reviews_state
@@ -3576,6 +3577,58 @@ async def handle_message_created(data: dict) -> dict:
         or additional.get("subject")
         or content[:80]
     )
+
+    # ── Staff-forwarded customer email ────────────────────────────────────
+    # When a colleague forwards a customer's mail into hello@durian.in, Chatwoot
+    # makes the COLLEAGUE the contact — so the acknowledgement, the Zoho ticket
+    # and the CRM deal all attach to the employee while the customer never hears
+    # back (conv #3737: Shilpi forwarded Nitin Banga's warranty escalation).
+    #
+    # Recover the original sender and substitute them here, at the single point
+    # where the email pipeline decides who the customer is, so everything
+    # downstream — the complaint gate's acknowledgement, the ticket and the deal
+    # — uses the customer's own details. The forwarder keeps no role beyond a
+    # private note. The conversation contact is deliberately left alone; the
+    # acknowledgement is addressed explicitly via to_emails.
+    if additional.get("mail_subject") and \
+            forwarded_email.looks_forwarded(real_subject, content):
+        original = forwarded_email.extract_original_sender(
+            real_subject, content,
+            internal_domains=config.INTERNAL_EMAIL_DOMAINS,
+            exclude_emails=(sender_email,))
+        if original:
+            forwarded_by = sender_email or "a colleague"
+            sender = {**sender, "email": original["email"],
+                      "name": original["name"] or sender.get("name") or ""}
+            sender_email = original["email"]
+            phone_bit = f" · {original['phone']}" if original["phone"] else ""
+            try:
+                await chatwoot.post_private_note(
+                    conv_id,
+                    f"📨 **Forwarded email** — {forwarded_by} forwarded this on behalf of "
+                    f"**{original['name'] or original['email']}** "
+                    f"({original['email']}{phone_bit}).\n\n"
+                    f"The acknowledgement, Zoho ticket and CRM deal use the customer's "
+                    f"details, not the forwarder's.")
+            except Exception:
+                pass
+            print(f"[fwd] conv {conv_id}: forwarded by {forwarded_by} → "
+                  f"real customer {sender_email}")
+        else:
+            # Looks forwarded but we can't say who the customer is. Never guess a
+            # recipient — that is the bug we're fixing. Hold it for a human.
+            await _flag_agent_needed(conv_id, "email")
+            try:
+                await chatwoot.post_private_note(
+                    conv_id,
+                    "📨 **Forwarded email** — this looks like a forwarded customer "
+                    "email, but the original sender could not be identified, so "
+                    "nothing was auto-sent. Please reply to the customer directly "
+                    "and raise the ticket against their details.")
+            except Exception:
+                pass
+            print(f"[fwd] conv {conv_id}: forwarded but customer unidentified — held")
+            return {"ignored": True, "reason": "forwarded_customer_unidentified"}
 
     # ── Automated system / transactional / internal emails ────────────────
     # Two deterministic short-circuits that file mail as General Information,
