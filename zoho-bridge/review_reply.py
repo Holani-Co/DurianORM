@@ -393,25 +393,65 @@ def _unescape_newlines(text: str) -> str:
             .replace("\\t", "\t"))
 
 
-def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> list[dict]:
+def _renumber(steps: list[dict]) -> list[dict]:
+    for i, s in enumerate(steps):
+        s["i"] = i + 1
+    return steps
+
+
+def build_trace(channel: str, short_code: str, reasoning: str, action: str,
+                *, confidence: int = None, is_complaint: bool = False,
+                needs_human: bool = False) -> list[dict]:
     """An AI chain-of-thought trace (same shape the DM bot emits) so agents see
-    WHY this template was suggested. Rendered by the AiTrace.vue component when
-    attached to a message's content_attributes.ai_trace."""
+    WHY this reply was produced. Rendered by AiTrace.vue when attached to a
+    message's content_attributes.ai_trace.
+
+    Covers how the message was READ (sentiment) and how the reply was CHOSEN.
+    The final "what we did with it" step is appended by the caller via
+    add_outcome_step(), because the auto-send gate lives there."""
     chan = _CHANNEL_LABELS.get(channel, channel)
+
+    # How the model read the customer — the "sentiment" an agent asks about.
+    if needs_human:
+        sentiment = "Serious — legal / abuse / fraud / safety escalation"
+    elif is_complaint:
+        sentiment = "Negative — a complaint"
+    elif action == "auto":
+        sentiment = "Positive / neutral — no complaint detected"
+    else:
+        sentiment = "Negative or unclear — contains criticism"
+
     steps = [
         {"type": "policy", "source": "system", "visibility": "internal",
          "label": "Channel", "detail": f"{chan} — Durian template suggestion"},
+        {"type": "observation", "source": "model", "visibility": "internal",
+         "label": "Message read as", "detail": sentiment},
         {"type": "decision", "source": "rule", "visibility": "internal",
          "label": "Template chosen", "rule": short_code or "fallback",
          "detail": reasoning or "Best match for the customer's message."},
         {"type": "answer", "source": "model", "visibility": "public",
          "label": "Reply drafted",
-         "detail": "Auto — safe to send" if action == "auto"
-                   else "Flagged for human review before sending"},
+         "detail": ("Safe to send automatically" if action == "auto"
+                    else "Flagged for human review before sending")
+                   + (f" · confidence {confidence}%" if confidence is not None else "")},
     ]
-    for i, s in enumerate(steps):
-        s["i"] = i + 1
-    return steps
+    return _renumber(steps)
+
+
+def add_outcome_step(trace: list[dict], *, sent: bool, detail: str) -> list[dict]:
+    """Append the final 'what actually happened' step. This is what tells an
+    agent whether the reply went out on its own — and when it didn't, exactly
+    WHY it was held back (below the confidence bar, handed off, auto-send
+    switched off). Callers own the gate, so they own this step."""
+    trace = list(trace or [])
+    trace.append({
+        "type": "outcome",
+        "source": "system",
+        "visibility": "internal",
+        "label": "Sent automatically" if sent else "Held for an agent",
+        "detail": detail,
+    })
+    return _renumber(trace)
 
 
 async def draft(channel: str, message: str, contact_name: str,
@@ -438,14 +478,18 @@ async def draft(channel: str, message: str, contact_name: str,
     import json
 
     def result(reply, action, short_code="", reasoning="", confidence=0,
-               order_status_enquiry=False, is_complaint=False):
+               order_status_enquiry=False, is_complaint=False,
+               needs_human=False):
         return {
             "reply": reply, "action": action,
             "short_code": short_code, "reasoning": reasoning,
             "confidence": confidence,
             "order_status_enquiry": order_status_enquiry,
             "is_complaint": is_complaint,
-            "trace": build_trace(channel, short_code, reasoning, action),
+            "needs_human": needs_human,
+            "trace": build_trace(channel, short_code, reasoning, action,
+                                 confidence=confidence, is_complaint=is_complaint,
+                                 needs_human=needs_human),
         }
 
     prefix = f"{channel}_"
@@ -620,7 +664,7 @@ async def draft(channel: str, message: str, contact_name: str,
 
     if force_human or action != "auto":
         return result(reply, "handoff", short_code, reasoning, confidence,
-                      order_status_enquiry, is_complaint)
+                      order_status_enquiry, is_complaint, needs_human)
 
     return result(reply, "auto", short_code, reasoning, confidence,
-                  order_status_enquiry, is_complaint)
+                  order_status_enquiry, is_complaint, needs_human)

@@ -250,8 +250,15 @@ async def _ingest_review(loc: dict, rv: dict):
         # 3a. Post to Google, then mirror into Chatwoot (marked) + resolve.
         try:
             await gr.post_reply(rv["reply_path"], reply)
-            await chatwoot.create_message(conv_id, reply, message_type="outgoing",
-                                          content_attributes=AUTO_MARKER)
+            await chatwoot.create_message(
+                conv_id, reply, message_type="outgoing",
+                content_attributes={
+                    **AUTO_MARKER,
+                    "ai_trace": review_reply.add_outcome_step(
+                        drafted["trace"], sent=True,
+                        detail=(f"Posted to Google and resolved — {rv['stars'] or '?'}★ "
+                                f"review with no escalation signals.")),
+                })
             await chatwoot.toggle_status(conv_id, "resolved")
             await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED)
             state.mark_seen(rv["review_id"], conv_id, rv["reply_path"], rv["stars"],
@@ -267,11 +274,21 @@ async def _ingest_review(loc: dict, rv: dict):
     # holds the plain text too, so it still reads fine if the card doesn't
     # render (e.g. older frontend).
     note = reply or "(AI flagged this review for human handling — no draft.)"
+    if not config.REVIEWS_AUTO_REPLY:
+        hold_reason = "Review auto-reply is switched off."
+    elif rv["has_reply"]:
+        hold_reason = "This review already has a reply on Google — not posting over it."
+    elif action != "auto":
+        hold_reason = ("Held for a human — the review carries an escalation signal "
+                       "(legal / abuse / fraud / safety), or no template fitted.")
+    else:
+        hold_reason = "The auto-reply attempt failed — see the bridge log."
     await chatwoot.create_message(
         conv_id, note, message_type="outgoing", private=True,
         content_attributes={"type": "ai_review_suggestion",
                             "suggestion": reply, "channel": "review",
-                            "ai_trace": drafted["trace"]},
+                            "ai_trace": review_reply.add_outcome_step(
+                                drafted["trace"], sent=False, detail=hold_reason)},
     )
     # No team assignment for reviews — teams exist for email routing and a team
     # box on every review is just noise. The conversation stays in the reviews
@@ -385,8 +402,16 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
     if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
         try:
             await gr.post_reply(rv["reply_path"], reply)
-            await chatwoot.create_message(conv_id, reply, message_type="outgoing",
-                                          content_attributes=AUTO_MARKER)
+            await chatwoot.create_message(
+                conv_id, reply, message_type="outgoing",
+                content_attributes={
+                    **AUTO_MARKER,
+                    "ai_trace": review_reply.add_outcome_step(
+                        drafted["trace"], sent=True,
+                        detail=(f"Review was EDITED on Google — replied to the edited "
+                                f"text ({rv['stars'] or '?'}★) and resolved. This "
+                                f"replaced our earlier reply.")),
+                })
             await chatwoot.toggle_status(conv_id, "resolved")
             await tag_reply_status(conv_id, LBL_REPLIED, LBL_AUTO_REPLIED,
                                    remove=(LBL_UNREPLIED, LBL_MANUALLY_REPLIED))
@@ -398,11 +423,19 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
             print(f"[reviews] edit auto-reply failed, handing off: {e}")
 
     note = reply or "(AI flagged this edited review for human handling — no draft.)"
+    if not config.REVIEWS_AUTO_REPLY:
+        hold_reason = "Review auto-reply is switched off."
+    elif action != "auto":
+        hold_reason = ("The edited review still carries an escalation signal "
+                       "(legal / abuse / fraud / safety) — held for a human.")
+    else:
+        hold_reason = "The auto-reply attempt failed — see the bridge log."
     await chatwoot.create_message(
         conv_id, note, message_type="outgoing", private=True,
         content_attributes={"type": "ai_review_suggestion",
                             "suggestion": reply, "channel": "review",
-                            "ai_trace": drafted["trace"]},
+                            "ai_trace": review_reply.add_outcome_step(
+                                drafted["trace"], sent=False, detail=hold_reason)},
     )
 
     # Reopen + reset to unreplied so it re-enters the team's queue for a new reply.
