@@ -2453,31 +2453,52 @@ async def _retail_gate_llm(customer_name: str, text: str, *, stage: str,
         return {"city": "", "choice": 0, "ask_reply": ""}
 
 
+async def _retail_send(conv_id: int, channel: str, sender_email: str,
+                       text: str) -> bool:
+    """Send a retail-gate message on whichever channel the conversation is on.
+    Email needs an explicit recipient (the inbox fans out to whoever the header
+    says); Instagram / Facebook / WhatsApp reply in-thread, so the recipient is
+    implicit. Returns whether the message actually went out."""
+    try:
+        if channel == "email":
+            if not sender_email:
+                return False
+            await chatwoot.send_outgoing_message(conv_id, text, to_emails=sender_email)
+        else:
+            await chatwoot.send_outgoing_message(conv_id, text)
+        return True
+    except Exception as e:
+        print(f"[retail-gate] send failed for conv {conv_id} ({channel}): {e}")
+        return False
+
+
 async def _retail_ask(conv_id: int, sender_email: str, ask: str,
                       pending_extra: dict, attempt: int, what: str,
-                      need_phone: bool = False) -> list[str]:
+                      need_phone: bool = False,
+                      channel: str = "email") -> list[str]:
     if attempt >= config.RETAIL_DETAILS_MAX_ASKS:
         await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": None})
-        await _flag_agent_needed(conv_id, "email")
+        await _flag_agent_needed(conv_id, channel)
         return [f"🛍️ Retail: {what} still missing after {attempt} ask(s) — left to the team."]
-    # No phone anywhere in the email yet → ask for it too (its reply is captured
+    # No phone anywhere in the thread yet → ask for it too (its reply is captured
     # into the deal's Mobile field at Create Deal, from the thread).
     if need_phone:
         ask = ask.rstrip() + _RETAIL_PHONE_REQUEST
-    pending = {"attempts": attempt + 1, "asked_at": _now_iso(), **pending_extra}
+    # `channel` rides along in pending_retail so the customer's reply resumes on
+    # the same channel — the reply webhook only knows the conversation, not how
+    # the gate first reached them.
+    pending = {"attempts": attempt + 1, "asked_at": _now_iso(),
+               "channel": channel, **pending_extra}
     await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": pending})
-    if sender_email:
-        try:
-            await chatwoot.send_outgoing_message(conv_id, ask, to_emails=sender_email)
-        except Exception as e:
-            print(f"[retail-gate] ask send failed for conv {conv_id}: {e}")
+    await _retail_send(conv_id, channel, sender_email, ask)
     await _label_conversation(conv_id, RETAIL_NEEDED_LABEL)
     return [f"🛍️ Retail: auto-asked customer for {what} (attempt {attempt + 1})."]
 
 
 async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
                                 city_key: str, city_data: dict,
-                                showroom: dict, need_phone: bool = False) -> list[str]:
+                                showroom: dict, need_phone: bool = False,
+                                channel: str = "email") -> list[str]:
     """A showroom is settled → stash its CRM owner for the agent's Create Deal,
     confirm to the customer, and post the agent note. When need_phone, the
     confirmation also requests a contact number (the customer never gave one) —
@@ -2494,16 +2515,16 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
     except Exception:
         pass
     await _label_conversation(conv_id, "retail-routed")
-    if _EMAIL_CUSTOMER_ACK_ENABLED and sender_email:
+    # _EMAIL_CUSTOMER_ACK_ENABLED is an email-channel kill switch (it silences
+    # the acknowledgment on hello@durian.in); it must not mute social replies,
+    # where the confirmation IS the conversation.
+    if channel != "email" or _EMAIL_CUSTOMER_ACK_ENABLED:
         confirm = (f"Dear {name},\n\nThank you! Our {owner['location']} showroom team "
                    "will assist you with your purchase and reach out to you shortly.")
         if need_phone:
             confirm += _RETAIL_PHONE_REQUEST
         confirm += "\n\nRegards,\nTeam Durian"
-        try:
-            await chatwoot.send_outgoing_message(conv_id, confirm, to_emails=sender_email)
-        except Exception as e:
-            print(f"[retail-gate] confirm send failed for conv {conv_id}: {e}")
+        await _retail_send(conv_id, channel, sender_email, confirm)
     try:
         await chatwoot.post_private_note(
             conv_id,
@@ -2516,11 +2537,14 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
     return [f"🛍️ Retail routed to {owner['location']} (owner {owner['owner_id']}) — Create Deal ready."]
 
 
-async def _retail_route_to_support(conv_id: int, city_name: str) -> list[str]:
-    """City not in the showroom directory → hand to customer support."""
+async def _retail_route_to_support(conv_id: int, city_name: str,
+                                   channel: str = "email") -> list[str]:
+    """City not in the showroom directory → hand to customer support. No deal is
+    created for these: with no showroom there is no owner to tag, and an unowned
+    deal in Zoho is worse than none (client rule)."""
     await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": None})
     await _label_conversation(conv_id, "retail-support")
-    await _flag_agent_needed(conv_id, "email")
+    await _flag_agent_needed(conv_id, channel)
     try:
         await chatwoot.post_private_note(
             conv_id,
@@ -2539,7 +2563,8 @@ async def _retail_route_to_support(conv_id: int, city_name: str) -> list[str]:
 
 async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
                            subject: str, body: str, *, attempt: int,
-                           city_key: str = "", phone_on_file: bool = False) -> list[str]:
+                           city_key: str = "", phone_on_file: bool = False,
+                           channel: str = "email") -> list[str]:
     """One pass of the retail gate. Without city_key it resolves the city (and
     lists showrooms / captures a single-showroom owner / routes to support).
     With city_key set (re-entry after listing) it matches the chosen showroom."""
@@ -2569,10 +2594,10 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
                 conv_id, sender_email,
                 gate.get("ask_reply") or _retail_showroom_ask(name, city_data),
                 {"stage": "showroom", "city_key": city_key}, attempt, "a showroom choice",
-                need_phone=need_phone)
+                need_phone=need_phone, channel=channel)
         return await _retail_capture_owner(conv_id, sender_email, name,
                                            city_key, city_data, chosen,
-                                           need_phone=need_phone)
+                                           need_phone=need_phone, channel=channel)
 
     # First pass: resolve the city.
     gate = await _retail_gate_llm(name, text, stage="city")
@@ -2581,23 +2606,25 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
         return await _retail_ask(
             conv_id, sender_email,
             gate.get("ask_reply") or _RETAIL_CITY_FALLBACK_ASK.format(customer_name=name),
-            {"stage": "city"}, attempt, "their city", need_phone=need_phone)
+            {"stage": "city"}, attempt, "their city", need_phone=need_phone,
+            channel=channel)
     found = retail.lookup_city(city_name)
     if not found:
-        return await _retail_route_to_support(conv_id, city_name)
+        return await _retail_route_to_support(conv_id, city_name, channel)
     ckey, city_data = found
     rooms = retail.showrooms(city_data)
     if len(rooms) <= 1:
         if not rooms:
-            return await _retail_route_to_support(conv_id, city_name)
+            return await _retail_route_to_support(conv_id, city_name, channel)
         return await _retail_capture_owner(conv_id, sender_email, name,
                                            ckey, city_data, rooms[0],
-                                           need_phone=need_phone)
-    # Multiple showrooms → list them and ask which is nearest.
+                                           need_phone=need_phone, channel=channel)
+    # Multiple showrooms → list them and ask which is nearest. The customer picks
+    # BEFORE any deal exists, so Create Deal always has a settled owner.
     return await _retail_ask(conv_id, sender_email,
                              _retail_showroom_ask(name, city_data),
                              {"stage": "showroom", "city_key": ckey}, attempt, "a showroom choice",
-                             need_phone=need_phone)
+                             need_phone=need_phone, channel=channel)
 
 
 async def _handle_retail_reply(conv_id: int, data: dict, conv: dict,
@@ -2607,10 +2634,13 @@ async def _handle_retail_reply(conv_id: int, data: dict, conv: dict,
     subject = ((data.get("content_attributes") or {}).get("email") or {}).get("subject") or ""
     sender  = (conv.get("meta") or {}).get("sender") or {}
     phone_on_file = bool((conv.get("custom_attributes") or {}).get("retail_customer_phone"))
+    # Conversations that entered the gate before it became channel-aware have no
+    # stored channel — they can only be email, so that stays the default.
     audit = await _run_retail_gate(
         conv_id, sender.get("name") or "", sender.get("email") or "",
         subject, content, attempt=int(pending.get("attempts") or 1),
-        city_key=str(pending.get("city_key") or ""), phone_on_file=phone_on_file)
+        city_key=str(pending.get("city_key") or ""), phone_on_file=phone_on_file,
+        channel=str(pending.get("channel") or "email"))
     return {"handled": "retail_reply", "audit": audit}
 
 
@@ -4343,6 +4373,15 @@ async def _template_suggest_locked(conv: dict, channel: str,
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
+    # The retail gate owns the conversation while it waits for a city or a
+    # showroom choice, so the drafter stands down until it clears pending_retail.
+    # Without this, a customer answering "which one is nearest to Whitefield?"
+    # reads to the drafter as a store-location question and gets answered with
+    # the generic durian.in/stores template while the gate is still waiting for
+    # a pick. Both paths run under the same per-conversation lock, so this read
+    # cannot race with the gate writing that attribute.
+    if (conv.get("custom_attributes") or {}).get("pending_retail"):
+        return {"ignored": True, "reason": "retail_gate_pending"}
 
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
