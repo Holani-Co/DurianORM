@@ -1,0 +1,1744 @@
+# Customer-facing showroom templates, generated from the client sheet
+# 'City wise Location template.xlsx'. DO NOT hand-edit — regenerate.
+#
+# Two consumers:
+#   sync_showroom_templates.py -> pushes `content` into Chatwoot canned
+#     responses under `short_code`, same pattern as social_templates.yaml.
+#   main.py retail gate -> uses `showrooms[].location` to join each option
+#     to its CRM owner_id in retail_showrooms.yaml (the generated directory).
+#
+# `short_code` is COMPOSED (intent + city + vertical), never chosen by the
+# LLM — 55 near-identical templates would be a coin flip for a model. The
+# AI only decides intent; retail_showrooms.lookup_city() picks the city.
+#
+# location: null  -> block could not be confidently joined to the directory,
+#                    so it renders as text but carries no owner_id.
+templates:
+  - short_code: showroom_furniture_bhubaneswar
+    city: 'bhubaneswar'
+    city_display: 'Bhubaneswar'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      "Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bhubaneswar showrooms below for your convenience:
+
+      Bhubaneswar – Samantarapur Showroom
+      Store Manager: Mr. Anil Mohapatra
+      📞 Contact: 86554 06842
+      🗺️ Google Map: https://maps.app.goo.gl/YiQWLyp1DKy5J3FM8
+
+      Bhubaneswar – Patia Showroom
+      Store Manager: Mr. Amar
+      📞 Contact: 9910549645
+      🗺️ Google Map: https://maps.app.goo.gl/DnBvuHoQe1oKEdbt6
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian"
+    showrooms:
+      - location: 'Bhubaneshwar - Samantarapur'
+        name: 'Bhubaneswar – Samantarapur Showroom'
+        manager: 'Mr. Anil Mohapatra'
+        phone: '86554 06842'
+        map_url: 'https://maps.app.goo.gl/YiQWLyp1DKy5J3FM8'
+      - location: 'Bhubaneshwar - Patia'
+        name: 'Bhubaneswar – Patia Showroom'
+        manager: 'Mr. Amar'
+        phone: '9910549645'
+        map_url: 'https://maps.app.goo.gl/DnBvuHoQe1oKEdbt6'
+  - short_code: showroom_furniture_agra
+    city: 'agra'
+    city_display: 'Agra'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Agra showroom below for your convenience:
+
+      Agra Showroom
+
+      Store Manager: Mr. Amit
+      📞 Contact: 74899 43590
+      🗺️ Google Map: https://maps.app.goo.gl/wprbATgupf5smNy6A
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Agra - Sikandra'
+        name: 'Agra Showroom'
+        manager: 'Mr. Amit'
+        phone: '74899 43590'
+        map_url: 'https://maps.app.goo.gl/wprbATgupf5smNy6A'
+  - short_code: showroom_furniture_bangalore
+    city: 'bangalore'
+    city_display: 'Bangalore'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bangalore showrooms below for your convenience:
+
+      Bangalore – Banaswadi Showroom
+
+      Store Manager: Mr. Damodharan M
+      📞 Contact: 86579 60577
+      🗺️ Google Map: https://maps.app.goo.gl/m1C6MdgiYUWHfLvU7Co
+
+      Bangalore – Marathahalli Showroom
+
+      Store Manager: Ms. Jyothi R
+      📞 Contact: 86578 77192
+      🗺️ Google Map: https://maps.app.goo.gl/gUTb3nfxSvzvScab6
+
+      Bangalore – JP Nagar Showroom
+
+      Store Manager: Mr. Abhishek Nair
+      📞 Contact: 9980941560
+      🗺️ Google Map: https://maps.app.goo.gl/UWkYjnA4rEfSjwiMA
+
+      Bangalore – Shivaji Nagar Showroom
+
+      Store Manager: Mr. Sanjay Sharma
+      📞 Contact: 9686118682
+      🗺️ Google Map: https://maps.app.goo.gl/WUUd2fyDUkx4ShJg9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Banaswadi'
+        name: 'Bangalore – Banaswadi Showroom'
+        manager: 'Mr. Damodharan M'
+        phone: '86579 60577'
+        map_url: 'https://maps.app.goo.gl/m1C6MdgiYUWHfLvU7Co'
+      - location: 'Bengaluru - Marathahalli'
+        name: 'Bangalore – Marathahalli Showroom'
+        manager: 'Ms. Jyothi R'
+        phone: '86578 77192'
+        map_url: 'https://maps.app.goo.gl/gUTb3nfxSvzvScab6'
+      - location: 'Bengaluru - JP Nagar'
+        name: 'Bangalore – JP Nagar Showroom'
+        manager: 'Mr. Abhishek Nair'
+        phone: '9980941560'
+        map_url: 'https://maps.app.goo.gl/UWkYjnA4rEfSjwiMA'
+      - location: 'Bengaluru - Shivaji Nagar'
+        name: 'Bangalore – Shivaji Nagar Showroom'
+        manager: 'Mr. Sanjay Sharma'
+        phone: '9686118682'
+        map_url: 'https://maps.app.goo.gl/WUUd2fyDUkx4ShJg9'
+  - short_code: showroom_furniture_ahmedabad
+    city: 'ahmedabad'
+    city_display: 'Ahmedabad'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Ahmedabad showroom below for your convenience:
+
+      Ahmedabad Showroom
+
+      Store Manager: Mr. Yash Bhatt
+      📞 Contact: 70390 86249
+      🗺️ Google Map: https://maps.app.goo.gl/YCL5LkU2HJvoDfr36
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Ahmedabad - Bodakev'
+        name: 'Ahmedabad Showroom'
+        manager: 'Mr. Yash Bhatt'
+        phone: '70390 86249'
+        map_url: 'https://maps.app.goo.gl/YCL5LkU2HJvoDfr36'
+  - short_code: showroom_furniture_aizawl
+    city: 'aizawl'
+    city_display: 'Aizawl'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Aizawl showroom below for your convenience:
+
+      Aizawl Showroom
+
+      Store Manager: Miss Babie
+      📞 Contact: 7226878335
+      🗺️ Google Map: https://maps.app.goo.gl/vo4ZZDzBkLfoGHyEA
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Aizawl'
+        name: 'Aizawl Showroom'
+        manager: 'Miss Babie'
+        phone: '7226878335'
+        map_url: 'https://maps.app.goo.gl/vo4ZZDzBkLfoGHyEA'
+  - short_code: showroom_furniture_ajmer
+    city: 'ajmer'
+    city_display: 'Ajmer'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Ajmer showroom below for your convenience:
+
+      Ajmer Showroom
+
+      Store Manager: Mr. Sunny Ramchandani
+      📞 Contact: 9352236986
+      🗺️ Google Map: https://maps.app.goo.gl/w9qiCpK1NYDipGQg9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Ajmer - Vaishali Nagar'
+        name: 'Ajmer Showroom'
+        manager: 'Mr. Sunny Ramchandani'
+        phone: '9352236986'
+        map_url: 'https://maps.app.goo.gl/w9qiCpK1NYDipGQg9'
+  - short_code: showroom_furniture_bhilai
+    city: 'bhilai'
+    city_display: 'Bhilai'
+    vertical: 'Furniture'
+    in_directory: false
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bhilai showroom below for your convenience:
+
+      Bhilai Showroom
+
+      Store Manager: Ms. Shilpa Agarwal
+      📞 Contact: 7805961516 / 9301419553
+      🗺️ Google Map: https://maps.app.goo.gl/iXTo5qGqeMNcomtK8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Bhilai Showroom'
+        manager: 'Ms. Shilpa Agarwal'
+        phone: '7805961516 / 9301419553'
+        map_url: 'https://maps.app.goo.gl/iXTo5qGqeMNcomtK8'
+  - short_code: showroom_furniture_bikaner
+    city: 'bikaner'
+    city_display: 'Bikaner'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bikaner showroom below for your convenience:
+
+      Bikaner Showroom
+
+      Store Manager: Ms. Shristi Chandak
+      📞 Contact: 9414139274 / 9783056831
+      🗺️ Google Map: https://maps.app.goo.gl/2wExKTx7rZoYRd8K8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Bikaner - Rani Baraz'
+        name: 'Bikaner Showroom'
+        manager: 'Ms. Shristi Chandak'
+        phone: '9414139274 / 9783056831'
+        map_url: 'https://maps.app.goo.gl/2wExKTx7rZoYRd8K8'
+  - short_code: showroom_furniture_panchkula
+    city: 'panchkula'
+    city_display: 'Chandigarh'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Chandigarh showroom below for your convenience:
+
+      Chandigarh Showroom
+
+      Store Manager: Ms. Sapna Gill
+      📞 Contact: 9988424727 / 0172 5004546
+      🗺️ Google Map: https://maps.app.goo.gl/PCTNtnLUQZC6XibM8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Chandigarh - Panchkula'
+        name: 'Chandigarh Showroom'
+        manager: 'Ms. Sapna Gill'
+        phone: '9988424727 / 0172 5004546'
+        map_url: 'https://maps.app.goo.gl/PCTNtnLUQZC6XibM8'
+  - short_code: showroom_furniture_chennai
+    city: 'chennai'
+    city_display: 'Chennai'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Chennai showrooms below for your convenience:
+
+      Chennai – KNK Showroom
+
+      Store Manager: Mr. Balasubramanian
+      📞 Contact: 86579 52385
+      🗺️ Google Map: https://maps.app.goo.gl/DXAH5sbUMmJfCWRp7
+
+      Chennai – OMR Showroom
+
+      Store Manager: Mr. Selvaraj
+      📞 Contact: 86526 38253
+      🗺️ Google Map: https://maps.app.goo.gl/rk17qYYwwGVuHpAt8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Chennai – KNK Showroom'
+        manager: 'Mr. Balasubramanian'
+        phone: '86579 52385'
+        map_url: 'https://maps.app.goo.gl/DXAH5sbUMmJfCWRp7'
+      - location: 'Chennai - OMR'
+        name: 'Chennai – OMR Showroom'
+        manager: 'Mr. Selvaraj'
+        phone: '86526 38253'
+        map_url: 'https://maps.app.goo.gl/rk17qYYwwGVuHpAt8'
+  - short_code: showroom_furniture_aurangabad
+    city: 'aurangabad'
+    city_display: 'Chhatrapati Sambhajinagar / Aurangabad'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Chhatrapati Sambhajinagar showroom below for your convenience:
+
+      Chhatrapati Sambhajinagar Showroom
+
+      Store Manager: Mr. Suryakant Shriramwar
+      📞 Contact: 0240 2350686 / 9325005901
+      🗺️ Google Map: https://maps.app.goo.gl/R2Riomv9AditUG3k7
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Chhatrapati Sambhajinagar(Aurangabad)'
+        name: 'Chhatrapati Sambhajinagar Showroom'
+        manager: 'Mr. Suryakant Shriramwar'
+        phone: '0240 2350686 / 9325005901'
+        map_url: 'https://maps.app.goo.gl/R2Riomv9AditUG3k7'
+  - short_code: showroom_furniture_coimbatore
+    city: 'coimbatore'
+    city_display: 'Coimbatore'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Coimbatore showroom below for your convenience:
+
+      Coimbatore Showroom
+
+      Store Manager: Mrs. Indu
+      📞 Contact: 9500900443
+      🗺️ Google Map: https://maps.app.goo.gl/4Ty16kzUHzBq1AqC9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Coimbatore Showroom'
+        manager: 'Mrs. Indu'
+        phone: '9500900443'
+        map_url: 'https://maps.app.goo.gl/4Ty16kzUHzBq1AqC9'
+  - short_code: showroom_furniture_delhi
+    city: 'delhi'
+    city_display: 'DELHI NCR'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Delhi NCR showrooms below for your convenience:
+
+      Faridabad Showroom
+      Store Manager: Mr. Dharmpal
+      📞 Contact: 86579 60582
+      🗺️ Google Map: https://maps.app.goo.gl/ZAgAkpxZ6pUC3Bjg7
+
+      Ghitorni Showroom
+      Store Manager: Mr. Ramesh Yadav
+      📞 Contact: 96500 22064
+      🗺️ Google Map: https://maps.app.goo.gl/5fJdxsNuzYpp7zy78
+
+      Gurgaon Showroom
+      Store Manager: Mr. Avanish
+      📞 Contact: 97166 21902
+      🗺️ Google Map: https://maps.app.goo.gl/vLkEbezezjTJQq5j7
+
+      Kirti Nagar Showroom
+      Store Manager: Mr. Raghvendra
+      📞 Contact: 78380 09972
+      🗺️ Google Map: https://maps.app.goo.gl/viuUEuHPAETCHTiq6
+
+      Noida Sector 49 Showroom
+      Store Manager: Ms. Manjari Sarkar
+      📞 Contact: 9870570655 / 988907071
+      🗺️ Google Map: https://www.durian.in/store/furniture-store-in-noida-sector-49
+
+      Noida Sector 10 Showroom
+      Store Manager: Mr. Mohit Singh
+      📞 Contact: 9152500397
+      🗺️ Google Map: https://maps.app.goo.gl/9jKwdTgtKmq2SRrY7
+
+      Sohna Road Showroom
+      Store Manager: Mr. Pankaj Jha
+      📞 Contact: 7718839549
+      🗺️ Google Map: https://maps.app.goo.gl/HZP5piJeQroiQRJN7
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Faridabad - Mewla Maharajpur'
+        name: 'Faridabad Showroom'
+        manager: 'Mr. Dharmpal'
+        phone: '86579 60582'
+        map_url: 'https://maps.app.goo.gl/ZAgAkpxZ6pUC3Bjg7'
+      - location: 'Delhi - Ghitorni'
+        name: 'Ghitorni Showroom'
+        manager: 'Mr. Ramesh Yadav'
+        phone: '96500 22064'
+        map_url: 'https://maps.app.goo.gl/5fJdxsNuzYpp7zy78'
+      - location: 'Gurgaon - JMD'
+        name: 'Gurgaon Showroom'
+        manager: 'Mr. Avanish'
+        phone: '97166 21902'
+        map_url: 'https://maps.app.goo.gl/vLkEbezezjTJQq5j7'
+      - location: 'Delhi - Kirti Nagar'
+        name: 'Kirti Nagar Showroom'
+        manager: 'Mr. Raghvendra'
+        phone: '78380 09972'
+        map_url: 'https://maps.app.goo.gl/viuUEuHPAETCHTiq6'
+      - location: 'Noida - Sector 49'
+        name: 'Noida Sector 49 Showroom'
+        manager: 'Ms. Manjari Sarkar'
+        phone: '9870570655 / 988907071'
+        map_url: 'https://www.durian.in/store/furniture-store-in-noida-sector-49'
+      - location: 'Noida - Sector 10'
+        name: 'Noida Sector 10 Showroom'
+        manager: 'Mr. Mohit Singh'
+        phone: '9152500397'
+        map_url: 'https://maps.app.goo.gl/9jKwdTgtKmq2SRrY7'
+      - location: 'Delhi - Sohna Road'
+        name: 'Sohna Road Showroom'
+        manager: 'Mr. Pankaj Jha'
+        phone: '7718839549'
+        map_url: 'https://maps.app.goo.gl/HZP5piJeQroiQRJN7'
+  - short_code: showroom_furniture_dhanbad
+    city: 'dhanbad'
+    city_display: 'Dhanbad'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Dhanbad showroom below for your convenience:
+
+      Dhanbad Showroom
+      Store Manager: Mr. Dinesh Kumar Mandal
+      📞 Contact: 9031290512
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=Durian+Furniture,Ajay+Electronics+Building,+Park+Market,+Hirapur
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Dhanbad - Hirapur'
+        name: 'Dhanbad Showroom'
+        manager: 'Mr. Dinesh Kumar Mandal'
+        phone: '9031290512'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=Durian+Furniture,Ajay+Electronics+Building,+Park+Market,+Hirapur'
+  - short_code: showroom_furniture_gorakhpur
+    city: 'gorakhpur'
+    city_display: 'Gorakhpur'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Gorakhpur showroom below for your convenience:
+
+      Gorakhpur Showroom
+      Store Manager: Mr. Ravi Kumar Verma
+      📞 Contact: 9918919096
+      🗺️ Google Map: https://maps.app.goo.gl/V2fPyCTevjBmijRV9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Gorakhpur'
+        name: 'Gorakhpur Showroom'
+        manager: 'Mr. Ravi Kumar Verma'
+        phone: '9918919096'
+        map_url: 'https://maps.app.goo.gl/V2fPyCTevjBmijRV9'
+  - short_code: showroom_furniture_guwahati
+    city: 'guwahati'
+    city_display: 'Guwahati Showroom'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Guwahati showroom below for your convenience:
+
+      Guwahati Showroom
+      Store Manager: Mr. Dipak Yadav
+      📞 Contact: 86570 63274
+      🗺️ Google Map: https://maps.app.goo.gl/za1ssYrdWar1mgzd9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Guwahati - Lachitnagar'
+        name: 'Guwahati Showroom'
+        manager: 'Mr. Dipak Yadav'
+        phone: '86570 63274'
+        map_url: 'https://maps.app.goo.gl/za1ssYrdWar1mgzd9'
+  - short_code: showroom_furniture_hyderabad
+    city: 'hyderabad'
+    city_display: 'Hyderabad'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Hyderabad showrooms below for your convenience:
+
+      Hyderabad – Banjara Hills Showroom
+      Store Manager: Mr. Ramesh Bodakuntal
+      📞 Contact: 88284 97750
+      🗺️ Google Map: https://maps.app.goo.gl/Gn2FVt5pJBjKsXog9
+
+      Hyderabad – Kompally Showroom
+      Store Manager: Mr. Ashok Gaddi
+      📞 Contact: 8657960624
+      🗺️ Google Map: https://maps.app.goo.gl/ShYghGdHgzaomBwo8
+
+      Hyderabad – Sarath City Showroom
+      Store Manager: Mr. Ramesh Bodakuntal
+      📞 Contact: 88284 97750
+      🗺️ Google Map: https://maps.app.goo.gl/CgGvQgB9ifdqGva18
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Hyderabad - Banjara Hills'
+        name: 'Hyderabad – Banjara Hills Showroom'
+        manager: 'Mr. Ramesh Bodakuntal'
+        phone: '88284 97750'
+        map_url: 'https://maps.app.goo.gl/Gn2FVt5pJBjKsXog9'
+      - location: 'Hyderabad - Kompally'
+        name: 'Hyderabad – Kompally Showroom'
+        manager: 'Mr. Ashok Gaddi'
+        phone: '8657960624'
+        map_url: 'https://maps.app.goo.gl/ShYghGdHgzaomBwo8'
+      - location: 'Hyderabad - Sarath City'
+        name: 'Hyderabad – Sarath City Showroom'
+        manager: 'Mr. Ramesh Bodakuntal'
+        phone: '88284 97750'
+        map_url: 'https://maps.app.goo.gl/CgGvQgB9ifdqGva18'
+  - short_code: showroom_furniture_indore
+    city: 'indore'
+    city_display: 'INDORE'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Indore showroom below for your convenience:
+
+      Indore Showroom
+      Store Manager: Mr. Amit
+      📞 Contact: 74899 43590
+      🗺️ Google Map: https://maps.app.goo.gl/uZwcm6BXtgmp23ko9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Indore - Vijay Nagar'
+        name: 'Indore Showroom'
+        manager: 'Mr. Amit'
+        phone: '74899 43590'
+        map_url: 'https://maps.app.goo.gl/uZwcm6BXtgmp23ko9'
+  - short_code: showroom_furniture_jaipur
+    city: 'jaipur'
+    city_display: 'Jaipur'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Jaipur showrooms below for your convenience:
+
+      Jaipur – Vaishali Nagar Showroom
+      Store Manager: Mr. Rajesh Sharma
+      📞 Contact: 91520 13351
+      🗺️ Google Map: https://maps.app.goo.gl/cgrXc3ZJqJv1diov5
+
+      Jaipur – New Aatish Market Showroom
+      Store Manager: Mr. Sushil Tiwari
+      📞 Contact: 9621290939 / 0141 4014120
+      🗺️ Google Map: https://maps.app.goo.gl/Trx6LHpxmqA9MQpu8
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Jaipur - Vaishali Nagar'
+        name: 'Jaipur – Vaishali Nagar Showroom'
+        manager: 'Mr. Rajesh Sharma'
+        phone: '91520 13351'
+        map_url: 'https://maps.app.goo.gl/cgrXc3ZJqJv1diov5'
+      - location: 'Jaipur - Vaishali Nagar'
+        name: 'Jaipur – New Aatish Market Showroom'
+        manager: 'Mr. Sushil Tiwari'
+        phone: '9621290939 / 0141 4014120'
+        map_url: 'https://maps.app.goo.gl/Trx6LHpxmqA9MQpu8'
+  - short_code: showroom_furniture_jammu
+    city: 'jammu'
+    city_display: 'Jammu'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Jammu showroom below for your convenience:
+
+      Jammu Showroom
+      Store Manager: Mr. Naresh
+      📞 Contact: 86554 02620
+      🗺️ Google Map: https://maps.app.goo.gl/SN7UbvbgwsivFCan8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Jammu - Kunjwani'
+        name: 'Jammu Showroom'
+        manager: 'Mr. Naresh'
+        phone: '86554 02620'
+        map_url: 'https://maps.app.goo.gl/SN7UbvbgwsivFCan8'
+  - short_code: showroom_furniture_jamshedpur
+    city: 'jamshedpur'
+    city_display: 'Jamshedpur'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Jamshedpur showroom below for your convenience:
+
+      Jamshedpur Showroom
+      Store Manager: Mr. Manikant Choudhary
+      📞 Contact: 86554 02623
+      🗺️ Google Map: https://maps.app.goo.gl/wrNAVAcrHB8X5fLc8
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Jamshedpur - Adityapur'
+        name: 'Jamshedpur Showroom'
+        manager: 'Mr. Manikant Choudhary'
+        phone: '86554 02623'
+        map_url: 'https://maps.app.goo.gl/wrNAVAcrHB8X5fLc8'
+  - short_code: showroom_furniture_kanpur
+    city: 'kanpur'
+    city_display: 'Kanpur'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Kanpur showroom below for your convenience:
+
+      Kanpur Showroom
+      Store Manager: Mr. Ramsanjeevan Mishra
+      📞 Contact: 97215 54514
+      🗺️ Google Map: https://maps.app.goo.gl/N3Bi9BsMMMadPYyV7
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Kanpur - Acharya Nagar'
+        name: 'Kanpur Showroom'
+        manager: 'Mr. Ramsanjeevan Mishra'
+        phone: '97215 54514'
+        map_url: 'https://maps.app.goo.gl/N3Bi9BsMMMadPYyV7'
+  - short_code: showroom_furniture_kolkata
+    city: 'kolkata'
+    city_display: 'Kolkata'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Kolkata showroom below for your convenience:
+
+      Kolkata Showroom
+      Store Manager: Mr. Bikash Das
+      📞 Contact: 86554 02611
+      🗺️ Google Map: https://maps.app.goo.gl/ai7nn7owPEnP5S4z7
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Kolkata - Topsia'
+        name: 'Kolkata Showroom'
+        manager: 'Mr. Bikash Das'
+        phone: '86554 02611'
+        map_url: 'https://maps.app.goo.gl/ai7nn7owPEnP5S4z7'
+  - short_code: showroom_furniture_lucknow
+    city: 'lucknow'
+    city_display: 'Lucknow'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Lucknow showrooms below for your convenience:
+
+      Lucknow – Arjunganj Showroom
+      Store Manager: Mr. RB Mishra
+      📞 Contact: 9918722361
+      🗺️ Google Map: https://maps.app.goo.gl/gMMAM6LE5gHjbVVT7
+
+      Lucknow – Indira Nagar Showroom
+      Store Manager: Mr. Ranjeet
+      📞 Contact: 9651639956
+      🗺️ Google Map: https://maps.app.goo.gl/Y2g4ZZcrCtc5VxWC9
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Lucknow - Arjunganj'
+        name: 'Lucknow – Arjunganj Showroom'
+        manager: 'Mr. RB Mishra'
+        phone: '9918722361'
+        map_url: 'https://maps.app.goo.gl/gMMAM6LE5gHjbVVT7'
+      - location: 'Lucknow - Indira Nagar'
+        name: 'Lucknow – Indira Nagar Showroom'
+        manager: 'Mr. Ranjeet'
+        phone: '9651639956'
+        map_url: 'https://maps.app.goo.gl/Y2g4ZZcrCtc5VxWC9'
+  - short_code: showroom_furniture_ludhiana
+    city: 'ludhiana'
+    city_display: 'Ludhiana'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Ludhiana showroom below for your convenience:
+
+      Ludhiana Showroom
+      Store Manager: Ms. Bhumika
+      📞 Contact: 70391 74313
+      🗺️ Google Map: https://maps.app.goo.gl/JqWSW943Vrq8jXj96
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Ludhiana - Daad Village'
+        name: 'Ludhiana Showroom'
+        manager: 'Ms. Bhumika'
+        phone: '70391 74313'
+        map_url: 'https://maps.app.goo.gl/JqWSW943Vrq8jXj96'
+  - short_code: showroom_furniture_mohali
+    city: 'mohali'
+    city_display: 'Mohali'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Mohali showroom below for your convenience:
+
+      Mohali Showroom
+      Store Manager: Mr. Manmohan Singh
+      📞 Contact: 8288884070
+      🗺️ Google Map: https://maps.app.goo.gl/GgxacMR43UYz1x2SA
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Mohali'
+        name: 'Mohali Showroom'
+        manager: 'Mr. Manmohan Singh'
+        phone: '8288884070'
+        map_url: 'https://maps.app.goo.gl/GgxacMR43UYz1x2SA'
+  - short_code: showroom_furniture_motihari
+    city: 'motihari'
+    city_display: 'Motihari'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Motihari showroom below for your convenience:
+
+      Motihari Showroom
+      Store Manager: Mr. Mahesh Nath Agarwal
+      📞 Contact: 9122229555 / 9852562871
+      🗺️ Google Map: https://maps.app.goo.gl/L5zGfsqJkXfHKQbq9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Motihari'
+        name: 'Motihari Showroom'
+        manager: 'Mr. Mahesh Nath Agarwal'
+        phone: '9122229555 / 9852562871'
+        map_url: 'https://maps.app.goo.gl/L5zGfsqJkXfHKQbq9'
+  - short_code: showroom_furniture_mumbai
+    city: 'mumbai'
+    city_display: 'Mumbai'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Mumbai showrooms below for your convenience:
+
+      Mumbai – Goregaon Showroom
+      Store Manager: Mr. Nazneen Merchant
+      📞 Contact: 93208 29036
+      🗺️ Google Map: https://maps.app.goo.gl/i7rDjvVQkUjizJAT8
+
+      Mumbai – Thane Showroom
+      Store Manager: Mr. Binder
+      📞 Contact: 93216 36349
+
+      Mumbai – Worli Showroom
+      Store Manager: Mr. Arvind Rai
+      📞 Contact: 93208 29034
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Mumbai - Goregaon'
+        name: 'Mumbai – Goregaon Showroom'
+        manager: 'Mr. Nazneen Merchant'
+        phone: '93208 29036'
+        map_url: 'https://maps.app.goo.gl/i7rDjvVQkUjizJAT8'
+      - location: 'Thane - Subhash Nagar'
+        name: 'Mumbai – Thane Showroom'
+        manager: 'Mr. Binder'
+        phone: '93216 36349'
+        map_url: null
+      - location: 'Mumbai - Worli'
+        name: 'Mumbai – Worli Showroom'
+        manager: 'Mr. Arvind Rai'
+        phone: '93208 29034'
+        map_url: null
+  - short_code: showroom_furniture_sambalpur
+    city: 'sambalpur'
+    city_display: 'Sambalpur - Odisha'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Sambalpur showroom below for your convenience:
+
+      Sambalpur Showroom
+      Store Manager: Mr. Ankur Bharalawala
+      📞 Contact: 6371749328
+      🗺️ Google Map: https://maps.app.goo.gl/ZmZgzED5mEB8gLzVA
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Odisha - Sambalpur'
+        name: 'Sambalpur Showroom'
+        manager: 'Mr. Ankur Bharalawala'
+        phone: '6371749328'
+        map_url: 'https://maps.app.goo.gl/ZmZgzED5mEB8gLzVA'
+  - short_code: showroom_furniture_palghar
+    city: 'palghar'
+    city_display: 'Palghar'
+    vertical: 'Furniture'
+    in_directory: false
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Palghar – Udhyog Nagar showroom below for your convenience:
+
+      Palghar – Udhyog Nagar Showroom
+      Store Manager: Miss Manasvi Save
+      📞 Contact: 9323623650
+      🗺️ Google Map: https://maps.app.goo.gl/ZbdwXVEJqaKBWRXB9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Palghar – Udhyog Nagar Showroom'
+        manager: 'Miss Manasvi Save'
+        phone: '9323623650'
+        map_url: 'https://maps.app.goo.gl/ZbdwXVEJqaKBWRXB9'
+  - short_code: showroom_furniture_patna
+    city: 'patna'
+    city_display: 'Patna'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Patna showroom below for your convenience:
+
+      Patna Showroom
+      Store Manager: Mr. Atish Sinha
+      📞 Contact: 86554 06843
+      🗺️ Google Map: https://maps.app.goo.gl/Rpfcbum6VLQFnmra9
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Patna - Danapur'
+        name: 'Patna Showroom'
+        manager: 'Mr. Atish Sinha'
+        phone: '86554 06843'
+        map_url: 'https://maps.app.goo.gl/Rpfcbum6VLQFnmra9'
+  - short_code: showroom_furniture_prayagraj
+    city: 'prayagraj'
+    city_display: 'Prayagraj'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Prayagraj showrooms below for your convenience:
+
+      Prayagraj – Civil Lines Showroom
+      Store Manager: Mr. Devendra Tripathi
+      📞 Contact: 9456401131
+      🗺️ Google Map: https://maps.app.goo.gl/toHaD6tKL4n2K3LD9
+
+      Prayagraj – Phaphamau Showroom
+      Store Manager: Mr. Devendra Tripathi
+      📞 Contact: 9456401131 / 9450766321
+      🗺️ Google Map: https://maps.app.goo.gl/R2Riomv9AditUG3k7
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Prayagraj - Lal Bahadur Shastri Marg'
+        name: 'Prayagraj – Civil Lines Showroom'
+        manager: 'Mr. Devendra Tripathi'
+        phone: '9456401131'
+        map_url: 'https://maps.app.goo.gl/toHaD6tKL4n2K3LD9'
+      - location: 'Prayagraj - Lal Bahadur Shastri Marg'
+        name: 'Prayagraj – Phaphamau Showroom'
+        manager: 'Mr. Devendra Tripathi'
+        phone: '9456401131 / 9450766321'
+        map_url: 'https://maps.app.goo.gl/R2Riomv9AditUG3k7'
+  - short_code: showroom_furniture_pune
+    city: 'pune'
+    city_display: 'Pune'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Pune showrooms below for your convenience:
+
+      Pune – Creaticity Showroom
+      Store Manager: Mr. Bikash Saha
+      📞 Contact: 8657063253
+      🗺️ Google Map: https://maps.app.goo.gl/cE1wM6whthXY4eDb9
+
+      Pune – Baner Showroom
+      Store Manager: Mr. Ashwani
+      📞 Contact: 86579 59490
+      🗺️ Google Map: https://maps.app.goo.gl/sSyXkJaZQqkmy9VSA
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Pune - Creaticity'
+        name: 'Pune – Creaticity Showroom'
+        manager: 'Mr. Bikash Saha'
+        phone: '8657063253'
+        map_url: 'https://maps.app.goo.gl/cE1wM6whthXY4eDb9'
+      - location: 'Pune - Baner'
+        name: 'Pune – Baner Showroom'
+        manager: 'Mr. Ashwani'
+        phone: '86579 59490'
+        map_url: 'https://maps.app.goo.gl/sSyXkJaZQqkmy9VSA'
+  - short_code: showroom_furniture_raipur
+    city: 'raipur'
+    city_display: 'Raipur'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Raipur showroom below for your convenience:
+
+      Raipur – Telibandha Showroom
+      Store Manager: Mr. Bhoopesh Tripathi
+      📞 Contact: 9993382293 / 0771 2442185
+      🗺️ Google Map: https://maps.app.goo.gl/QE7JCo9sXFwFohUp6
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Raipur - Telibandha'
+        name: 'Raipur – Telibandha Showroom'
+        manager: 'Mr. Bhoopesh Tripathi'
+        phone: '9993382293 / 0771 2442185'
+        map_url: 'https://maps.app.goo.gl/QE7JCo9sXFwFohUp6'
+  - short_code: showroom_furniture_ranchi
+    city: 'ranchi'
+    city_display: 'Ranchi'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Ranchi showroom below for your convenience:
+
+      Ranchi Showroom
+      Store Manager: Ms. Anamika
+      📞 Contact: 86554 02610
+      🗺️ Google Map: https://maps.app.goo.gl/CKgez9jH2EfooFe68
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Ranchi - Ashok Nagar'
+        name: 'Ranchi Showroom'
+        manager: 'Ms. Anamika'
+        phone: '86554 02610'
+        map_url: 'https://maps.app.goo.gl/CKgez9jH2EfooFe68'
+  - short_code: showroom_furniture_shillong
+    city: 'shillong'
+    city_display: 'Shillong'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Shillong showroom below for your convenience:
+
+      Shillong Showroom
+      Store Manager: Mr. Akash Sethi
+      📞 Contact: 8149720964
+      🗺️ Google Map: https://maps.app.goo.gl/ugvAVMg6TKV2jAa37
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Shillong - Demseiniong'
+        name: 'Shillong Showroom'
+        manager: 'Mr. Akash Sethi'
+        phone: '8149720964'
+        map_url: 'https://maps.app.goo.gl/ugvAVMg6TKV2jAa37'
+  - short_code: showroom_furniture_siliguri
+    city: 'siliguri'
+    city_display: 'Siliguri'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Siliguri showroom below for your convenience:
+
+      Siliguri – Sevoke Road Showroom
+      Store Manager: Mr. Sudip Agarwal
+      📞 Contact: 9733193985
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=Durian+Furniture,3054/17,+Beekay+Centrio,+Sevoke+Road,+City+Plaza
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Siliguri - Sevoke Road'
+        name: 'Siliguri – Sevoke Road Showroom'
+        manager: 'Mr. Sudip Agarwal'
+        phone: '9733193985'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=Durian+Furniture,3054/17,+Beekay+Centrio,+Sevoke+Road,+City+Plaza'
+  - short_code: showroom_furniture_surat
+    city: 'surat'
+    city_display: 'Surat'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Surat showroom below for your convenience:
+
+      Surat Showroom
+      Store Manager: Mr. Vineet Dubey
+      📞 Contact: 8655427517
+      🗺️ Google Map: https://maps.app.goo.gl/ANji9ujaD96dpTFQ6
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Surat - Dumas'
+        name: 'Surat Showroom'
+        manager: 'Mr. Vineet Dubey'
+        phone: '8655427517'
+        map_url: 'https://maps.app.goo.gl/ANji9ujaD96dpTFQ6'
+  - short_code: showroom_furniture_tirupati
+    city: 'tirupati'
+    city_display: 'Tirupati'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Tirupati showroom below for your convenience:
+
+      Tirupati Showroom
+      Store Manager: Mr. Seshaiah Salava
+      📞 Contact: 9949856979
+      🗺️ Google Map: https://maps.app.goo.gl/Rh4WVwrBs6PjAvLu6
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Tirupati - Avilala'
+        name: 'Tirupati Showroom'
+        manager: 'Mr. Seshaiah Salava'
+        phone: '9949856979'
+        map_url: 'https://maps.app.goo.gl/Rh4WVwrBs6PjAvLu6'
+  - short_code: showroom_furniture_vadodara
+    city: 'vadodara'
+    city_display: 'Vadodara'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Vadodara showrooms below for your convenience:
+
+      Vadodara Showroom
+      Store Manager: Mr. Bhagwan Bari
+      📞 Contact: 8238070711 / 9909767776
+      🗺️ Google Map: https://maps.app.goo.gl/kKK2CJ9KXbzFzpeS7
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Vadodara - Centre Square Mall'
+        name: 'Vadodara Showroom'
+        manager: 'Mr. Bhagwan Bari'
+        phone: '8238070711 / 9909767776'
+        map_url: 'https://maps.app.goo.gl/kKK2CJ9KXbzFzpeS7'
+  - short_code: showroom_furniture_varanasi
+    city: 'varanasi'
+    city_display: 'Varanasi'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Varanasi showrooms below for your convenience:
+
+      Varanasi – Shivpur Bypass Road Showroom
+      Store Manager: Mr. Pravesh Tripathi
+      📞 Contact: 6394720728 / 9599324014
+      🗺️ Google Map: https://maps.app.goo.gl/kTZJoPrcKsDG2R6s9
+
+      You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Varanasi - Shivpur Bypass Rd'
+        name: 'Varanasi – Shivpur Bypass Road Showroom'
+        manager: 'Mr. Pravesh Tripathi'
+        phone: '6394720728 / 9599324014'
+        map_url: 'https://maps.app.goo.gl/kTZJoPrcKsDG2R6s9'
+  - short_code: showroom_furniture_visakhapatnam
+    city: 'visakhapatnam'
+    city_display: 'Visakhapatnam'
+    vertical: 'Furniture'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Visakhapatnam showroom below for your convenience:
+
+      Visakhapatnam Showroom
+      Store Manager: Mr. Bharath
+      📞 Contact: 96764 62971
+      🗺️ Google Map: https://maps.app.goo.gl/TVYpQq5nwP8Es3hu5
+
+      You may visit the showroom at your convenience or get in touch with the showroom team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Visakhapatnam - Dondaparthy'
+        name: 'Visakhapatnam Showroom'
+        manager: 'Mr. Bharath'
+        phone: '96764 62971'
+        map_url: 'https://maps.app.goo.gl/TVYpQq5nwP8Es3hu5'
+  - short_code: showroom_fhc_bangalore
+    city: 'bangalore'
+    city_display: 'Bangalore'
+    vertical: 'FHC'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bangalore  store below for your convenience:
+
+      Bengaluru – JP Nagar  Store
+      Store Manager: Ms. Nisha Choudhary
+      📞 Contact: 7975174258
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJkxF8x2hrrjsROEp_cIhyOIM
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Bengaluru - JP Nagar'
+        name: 'Bengaluru – JP Nagar  Store'
+        manager: 'Ms. Nisha Choudhary'
+        phone: '7975174258'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJkxF8x2hrrjsROEp_cIhyOIM'
+  - short_code: showroom_fhc_bikaner
+    city: 'bikaner'
+    city_display: 'Bikaner'
+    vertical: 'FHC'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Bikaner store below for your convenience:
+
+      Bikaner – NH15 Jaisalmer Road Store
+      Store Manager: Ms. Shristi Chandak
+      📞 Contact: 9783056731
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Bikaner - Rani Baraz'
+        name: 'Bikaner – NH15 Jaisalmer Road Store'
+        manager: 'Ms. Shristi Chandak'
+        phone: '9783056731'
+        map_url: null
+  - short_code: showroom_fhc_delhi
+    city: 'delhi'
+    city_display: 'Delhi NCR'
+    vertical: 'FHC'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Delhi NCR  stores below for your convenience:
+
+      Delhi NCR – Kirti Nagar Store
+      Store Manager: Ms. Shubhangi Agarwal
+      📞 Contact: 8657960901
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJxU_EozYDDTkRYkvGbVT5AfA
+      You may visit any of the above stores at your convenience or get in touch with the respective store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Delhi - Kirti Nagar'
+        name: 'Delhi NCR – Kirti Nagar Store'
+        manager: 'Ms. Shubhangi Agarwal'
+        phone: '8657960901'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJxU_EozYDDTkRYkvGbVT5AfA'
+      - location: 'Noida - Sector 10'
+        name: 'Noida – Sector 10 Store'
+        manager: 'Ms. Shruti Shrivastav'
+        phone: '9717246242'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJBWDoQgzlDDkRB95eoB6FUD4'
+  - short_code: showroom_fhc_hyderabad
+    city: 'hyderabad'
+    city_display: 'Hyderabad'
+    vertical: 'FHC'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Hyderabad  store below for your convenience:
+
+      Hyderabad – Kompally Store
+      Store Manager: Mr. Sharath Gaddam
+      📞 Contact: 8976988205 / 86579 60624
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJf-C6W8GFyzsRFUD5KJx5aEA
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Hyderabad - Kompally'
+        name: 'Hyderabad – Kompally Store'
+        manager: 'Mr. Sharath Gaddam'
+        phone: '8976988205 / 86579 60624'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJf-C6W8GFyzsRFUD5KJx5aEA'
+  - short_code: showroom_fhc_mumbai
+    city: 'mumbai'
+    city_display: 'Mumbai'
+    vertical: 'FHC'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Mumbai  stores below for your convenience:
+
+      Mumbai – Goregaon Store
+      Store Manager: Ms. Janhavi Khapre
+      📞 Contact: 8693046731
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJ_-exKUy35zsR4VTFPhDf3w8
+
+      Mumbai – Thane (Subhash Nagar) Store
+      Store Manager: Mr. Addit Haria
+      📞 Contact: 9967694217
+      🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJaWjMLj655zsRfiAT9byTLf4
+
+      You may visit any of the above stores at your convenience or get in touch with the respective store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Mumbai - Goregaon'
+        name: 'Mumbai – Goregaon Store'
+        manager: 'Ms. Janhavi Khapre'
+        phone: '8693046731'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJ_-exKUy35zsR4VTFPhDf3w8'
+      - location: 'Thane - Subhash Nagar'
+        name: 'Mumbai – Thane (Subhash Nagar) Store'
+        manager: 'Mr. Addit Haria'
+        phone: '9967694217'
+        map_url: 'https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJaWjMLj655zsRfiAT9byTLf4'
+  - short_code: showroom_doors_lucknow
+    city: 'lucknow'
+    city_display: 'Lucknow'
+    vertical: 'Doors'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Lucknow – Durian Doors store below for your convenience:
+
+      Lucknow – Durian Doors Store
+      Store Manager: Mr. Vinay Singh
+      📞 Contact: 9582881299
+      🗺️ Google Map: https://www.google.com/maps/place/26%C2%B051'53.5%22N+80%C2%B059'48.0%22E/@26.864848,80.994077,17z/data=!3m1!4b1!4m4!3m3!8m2!3d26.864848!4d80.9966519?hl=en&entry=ttu
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Doors by Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Lucknow – Durian Doors Store'
+        manager: 'Mr. Vinay Singh'
+        phone: '9582881299'
+        map_url: 'https://www.google.com/maps/place/26%C2%B051''53.5%22N+80%C2%B059''48.0%22E/@26.864848,80.994077,17z/data=!3m1!4b1!4m4!3m3!8m2!3d26.864848!4d80.9966519?hl=en&entry=ttu'
+  - short_code: showroom_doors_delhi
+    city: 'delhi'
+    city_display: 'Gurgaon'
+    vertical: 'Doors'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Gurgaon – Durian Doors store below for your convenience:
+
+      Gurgaon – Durian Doors Store
+      Store Manager: Mr. Rohit Kanojia
+      📞 Contact: 7982089080
+      🗺️ Google Map: https://maps.app.goo.gl/XWe6AG9hi6k6JpeZA?g_st=aw
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Doors by Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Gurgaon - JMD'
+        name: 'Gurgaon – Durian Doors Store'
+        manager: 'Mr. Rohit Kanojia'
+        phone: '7982089080'
+        map_url: 'https://maps.app.goo.gl/XWe6AG9hi6k6JpeZA?g_st=aw'
+      - location: 'Delhi - Kirti Nagar'
+        name: 'New Delhi – Kirti Nagar Durian Doors Store'
+        manager: 'Mr. Rohit Kanojia'
+        phone: '7982089080'
+        map_url: 'https://maps.app.goo.gl/oS5AUy1Z9ZoAkgjAA?g_st=aw'
+  - short_code: showroom_doors_mumbai
+    city: 'mumbai'
+    city_display: 'Mumbai'
+    vertical: 'Doors'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Mumbai – Goregaon Durian Doors store below for your convenience:
+
+      Mumbai – Goregaon Durian Doors Store
+      Store Manager: Ms. Sushmita
+      📞 Contact: 7208941406
+      🗺️ Google Map: https://maps.app.goo.gl/i7rDjvVQkUjizJAT8
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Doors by Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Mumbai - Goregaon'
+        name: 'Mumbai – Goregaon Durian Doors Store'
+        manager: 'Ms. Sushmita'
+        phone: '7208941406'
+        map_url: 'https://maps.app.goo.gl/i7rDjvVQkUjizJAT8'
+  - short_code: showroom_doors_coimbatore
+    city: 'coimbatore'
+    city_display: 'Coimbatore'
+    vertical: 'Doors'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Coimbatore – Durian Doors store below for your convenience:
+
+      Coimbatore – Durian Doors Store
+      Store Manager: Mr. Ravin Prakash
+      📞 Contact: 9843396999
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Doors by Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: null
+        name: 'Coimbatore – Durian Doors Store'
+        manager: 'Mr. Ravin Prakash'
+        phone: '9843396999'
+        map_url: null
+  - short_code: showroom_doors_indore
+    city: 'indore'
+    city_display: 'Indore'
+    vertical: 'Doors'
+    in_directory: true
+    content: |-
+      Dear Customer,
+
+      Thank you for reaching out to us. 😊
+
+      Please find the details of our Indore – Durian Doors store below for your convenience:
+
+      Indore – Durian Doors Store
+      Store Manager: Mr. Amit Gupta
+      📞 Contact: 9179822147
+      🗺️ Google Map: https://maps.app.goo.gl/9KUDZFJnQ4fqqrMx8
+
+      You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+
+      Thank you for choosing Durian Doors by Durian Furniture!
+
+      Regards,
+      Team Durian
+    showrooms:
+      - location: 'Indore - Vijay Nagar'
+        name: 'Indore – Durian Doors Store'
+        manager: 'Mr. Amit Gupta'
+        phone: '9179822147'
+        map_url: 'https://maps.app.goo.gl/9KUDZFJnQ4fqqrMx8'
