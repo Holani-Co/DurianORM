@@ -132,10 +132,27 @@ class Messages::Facebook::MessageBuilder < Messages::Messenger::MessageBuilder
 
   def process_contact_params_result(result)
     {
-      name: "#{result['first_name'] || 'John'} #{result['last_name'] || 'Doe'}",
+      name: contact_name_from(result),
       account_id: @inbox.account_id,
       avatar_url: result['profile_pic']
     }
+  end
+
+  # Meta only returns first_name/last_name when the app holds pages_user_profile
+  # Advanced Access. Without it the Graph call SUCCEEDS but carries no name, so
+  # the previous fallback stamped a fabricated "John Doe" on every such contact:
+  # unidentified people became indistinguishable in the contact list and search,
+  # and agents could greet someone by a name that was not theirs.
+  #
+  # Whatever Meta sends always wins, so this needs no revisiting once the
+  # permission is granted. Otherwise fall back to a placeholder that is plainly
+  # not a real name yet still unique per person (PSID tail).
+  def contact_name_from(result)
+    name = "#{result['first_name']} #{result['last_name']}".strip
+    return name if name.present?
+
+    prefix = @inbox.facebook? ? 'Facebook User' : 'Unnamed Contact'
+    "#{prefix} #{@sender_id.to_s.last(4)}"
   end
 
   # rubocop:disable Metrics/AbcSize
