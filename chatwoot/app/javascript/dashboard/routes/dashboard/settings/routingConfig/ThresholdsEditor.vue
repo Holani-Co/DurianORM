@@ -14,7 +14,6 @@ import { useAlert } from 'dashboard/composables';
 const props = defineProps({
   effective: { type: Object, default: () => ({}) },
   override: { type: Object, default: () => ({}) },
-  cacheTtl: { type: [Number, String], default: null },
 });
 const emit = defineEmits(['published']);
 
@@ -219,23 +218,6 @@ async function publish() {
       </div>
     </div>
 
-    <!-- cache TTL (server setting, read-only) -->
-    <div class="p-4 mb-4 border rounded-xl border-n-weak bg-n-alpha-1">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm font-medium text-n-slate-12">
-          {{ t('ROUTING_CONFIG.SETTINGS.CACHE_TTL') }}
-        </span>
-        <span
-          class="px-2 py-0.5 text-[0.65rem] font-medium rounded-full bg-n-amber-2 text-n-amber-11"
-        >
-          {{ t('ROUTING_CONFIG.SETTINGS.READ_ONLY_TAG') }}
-        </span>
-        <span class="font-medium text-n-slate-12">{{ cacheTtl ?? '—' }}</span>
-      </div>
-      <div class="mt-1 text-xs text-n-slate-10">
-        {{ t('ROUTING_CONFIG.SETTINGS.CACHE_TTL_HINT') }}
-      </div>
-    </div>
 
     <!-- validation errors -->
     <div

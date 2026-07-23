@@ -31,9 +31,17 @@ const addForm = reactive({
   key: '',
   name: '',
   action: 'in_channel',
-  forward: '',
+  forwardEmails: [],   // multiple forward-to emails
+  forwardInput: '',    // draft input for the forward chip input
+  ccEmails: [],        // multiple CC emails
+  ccInput: '',         // draft input for the CC chip input
   desc: '',
 });
+
+// Draft inputs for existing category forward/cc chip inputs
+const fwdInput = reactive({});  // { catKey: 'draft email' }
+const ccInput = reactive({});   // { catKey: 'draft email' }
+
 const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((e || '').trim());
 
 // New categories are listed first so they're obvious after adding.
@@ -50,9 +58,50 @@ function resetAddForm() {
     key: '',
     name: '',
     action: 'in_channel',
-    forward: '',
+    forwardEmails: [],
+    forwardInput: '',
+    ccEmails: [],
+    ccInput: '',
     desc: '',
   });
+}
+
+// ── Add-form email chip helpers ──
+function addForwardEmail() {
+  const email = addForm.forwardInput.trim();
+  if (!email) return;
+  if (!validEmail(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
+    return;
+  }
+  if (addForm.forwardEmails.includes(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
+    addForm.forwardInput = '';
+    return;
+  }
+  addForm.forwardEmails.push(email);
+  addForm.forwardInput = '';
+}
+function removeForwardEmail(idx) {
+  addForm.forwardEmails.splice(idx, 1);
+}
+function addCcEmailToForm() {
+  const email = addForm.ccInput.trim();
+  if (!email) return;
+  if (!validEmail(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
+    return;
+  }
+  if (addForm.ccEmails.includes(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
+    addForm.ccInput = '';
+    return;
+  }
+  addForm.ccEmails.push(email);
+  addForm.ccInput = '';
+}
+function removeCcEmailFromForm(idx) {
+  addForm.ccEmails.splice(idx, 1);
 }
 
 function confirmAdd() {
@@ -70,7 +119,7 @@ function confirmAdd() {
     useAlert(t('ROUTING_CONFIG.CATEGORIES.NAME_REQUIRED'));
     return;
   }
-  if (addForm.action === 'forward' && !validEmail(addForm.forward)) {
+  if (addForm.action === 'forward' && addForm.forwardEmails.length === 0) {
     useAlert(t('ROUTING_CONFIG.CATEGORIES.FORWARD_REQUIRED'));
     return;
   }
@@ -80,7 +129,10 @@ function confirmAdd() {
     description: addForm.desc.trim(),
     keywords: [],
   };
-  if (addForm.action === 'forward') value.forward_to = addForm.forward.trim();
+  if (addForm.action === 'forward') {
+    value.forward_to = addForm.forwardEmails.join(', ');
+    value.cc = [...addForm.ccEmails];
+  }
   newKeys.unshift(key);
   catEdits[key] = value;
   resetAddForm();
@@ -101,6 +153,60 @@ function field(key, name) {
 }
 function setField(key, name, value) {
   catEdits[key] = { ...(catEdits[key] || {}), [name]: value };
+}
+
+// ── Forward-to emails for existing categories ──
+function forwardEmails(key) {
+  const raw = field(key, 'forward_to') || '';
+  if (!raw) return [];
+  return raw.split(',').map(e => e.trim()).filter(Boolean);
+}
+function addForwardEmailForKey(key) {
+  const email = (fwdInput[key] || '').trim();
+  if (!email) return;
+  if (!validEmail(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
+    return;
+  }
+  const existing = forwardEmails(key);
+  if (existing.includes(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
+    fwdInput[key] = '';
+    return;
+  }
+  setField(key, 'forward_to', [...existing, email].join(', '));
+  fwdInput[key] = '';
+}
+function removeForwardEmailForKey(key, idx) {
+  const arr = [...forwardEmails(key)];
+  arr.splice(idx, 1);
+  setField(key, 'forward_to', arr.join(', '));
+}
+
+// ── CC emails for existing categories ──
+function ccEmails(key) {
+  return field(key, 'cc') || [];
+}
+function addCcEmailForKey(key) {
+  const email = (ccInput[key] || '').trim();
+  if (!email) return;
+  if (!validEmail(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
+    return;
+  }
+  const existing = ccEmails(key);
+  if (existing.includes(email)) {
+    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
+    ccInput[key] = '';
+    return;
+  }
+  setField(key, 'cc', [...existing, email]);
+  ccInput[key] = '';
+}
+function removeCcEmailForKey(key, idx) {
+  const arr = [...ccEmails(key)];
+  arr.splice(idx, 1);
+  setField(key, 'cc', arr);
 }
 
 function keywords(key) {
@@ -226,14 +332,14 @@ async function publish() {
               />
             </label>
           </div>
-          <div class="flex flex-wrap items-end gap-3">
-            <label class="flex flex-col gap-1">
+          <div class="flex flex-wrap items-start gap-3">
+            <label class="flex flex-col gap-1 min-w-[10rem]">
               <span class="text-xs font-medium text-n-slate-11">{{
                 t('ROUTING_CONFIG.CATEGORIES.COL_ACTION')
               }}</span>
               <select
                 v-model="addForm.action"
-                class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                class="routing-select px-2.5 pr-8 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer w-full"
               >
                 <option value="in_channel">
                   {{ t('ROUTING_CONFIG.CATEGORIES.ACTION_IN_CHANNEL') }}
@@ -243,20 +349,67 @@ async function publish() {
                 </option>
               </select>
             </label>
-            <label
+            <div
               v-if="addForm.action === 'forward'"
-              class="flex flex-col flex-1 gap-1 min-w-[14rem]"
+              class="flex flex-col flex-1 gap-3 min-w-[14rem]"
             >
-              <span class="text-xs font-medium text-n-slate-11">{{
-                t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
-              }}</span>
-              <input
-                v-model="addForm.forward"
-                type="email"
-                :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
-                class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-              />
-            </label>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs font-medium text-n-slate-11">{{
+                  t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
+                }}</span>
+                <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+                  <span
+                    v-for="(email, idx) in addForm.forwardEmails"
+                    :key="'fwd-add-' + idx"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
+                  >
+                    {{ email }}
+                    <button
+                      type="button"
+                      class="flex text-n-slate-10 hover:text-n-ruby-11"
+                      @click="removeForwardEmail(idx)"
+                    >
+                      <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
+                    </button>
+                  </span>
+                  <input
+                    v-model="addForm.forwardInput"
+                    type="email"
+                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
+                    class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                    @keydown.enter.prevent="addForwardEmail"
+                  />
+                </div>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs font-medium text-n-slate-11">{{
+                  t('ROUTING_CONFIG.CATEGORIES.CC_LABEL')
+                }}</span>
+                <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+                  <span
+                    v-for="(email, idx) in addForm.ccEmails"
+                    :key="'cc-add-' + idx"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
+                  >
+                    {{ email }}
+                    <button
+                      type="button"
+                      class="flex text-n-slate-10 hover:text-n-ruby-11"
+                      @click="removeCcEmailFromForm(idx)"
+                    >
+                      <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
+                    </button>
+                  </span>
+                  <input
+                    v-model="addForm.ccInput"
+                    type="email"
+                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.CC_PH')"
+                    class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                    @keydown.enter.prevent="addCcEmailToForm"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           <label class="flex flex-col gap-1">
             <span class="text-xs font-medium text-n-slate-11">{{
@@ -346,14 +499,14 @@ async function publish() {
           />
         </label>
 
-        <div class="flex flex-wrap items-end gap-3">
-          <label class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-start gap-3">
+          <label class="flex flex-col gap-1 min-w-[10rem]">
             <span class="text-xs font-medium text-n-slate-11">{{
               t('ROUTING_CONFIG.CATEGORIES.COL_ACTION')
             }}</span>
             <select
               :value="field(key, 'action') || 'in_channel'"
-              class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+              class="routing-select px-2.5 pr-8 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer w-full"
               @change="setField(key, 'action', $event.target.value)"
             >
               <option value="in_channel">
@@ -364,21 +517,67 @@ async function publish() {
               </option>
             </select>
           </label>
-          <label
+          <div
             v-if="field(key, 'action') === 'forward'"
-            class="flex flex-col flex-1 gap-1 min-w-[14rem]"
+            class="flex flex-col flex-1 gap-3 min-w-[14rem]"
           >
-            <span class="text-xs font-medium text-n-slate-11">{{
-              t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
-            }}</span>
-            <input
-              type="email"
-              :value="field(key, 'forward_to')"
-              :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
-              class="px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-              @input="setField(key, 'forward_to', $event.target.value)"
-            />
-          </label>
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
+              }}</span>
+              <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+                <span
+                  v-for="(email, idx) in forwardEmails(key)"
+                  :key="'fwd-' + key + '-' + idx"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
+                >
+                  {{ email }}
+                  <button
+                    type="button"
+                    class="flex text-n-slate-10 hover:text-n-ruby-11"
+                    @click="removeForwardEmailForKey(key, idx)"
+                  >
+                    <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
+                  </button>
+                </span>
+                <input
+                  v-model="fwdInput[key]"
+                  type="email"
+                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
+                  class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                  @keydown.enter.prevent="addForwardEmailForKey(key)"
+                />
+              </div>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-medium text-n-slate-11">{{
+                t('ROUTING_CONFIG.CATEGORIES.CC_LABEL')
+              }}</span>
+              <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+                <span
+                  v-for="(email, idx) in ccEmails(key)"
+                  :key="'cc-' + key + '-' + idx"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
+                >
+                  {{ email }}
+                  <button
+                    type="button"
+                    class="flex text-n-slate-10 hover:text-n-ruby-11"
+                    @click="removeCcEmailForKey(key, idx)"
+                  >
+                    <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
+                  </button>
+                </span>
+                <input
+                  v-model="ccInput[key]"
+                  type="email"
+                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.CC_PH')"
+                  class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                  @keydown.enter.prevent="addCcEmailForKey(key)"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="flex flex-col gap-1">
@@ -497,3 +696,34 @@ async function publish() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Only the dropdown arrow — all colors come from Tailwind classes */
+.routing-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1rem;
+}
+
+/* Force override global Chatwoot input styles for the chip input */
+.email-chips-input {
+  border: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  outline: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+.email-chips-input:focus {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+</style>

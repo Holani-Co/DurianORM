@@ -15,6 +15,7 @@ import { ref, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
+import SearchableOwnerSelect from './SearchableOwnerSelect.vue';
 
 const props = defineProps({
   effective: { type: Object, default: () => ({}) },
@@ -62,6 +63,10 @@ const allOwners = computed(() => {
   });
   return out.sort((a, b) => a.owner_email.localeCompare(b.owner_email));
 });
+
+const formattedOwners = computed(() =>
+  allOwners.value.map(o => ({ id: o.owner_email, name: o.owner_email }))
+);
 
 const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((e || '').trim());
 const dirtyCount = computed(() => edits.length);
@@ -253,22 +258,12 @@ async function publish() {
 
       <!-- flat single owner -->
       <div v-if="m.kind === 'flat'" class="max-w-md">
-        <select
-          class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-          :value="currentEmail(m.key, null)"
-          @change="reassign(m.key, null, $event.target.value)"
-        >
-          <option value="" disabled>
-            {{ t('ROUTING_CONFIG.OWNERS.CHOOSE') }}
-          </option>
-          <option
-            v-for="o in allOwners"
-            :key="o.owner_email"
-            :value="o.owner_email"
-          >
-            {{ o.owner_email }}
-          </option>
-        </select>
+        <SearchableOwnerSelect
+          :model-value="currentEmail(m.key, null)"
+          :options="formattedOwners"
+          :placeholder="t('ROUTING_CONFIG.OWNERS.CHOOSE')"
+          @change="reassign(m.key, null, $event)"
+        />
       </div>
 
       <!-- map: territory -> single owner -->
@@ -295,23 +290,13 @@ async function publish() {
             >
               <td class="px-3 py-2 align-middle text-n-slate-12">{{ ter }}</td>
               <td class="px-3 py-2">
-                <select
-                  class="w-full max-w-sm px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                  :class="findEdit(m.key, ter) ? 'border-n-brand' : ''"
-                  :value="currentEmail(m.key, ter)"
-                  @change="reassign(m.key, ter, $event.target.value)"
-                >
-                  <option value="" disabled>
-                    {{ t('ROUTING_CONFIG.OWNERS.CHOOSE') }}
-                  </option>
-                  <option
-                    v-for="o in allOwners"
-                    :key="o.owner_email"
-                    :value="o.owner_email"
-                  >
-                    {{ o.owner_email }}
-                  </option>
-                </select>
+                <SearchableOwnerSelect
+                  :model-value="currentEmail(m.key, ter)"
+                  :options="formattedOwners"
+                  :placeholder="t('ROUTING_CONFIG.OWNERS.CHOOSE')"
+                  :has-edit="!!findEdit(m.key, ter)"
+                  @change="reassign(m.key, ter, $event)"
+                />
               </td>
             </tr>
           </tbody>
@@ -338,25 +323,13 @@ async function publish() {
                     :key="idx"
                     class="flex items-center gap-2"
                   >
-                    <select
-                      class="flex-1 max-w-sm px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                      :class="findEdit(m.key, ter) ? 'border-n-brand' : ''"
-                      :value="o.owner_email"
-                      @change="
-                        setListOwner(m.key, ter, idx, $event.target.value)
-                      "
-                    >
-                      <option value="" disabled>
-                        {{ t('ROUTING_CONFIG.OWNERS.CHOOSE') }}
-                      </option>
-                      <option
-                        v-for="opt in allOwners"
-                        :key="opt.owner_email"
-                        :value="opt.owner_email"
-                      >
-                        {{ opt.owner_email }}
-                      </option>
-                    </select>
+                    <SearchableOwnerSelect
+                      :model-value="o.owner_email"
+                      :options="formattedOwners"
+                      :placeholder="t('ROUTING_CONFIG.OWNERS.CHOOSE')"
+                      :has-edit="!!findEdit(m.key, ter)"
+                      @change="setListOwner(m.key, ter, idx, $event)"
+                    />
                     <button
                       type="button"
                       class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:bg-n-ruby-2 disabled:opacity-40"
