@@ -601,7 +601,7 @@ async function publish() {
             <div class="flex flex-col gap-2 mt-2 mb-2">
               <label class="flex items-center gap-2 cursor-pointer">
                 <input
-                  :checked="field(key, 'acknowledge_customer') != null ? field(key, 'acknowledge_customer') : true"
+                  :checked="field(key, 'acknowledge_customer') ?? true"
                   type="checkbox"
                   class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
                   @change="setField(key, 'acknowledge_customer', $event.target.checked)"
@@ -615,7 +615,7 @@ async function publish() {
                 class="flex items-center gap-2 cursor-pointer"
               >
                 <input
-                  :checked="field(key, 'include_customer_in_cc') != null ? field(key, 'include_customer_in_cc') : false"
+                  :checked="field(key, 'include_customer_in_cc') ?? false"
                   type="checkbox"
                   class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
                   @change="setField(key, 'include_customer_in_cc', $event.target.checked)"
