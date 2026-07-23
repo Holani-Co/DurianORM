@@ -2895,12 +2895,13 @@ async def _phase2_execute_actions(conv_id: int,
     deferred_complaint_ack: Optional[tuple[str, str]] = None
     if not _EMAIL_CUSTOMER_ACK_ENABLED:
         audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
-    elif cat_key in _NO_ACK_CATEGORIES:
+    elif (rule and rule.get("acknowledge_customer") is False) or (
+            (not rule or rule.get("acknowledge_customer") is None) and cat_key in _NO_ACK_CATEGORIES):
         # General-information (and similar FYI categories) don't warrant an
-        # acknowledgment — the customer isn't waiting on a routed reply.
+        # acknowledgment by default. The UI config can override this explicitly.
         audit.append(
             f"ℹ️ Acknowledgment skipped — '{cat_key}' is a no-acknowledgment "
-            f"category."
+            f"category or disabled by configuration."
         )
     elif email_category == "automated" or _is_no_reply_sender(sender_email):
         # Automated / OTP / third-party no-reply mail has no human recipient —
@@ -3298,14 +3299,19 @@ def _render_phase2_dry_run_preview(category_result: dict,
             lines.append(f"Bcc: {', '.join(bcc_list)}")
 
     if template:
-        body = (template.get("body") or "").format(
-            customer_name    = name,
-            original_subject = original_subject or "",
-        )
-        lines.append("")
-        lines.append("✅ Would acknowledge the customer with:")
-        for body_line in body.rstrip().splitlines():
-            lines.append(f"> {body_line}" if body_line else ">")
+        if (rule and rule.get("acknowledge_customer") is False) or (
+                (not rule or rule.get("acknowledge_customer") is None) and cat_key in _NO_ACK_CATEGORIES):
+            lines.append("")
+            lines.append("🚫 Acknowledgment skipped — disabled by configuration.")
+        else:
+            body = (template.get("body") or "").format(
+                customer_name    = name,
+                original_subject = original_subject or "",
+            )
+            lines.append("")
+            lines.append("✅ Would acknowledge the customer with:")
+            for body_line in body.rstrip().splitlines():
+                lines.append(f"> {body_line}" if body_line else ">")
     elif action == "in_channel":
         lines.append("")
         lines.append("This conversation would stay here for the team to assist.")

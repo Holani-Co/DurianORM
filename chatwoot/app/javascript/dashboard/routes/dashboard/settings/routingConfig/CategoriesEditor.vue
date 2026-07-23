@@ -58,33 +58,16 @@ function resetAddForm() {
     key: '',
     name: '',
     action: 'in_channel',
-    forwardEmails: [],
-    forwardInput: '',
+    forwardEmail: '',
     ccEmails: [],
     ccInput: '',
     desc: '',
+    acknowledgeCustomer: true,
+    includeCustomerInCc: false,
   });
 }
 
 // ── Add-form email chip helpers ──
-function addForwardEmail() {
-  const email = addForm.forwardInput.trim();
-  if (!email) return;
-  if (!validEmail(email)) {
-    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
-    return;
-  }
-  if (addForm.forwardEmails.includes(email)) {
-    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
-    addForm.forwardInput = '';
-    return;
-  }
-  addForm.forwardEmails.push(email);
-  addForm.forwardInput = '';
-}
-function removeForwardEmail(idx) {
-  addForm.forwardEmails.splice(idx, 1);
-}
 function addCcEmailToForm() {
   const email = addForm.ccInput.trim();
   if (!email) return;
@@ -119,19 +102,27 @@ function confirmAdd() {
     useAlert(t('ROUTING_CONFIG.CATEGORIES.NAME_REQUIRED'));
     return;
   }
-  if (addForm.action === 'forward' && addForm.forwardEmails.length === 0) {
-    useAlert(t('ROUTING_CONFIG.CATEGORIES.FORWARD_REQUIRED'));
-    return;
+  if (addForm.action === 'forward') {
+    if (!addForm.forwardEmail.trim()) {
+      useAlert(t('ROUTING_CONFIG.CATEGORIES.FORWARD_REQUIRED'));
+      return;
+    }
+    if (!validEmail(addForm.forwardEmail.trim())) {
+      useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
+      return;
+    }
   }
   const value = {
     display_name: name,
     action: addForm.action,
     description: addForm.desc.trim(),
     keywords: [],
+    acknowledge_customer: addForm.acknowledgeCustomer,
   };
   if (addForm.action === 'forward') {
-    value.forward_to = addForm.forwardEmails.join(', ');
+    value.forward_to = addForm.forwardEmail.trim();
     value.cc = [...addForm.ccEmails];
+    value.include_customer_in_cc = addForm.includeCustomerInCc;
   }
   newKeys.unshift(key);
   catEdits[key] = value;
@@ -153,34 +144,6 @@ function field(key, name) {
 }
 function setField(key, name, value) {
   catEdits[key] = { ...(catEdits[key] || {}), [name]: value };
-}
-
-// ── Forward-to emails for existing categories ──
-function forwardEmails(key) {
-  const raw = field(key, 'forward_to') || '';
-  if (!raw) return [];
-  return raw.split(',').map(e => e.trim()).filter(Boolean);
-}
-function addForwardEmailForKey(key) {
-  const email = (fwdInput[key] || '').trim();
-  if (!email) return;
-  if (!validEmail(email)) {
-    useAlert(t('ROUTING_CONFIG.CATEGORIES.INVALID_EMAIL'));
-    return;
-  }
-  const existing = forwardEmails(key);
-  if (existing.includes(email)) {
-    useAlert(t('ROUTING_CONFIG.CATEGORIES.DUPLICATE_EMAIL'));
-    fwdInput[key] = '';
-    return;
-  }
-  setField(key, 'forward_to', [...existing, email].join(', '));
-  fwdInput[key] = '';
-}
-function removeForwardEmailForKey(key, idx) {
-  const arr = [...forwardEmails(key)];
-  arr.splice(idx, 1);
-  setField(key, 'forward_to', arr.join(', '));
 }
 
 // ── CC emails for existing categories ──
@@ -357,29 +320,12 @@ async function publish() {
                 <span class="text-xs font-medium text-n-slate-11">{{
                   t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
                 }}</span>
-                <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
-                  <span
-                    v-for="(email, idx) in addForm.forwardEmails"
-                    :key="'fwd-add-' + idx"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
-                  >
-                    {{ email }}
-                    <button
-                      type="button"
-                      class="flex text-n-slate-10 hover:text-n-ruby-11"
-                      @click="removeForwardEmail(idx)"
-                    >
-                      <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
-                    </button>
-                  </span>
-                  <input
-                    v-model="addForm.forwardInput"
-                    type="email"
-                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
-                    class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
-                    @keydown.enter.prevent="addForwardEmail"
-                  />
-                </div>
+                <input
+                  v-model="addForm.forwardEmail"
+                  type="email"
+                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
+                  class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                />
               </div>
               <div class="flex flex-col gap-1">
                 <span class="text-xs font-medium text-n-slate-11">{{
@@ -421,6 +367,31 @@ async function publish() {
               class="px-2.5 py-1.5 text-sm border rounded-lg outline-none resize-y border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
             />
           </label>
+          <div class="flex flex-col gap-2 mt-2 mb-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                v-model="addForm.acknowledgeCustomer"
+                type="checkbox"
+                class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+              />
+              <span class="text-xs font-medium text-n-slate-11">
+                Acknowledge Customer
+              </span>
+            </label>
+            <label
+              v-if="addForm.action === 'forward'"
+              class="flex items-center gap-2 cursor-pointer"
+            >
+              <input
+                v-model="addForm.includeCustomerInCc"
+                type="checkbox"
+                class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+              />
+              <span class="text-xs font-medium text-n-slate-11">
+                Include Customer in CC
+              </span>
+            </label>
+          </div>
           <div class="flex gap-2">
             <button
               type="button"
@@ -525,29 +496,13 @@ async function publish() {
               <span class="text-xs font-medium text-n-slate-11">{{
                 t('ROUTING_CONFIG.CATEGORIES.COL_FORWARD')
               }}</span>
-              <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
-                <span
-                  v-for="(email, idx) in forwardEmails(key)"
-                  :key="'fwd-' + key + '-' + idx"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-n-alpha-2 text-n-slate-12"
-                >
-                  {{ email }}
-                  <button
-                    type="button"
-                    class="flex text-n-slate-10 hover:text-n-ruby-11"
-                    @click="removeForwardEmailForKey(key, idx)"
-                  >
-                    <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
-                  </button>
-                </span>
-                <input
-                  v-model="fwdInput[key]"
-                  type="email"
-                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
-                  class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
-                  @keydown.enter.prevent="addForwardEmailForKey(key)"
-                />
-              </div>
+              <input
+                :value="field(key, 'forward_to') || ''"
+                type="email"
+                :placeholder="t('ROUTING_CONFIG.CATEGORIES.FORWARD_TO_PH')"
+                class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                @input="setField(key, 'forward_to', $event.target.value)"
+              />
             </div>
             <div class="flex flex-col gap-1">
               <span class="text-xs font-medium text-n-slate-11">{{
@@ -643,6 +598,33 @@ async function publish() {
                 @input="setExamples(key, $event.target.value)"
               />
             </label>
+            <div class="flex flex-col gap-2 mt-2 mb-2">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  :checked="field(key, 'acknowledge_customer') ?? true"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                  @change="setField(key, 'acknowledge_customer', $event.target.checked)"
+                />
+                <span class="text-xs font-medium text-n-slate-11">
+                  Acknowledge Customer
+                </span>
+              </label>
+              <label
+                v-if="field(key, 'action') === 'forward'"
+                class="flex items-center gap-2 cursor-pointer"
+              >
+                <input
+                  :checked="field(key, 'include_customer_in_cc') ?? false"
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                  @change="setField(key, 'include_customer_in_cc', $event.target.checked)"
+                />
+                <span class="text-xs font-medium text-n-slate-11">
+                  Include Customer in CC
+                </span>
+              </label>
+            </div>
           </div>
         </details>
       </div>
