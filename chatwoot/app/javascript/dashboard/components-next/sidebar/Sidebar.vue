@@ -803,6 +803,12 @@ const menuItems = computed(() => {
           to: accountScopedRoute('settings_applications'),
         },
         {
+          name: 'Settings Routing Config',
+          label: t('SIDEBAR.ROUTING_CONFIG'),
+          icon: 'i-lucide-route',
+          to: accountScopedRoute('routing_config_index'),
+        },
+        {
           name: 'Settings Audit Logs',
           label: t('SIDEBAR.AUDIT_LOGS'),
           icon: 'i-lucide-briefcase',

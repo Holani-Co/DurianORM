@@ -44,8 +44,10 @@ import review_reply
 import reviews_poller
 import reviews_state
 import crm_state
+import config_store
 
-crm_state.init()  # round-robin counters for govt/bulk owner rotation
+crm_state.init()     # round-robin counters for govt/bulk owner rotation
+config_store.init()  # routing-config override layer edited from the ORM UI
 
 app = FastAPI()
 
@@ -2893,12 +2895,13 @@ async def _phase2_execute_actions(conv_id: int,
     deferred_complaint_ack: Optional[tuple[str, str]] = None
     if not _EMAIL_CUSTOMER_ACK_ENABLED:
         audit.append("ℹ️ Customer acknowledgment is disabled (flag off).")
-    elif cat_key in _NO_ACK_CATEGORIES:
+    elif (rule and rule.get("acknowledge_customer") is False) or (
+            (not rule or rule.get("acknowledge_customer") is None) and cat_key in _NO_ACK_CATEGORIES):
         # General-information (and similar FYI categories) don't warrant an
-        # acknowledgment — the customer isn't waiting on a routed reply.
+        # acknowledgment by default. The UI config can override this explicitly.
         audit.append(
             f"ℹ️ Acknowledgment skipped — '{cat_key}' is a no-acknowledgment "
-            f"category."
+            f"category or disabled by configuration."
         )
     elif email_category == "automated" or _is_no_reply_sender(sender_email):
         # Automated / OTP / third-party no-reply mail has no human recipient —
@@ -3296,14 +3299,19 @@ def _render_phase2_dry_run_preview(category_result: dict,
             lines.append(f"Bcc: {', '.join(bcc_list)}")
 
     if template:
-        body = (template.get("body") or "").format(
-            customer_name    = name,
-            original_subject = original_subject or "",
-        )
-        lines.append("")
-        lines.append("✅ Would acknowledge the customer with:")
-        for body_line in body.rstrip().splitlines():
-            lines.append(f"> {body_line}" if body_line else ">")
+        if (rule and rule.get("acknowledge_customer") is False) or (
+                (not rule or rule.get("acknowledge_customer") is None) and cat_key in _NO_ACK_CATEGORIES):
+            lines.append("")
+            lines.append("🚫 Acknowledgment skipped — disabled by configuration.")
+        else:
+            body = (template.get("body") or "").format(
+                customer_name    = name,
+                original_subject = original_subject or "",
+            )
+            lines.append("")
+            lines.append("✅ Would acknowledge the customer with:")
+            for body_line in body.rstrip().splitlines():
+                lines.append(f"> {body_line}" if body_line else ">")
     elif action == "in_channel":
         lines.append("")
         lines.append("This conversation would stay here for the team to assist.")
@@ -4585,6 +4593,227 @@ async def chatwoot_webhook(
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Routing-config admin API  —  backs the ORM "Settings → Routing Config" screen.
+#
+# routing_rules.yaml stays the default floor; these endpoints let an admin view
+# and publish an OVERRIDE layer (config_store) that classifier deep-merges on
+# top — live, no restart. Every call arrives THROUGH the Chatwoot Rails proxy,
+# which has already verified the user is an admin and attaches the shared secret.
+# An empty ROUTING_ADMIN_SECRET disables the whole API (503).
+# ─────────────────────────────────────────────────────────────────────────
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _require_routing_admin(secret: Optional[str]) -> None:
+    expected = (config.ROUTING_ADMIN_SECRET or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503,
+                            detail="routing-config admin API disabled (no ROUTING_ADMIN_SECRET set)")
+    if not secret or secret.strip() != expected:
+        raise HTTPException(status_code=401, detail="bad or missing admin secret")
+
+
+def _valid_email(s) -> bool:
+    return bool(_EMAIL_RE.match(str(s or "").strip()))
+
+
+def _walk_owner_dicts(node):
+    """Yield every owner-like dict (has owner_email / owner_id) anywhere inside a
+    crm_owner_routing_* structure — handles the dict, dict-of-dicts, and
+    dict-of-lists shapes uniformly."""
+    if isinstance(node, dict):
+        if "owner_email" in node or "owner_id" in node:
+            yield node
+        for v in node.values():
+            yield from _walk_owner_dicts(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _walk_owner_dicts(v)
+
+
+def _validate_routing_doc(doc) -> dict:
+    """Return {ok, errors, warnings}. Errors block publish; warnings don't.
+    Pragmatic integrity checks — the ones that would actually misroute mail or
+    break a CRM assignment — not a full schema."""
+    errors, warnings = [], []
+    if not isinstance(doc, dict):
+        return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
+
+    cats = doc.get("categories")
+    if cats is not None and not isinstance(cats, dict):
+        errors.append("`categories` must be an object.")
+    elif isinstance(cats, dict):
+        for key, cfg in cats.items():
+            if not isinstance(cfg, dict):
+                errors.append(f"Category '{key}' must be an object.")
+                continue
+            action = cfg.get("action")
+            if action is not None and action not in ("in_channel", "forward"):
+                errors.append(f"Category '{key}': action must be 'in_channel' or 'forward'.")
+            if action == "forward":
+                ft = cfg.get("forward_to")
+                if not ft:
+                    errors.append(f"Category '{key}' is set to forward but has no forward_to address.")
+                elif not _valid_email(ft):
+                    errors.append(f"Category '{key}': forward_to '{ft}' is not a valid email.")
+            for field in ("cc", "bcc"):
+                vals = cfg.get(field)
+                if vals and not isinstance(vals, list):
+                    errors.append(f"Category '{key}': {field} must be a list of emails.")
+                elif isinstance(vals, list):
+                    for a in vals:
+                        if not _valid_email(a):
+                            errors.append(f"Category '{key}': {field} has an invalid email '{a}'.")
+            if not (cfg.get("description") or "").strip():
+                warnings.append(f"Category '{key}' has no description — the classifier picks it less reliably.")
+
+    if "confidence_threshold" in doc:
+        try:
+            ctf = float(doc.get("confidence_threshold"))
+            if not (0.0 <= ctf <= 1.0):
+                errors.append("confidence_threshold must be between 0 and 1.")
+        except (TypeError, ValueError):
+            errors.append("confidence_threshold must be a number.")
+
+    for k, v in doc.items():
+        if not str(k).startswith("crm_owner_routing"):
+            continue
+        for entry in _walk_owner_dicts(v):
+            em, oid = entry.get("owner_email"), entry.get("owner_id")
+            if em and not oid:
+                errors.append(f"{k}: owner '{em}' has no owner_id (email and ID must be set together).")
+            if oid and not em:
+                errors.append(f"{k}: owner_id '{oid}' has no owner_email.")
+            if em and not _valid_email(em):
+                errors.append(f"{k}: '{em}' is not a valid email.")
+
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+def _known_owners(rules: dict) -> list:
+    """Unique {owner_email, owner_id} pairs across all crm_owner_routing_* maps —
+    seeds the owner picker (email+ID always travel together) until a live Zoho
+    user list is wired in."""
+    seen, out = set(), []
+    for k, v in (rules or {}).items():
+        if not str(k).startswith("crm_owner_routing"):
+            continue
+        for e in _walk_owner_dicts(v):
+            em, oid = e.get("owner_email"), e.get("owner_id")
+            if em and (em, oid) not in seen:
+                seen.add((em, oid))
+                out.append({"owner_email": em, "owner_id": oid})
+    return sorted(out, key=lambda x: x["owner_email"])
+
+
+@app.get("/admin/routing-config")
+async def admin_routing_config_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Current state for the UI: the effective (merged) rules, the active
+    override (what's been customised), version metadata, and the owner picker."""
+    _require_routing_admin(x_routing_admin_secret)
+    effective = classifier.get_routing_rules(force=True)
+    return {
+        "effective":         effective,
+        "override":          config_store.get_active_override(),
+        "active_version":    config_store.active_version(),
+        "known_owners":      _known_owners(effective),
+        "cache_ttl_seconds": classifier._RULES_CACHE_TTL,
+    }
+
+
+@app.post("/admin/routing-config/validate")
+async def admin_routing_config_validate(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    return _validate_routing_doc((body or {}).get("doc"))
+
+
+@app.post("/admin/routing-config/publish")
+async def admin_routing_config_publish(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """Validate then save `doc` as the new active override; invalidate the cache
+    so the change is live immediately. Rejects (422) on validation errors."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    doc = (body or {}).get("doc")
+    v = _validate_routing_doc(doc)
+    if not v["ok"]:
+        raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
+    vid = config_store.publish(doc, note=str((body or {}).get("note") or ""),
+                               actor=str((body or {}).get("actor") or ""))
+    classifier.invalidate_routing_cache()
+    return {"ok": True, "version_id": vid, "warnings": v["warnings"]}
+
+
+@app.get("/admin/routing-config/versions")
+async def admin_routing_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return {"versions": config_store.list_versions(), "audit": config_store.list_audit(50)}
+
+
+@app.get("/admin/routing-config/versions/{version_id}")
+async def admin_routing_config_version(version_id: int,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    row = config_store.get_version(version_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        row["doc"] = json.loads(row.get("doc_json") or "{}")
+    except Exception:
+        row["doc"] = {}
+    return row
+
+
+@app.post("/admin/routing-config/rollback")
+async def admin_routing_config_rollback(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    vid = (body or {}).get("version_id")
+    if vid is None or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
+        raise HTTPException(status_code=404, detail="version not found")
+    classifier.invalidate_routing_cache()
+    return {"ok": True, "version_id": int(vid)}
+
+
+@app.post("/admin/routing-config/preview")
+async def admin_routing_config_preview(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """Dry-run: classify a sample email against an UNPUBLISHED candidate override
+    and report the category + where it would forward — nothing is persisted."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    doc = (body or {}).get("doc") or {}
+    merged = classifier.merge_over_base(doc)
+    token = classifier.set_preview_rules(merged)
+    try:
+        result = await classifier.classify_email_category(
+            str((body or {}).get("body") or ""),
+            str((body or {}).get("sender_email") or ""),
+            str((body or {}).get("subject") or ""),
+        )
+        cat = result.get("category") or ""
+        display = ((merged.get("categories") or {}).get(cat) or {}).get("display_name") \
+            or cat.replace("_", " ").title()
+    finally:
+        classifier.reset_preview_rules(token)
+    rule = result.get("rule") or {}
+    return {
+        "category":     cat,
+        "display_name": display,
+        "confidence":   result.get("confidence"),
+        "action":       result.get("action"),
+        "forward_to":   rule.get("forward_to"),
+        "cc":           rule.get("cc") or [],
+        "reason":       result.get("reason"),
+        "alternatives": result.get("alternatives") or [],
+    }
 
 
 @app.post("/reviews/regenerate")
