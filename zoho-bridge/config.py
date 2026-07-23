@@ -496,3 +496,12 @@ CATEGORY_KEYWORDS_IN_PROMPT = int(os.environ.get("CATEGORY_KEYWORDS_IN_PROMPT", 
 # sends it as the X-Routing-Admin-Secret header. Empty => the admin API is
 # DISABLED (returns 503), so the endpoints are never open without a secret set.
 ROUTING_ADMIN_SECRET = os.environ.get("ROUTING_ADMIN_SECRET", "")
+
+# Domains that belong to Durian itself. Used to spot a colleague forwarding a
+# customer's email into hello@durian.in — an address on one of these is staff,
+# never the customer behind the forward. Comma-separated.
+INTERNAL_EMAIL_DOMAINS = tuple(
+    d.strip().lower().lstrip("@")
+    for d in os.environ.get("INTERNAL_EMAIL_DOMAINS", "durian.in").split(",")
+    if d.strip()
+)

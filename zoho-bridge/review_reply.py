@@ -57,6 +57,120 @@ def _load_hints() -> dict:
 
 _HINTS = _load_hints()
 
+# Review templates deliberately live OUTSIDE social_templates.yaml — that file is
+# the SOCIAL canned-response source (its sync requires a `content` body), while the
+# review wording is owned by setup_review_templates.py. Their SELECTION guidance
+# still belongs with the other hints, so it's defined here and merged in below.
+#
+# Without this the model saw no USE WHEN for any review template and fell back to
+# "sentiment", so every strongly-worded 1★ landed on the most apologetic body —
+# review_issue_not_resolved. That template is only right for someone who has
+# ALREADY chased us and is still waiting; a first-time complaint needs
+# review_negative_info_needed so we can collect details and actually act on it.
+_REVIEW_HINTS = {
+    "review_negative_info_needed": {
+        "use_when": (
+            "THE DEFAULT for a negative review. The customer describes a bad "
+            "experience — damage, defect, delay, poor quality, bad service, rude "
+            "staff, no accountability — but gives us nothing to act on: no "
+            "complaint/ticket number and no sign they have contacted us about it "
+            "before. However long or angry the review is, if this is the first we "
+            "are hearing of it, we need their contact details to route it."
+        ),
+        "triggers": [
+            "I had the worst experience with Durian. Chairs arrived damaged and the sofa is still not ready",
+            "Worst quality and even worse services, I would advise never to buy from them",
+            "Delivery delayed well past the promised date and nobody is taking accountability",
+            "Poor product quality and very disappointing experience",
+        ],
+    },
+    "review_issue_not_resolved": {
+        "use_when": (
+            "ONLY when the review itself shows the customer ALREADY engaged us and "
+            "is STILL waiting — they cite a complaint/ticket/docket number, say "
+            "they have complained or followed up multiple times, or say we "
+            "promised a fix that never came. That prior-contact history must be "
+            "present in the text. NEVER use this for a first-time complaint, "
+            "however severe — that is review_negative_info_needed."
+        ),
+        "triggers": [
+            "I have complained more than five times and nobody has resolved it",
+            "Complaint number 102215 was raised a month ago and there is still no resolution",
+            "Your team promised a replacement weeks ago and I am still waiting",
+            "I keep following up and the issue is still not fixed",
+        ],
+    },
+    "review_negative_will_work_on_it": {
+        "use_when": (
+            "Mild or vague dissatisfaction with NO specific problem we could act "
+            "on and no prior contact — the experience simply did not meet "
+            "expectations. If the customer names a concrete problem (damage, "
+            "delay, defect, service failure), use review_negative_info_needed "
+            "instead so we can collect their details."
+        ),
+        "triggers": [
+            "Not up to the mark",
+            "Expected better from this brand",
+            "Average experience, nothing special",
+        ],
+    },
+    "review_issue_resolved": {
+        "use_when": (
+            "The customer indicates their problem HAS since been sorted out, or is "
+            "updating a earlier complaint to say it was handled. Never use this "
+            "while a complaint is still open."
+        ),
+        "triggers": [
+            "Update: the team replaced it and everything is fine now",
+            "Issue has been resolved by your service team, thank you",
+        ],
+    },
+    "review_resolved_negative": {
+        "use_when": (
+            "We have already offered every possible resolution and the customer "
+            "remains unhappy — a post-resolution standoff, visible in the text as "
+            "the customer rejecting or dismissing what was offered."
+        ),
+        "triggers": [
+            "They offered a repair but I wanted a refund, still not acceptable",
+            "You have done nothing useful despite all your so-called resolutions",
+        ],
+    },
+    "review_acknowledge_feedback": {
+        "use_when": (
+            "Neutral, mixed, or suggestion-style feedback with no real complaint to "
+            "resolve — the customer is offering an opinion or an idea rather than "
+            "reporting a problem."
+        ),
+        "triggers": [
+            "Good range but the showroom could use more seating options",
+            "Please consider opening a store in our city",
+        ],
+    },
+    "review_positive_5star": {
+        "use_when": (
+            "Clear praise with no criticism at all — the customer is happy with the "
+            "product, the staff, or the experience."
+        ),
+        "triggers": [
+            "Excellent quality and great service, very happy with my purchase",
+            "Loved the showroom and the staff were very helpful",
+        ],
+    },
+    "review_positive_can_improve": {
+        "use_when": (
+            "Positive overall, but the customer adds a small suggestion or a minor "
+            "niggle alongside the praise."
+        ),
+        "triggers": [
+            "Great sofa and good service, delivery could have been a bit quicker",
+            "Happy with the purchase, wish there were more colour options",
+        ],
+    },
+}
+# YAML wins if a review code is ever added to social_templates.yaml.
+_HINTS = {**_REVIEW_HINTS, **_HINTS}
+
 # Display labels + warnings the system prompt weaves into the channel-specific
 # instructions. Keep these short; the model adapts tone from the templates.
 CHANNEL_LABELS = {
@@ -216,7 +330,11 @@ _STAR_TEMPLATE_FALLBACK = {
     4: "review_positive_can_improve",
     3: "review_acknowledge_feedback",
     2: "review_negative_will_work_on_it",
-    1: "review_issue_not_resolved",
+    # A rating-only 1★ tells us nothing beyond "unhappy" — no complaint history,
+    # nothing to act on — so it takes the same route as any first-time complaint:
+    # ask for contact details. review_issue_not_resolved is reserved for customers
+    # who have already chased us (see _REVIEW_HINTS).
+    1: "review_negative_info_needed",
 }
 
 
@@ -275,25 +393,65 @@ def _unescape_newlines(text: str) -> str:
             .replace("\\t", "\t"))
 
 
-def build_trace(channel: str, short_code: str, reasoning: str, action: str) -> list[dict]:
+def _renumber(steps: list[dict]) -> list[dict]:
+    for i, s in enumerate(steps):
+        s["i"] = i + 1
+    return steps
+
+
+def build_trace(channel: str, short_code: str, reasoning: str, action: str,
+                *, confidence: int = None, is_complaint: bool = False,
+                needs_human: bool = False) -> list[dict]:
     """An AI chain-of-thought trace (same shape the DM bot emits) so agents see
-    WHY this template was suggested. Rendered by the AiTrace.vue component when
-    attached to a message's content_attributes.ai_trace."""
+    WHY this reply was produced. Rendered by AiTrace.vue when attached to a
+    message's content_attributes.ai_trace.
+
+    Covers how the message was READ (sentiment) and how the reply was CHOSEN.
+    The final "what we did with it" step is appended by the caller via
+    add_outcome_step(), because the auto-send gate lives there."""
     chan = _CHANNEL_LABELS.get(channel, channel)
+
+    # How the model read the customer — the "sentiment" an agent asks about.
+    if needs_human:
+        sentiment = "Serious — legal / abuse / fraud / safety escalation"
+    elif is_complaint:
+        sentiment = "Negative — a complaint"
+    elif action == "auto":
+        sentiment = "Positive / neutral — no complaint detected"
+    else:
+        sentiment = "Negative or unclear — contains criticism"
+
     steps = [
         {"type": "policy", "source": "system", "visibility": "internal",
          "label": "Channel", "detail": f"{chan} — Durian template suggestion"},
+        {"type": "observation", "source": "model", "visibility": "internal",
+         "label": "Message read as", "detail": sentiment},
         {"type": "decision", "source": "rule", "visibility": "internal",
          "label": "Template chosen", "rule": short_code or "fallback",
          "detail": reasoning or "Best match for the customer's message."},
         {"type": "answer", "source": "model", "visibility": "public",
          "label": "Reply drafted",
-         "detail": "Auto — safe to send" if action == "auto"
-                   else "Flagged for human review before sending"},
+         "detail": ("Safe to send automatically" if action == "auto"
+                    else "Flagged for human review before sending")
+                   + (f" · confidence {confidence}%" if confidence is not None else "")},
     ]
-    for i, s in enumerate(steps):
-        s["i"] = i + 1
-    return steps
+    return _renumber(steps)
+
+
+def add_outcome_step(trace: list[dict], *, sent: bool, detail: str) -> list[dict]:
+    """Append the final 'what actually happened' step. This is what tells an
+    agent whether the reply went out on its own — and when it didn't, exactly
+    WHY it was held back (below the confidence bar, handed off, auto-send
+    switched off). Callers own the gate, so they own this step."""
+    trace = list(trace or [])
+    trace.append({
+        "type": "outcome",
+        "source": "system",
+        "visibility": "internal",
+        "label": "Sent automatically" if sent else "Held for an agent",
+        "detail": detail,
+    })
+    return _renumber(trace)
 
 
 async def draft(channel: str, message: str, contact_name: str,
@@ -320,14 +478,18 @@ async def draft(channel: str, message: str, contact_name: str,
     import json
 
     def result(reply, action, short_code="", reasoning="", confidence=0,
-               order_status_enquiry=False, is_complaint=False):
+               order_status_enquiry=False, is_complaint=False,
+               needs_human=False):
         return {
             "reply": reply, "action": action,
             "short_code": short_code, "reasoning": reasoning,
             "confidence": confidence,
             "order_status_enquiry": order_status_enquiry,
             "is_complaint": is_complaint,
-            "trace": build_trace(channel, short_code, reasoning, action),
+            "needs_human": needs_human,
+            "trace": build_trace(channel, short_code, reasoning, action,
+                                 confidence=confidence, is_complaint=is_complaint,
+                                 needs_human=needs_human),
         }
 
     prefix = f"{channel}_"
@@ -502,7 +664,7 @@ async def draft(channel: str, message: str, contact_name: str,
 
     if force_human or action != "auto":
         return result(reply, "handoff", short_code, reasoning, confidence,
-                      order_status_enquiry, is_complaint)
+                      order_status_enquiry, is_complaint, needs_human)
 
     return result(reply, "auto", short_code, reasoning, confidence,
-                  order_status_enquiry, is_complaint)
+                  order_status_enquiry, is_complaint, needs_human)

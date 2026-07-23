@@ -39,6 +39,7 @@ import tracing
 import zoho
 import zoho_crm
 import google_reviews as gr
+import forwarded_email
 import review_reply
 import reviews_poller
 import reviews_state
@@ -3579,6 +3580,58 @@ async def handle_message_created(data: dict) -> dict:
         or content[:80]
     )
 
+    # ── Staff-forwarded customer email ────────────────────────────────────
+    # When a colleague forwards a customer's mail into hello@durian.in, Chatwoot
+    # makes the COLLEAGUE the contact — so the acknowledgement, the Zoho ticket
+    # and the CRM deal all attach to the employee while the customer never hears
+    # back (conv #3737: Shilpi forwarded Nitin Banga's warranty escalation).
+    #
+    # Recover the original sender and substitute them here, at the single point
+    # where the email pipeline decides who the customer is, so everything
+    # downstream — the complaint gate's acknowledgement, the ticket and the deal
+    # — uses the customer's own details. The forwarder keeps no role beyond a
+    # private note. The conversation contact is deliberately left alone; the
+    # acknowledgement is addressed explicitly via to_emails.
+    if additional.get("mail_subject") and \
+            forwarded_email.looks_forwarded(real_subject, content):
+        original = forwarded_email.extract_original_sender(
+            real_subject, content,
+            internal_domains=config.INTERNAL_EMAIL_DOMAINS,
+            exclude_emails=(sender_email,))
+        if original:
+            forwarded_by = sender_email or "a colleague"
+            sender = {**sender, "email": original["email"],
+                      "name": original["name"] or sender.get("name") or ""}
+            sender_email = original["email"]
+            phone_bit = f" · {original['phone']}" if original["phone"] else ""
+            try:
+                await chatwoot.post_private_note(
+                    conv_id,
+                    f"📨 **Forwarded email** — {forwarded_by} forwarded this on behalf of "
+                    f"**{original['name'] or original['email']}** "
+                    f"({original['email']}{phone_bit}).\n\n"
+                    f"The acknowledgement, Zoho ticket and CRM deal use the customer's "
+                    f"details, not the forwarder's.")
+            except Exception:
+                pass
+            print(f"[fwd] conv {conv_id}: forwarded by {forwarded_by} → "
+                  f"real customer {sender_email}")
+        else:
+            # Looks forwarded but we can't say who the customer is. Never guess a
+            # recipient — that is the bug we're fixing. Hold it for a human.
+            await _flag_agent_needed(conv_id, "email")
+            try:
+                await chatwoot.post_private_note(
+                    conv_id,
+                    "📨 **Forwarded email** — this looks like a forwarded customer "
+                    "email, but the original sender could not be identified, so "
+                    "nothing was auto-sent. Please reply to the customer directly "
+                    "and raise the ticket against their details.")
+            except Exception:
+                pass
+            print(f"[fwd] conv {conv_id}: forwarded but customer unidentified — held")
+            return {"ignored": True, "reason": "forwarded_customer_unidentified"}
+
     # ── Automated system / transactional / internal emails ────────────────
     # Two deterministic short-circuits that file mail as General Information,
     # AUTO-RESOLVE it, and STOP — no forward, no CRM Contact, no acknowledgment,
@@ -4224,12 +4277,64 @@ def _is_low_value_comment(text: str) -> bool:
     return False
 
 
+# One in-flight social draft per conversation.
+#
+# The dedup guards below read the conversation's messages and THEN spend a couple
+# of seconds inside the LLM draft. Without serialising, a customer who sends their
+# details across several quick messages ("Siddharth Singh", "Varanasi", "221005",
+# "89575…") spawns one handler per message; every one of them reads the thread
+# BEFORE any reply exists, so every one of them passes the "already replied" and
+# "duplicate reply" checks and sends. That is how the same acknowledgement went
+# out twice with different confidence scores — two independent drafts racing.
+#
+# Holding a per-conversation lock across fetch → guards → draft → send means the
+# second handler only starts reading once the first has finished replying, so it
+# sees that reply and the existing guards do their job. Comparing text was never
+# the weak point; reading stale state was.
+#
+# An in-process lock is sufficient because the bridge runs as a single uvicorn
+# process (no --workers). If it is ever scaled to multiple workers this must move
+# to a shared lock (e.g. a row in config_store.db).
+_conv_draft_locks: dict[int, asyncio.Lock] = {}
+_conv_draft_locks_guard = asyncio.Lock()
+
+
+async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
+    async with _conv_draft_locks_guard:
+        lock = _conv_draft_locks.get(conv_id)
+        if lock is None:
+            lock = _conv_draft_locks[conv_id] = asyncio.Lock()
+        return lock
+
+
 async def handle_template_suggest(conv: dict, channel: str,
                                   surface: str = "") -> dict:
+    """Serialise social drafting per conversation, then run the real handler.
+    See the comment above for why this lock exists."""
+    conv_id = conv.get("id")
+    if not conv_id:
+        return {"ignored": True, "reason": "no_conversation_id"}
+    lock = await _conversation_draft_lock(conv_id)
+    try:
+        async with lock:
+            return await _template_suggest_locked(conv, channel, surface)
+    finally:
+        # Drop the lock once nobody holds or awaits it, so the registry doesn't
+        # grow for the process lifetime. A waiter will have taken it already.
+        async with _conv_draft_locks_guard:
+            if not lock.locked() and _conv_draft_locks.get(conv_id) is lock:
+                del _conv_draft_locks[conv_id]
+
+
+async def _template_suggest_locked(conv: dict, channel: str,
+                                   surface: str = "") -> dict:
     """Post a Durian-template AI reply suggestion as a private note for a
     social DM (or, with surface="comment", a public post comment). The agent
     gets the best-matching Durian template (edit / regenerate / send) instead
     of a blank reply box.
+
+    Always called under the per-conversation lock above, so the message fetch
+    below reflects any reply a concurrent trigger just sent.
 
     Dedup rule: post a fresh card on every customer message that lands AFTER
     the team's last reply (or on the very first message). If a previous card
@@ -4339,10 +4444,27 @@ async def handle_template_suggest(conv: dict, channel: str,
         if _reply_is_repeat(reply, prev_reply):
             print(f"[template-suggest] conv {conv_id} — duplicate of our last reply, not re-sending")
             return {"ignored": True, "reason": "duplicate_reply"}
+        # Chain of thought rides ON the sent reply, so an agent can open any
+        # auto-reply and see how it was read, why this template, and why it went
+        # out without a human. content_attributes are internal — the customer
+        # only ever receives `reply`.
+        sent_trace = review_reply.add_outcome_step(
+            drafted["trace"], sent=True,
+            detail=(f"Sent automatically on {channel} — an ordinary complaint is "
+                    f"answered with its apology template (confidence {confidence}%)."
+                    if drafted.get("is_complaint") and
+                    confidence < config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE
+                    else f"Sent automatically on {channel} — confidence {confidence}% "
+                         f"met the {config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% bar."))
         try:
             # Public outgoing message → Chatwoot delivers it to the customer on
             # the inbox's own channel (Instagram / Facebook DM or comment).
-            await chatwoot.create_message(conv_id, reply, message_type="outgoing")
+            await chatwoot.create_message(
+                conv_id, reply, message_type="outgoing",
+                content_attributes={"source": "ai_auto_reply", "channel": channel,
+                                    "confidence": confidence,
+                                    "short_code": drafted.get("short_code") or "",
+                                    "ai_trace": sent_trace})
         except Exception as e:
             print(f"[template-suggest] auto-send failed for conv {conv_id}: {e}")
             return {"ignored": True, "reason": "auto_send_failed"}
@@ -4360,13 +4482,25 @@ async def handle_template_suggest(conv: dict, channel: str,
     # Below the confidence bar, a handoff, or auto-send disabled → post the
     # review card for an agent and flag it in the Agent Needed section.
     await _flag_agent_needed(conv_id, channel)
+    # Spell out WHY this didn't go out on its own — the three gates are the only
+    # ways to land here, so an agent never has to guess.
+    if not config.SOCIAL_AUTO_SEND_ENABLED:
+        hold_reason = "Auto-send is switched off for social channels."
+    elif action != "auto":
+        hold_reason = ("The drafter handed this to a human — a serious escalation, "
+                       "or no approved template fitted what they asked.")
+    else:
+        hold_reason = (f"Confidence {confidence}% is below the "
+                       f"{config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% auto-send bar.")
+    held_trace = review_reply.add_outcome_step(drafted["trace"], sent=False,
+                                               detail=hold_reason)
     try:
         await chatwoot.create_message(
             conv_id, reply, message_type="outgoing", private=True,
             content_attributes={"type": "ai_review_suggestion",
                                 "suggestion": reply, "channel": channel,
                                 "surface": surface, "confidence": confidence,
-                                "ai_trace": drafted["trace"]},
+                                "ai_trace": held_trace},
         )
     except Exception as e:
         print(f"[template-suggest] post failed for conv {conv_id}: {e}")
