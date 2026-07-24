@@ -114,6 +114,23 @@ async def search_contact_by_email(email: str) -> Optional[dict]:
     return data[0] if data else None
 
 
+async def search_contact_by_phone(phone: str) -> Optional[dict]:
+    """Return the first CRM Contact matching this phone, or None. Zoho's
+    /Contacts/search?phone= matches across the Phone / Mobile phone fields.
+    Used to catch a customer who exists under a different email but the same
+    number — the key the client dedups contacts by."""
+    if not phone:
+        return None
+    try:
+        resp = await _crm_request("GET", "/Contacts/search",
+                                  params={"phone": phone})
+    except RuntimeError as e:
+        print(f"[crm] contact phone search error for {phone!r}: {e}")
+        return None
+    data = resp.get("data") or []
+    return data[0] if data else None
+
+
 async def create_contact(sender_email: str, sender_name: str,
                          phone: str = "", source: str = "Chatwoot",
                          owner_id: str = "") -> dict:
@@ -172,13 +189,22 @@ async def find_or_create_contact(sender_email: str, sender_name: str,
     a REUSED contact keeps its current owner — we don't reassign existing
     records (that would fight manual reassignments sales made).
 
-    Empty email → returns ("", False). CRM requires an email to dedup, and
-    creating an emailless contact would be worse than skipping the push."""
+    Matching order: email first (the strongest key), then phone — a customer
+    may already exist in CRM under a different email but the same number. A
+    phone match reuses that record instead of creating a duplicate.
+
+    Empty email AND no phone match → returns ("", False). CRM requires an
+    email to CREATE, so we can only reuse (not create) on a phone-only hit."""
+    if sender_email:
+        found = await search_contact_by_email(sender_email)
+        if found:
+            return str(found.get("id") or ""), False
+    if phone:
+        found = await search_contact_by_phone(phone)
+        if found:
+            return str(found.get("id") or ""), False
     if not sender_email:
         return "", False
-    found = await search_contact_by_email(sender_email)
-    if found:
-        return str(found.get("id") or ""), False
     try:
         created = await create_contact(sender_email, sender_name, phone,
                                        owner_id=owner_id)
@@ -309,6 +335,24 @@ async def create_deal(contact_id: str, deal_name: str,
     if entry.get("code") != "SUCCESS":
         raise RuntimeError(f"Zoho CRM create_deal failed: {entry}")
     return entry.get("details") or {}
+
+
+async def get_contact_deals(contact_id: str, limit: int = 5) -> list:
+    """Recent Deals linked to a Contact, newest first. Used to WARN an agent
+    that this customer may already have a deal before they create another.
+    Best-effort: returns [] on any error (the warning never blocks creation)."""
+    if not contact_id:
+        return []
+    try:
+        resp = await _crm_request(
+            "GET", f"/Contacts/{contact_id}/Deals",
+            params={"fields": "Deal_Name,Stage,Amount,Created_Time",
+                    "per_page": limit,
+                    "sort_by": "Created_Time", "sort_order": "desc"})
+    except RuntimeError as e:
+        print(f"[crm] get_contact_deals error for {contact_id!r}: {e}")
+        return []
+    return resp.get("data") or []
 
 
 # ── URL helpers ───────────────────────────────────────────────────────────

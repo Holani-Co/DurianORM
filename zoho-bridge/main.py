@@ -4820,17 +4820,22 @@ def _conv_first_incoming_body(messages: list) -> tuple[str, str]:
     return "", ""
 
 
-async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "") -> str:
-    """Return the crm_contact_id for this conversation, creating one if needed.
-    Reuses the crm_contact_id stashed by the auto path (Phase A) so we don't
-    create a duplicate. owner_id assigns a newly-created Contact."""
+async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "",
+                              phone: str = "") -> tuple[str, bool]:
+    """Return (crm_contact_id, created) for this conversation, creating one if
+    needed. Reuses the crm_contact_id stashed by the auto path (Phase A) so we
+    don't create a duplicate. `phone` (Chatwoot's number or an agent-supplied
+    one) lets find_or_create_contact match an existing CRM contact by number
+    when the email doesn't hit. owner_id assigns a newly-created Contact."""
     custom = conv.get("custom_attributes") or {}
     if custom.get("crm_contact_id"):
-        return str(custom["crm_contact_id"])
+        return str(custom["crm_contact_id"]), False
     name, email = _conv_sender(conv)
-    if not email:
-        raise HTTPException(400, "conversation has no sender email — cannot key a CRM Contact")
-    contact_id, created = await zoho_crm.find_or_create_contact(email, name, owner_id=owner_id)
+    phone = phone or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+    if not email and not phone:
+        raise HTTPException(400, "conversation has no sender email or phone — cannot key a CRM Contact")
+    contact_id, created = await zoho_crm.find_or_create_contact(
+        email, name, phone=phone, owner_id=owner_id)
     if not contact_id:
         raise HTTPException(500, "CRM Contact could not be created")
     if created:
@@ -4840,7 +4845,7 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "") -> s
                           "crm_contact_url": zoho_crm.contact_url(contact_id)})
         except Exception as e:
             print(f"[crm] merge crm_contact_id failed for conv {conv_id}: {e}")
-    return contact_id
+    return contact_id, created
 
 
 # NOTE: there is intentionally NO "create lead" endpoint — the client treats
@@ -5288,6 +5293,13 @@ async def chatwoot_crm_create_deal(request: Request):
             or "location could not be determined — not tagging to CRM")
     owner_id = owner.get("owner_id", "")
 
+    # Contact matching: prefer an agent-supplied phone, else the phone the
+    # deal-details gate captured from the customer — so we reuse an existing CRM
+    # contact by number without the agent typing it. `ignore_existing` is the
+    # "Create anyway" override for the duplicate-deal warning below.
+    phone_override  = str(body.get("phone") or "").strip() or str(_captured.get("phone") or "")
+    ignore_existing = bool(body.get("ignore_existing"))
+
     # Remember the agent's sector decision so re-runs / other flows see it.
     if sector_override in ("government", "private"):
         try:
@@ -5307,13 +5319,29 @@ async def chatwoot_crm_create_deal(request: Request):
                            f"(owner {owner.get('owner_email') or 'default'})"}
 
     # Deal needs a linked Contact. If none yet, create/find one first (owned by
-    # the same location owner).
+    # the same location owner). Matches an existing contact by email → phone.
     try:
-        contact_id = await _ensure_crm_contact(int(conv_id), conv, owner_id=owner_id)
+        contact_id, contact_created = await _ensure_crm_contact(
+            int(conv_id), conv, owner_id=owner_id, phone=phone_override)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"CRM Contact resolve failed: {e}")
+
+    # Similar-deal warning: when we matched an EXISTING contact (not one we
+    # just created) that already has deals, surface them and let the agent
+    # decide — a re-call with ignore_existing=True ("Create anyway") skips this.
+    if contact_id and not contact_created and not ignore_existing:
+        existing_deals = await zoho_crm.get_contact_deals(contact_id)
+        if existing_deals:
+            deals = [{
+                "id":           str(d.get("id") or ""),
+                "name":         d.get("Deal_Name") or "(unnamed deal)",
+                "stage":        d.get("Stage") or "",
+                "created_time": d.get("Created_Time") or "",
+                "url":          zoho_crm.deal_url(str(d.get("id") or "")),
+            } for d in existing_deals]
+            raise HTTPException(409, {"code": "existing_deals", "deals": deals})
 
     # Record layout — the flow's product sub-type split: full home
     # customization deals go on the "Home Studio" layout (designers),
@@ -5450,7 +5478,8 @@ async def chatwoot_crm_create_deal(request: Request):
             print(f"[crm] resolve-after-deal failed for conv {conv_id}: {e}")
 
     return {"deal_id": deal_id, "created": True,
-            "url": zoho_crm.deal_url(deal_id)}
+            "url": zoho_crm.deal_url(deal_id),
+            "contact_id": contact_id, "contact_created": contact_created}
 
 
 # ── Spam-review digest endpoint ───────────────────────────────────────────
