@@ -4109,6 +4109,13 @@ async def handle_message_created(data: dict) -> dict:
         # instead, since that's the only case an agent needs to act on.
         display = (rule or {}).get("display_name") or category_result["category"]
         note_lines = [f"🗂️ **Auto-classified as: {display}**"]
+        # Show the resolved product line (subcategory) so the routing is
+        # traceable — the redirected forward address alone doesn't reveal it.
+        _vert = category_result.get("vertical")
+        if _vert:
+            note_lines.append(
+                f"↳ Product line: **{classifier.vertical_display_name(category_result['category'], _vert)}**"
+            )
         if category_result.get("category") == "fallback":
             note_lines.append(
                 "_The category wasn't clear — please review and route manually._"
@@ -4936,6 +4943,7 @@ async def admin_routing_config_preview(request: Request,
     finally:
         classifier.reset_preview_rules(token)
     rule = result.get("rule") or {}
+    vertical = result.get("vertical") or ""
     return {
         "category":     cat,
         "display_name": display,
@@ -4943,6 +4951,11 @@ async def admin_routing_config_preview(request: Request,
         "action":       result.get("action"),
         "forward_to":   rule.get("forward_to"),
         "cc":           rule.get("cc") or [],
+        # Resolved product line (subcategory) — so the Preview shows WHICH
+        # vertical matched, which the redirected forward address can't reveal.
+        "vertical":         vertical,
+        "vertical_display": classifier.vertical_display_name(cat, vertical) if vertical else "",
+        "vertical_uncertain": bool(result.get("vertical_uncertain")),
         "reason":       result.get("reason"),
         "alternatives": result.get("alternatives") or [],
     }

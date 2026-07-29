@@ -54,6 +54,7 @@
       "CATEGORY": "Category",
       "CONFIDENCE": "Confidence:",
       "ACTION": "Action",
+      "PRODUCT_LINE": "Product line",
       "FORWARD_TO": "Would forward to",
       "REASON": "Why",
       "ALTERNATIVES": "Other likely categories",

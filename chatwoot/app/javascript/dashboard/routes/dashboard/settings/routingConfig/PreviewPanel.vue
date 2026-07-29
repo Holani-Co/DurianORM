@@ -149,6 +149,12 @@ const confidencePct = computed(() =>
       </div>
 
       <dl class="grid grid-cols-1 text-sm gap-y-2">
+        <div v-if="result.vertical_display" class="flex gap-2">
+          <dt class="text-n-slate-10 min-w-[8rem]">
+            {{ t('ROUTING_CONFIG.PREVIEW.PRODUCT_LINE') }}
+          </dt>
+          <dd class="text-n-slate-12">{{ result.vertical_display }}</dd>
+        </div>
         <div v-if="isForward && result.forward_to" class="flex gap-2">
           <dt class="text-n-slate-10 min-w-[8rem]">
             {{ t('ROUTING_CONFIG.PREVIEW.FORWARD_TO') }}
