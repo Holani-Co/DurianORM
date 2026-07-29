@@ -32,12 +32,20 @@ categories:
   product_enquiry:
     display_name: Product Enquiry
     action: in_channel
-    # Laminate product enquiries forward to the external Cedar India desk; every
+    # Laminate & e-commerce product enquiries forward to their own desks; every
     # other product enquiry (furniture etc.) falls through to the retail gate
     # (city → showroom → CRM owner). Doors & Full Home Customization remain their
     # OWN top-level categories with their existing deal flow — not verticals here.
-    # No vertical_ambiguous:card here, so a non-laminate enquiry never cards.
+    # No vertical_ambiguous:card here, so a furniture enquiry never cards.
     vertical_routing:
+      # Retail Furniture is the DEFAULT — NO forward_to, so it stays in_channel
+      # and flows to the retail showroom gate (city → showroom → CRM owner). It's
+      # listed so the vertical classifier has a furniture option and doesn't force
+      # an ordinary furniture enquiry into laminate/ecom.
+      retail_furniture:
+        display_name: Retail Furniture
+        keywords: [Sofa, Bed, Mattress, Dining, Recliner, Wardrobe, Chair, Table,
+          Furniture, Sofa Cum Bed, Office Chair, In Stock, Availability]
       laminate:
         display_name: Laminate
         forward_to: rsenapati@cedarindia.com, laminates@durian.in
@@ -45,6 +53,13 @@ categories:
         share_executive_email: true
         keywords: [Laminate, Laminates, Sunmica, Decorative Laminate, PU Laminate,
           Laminate Sheet, Laminate Catalogue, Laminate Price]
+      ecom:
+        display_name: E-commerce
+        forward_to: sushil.k@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Online Order, E-commerce, Online Purchase, Buy Online, Website Order,
+          Online Availability, Ecom Enquiry, Online Store Enquiry]
     description: |
       Customer is asking ABOUT a specific product or a category of products
       before buying — furniture (sofa, bed, mattress, dining, recliner) OR

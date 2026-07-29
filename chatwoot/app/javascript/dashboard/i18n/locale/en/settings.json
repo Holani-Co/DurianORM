@@ -111,6 +111,7 @@
       "SUB_CC": "CC (comma-separated)",
       "SUB_CC_PH": "optional",
       "SHARE_EXEC_EMAIL": "Share team email with customer",
+      "SUB_DEFAULT_NOTE": "Default — handled by the retail showroom flow (no forward).",
       "ADD_CONFIRM": "Add",
       "ADD_CANCEL": "Cancel",
       "NEW_BADGE": "new"

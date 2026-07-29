@@ -245,6 +245,12 @@ function verticalBool(key, vkey, name, fallback) {
   const v = verticalField(key, vkey, name);
   return v == null ? fallback : v;
 }
+// A vertical with no forward_to is a "default" (e.g. Product Enquiry → Retail
+// Furniture), handled by the retail showroom flow, not a forward — shown
+// read-only so it can't be misconfigured into forwarding.
+function verticalHasForward(key, vkey) {
+  return !!(base(key).vertical_routing || {})[vkey]?.forward_to;
+}
 
 function discard() {
   Object.keys(catEdits).forEach(k => delete catEdits[k]);
@@ -609,81 +615,89 @@ async function publish() {
             <span class="text-xs font-semibold text-n-slate-12">
               {{ verticalLabel(key, vkey) }}
             </span>
-            <div class="flex flex-wrap gap-3">
-              <label class="flex flex-col flex-1 gap-1 min-w-[14rem]">
-                <span class="text-xs text-n-slate-11">
-                  {{ t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD') }}
-                </span>
-                <input
-                  :value="verticalField(key, vkey, 'forward_to') || ''"
-                  type="text"
-                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD_PH')"
-                  class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                  @input="
-                    setVerticalField(
-                      key,
-                      vkey,
-                      'forward_to',
-                      $event.target.value
-                    )
-                  "
-                />
-              </label>
-              <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
-                <span class="text-xs text-n-slate-11">
-                  {{ t('ROUTING_CONFIG.CATEGORIES.SUB_CC') }}
-                </span>
-                <input
-                  :value="verticalCcText(key, vkey)"
-                  type="text"
-                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_CC_PH')"
-                  class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                  @input="setVerticalCc(key, vkey, $event.target.value)"
-                />
-              </label>
-            </div>
-            <div class="flex flex-wrap items-center gap-4">
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  :checked="
-                    verticalBool(key, vkey, 'include_customer_in_cc', false)
-                  "
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                  @change="
-                    setVerticalField(
-                      key,
-                      vkey,
-                      'include_customer_in_cc',
-                      $event.target.checked
-                    )
-                  "
-                />
-                <span class="text-xs font-medium text-n-slate-11">
-                  {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
-                </span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  :checked="
-                    verticalBool(key, vkey, 'share_executive_email', false)
-                  "
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                  @change="
-                    setVerticalField(
-                      key,
-                      vkey,
-                      'share_executive_email',
-                      $event.target.checked
-                    )
-                  "
-                />
-                <span class="text-xs font-medium text-n-slate-11">
-                  {{ t('ROUTING_CONFIG.CATEGORIES.SHARE_EXEC_EMAIL') }}
-                </span>
-              </label>
-            </div>
+            <span
+              v-if="!verticalHasForward(key, vkey)"
+              class="text-xs italic text-n-slate-10"
+            >
+              {{ t('ROUTING_CONFIG.CATEGORIES.SUB_DEFAULT_NOTE') }}
+            </span>
+            <template v-else>
+              <div class="flex flex-wrap gap-3">
+                <label class="flex flex-col flex-1 gap-1 min-w-[14rem]">
+                  <span class="text-xs text-n-slate-11">
+                    {{ t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD') }}
+                  </span>
+                  <input
+                    :value="verticalField(key, vkey, 'forward_to') || ''"
+                    type="text"
+                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD_PH')"
+                    class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                    @input="
+                      setVerticalField(
+                        key,
+                        vkey,
+                        'forward_to',
+                        $event.target.value
+                      )
+                    "
+                  />
+                </label>
+                <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
+                  <span class="text-xs text-n-slate-11">
+                    {{ t('ROUTING_CONFIG.CATEGORIES.SUB_CC') }}
+                  </span>
+                  <input
+                    :value="verticalCcText(key, vkey)"
+                    type="text"
+                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_CC_PH')"
+                    class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                    @input="setVerticalCc(key, vkey, $event.target.value)"
+                  />
+                </label>
+              </div>
+              <div class="flex flex-wrap items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    :checked="
+                      verticalBool(key, vkey, 'include_customer_in_cc', false)
+                    "
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                    @change="
+                      setVerticalField(
+                        key,
+                        vkey,
+                        'include_customer_in_cc',
+                        $event.target.checked
+                      )
+                    "
+                  />
+                  <span class="text-xs font-medium text-n-slate-11">
+                    {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
+                  </span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    :checked="
+                      verticalBool(key, vkey, 'share_executive_email', false)
+                    "
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                    @change="
+                      setVerticalField(
+                        key,
+                        vkey,
+                        'share_executive_email',
+                        $event.target.checked
+                      )
+                    "
+                  />
+                  <span class="text-xs font-medium text-n-slate-11">
+                    {{ t('ROUTING_CONFIG.CATEGORIES.SHARE_EXEC_EMAIL') }}
+                  </span>
+                </label>
+              </div>
+            </template>
           </div>
         </div>
 
