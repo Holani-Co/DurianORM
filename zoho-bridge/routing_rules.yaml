@@ -32,21 +32,38 @@ categories:
   product_enquiry:
     display_name: Product Enquiry
     action: in_channel
+    # Laminate product enquiries forward to the external Cedar India desk; every
+    # other product enquiry (furniture etc.) falls through to the retail gate
+    # (city → showroom → CRM owner). Doors & Full Home Customization remain their
+    # OWN top-level categories with their existing deal flow — not verticals here.
+    # No vertical_ambiguous:card here, so a non-laminate enquiry never cards.
+    vertical_routing:
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Laminate, Laminates, Sunmica, Decorative Laminate, PU Laminate,
+          Laminate Sheet, Laminate Catalogue, Laminate Price]
     description: |
       Customer is asking ABOUT a specific product or a category of products
-      before buying — its availability, price, dimensions, materials,
-      colour options, store stock, online link, exchange/upgrade offer, or
-      where to find it. Pre-purchase intent. NOT an existing order.
+      before buying — furniture (sofa, bed, mattress, dining, recliner) OR
+      decorative LAMINATE / sunmica sheets — its availability, price,
+      dimensions, materials, colour options, store stock, online link,
+      catalogue, exchange/upgrade offer, or where to find it. Pre-purchase
+      intent. NOT an existing order. (A laminate enquiry is sub-routed to the
+      Cedar India laminate desk; furniture goes to the retail showroom flow.)
     examples:
       - "Do you have Devansh set 6 by 5 feet"
       - "Single sitter sofa cum bed available?"
-      - "Garden side table"
+      - "Do you have decorative laminates / sunmica sheets? Share the catalogue"
       - "Are there trolly drawers for rooms"
       - "Office chair exchange is possible at pin code 700135?"
       - "Is this available in jamshedpur Jharkhand"
     # Subject-line keyword anchors from the client's Email-Keywords sheet.
-    # NOTE: door / veneer / plywood / laminate / frame product terms route
-    # to the dedicated doors_veneer_plywood category, NOT here.
+    # NOTE: door / veneer / plywood / frame product terms route to the
+    # dedicated doors_veneer_plywood category, NOT here. Laminate DOES belong
+    # here (it is sub-routed to the laminate vertical).
     keywords:
       - Price Inquiry
       - Product Catalog
@@ -57,6 +74,12 @@ categories:
       - store availability
       - sofa availability
       - chair availability
+      - Laminate
+      - Laminates
+      - Sunmica
+      - Decorative Laminate
+      - Laminate Catalogue
+      - Laminate Price
 
   general_information:
     display_name: General Information
@@ -116,6 +139,7 @@ categories:
     include_customer_in_cc: true
     # Route the complaint to the vertical's team (client "Working Team – Feedback"
     # sheet). Vertical detected by classify_vertical; unclear → agent decision card.
+    vertical_ambiguous: card
     vertical_routing:
       retail_furniture:
         display_name: Retail Furniture
@@ -389,6 +413,7 @@ categories:
     bcc: []
     include_customer_in_cc: false
     # Franchise routes by the product line the applicant wants to sell (sheet).
+    vertical_ambiguous: card
     vertical_routing:
       retail_furniture:
         display_name: Retail Furniture
@@ -986,9 +1011,10 @@ categories:
 
   # ── Doors / Veneer / Plywood — dedicated product line (Anshu Tiwari) ──
   # Added per the client's Email-Keywords sheet, which routes ALL door /
-  # veneer / plywood / laminate / frame enquiries AND complaints to a
-  # dedicated owner (Anshu Tiwari), separate from the general
-  # complaint/product flows.
+  # veneer / plywood / frame enquiries AND complaints to a dedicated owner
+  # (Anshu Tiwari), separate from the general complaint/product flows.
+  # NOTE: LAMINATE is deliberately NOT here — laminate is its own vertical
+  # (product_enquiry → laminate → Cedar India; complaint → laminate → Cedar).
   doors_veneer_plywood:
     display_name: Doors / Veneer / Plywood
     action: forward
@@ -1004,17 +1030,18 @@ categories:
     include_customer_in_cc: true
     description: |
       Any enquiry OR complaint specifically about Durian's doors, door
-      frames, veneers, plywood, or laminates product line — pricing,
-      catalogue, finishes (PU matt/gloss), specific door series (Flush,
-      Herring, Golden Teak), frame options, door installation/replacement,
-      or a defect in a door/veneer/laminate item. This is a dedicated
-      product vertical: even a COMPLAINT about a door routes here (not to
-      the general Complaint category), and even a pre-purchase door
-      enquiry routes here (not to general Product Enquiry).
+      frames, veneers, or plywood product line — pricing, catalogue,
+      finishes (PU matt/gloss), specific door series (Flush, Herring,
+      Golden Teak), frame options, door installation/replacement, or a
+      defect in a door/veneer/plywood item. This is a dedicated product
+      vertical: even a COMPLAINT about a door routes here (not to the
+      general Complaint category), and even a pre-purchase door enquiry
+      routes here (not to general Product Enquiry). Decorative LAMINATE /
+      sunmica is NOT this category — it is its own laminate vertical.
     examples:
       - "Need a quotation for 40 mm flush doors with golden teak veneer"
       - "What are your standard door sizes and frame options?"
-      - "Price list for decorative laminates and PU gloss finish"
+      - "Price list for plywood sheets and PU gloss door finish"
       - "The veneer door installed last month is peeling at the edges"
       - "Interested in bulk door requirement for our project"
     keywords:
@@ -1025,8 +1052,8 @@ categories:
       - Wooden Doors
       - Interior Doors
       - Premium Doors
-      - Laminates
-      - Decorative Laminates
+      - Plywood
+      - Plywood Sheets
       - PU Matt Finish
       - PU Gloss Finish
       - Golden Teak Veneer
@@ -1034,7 +1061,6 @@ categories:
       - Door Replacement
       - Door Quotation
       - Door Catalog
-      - Laminate Catalog
       - Frame Options
       - Frame Pricing
       - 40 mm Flush Door

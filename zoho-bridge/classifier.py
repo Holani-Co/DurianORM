@@ -902,9 +902,6 @@ async def classify_email_category(content: str, sender_email: str = "",
 
     # Product-vertical routing (product_enquiry / complaint / franchise) →
     # forward to the vertical's team. Same rule-copy approach as sector/location.
-    # When the vertical is unclear, set vertical_uncertain and DON'T override the
-    # forward — main.py posts the vertical decision card so an agent picks it
-    # rather than the bridge guessing the wrong team.
     if rule.get("vertical_routing"):
         vroute_map = rule["vertical_routing"]
         vres = await classify_vertical(content, vroute_map, sender_email,
@@ -914,7 +911,7 @@ async def classify_email_category(content: str, sender_email: str = "",
         result["vertical_reason"]     = vres["reason"]
         vroute = vroute_map.get(vres["vertical"]) or {}
         if vres["vertical"] and vres["confidence"] >= threshold:
-            result["rule"] = {
+            new_rule = {
                 **rule,
                 "forward_to": vroute.get("forward_to") or rule.get("forward_to"),
                 "cc":         vroute.get("cc") if vroute.get("cc") is not None
@@ -925,7 +922,18 @@ async def classify_email_category(content: str, sender_email: str = "",
                     "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
                 "share_executive_email": vroute.get("share_executive_email", False),
             }
-        else:
+            # A vertical with its OWN forward target forwards, even when the
+            # parent category is in_channel — e.g. product_enquiry → laminate →
+            # Cedar India forwards, while product_enquiry → furniture stays
+            # in_channel for the retail gate.
+            if vroute.get("forward_to"):
+                new_rule["action"] = "forward"
+                result["action"]   = "forward"
+            result["rule"] = new_rule
+        elif rule.get("vertical_ambiguous") == "card":
+            # Categories that opt in (complaint / franchise): an unclear vertical
+            # is NOT guessed — main.py posts the vertical decision card. Others
+            # (product_enquiry) fall through to their default flow (retail gate).
             result["vertical_uncertain"] = True
     return result
 

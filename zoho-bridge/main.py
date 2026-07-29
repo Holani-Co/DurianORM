@@ -2979,8 +2979,12 @@ async def _phase2_execute_actions(conv_id: int,
         audit.append(
             "ℹ️ Acknowledgment skipped — deal-details gate owns the customer reply."
         )
-    elif cat_key == "product_enquiry" and config.RETAIL_ROUTING_ENABLED:
+    elif (cat_key == "product_enquiry" and action != "forward"
+            and config.RETAIL_ROUTING_ENABLED):
         # The retail routing gate (below) owns the reply for product enquiries —
+        # EXCEPT a laminate enquiry, which the vertical router turned into a
+        # forward (action == "forward") to Cedar India; that gets the normal
+        # forward + acknowledgment instead of the retail gate.
         # it asks for the city or lists the city's showrooms in ONE email, so the
         # generic acknowledgment would be a duplicate.
         audit.append(
@@ -3188,8 +3192,11 @@ async def _phase2_execute_actions(conv_id: int,
     # ── Retail routing gate (product enquiry → city → showroom → owner) ──
     # Retail furniture purchase enquiries route to a showroom's CRM owner: ask
     # the city, list the city's showrooms, capture the chosen owner for Create
-    # Deal. Owns the customer reply (generic ack suppressed above).
-    if cat_key == "product_enquiry" and config.RETAIL_ROUTING_ENABLED:
+    # Deal. Owns the customer reply (generic ack suppressed above). A laminate
+    # enquiry is a forward (action == "forward") to Cedar India — it skips the
+    # retail gate and is handled by the forward block above.
+    if (cat_key == "product_enquiry" and action != "forward"
+            and config.RETAIL_ROUTING_ENABLED):
         try:
             audit += await _run_retail_gate(
                 conv_id, sender_name, sender_email,
