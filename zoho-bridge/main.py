@@ -1430,6 +1430,19 @@ def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
     return templates.get(key)
 
 
+def _append_executive_email(ack_body: str, forward_to: str) -> str:
+    """Append a 'connect with the team directly' line naming the handling team's
+    email address — used for categories/verticals flagged share_executive_email
+    (the client's Email-Keywords "share internal team info = YES" rows). The team
+    address is the rule's forward target; the first address is used when several."""
+    addr = (forward_to or "").split(",")[0].strip()
+    if not addr:
+        return ack_body
+    return (ack_body.rstrip() +
+            f"\n\nFor quicker resolution, you may also connect with our team "
+            f"directly at {addr}.")
+
+
 def _append_ticket_reference(ack_body: str, ticket_number: str) -> str:
     """Append the Zoho ticket number as a footer on the customer complaint
     acknowledgment so they have a reference for any future correspondence.
@@ -2995,6 +3008,10 @@ async def _phase2_execute_actions(conv_id: int,
             customer_name    = name,
             original_subject = original_subject or "",
         )
+        # Share the handling team's direct email with the customer when the
+        # resolved rule/vertical is flagged share_executive_email (client col G).
+        if rule and rule.get("share_executive_email") and rule.get("forward_to"):
+            ack_body = _append_executive_email(ack_body, rule["forward_to"])
         if cat_key == "complaint":
             # Defer: the ticket doesn't exist yet. Sent after ticket creation
             # so we can append the reference number for the customer.
