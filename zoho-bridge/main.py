@@ -1376,6 +1376,13 @@ _EMAIL_CUSTOMER_ACK_ENABLED = (
     os.environ.get("EMAIL_CUSTOMER_ACK_ENABLED", "false").lower() == "true"
 )
 
+# LOCAL TESTING ONLY: when set to an address, EVERY team forward (any category,
+# vertical, sector, region, or location route) is redirected to this one inbox,
+# so a local run never emails a real department. Team Cc/Bcc are dropped; the
+# customer Cc (a real test sender) is kept. UNSET in production — leave the env
+# var out and forwards go to the real configured recipients.
+_LOCAL_FORWARD_OVERRIDE = os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
+
 # Sender local-parts that mark machine-generated / transactional mail (OTPs,
 # shipping/security notifications, third-party system emails). There's no human
 # on the other end, so we must NEVER send a customer acknowledgment back to
@@ -3037,6 +3044,14 @@ async def _phase2_execute_actions(conv_id: int,
         if rule.get("include_customer_in_cc") and sender_email:
             cc_list.append(sender_email)
         bcc_list   = list(rule.get("bcc") or [])
+        # LOCAL TESTING: redirect the whole team forward to one inbox (env-gated,
+        # off in prod). Keeps only the customer Cc; drops team Cc/Bcc.
+        if _LOCAL_FORWARD_OVERRIDE:
+            keep_customer = bool(rule.get("include_customer_in_cc") and sender_email)
+            forward_to = _LOCAL_FORWARD_OVERRIDE
+            cc_list    = [sender_email] if keep_customer else []
+            bcc_list   = []
+            audit.append(f"🧪 Local test: team forward redirected to {forward_to}.")
 
         if not forward_to:
             audit.append("⚠️ Forward skipped: no `forward_to` in routing rule")
