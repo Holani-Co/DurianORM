@@ -370,6 +370,16 @@ Rails.application.routes.draw do
                 post :escalate_review
               end
             end
+            resource :routing_config, controller: 'routing_config', only: [:show] do
+              collection do
+                post :validate
+                post :publish
+                get  :versions
+                get  :version
+                post :rollback
+                post :preview
+              end
+            end
             resource :shopify, controller: 'shopify', only: [:destroy] do
               collection do
                 post :auth

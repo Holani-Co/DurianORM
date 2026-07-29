@@ -23,19 +23,33 @@ BUNDLE_SILENCE_ROOT_WARNING=1 $RBENV_BUNDLE install --quiet
 log "Installing JS packages..."
 pnpm install --frozen-lockfile --silent --ignore-scripts
 
-# ── 4. Free RAM for the build (services restart in step 6) ────────────────────
-log "Stopping web/worker to free memory for the build..."
-systemctl stop chatwoot-worker chatwoot-web || true
+# ── 4. Asset precompile — BEFORE stopping services ────────────────────────────
+# The build is the step that fails: a Vue compile error (e.g. `??` in a template)
+# or an OOM on this 4 GB box. Previously we stopped web+worker FIRST to free RAM,
+# so a failed build left production DOWN on a half-built tree. Build while the
+# services are still UP instead: a failure aborts the deploy here with prod
+# untouched. A running Puma serves the asset manifest it loaded at boot, so
+# writing new assets underneath it does not disturb live traffic, and swap (see
+# /etc/fstab) absorbs the build's peak so it need not fight web/worker for RAM.
+log "Precompiling assets (services still up; abort here if the build fails)..."
+PRECOMPILE_LOG="$(mktemp)"
+precompile_rc=0
+NODE_OPTIONS="--max-old-space-size=3072" RAILS_ENV=production \
+  $RBENV_BUNDLE exec rails assets:precompile > "$PRECOMPILE_LOG" 2>&1 || precompile_rc=$?
+grep -v "DEPRECATION WARNING\|legacy-js-api\|v-deep\|More info:" "$PRECOMPILE_LOG" | tail -20
+rm -f "$PRECOMPILE_LOG"
+if [ "$precompile_rc" -ne 0 ]; then
+  log "ERROR: asset precompile failed (rc=$precompile_rc) — production left running on the OLD build. Nothing was stopped."
+  exit 1
+fi
 
-# ── 5. Asset precompile ───────────────────────────────────────────────────────
-log "Precompiling assets..."
-NODE_OPTIONS="--max-old-space-size=3072" RAILS_ENV=production $RBENV_BUNDLE exec rails assets:precompile 2>&1 | grep -v "DEPRECATION WARNING\|legacy-js-api\|v-deep\|More info:" | tail -10
-
-# ── 6. DB migrations ──────────────────────────────────────────────────────────
+# Build is known-good from here, so the only downtime is the restart itself
+# (seconds), not the whole build.
+# ── 5. DB migrations ──────────────────────────────────────────────────────────
 log "Running DB migrations..."
 RAILS_ENV=production $RBENV_BUNDLE exec rails db:migrate
 
-# ── 7. Restart services ───────────────────────────────────────────────────────
+# ── 6. Restart services (picks up the new code + freshly built assets) ────────
 log "Restarting chatwoot-web..."
 systemctl restart chatwoot-web
 
