@@ -53,10 +53,25 @@ const showSectorPicker = computed(
   () => props.pending?.needs_sector || selected.value === BULK_CATEGORY
 );
 
+// Vertical-routed categories (complaint / franchise / product enquiry) whose
+// product line the AI couldn't determine → show a product-line picker. The
+// options come from the bridge (the confirmed category's vertical_routing).
+const verticalOptions = computed(() => props.pending?.verticals || []);
+const selectedVertical = ref(props.pending?.vertical_suggested || '');
+const verticalReason = computed(() => props.pending?.vertical_reason || '');
+const verticalConfidencePct = computed(() =>
+  Math.round((props.pending?.vertical_confidence || 0) * 100)
+);
+const showVerticalPicker = computed(() => !!props.pending?.needs_vertical);
+
 async function confirm(category) {
   if (submitting.value || !category) return;
   if (category === BULK_CATEGORY && !selectedSector.value) {
     useAlert('Pick the buyer sector (government or private) first.');
+    return;
+  }
+  if (showVerticalPicker.value && !selectedVertical.value) {
+    useAlert('Pick the product line first.');
     return;
   }
   submitting.value = true;
@@ -67,6 +82,9 @@ async function confirm(category) {
         conversation_id: Number(props.conversationId),
         category,
         ...(category === BULK_CATEGORY ? { sector: selectedSector.value } : {}),
+        ...(showVerticalPicker.value && selectedVertical.value
+          ? { vertical: selectedVertical.value }
+          : {}),
       }
     );
     // Bridge clears pending_category_decision server-side; mirror ONLY in the
@@ -133,6 +151,39 @@ async function confirm(category) {
           @click="selectedSector = opt.value"
         >
           {{ opt.label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Product line (vertical-routed categories only). Sent with the confirm
+         so the email reaches that vertical's team. -->
+    <div
+      v-if="showVerticalPicker"
+      class="flex flex-col gap-1.5 p-2.5 rounded-md bg-n-alpha-1"
+    >
+      <span class="text-xs font-medium text-n-slate-12">
+        Product line
+        <span v-if="verticalConfidencePct" class="font-normal text-n-slate-10">
+          · AI guess {{ verticalConfidencePct }}%
+        </span>
+      </span>
+      <p v-if="verticalReason" class="text-xs text-n-slate-11 italic">
+        {{ verticalReason }}
+      </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          v-for="opt in verticalOptions"
+          :key="opt.vertical"
+          type="button"
+          class="px-2 py-1.5 text-xs font-medium rounded-md border"
+          :class="
+            selectedVertical === opt.vertical
+              ? 'bg-n-brand text-white border-n-brand'
+              : 'bg-n-background text-n-slate-12 border-n-weak hover:bg-n-alpha-2'
+          "
+          @click="selectedVertical = opt.vertical"
+        >
+          {{ opt.display_name }}
         </button>
       </div>
     </div>
