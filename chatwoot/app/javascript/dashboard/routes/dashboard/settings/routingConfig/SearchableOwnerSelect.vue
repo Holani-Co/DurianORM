@@ -6,7 +6,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   options: { type: Array, default: () => [] }, // array of { id, name }
   placeholder: { type: String, default: 'Select...' },
-  hasEdit: { type: Boolean, default: false }
+  hasEdit: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:modelValue', 'change']);
@@ -33,11 +33,16 @@ function onSelect(item) {
     <button
       type="button"
       class="flex items-center justify-between w-full px-2.5 py-1.5 text-sm text-left border rounded-lg outline-none bg-n-surface text-n-slate-12 focus:border-n-brand transition-colors"
-      :class="[hasEdit ? 'border-n-brand' : 'border-n-weak', open ? 'ring-1 ring-n-brand border-n-brand' : '']"
+      :class="[
+        hasEdit ? 'border-n-brand' : 'border-n-weak',
+        open ? 'ring-1 ring-n-brand border-n-brand' : '',
+      ]"
       @click="toggle"
     >
       <span class="truncate">{{ modelValue || placeholder }}</span>
-      <span class="i-lucide-chevron-down shrink-0 w-4 h-4 ml-2 text-n-slate-10" />
+      <span
+        class="i-lucide-chevron-down shrink-0 w-4 h-4 ml-2 text-n-slate-10"
+      />
     </button>
     <FilterListDropdown
       v-if="open"

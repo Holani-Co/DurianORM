@@ -1,11 +1,11 @@
 import { frontendURL } from 'dashboard/helper/URLHelper';
 import SettingsWrapper from '../SettingsWrapper.vue';
-import Index from './Index.vue';
+
+const Index = () => import('./Index.vue');
 
 // Admin-only "Routing Config" settings section. Reads the live email-routing
-// rules from the zoho-bridge (via the admin Rails proxy) so the client can see —
-// and, in later phases, edit — how inbound email is categorised, forwarded, and
-// assigned to CRM owners.
+// rules from the zoho-bridge (via the admin Rails proxy) so administrators can
+// manage how inbound email is categorised, forwarded, and assigned to CRM owners.
 export default {
   routes: [
     {
