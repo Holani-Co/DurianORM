@@ -39,8 +39,7 @@ const addForm = reactive({
   includeCustomerInCc: false,
 });
 
-// Draft inputs for existing category forward/cc chip inputs
-const fwdInput = reactive({}); // { catKey: 'draft email' }
+// Draft input for existing category cc chip inputs
 const ccInput = reactive({}); // { catKey: 'draft email' }
 
 const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((e || '').trim());
@@ -201,6 +200,50 @@ function examplesText(key) {
 }
 function setExamples(key, text) {
   setField(key, 'examples', text.split('\n'));
+}
+
+// ── Subcategories (vertical_routing) ──
+// Some categories (Complaint, Franchise, Product Enquiry) route by product
+// vertical. Each vertical has its own forward target + Cc + toggles, edited
+// nested under catEdits[key].vertical_routing[vertical] and deep-merged by the
+// bridge onto the YAML floor at publish.
+function verticalsOf(key) {
+  return Object.keys(base(key).vertical_routing || {});
+}
+function verticalLabel(key, vkey) {
+  return (
+    (base(key).vertical_routing || {})[vkey]?.display_name ||
+    vkey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  );
+}
+function verticalField(key, vkey, name) {
+  const edit = catEdits[key]?.vertical_routing?.[vkey];
+  if (edit && name in edit) return edit[name];
+  return (base(key).vertical_routing || {})[vkey]?.[name];
+}
+function setVerticalField(key, vkey, name, value) {
+  const cur = catEdits[key] || {};
+  const vr = { ...(cur.vertical_routing || {}) };
+  vr[vkey] = { ...(vr[vkey] || {}), [name]: value };
+  catEdits[key] = { ...cur, vertical_routing: vr };
+}
+function verticalCcText(key, vkey) {
+  return (verticalField(key, vkey, 'cc') || []).join(', ');
+}
+function setVerticalCc(key, vkey, text) {
+  setVerticalField(
+    key,
+    vkey,
+    'cc',
+    (text || '')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean)
+  );
+}
+function verticalBool(key, vkey, name, fallback) {
+  const v = verticalField(key, vkey, name);
+  return v == null ? fallback : v;
 }
 
 function discard() {
@@ -543,6 +586,103 @@ async function publish() {
                   @keydown.enter.prevent="addCcEmailForKey(key)"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subcategories (vertical_routing): only rendered for categories that
+             route by product line (Complaint / Franchise / Product Enquiry). -->
+        <div v-if="verticalsOf(key).length" class="flex flex-col gap-2">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-xs font-medium text-n-slate-11">
+              {{ t('ROUTING_CONFIG.CATEGORIES.SUBCATEGORIES_LABEL') }}
+            </span>
+            <span class="text-xs text-n-slate-10">
+              {{ t('ROUTING_CONFIG.CATEGORIES.SUBCATEGORIES_HINT') }}
+            </span>
+          </div>
+          <div
+            v-for="vkey in verticalsOf(key)"
+            :key="'vr-' + key + '-' + vkey"
+            class="flex flex-col gap-2 p-2.5 border rounded-lg border-n-weak bg-n-alpha-1"
+          >
+            <span class="text-xs font-semibold text-n-slate-12">
+              {{ verticalLabel(key, vkey) }}
+            </span>
+            <div class="flex flex-wrap gap-3">
+              <label class="flex flex-col flex-1 gap-1 min-w-[14rem]">
+                <span class="text-xs text-n-slate-11">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD') }}
+                </span>
+                <input
+                  :value="verticalField(key, vkey, 'forward_to') || ''"
+                  type="text"
+                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD_PH')"
+                  class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                  @input="
+                    setVerticalField(
+                      key,
+                      vkey,
+                      'forward_to',
+                      $event.target.value
+                    )
+                  "
+                />
+              </label>
+              <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
+                <span class="text-xs text-n-slate-11">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.SUB_CC') }}
+                </span>
+                <input
+                  :value="verticalCcText(key, vkey)"
+                  type="text"
+                  :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_CC_PH')"
+                  class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
+                  @input="setVerticalCc(key, vkey, $event.target.value)"
+                />
+              </label>
+            </div>
+            <div class="flex flex-wrap items-center gap-4">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  :checked="
+                    verticalBool(key, vkey, 'include_customer_in_cc', false)
+                  "
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                  @change="
+                    setVerticalField(
+                      key,
+                      vkey,
+                      'include_customer_in_cc',
+                      $event.target.checked
+                    )
+                  "
+                />
+                <span class="text-xs font-medium text-n-slate-11">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
+                </span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  :checked="
+                    verticalBool(key, vkey, 'share_executive_email', false)
+                  "
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+                  @change="
+                    setVerticalField(
+                      key,
+                      vkey,
+                      'share_executive_email',
+                      $event.target.checked
+                    )
+                  "
+                />
+                <span class="text-xs font-medium text-n-slate-11">
+                  {{ t('ROUTING_CONFIG.CATEGORIES.SHARE_EXEC_EMAIL') }}
+                </span>
+              </label>
             </div>
           </div>
         </div>

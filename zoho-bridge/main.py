@@ -4770,6 +4770,36 @@ def _validate_routing_doc(doc) -> dict:
                     for a in vals:
                         if not _valid_email(a):
                             errors.append(f"Category '{key}': {field} has an invalid email '{a}'.")
+            # Vertical routing (subcategories): each vertical's forward_to may be
+            # a comma-separated list (e.g. the laminate desk); validate each.
+            vr = cfg.get("vertical_routing")
+            if vr is not None and not isinstance(vr, dict):
+                errors.append(f"Category '{key}': vertical_routing must be an object.")
+            elif isinstance(vr, dict):
+                for vkey, vcfg in vr.items():
+                    if not isinstance(vcfg, dict):
+                        errors.append(f"Category '{key}' vertical '{vkey}' must be an object.")
+                        continue
+                    vft = vcfg.get("forward_to")
+                    if vft:
+                        for addr in str(vft).split(","):
+                            addr = addr.strip()
+                            if addr and not _valid_email(addr):
+                                errors.append(f"Category '{key}' vertical '{vkey}': "
+                                              f"forward_to '{addr}' is not a valid email.")
+                    for vf in ("include_customer_in_cc", "share_executive_email"):
+                        if vf in vcfg and not isinstance(vcfg[vf], bool):
+                            errors.append(f"Category '{key}' vertical '{vkey}': "
+                                          f"{vf} must be true or false.")
+                    for vf in ("cc", "bcc"):
+                        vals = vcfg.get(vf)
+                        if vals and not isinstance(vals, list):
+                            errors.append(f"Category '{key}' vertical '{vkey}': {vf} must be a list.")
+                        elif isinstance(vals, list):
+                            for a in vals:
+                                if not _valid_email(a):
+                                    errors.append(f"Category '{key}' vertical '{vkey}': "
+                                                  f"{vf} has an invalid email '{a}'.")
             if not (cfg.get("description") or "").strip():
                 warnings.append(f"Category '{key}' has no description — the classifier picks it less reliably.")
 
