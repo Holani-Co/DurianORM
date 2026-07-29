@@ -383,10 +383,34 @@ categories:
   franchise_dealership:
     display_name: Franchise / Dealership Enquiry
     action: forward
+    # Default = Retail Furniture (Ram Sai). Used when the vertical is unclear.
     forward_to: ram.sai@durian.in
     cc: []
     bcc: []
     include_customer_in_cc: false
+    # Franchise routes by the product line the applicant wants to sell (sheet).
+    vertical_routing:
+      retail_furniture:
+        display_name: Retail Furniture
+        forward_to: ram.sai@durian.in
+        keywords: [Sofa, Furniture, Ready Furniture, Recliner, Showroom, Store]
+      full_home_customization:
+        display_name: Full Home Customization
+        forward_to: ram.sai@durian.in
+        keywords: [Modular Kitchen, Interior, Home Studio, Full Home, Modular]
+      ecom:
+        display_name: E-commerce
+        forward_to: shilpa@durian.in
+        keywords: [Online, E-commerce, Marketplace, Website Sales]
+      doors_veneer_plywood:
+        display_name: Doors / Veneer / Plywood
+        forward_to: anshu.tiwari@durian.in
+        cc: [rohit.kanoujia@durian.in]
+        keywords: [Doors, Door, Veneer, Plywood, Laminate Dealership, Door Dealership]
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+        keywords: [Laminate, Laminates, Sunmica]
     description: |
       Someone wants to open a Durian franchise / become a dealer /
       authorised reseller / distributor — asking for franchise terms,
