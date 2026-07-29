@@ -108,10 +108,47 @@ categories:
   complaint:
     display_name: Complaint
     action: forward
+    # Default = Retail Furniture (customer support + Jeevan, customer Cc'd). Used
+    # when the product vertical can't be determined (until an agent picks it).
     forward_to: customersupport@durian.in
-    cc: []
+    cc: [Jeevan.jyoti@durian.in]
     bcc: []
     include_customer_in_cc: true
+    # Route the complaint to the vertical's team (client "Working Team – Feedback"
+    # sheet). Vertical detected by classify_vertical; unclear → agent decision card.
+    vertical_routing:
+      retail_furniture:
+        display_name: Retail Furniture
+        forward_to: customersupport@durian.in
+        cc: [Jeevan.jyoti@durian.in]
+        include_customer_in_cc: true
+        keywords: [Sofa, Recliner, Bed, Mattress, Dining, Wardrobe, Cushion, Upholstery,
+          Fabric, Frame, Seat Sagging, Leather Peeling, Foam, Hydraulic, Caster]
+      full_home_customization:
+        display_name: Full Home Customization
+        forward_to: nishita.nayak@durian.in, hofhc.mis@durian.in
+        include_customer_in_cc: false
+        keywords: [Modular Kitchen, Modular Wardrobe, Interior, Vanity Unit, Crockery Unit,
+          Home Interior, Kitchen Installation, Customisation Project, Island Kitchen]
+      ecom:
+        display_name: E-commerce Order
+        forward_to: abhishek.pandey@durian.in
+        include_customer_in_cc: false
+        keywords: [Online Order, Order Status, Delivery, Tracking, Dispatch, Shipment,
+          Not Delivered, Order Delay, In Transit, Courier]
+      doors_veneer_plywood:
+        display_name: Doors / Veneer / Plywood
+        forward_to: anshu.tiwari@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Door, Door Frame, Veneer, Plywood, Flush Door, Door Alignment,
+          Door Installation, Wooden Frame, Door Replacement]
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Laminate, Laminates, Sunmica, Decorative Laminate]
     description: |
       Customer is unhappy about a product they received, a service issue,
       a defective item, poor experience, damaged delivery, missing parts,

@@ -899,6 +899,34 @@ async def classify_email_category(content: str, sender_email: str = "",
             "include_customer_in_cc": lroute.get(
                 "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
         }
+
+    # Product-vertical routing (product_enquiry / complaint / franchise) →
+    # forward to the vertical's team. Same rule-copy approach as sector/location.
+    # When the vertical is unclear, set vertical_uncertain and DON'T override the
+    # forward — main.py posts the vertical decision card so an agent picks it
+    # rather than the bridge guessing the wrong team.
+    if rule.get("vertical_routing"):
+        vroute_map = rule["vertical_routing"]
+        vres = await classify_vertical(content, vroute_map, sender_email,
+                                       subject, lf_parent=lf_parent)
+        result["vertical"]            = vres["vertical"]
+        result["vertical_confidence"] = vres["confidence"]
+        result["vertical_reason"]     = vres["reason"]
+        vroute = vroute_map.get(vres["vertical"]) or {}
+        if vres["vertical"] and vres["confidence"] >= threshold:
+            result["rule"] = {
+                **rule,
+                "forward_to": vroute.get("forward_to") or rule.get("forward_to"),
+                "cc":         vroute.get("cc") if vroute.get("cc") is not None
+                              else (rule.get("cc") or []),
+                "bcc":        vroute.get("bcc") if vroute.get("bcc") is not None
+                              else (rule.get("bcc") or []),
+                "include_customer_in_cc": vroute.get(
+                    "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
+                "share_executive_email": vroute.get("share_executive_email", False),
+            }
+        else:
+            result["vertical_uncertain"] = True
     return result
 
 
@@ -998,6 +1026,127 @@ async def classify_bulk_sector(content: str, sender_email: str = "",
     return {"sector":     sector,
             "confidence": float(parsed.get("confidence") or 0),
             "reason":     (parsed.get("reason") or "")[:200]}
+
+
+# ── Product-vertical sub-classifier (which Durian product line) ────────────
+# A third instance of the sector/location sub-routing pattern. Categories that
+# carry a `vertical_routing:` map (product_enquiry / complaint / franchise) are
+# routed a second level by the product line the email is about:
+#   retail_furniture (DEFAULT) · full_home_customization · ecom ·
+#   doors_veneer_plywood · laminate.
+# Data-driven: the candidate verticals + their keyword signals come from the
+# YAML, so the client can extend them with a config edit only. 'unclear' →
+# empty vertical, which main.py turns into an agent decision card.
+def _vertical_response_schema(vertical_keys: list) -> dict:
+    keys = list(vertical_keys) + ["unclear"]
+    return {
+        "name":   "product_vertical",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "vertical":   {"type": "string", "enum": keys},
+                "confidence": {"type": "number"},
+                "reason":     {"type": "string"},
+            },
+            "required": ["vertical", "confidence", "reason"],
+        },
+    }
+
+
+def _build_vertical_prompt(vertical_routing: dict) -> str:
+    lines = [
+        "A Durian email has been classified into a category that routes by "
+        "PRODUCT VERTICAL. Decide which product line the email concerns so it "
+        "reaches the right team.",
+        "",
+        "Verticals:",
+    ]
+    for key, cfg in (vertical_routing or {}).items():
+        disp = (cfg or {}).get("display_name") or key.replace("_", " ").title()
+        lines.append(f"- {key} ({disp})")
+        kws = (cfg or {}).get("keywords") or []
+        if kws:
+            lines.append("    signals: " + ", ".join(
+                str(k) for k in kws[:config.CATEGORY_KEYWORDS_IN_PROMPT]))
+    lines.extend([
+        "",
+        "Rules:",
+        "  • retail_furniture is the DEFAULT — ready furniture (sofa, bed, "
+        "mattress, dining, recliner, ready wardrobe). Pick it unless another "
+        "vertical's signal clearly fires.",
+        "  • doors_veneer_plywood covers doors, door frames, veneer AND plywood "
+        "(one vertical). laminate (decorative laminate / sunmica) is SEPARATE.",
+        "  • full_home_customization = modular kitchen / wardrobe / whole-home "
+        "interiors. ecom = online order / e-commerce.",
+        "  • Output a 0.0–1.0 confidence and a one-sentence reason. Use "
+        "'unclear' with a low confidence when you genuinely cannot tell which "
+        "vertical — a human will pick it.",
+    ])
+    return "\n".join(lines)
+
+
+async def classify_vertical(content: str, vertical_routing: dict,
+                            sender_email: str = "", subject: str = "",
+                            lf_parent: dict = None) -> dict:
+    """Decide the product vertical for a vertical-routed category. Returns
+    {vertical, confidence, reason}; vertical is '' when unclear. Fail-safe:
+    an empty vertical on any error, so routing falls back to the category
+    default / the agent decision card rather than a wrong team."""
+    default = {"vertical": "", "confidence": 0.0, "reason": ""}
+    keys = list((vertical_routing or {}).keys())
+    if not content or not content.strip() or not keys:
+        return default
+    ctx = []
+    if subject:
+        ctx.append(f"Subject: {subject}")
+    if sender_email:
+        ctx.append(f"From: {sender_email}")
+    ctx.append(f"Body:\n{content}")
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=120,
+            response_format={"type": "json_schema",
+                             "json_schema": _vertical_response_schema(keys)},
+            messages=[
+                {"role": "system", "content": _build_vertical_prompt(vertical_routing)},
+                {"role": "user",   "content": "\n".join(ctx)},
+            ],
+            name="product-vertical-classification",
+            metadata={"langfuse_tags": ["classifier", "vertical"]},
+            **(lf_parent or {}),
+        )
+        parsed = json.loads(r.choices[0].message.content or "")
+    except Exception as e:
+        print(f"[classifier:vertical] ERROR ({type(e).__name__}): {e}")
+        return default
+    v = parsed.get("vertical")
+    conf = float(parsed.get("confidence") or 0)
+    reason = (parsed.get("reason") or "")[:200]
+    if v == "unclear" or v not in keys:
+        return {"vertical": "", "confidence": conf, "reason": reason}
+    return {"vertical": v, "confidence": conf, "reason": reason}
+
+
+def vertical_choices(category: str) -> list[dict]:
+    """[{vertical, display_name}] for a category's vertical_routing — powers the
+    vertical picker on the decision card. Empty list if the category isn't
+    vertical-routed."""
+    vr = ((get_routing_rules().get("categories") or {}).get(category) or {}
+          ).get("vertical_routing") or {}
+    return [{"vertical": k,
+             "display_name": (v or {}).get("display_name") or k.replace("_", " ").title()}
+            for k, v in vr.items()]
+
+
+def vertical_display_name(category: str, vertical: str) -> str:
+    vr = ((get_routing_rules().get("categories") or {}).get(category) or {}
+          ).get("vertical_routing") or {}
+    cfg = vr.get(vertical) or {}
+    return cfg.get("display_name") or (vertical or "").replace("_", " ").title()
 
 
 # ── Bulk-order region sub-classifier (location → regional handler) ─────────
