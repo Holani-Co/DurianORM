@@ -1,16 +1,22 @@
 <script setup>
 // Routing-config settings screen. Reads the live email-routing rules from the
-// zoho-bridge (via the admin Rails proxy) and shows them across three tabs.
-// Categories and Thresholds are read-only for now; CRM Owners is editable
-// (Phase 2) — reassign a territory's owner and publish, live in seconds.
-import { ref, computed, onMounted } from 'vue';
+// zoho-bridge (via the admin Rails proxy) and exposes editors, preview, and
+// version history across five tabs.
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
-import CategoriesEditor from './CategoriesEditor.vue';
-import CrmOwnersEditor from './CrmOwnersEditor.vue';
-import HistoryPanel from './HistoryPanel.vue';
-import PreviewPanel from './PreviewPanel.vue';
-import ThresholdsEditor from './ThresholdsEditor.vue';
+
+const CategoriesEditor = defineAsyncComponent(
+  () => import('./CategoriesEditor.vue')
+);
+const CrmOwnersEditor = defineAsyncComponent(
+  () => import('./CrmOwnersEditor.vue')
+);
+const HistoryPanel = defineAsyncComponent(() => import('./HistoryPanel.vue'));
+const PreviewPanel = defineAsyncComponent(() => import('./PreviewPanel.vue'));
+const ThresholdsEditor = defineAsyncComponent(
+  () => import('./ThresholdsEditor.vue')
+);
 
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
@@ -42,7 +48,6 @@ const effective = computed(() => data.value?.effective || {});
 const override = computed(() => data.value?.override || {});
 const activeVersion = computed(() => data.value?.active_version || null);
 const knownOwners = computed(() => data.value?.known_owners || []);
-const cacheTtl = computed(() => data.value?.cache_ttl_seconds);
 
 const tabs = computed(() => [
   { key: 'categories', label: t('ROUTING_CONFIG.TABS.CATEGORIES') },
@@ -133,7 +138,6 @@ const tabs = computed(() => [
         <ThresholdsEditor
           :effective="effective"
           :override="override"
-          :cache-ttl="cacheTtl"
           @published="fetchConfig"
         />
       </div>

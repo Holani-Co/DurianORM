@@ -102,6 +102,8 @@
       "FORWARD_REQUIRED": "A forwarding category needs at least one valid forward-to email.",
       "INVALID_EMAIL": "Please enter a valid email address.",
       "DUPLICATE_EMAIL": "This email has already been added.",
+      "ACKNOWLEDGE_CUSTOMER": "Acknowledge customer",
+      "INCLUDE_CUSTOMER_CC": "Include customer in CC",
       "ADD_CONFIRM": "Add",
       "ADD_CANCEL": "Cancel",
       "NEW_BADGE": "new"

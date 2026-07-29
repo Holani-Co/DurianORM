@@ -218,7 +218,6 @@ async function publish() {
       </div>
     </div>
 
-
     <!-- validation errors -->
     <div
       v-if="errors.length"

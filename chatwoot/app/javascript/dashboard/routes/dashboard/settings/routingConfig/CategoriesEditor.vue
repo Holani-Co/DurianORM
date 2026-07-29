@@ -31,16 +31,17 @@ const addForm = reactive({
   key: '',
   name: '',
   action: 'in_channel',
-  forwardEmails: [],   // multiple forward-to emails
-  forwardInput: '',    // draft input for the forward chip input
-  ccEmails: [],        // multiple CC emails
-  ccInput: '',         // draft input for the CC chip input
+  forwardEmail: '',
+  ccEmails: [],
+  ccInput: '',
   desc: '',
+  acknowledgeCustomer: true,
+  includeCustomerInCc: false,
 });
 
 // Draft inputs for existing category forward/cc chip inputs
-const fwdInput = reactive({});  // { catKey: 'draft email' }
-const ccInput = reactive({});   // { catKey: 'draft email' }
+const fwdInput = reactive({}); // { catKey: 'draft email' }
+const ccInput = reactive({}); // { catKey: 'draft email' }
 
 const validEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((e || '').trim());
 
@@ -144,6 +145,10 @@ function field(key, name) {
 }
 function setField(key, name, value) {
   catEdits[key] = { ...(catEdits[key] || {}), [name]: value };
+}
+function booleanField(key, name, fallback) {
+  const value = field(key, name);
+  return value == null ? fallback : value;
 }
 
 // ── CC emails for existing categories ──
@@ -302,7 +307,7 @@ async function publish() {
               }}</span>
               <select
                 v-model="addForm.action"
-                class="routing-select px-2.5 pr-8 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer w-full"
+                class="w-full px-2.5 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer"
               >
                 <option value="in_channel">
                   {{ t('ROUTING_CONFIG.CATEGORIES.ACTION_IN_CHANNEL') }}
@@ -331,7 +336,9 @@ async function publish() {
                 <span class="text-xs font-medium text-n-slate-11">{{
                   t('ROUTING_CONFIG.CATEGORIES.CC_LABEL')
                 }}</span>
-                <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+                <div
+                  class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand"
+                >
                   <span
                     v-for="(email, idx) in addForm.ccEmails"
                     :key="'cc-add-' + idx"
@@ -343,14 +350,17 @@ async function publish() {
                       class="flex text-n-slate-10 hover:text-n-ruby-11"
                       @click="removeCcEmailFromForm(idx)"
                     >
-                      <span class="i-lucide-x text-[0.7rem]" aria-hidden="true" />
+                      <span
+                        class="i-lucide-x text-[0.7rem]"
+                        aria-hidden="true"
+                      />
                     </button>
                   </span>
                   <input
                     v-model="addForm.ccInput"
                     type="email"
                     :placeholder="t('ROUTING_CONFIG.CATEGORIES.CC_PH')"
-                    class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                    class="flex-1 min-w-[10rem] !p-0 !m-0 text-xs !border-0 !outline-none !shadow-none !bg-transparent !min-h-0 !h-auto text-n-slate-12 placeholder:text-n-slate-10 focus:!border-0 focus:!outline-none focus:!shadow-none"
                     @keydown.enter.prevent="addCcEmailToForm"
                   />
                 </div>
@@ -375,7 +385,7 @@ async function publish() {
                 class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
               />
               <span class="text-xs font-medium text-n-slate-11">
-                Acknowledge Customer
+                {{ t('ROUTING_CONFIG.CATEGORIES.ACKNOWLEDGE_CUSTOMER') }}
               </span>
             </label>
             <label
@@ -388,7 +398,7 @@ async function publish() {
                 class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
               />
               <span class="text-xs font-medium text-n-slate-11">
-                Include Customer in CC
+                {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
               </span>
             </label>
           </div>
@@ -477,7 +487,7 @@ async function publish() {
             }}</span>
             <select
               :value="field(key, 'action') || 'in_channel'"
-              class="routing-select px-2.5 pr-8 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer w-full"
+              class="w-full px-2.5 py-1 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand cursor-pointer"
               @change="setField(key, 'action', $event.target.value)"
             >
               <option value="in_channel">
@@ -508,7 +518,9 @@ async function publish() {
               <span class="text-xs font-medium text-n-slate-11">{{
                 t('ROUTING_CONFIG.CATEGORIES.CC_LABEL')
               }}</span>
-              <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand">
+              <div
+                class="flex flex-wrap items-center gap-1.5 px-2.5 py-1 border rounded-lg border-n-weak bg-n-surface min-h-[2rem] focus-within:border-n-brand"
+              >
                 <span
                   v-for="(email, idx) in ccEmails(key)"
                   :key="'cc-' + key + '-' + idx"
@@ -527,7 +539,7 @@ async function publish() {
                   v-model="ccInput[key]"
                   type="email"
                   :placeholder="t('ROUTING_CONFIG.CATEGORIES.CC_PH')"
-                  class="email-chips-input flex-1 min-w-[10rem] text-xs text-n-slate-12 placeholder:text-n-slate-10"
+                  class="flex-1 min-w-[10rem] !p-0 !m-0 text-xs !border-0 !outline-none !shadow-none !bg-transparent !min-h-0 !h-auto text-n-slate-12 placeholder:text-n-slate-10 focus:!border-0 focus:!outline-none focus:!shadow-none"
                   @keydown.enter.prevent="addCcEmailForKey(key)"
                 />
               </div>
@@ -601,13 +613,15 @@ async function publish() {
             <div class="flex flex-col gap-2 mt-2 mb-2">
               <label class="flex items-center gap-2 cursor-pointer">
                 <input
-                  :checked="field(key, 'acknowledge_customer') != null ? field(key, 'acknowledge_customer') : true"
+                  :checked="booleanField(key, 'acknowledge_customer', true)"
                   type="checkbox"
                   class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                  @change="setField(key, 'acknowledge_customer', $event.target.checked)"
+                  @change="
+                    setField(key, 'acknowledge_customer', $event.target.checked)
+                  "
                 />
                 <span class="text-xs font-medium text-n-slate-11">
-                  Acknowledge Customer
+                  {{ t('ROUTING_CONFIG.CATEGORIES.ACKNOWLEDGE_CUSTOMER') }}
                 </span>
               </label>
               <label
@@ -615,13 +629,19 @@ async function publish() {
                 class="flex items-center gap-2 cursor-pointer"
               >
                 <input
-                  :checked="field(key, 'include_customer_in_cc') != null ? field(key, 'include_customer_in_cc') : false"
+                  :checked="booleanField(key, 'include_customer_in_cc', false)"
                   type="checkbox"
                   class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                  @change="setField(key, 'include_customer_in_cc', $event.target.checked)"
+                  @change="
+                    setField(
+                      key,
+                      'include_customer_in_cc',
+                      $event.target.checked
+                    )
+                  "
                 />
                 <span class="text-xs font-medium text-n-slate-11">
-                  Include Customer in CC
+                  {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
                 </span>
               </label>
             </div>
@@ -678,34 +698,3 @@ async function publish() {
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Only the dropdown arrow — all colors come from Tailwind classes */
-.routing-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.5rem center;
-  background-size: 1rem;
-}
-
-/* Force override global Chatwoot input styles for the chip input */
-.email-chips-input {
-  border: none !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  outline: none !important;
-  min-height: 0 !important;
-  height: auto !important;
-}
-.email-chips-input:focus {
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-</style>

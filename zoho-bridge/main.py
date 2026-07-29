@@ -4648,18 +4648,26 @@ def _validate_routing_doc(doc) -> dict:
         errors.append("`categories` must be an object.")
     elif isinstance(cats, dict):
         for key, cfg in cats.items():
+            if not re.match(r"^[a-z][a-z0-9_]*$", str(key)):
+                errors.append(
+                    f"Category key '{key}' must use lowercase letters, "
+                    "numbers, and underscores."
+                )
             if not isinstance(cfg, dict):
                 errors.append(f"Category '{key}' must be an object.")
                 continue
             action = cfg.get("action")
             if action is not None and action not in ("in_channel", "forward"):
                 errors.append(f"Category '{key}': action must be 'in_channel' or 'forward'.")
-            if action == "forward":
+            if action == "forward" or "forward_to" in cfg:
                 ft = cfg.get("forward_to")
                 if not ft:
                     errors.append(f"Category '{key}' is set to forward but has no forward_to address.")
                 elif not _valid_email(ft):
                     errors.append(f"Category '{key}': forward_to '{ft}' is not a valid email.")
+            for field in ("acknowledge_customer", "include_customer_in_cc"):
+                if field in cfg and not isinstance(cfg[field], bool):
+                    errors.append(f"Category '{key}': {field} must be true or false.")
             for field in ("cc", "bcc"):
                 vals = cfg.get(field)
                 if vals and not isinstance(vals, list):
