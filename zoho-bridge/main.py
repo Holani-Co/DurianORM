@@ -923,12 +923,17 @@ def _first_incoming_content(messages: list) -> str:
 
 
 async def _post_category_decision(conv_id: int, category_result: dict,
-                                  sector_review_only: bool = False) -> dict:
+                                  sector_review_only: bool = False,
+                                  vertical_review_only: bool = False) -> dict:
     """Write the pending decision + post the agent-facing card. Idempotent.
 
     sector_review_only: the category is already confident (project_bulk_order)
     but the buyer sector (government/private) is uncertain — the card is shown
-    so the agent confirms the sector before it forwards."""
+    so the agent confirms the sector before it forwards.
+
+    vertical_review_only: the category is confident but a vertical-routed
+    category (complaint/franchise/product_enquiry) couldn't determine the
+    product line — the card shows a vertical picker."""
     try:
         existing = (await chatwoot.get_conversation(conv_id)).get(
             "custom_attributes", {}).get("pending_category_decision")
@@ -969,6 +974,16 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         pending["sector_confidence"] = round(float(category_result.get("sector_confidence") or 0), 2)
         pending["sector_reason"]     = category_result.get("sector_reason") or ""
         pending["sector_review_only"] = bool(sector_review_only)
+    # Vertical-routed categories (complaint / franchise / product_enquiry) whose
+    # product line is unclear: surface the AI's vertical guess + a picker so the
+    # agent confirms which team it goes to.
+    if (category_result.get("rule") or {}).get("vertical_routing"):
+        pending["needs_vertical"]       = True
+        pending["vertical_suggested"]   = category_result.get("vertical") or ""
+        pending["vertical_confidence"]  = round(float(category_result.get("vertical_confidence") or 0), 2)
+        pending["vertical_reason"]      = category_result.get("vertical_reason") or ""
+        pending["verticals"]            = classifier.vertical_choices(suggested)
+        pending["vertical_review_only"] = bool(vertical_review_only)
     try:
         await chatwoot.merge_custom_attributes(
             conv_id, {"pending_category_decision": pending})
@@ -976,7 +991,20 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         print(f"[category-decision] merge_custom_attributes failed: {e}")
 
     pct = int(round(conf * 100))
-    if sector_review_only:
+    if vertical_review_only:
+        vv    = pending.get("vertical_suggested") or "unknown"
+        vvpct = int(round(float(pending.get("vertical_confidence") or 0) * 100))
+        lines = [
+            "🧩 **Which product line? — confirm the vertical**",
+            "",
+            f"This is a **{pending['suggested_display']}**, but I couldn't tell "
+            f"which product line it concerns (best guess: **{vv}**, {vvpct}% "
+            f"confident). They route to different teams, so nothing has been "
+            f"forwarded yet.",
+        ]
+        if pending.get("vertical_reason"):
+            lines.append(f"_{pending['vertical_reason']}_")
+    elif sector_review_only:
         ssec  = pending.get("sector_suggested") or "unknown"
         sspct = int(round(float(pending.get("sector_confidence") or 0) * 100))
         lines = [
@@ -1070,6 +1098,7 @@ async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
 
 async def _resolve_category_decision(conv_id: int, category: str,
                                      sector: Optional[str] = None,
+                                     vertical: Optional[str] = None,
                                      agent_name: str = "") -> dict:
     """Agent confirmed a category — run the real forward/route action for it
     and clear the pending flag. Returns a JSON-friendly dict for the endpoint.
@@ -1098,6 +1127,24 @@ async def _resolve_category_decision(conv_id: int, category: str,
         }
         chosen_sector = sector
 
+    # Vertical-routed category: the agent picked the product line → point the
+    # forward at that vertical's team (copy the rule so the shared dict is safe).
+    chosen_vertical = None
+    if vertical and (rule.get("vertical_routing") or {}).get(vertical):
+        vroute = rule["vertical_routing"][vertical]
+        rule = {
+            **rule,
+            "forward_to": vroute.get("forward_to") or rule.get("forward_to"),
+            "cc":         vroute.get("cc") if vroute.get("cc") is not None
+                          else (rule.get("cc") or []),
+            "bcc":        vroute.get("bcc") if vroute.get("bcc") is not None
+                          else (rule.get("bcc") or []),
+            "include_customer_in_cc": vroute.get(
+                "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
+            "share_executive_email": vroute.get("share_executive_email", False),
+        }
+        chosen_vertical = vertical
+
     sender       = (conv.get("meta") or {}).get("sender") or {}
     sender_email = sender.get("email") or ""
     sender_name  = sender.get("name") or ""
@@ -1118,6 +1165,10 @@ async def _resolve_category_decision(conv_id: int, category: str,
         category_result["sector"] = chosen_sector
         category_result["sector_confidence"] = 1.0
         category_result["sector_reason"] = "Confirmed by agent."
+    if chosen_vertical:
+        category_result["vertical"] = chosen_vertical
+        category_result["vertical_confidence"] = 1.0
+        category_result["vertical_reason"] = "Confirmed by agent."
 
     # Persist the agent's decision onto email_category_v2 — the CRM panel
     # gates its Create Deal button on the stored category, and the deal-owner
@@ -1131,6 +1182,9 @@ async def _resolve_category_decision(conv_id: int, category: str,
         if chosen_sector:
             v2_update.update({"sector": chosen_sector, "sector_confidence": 1.0,
                               "sector_reason": "Confirmed by agent."})
+        if chosen_vertical:
+            v2_update.update({"vertical": chosen_vertical, "vertical_confidence": 1.0,
+                              "vertical_reason": "Confirmed by agent."})
         await chatwoot.merge_custom_attributes(
             conv_id, {"email_category_v2": v2_update})
     except Exception as e:
@@ -3935,6 +3989,22 @@ async def handle_message_created(data: dict) -> dict:
             return await _post_category_decision(conv_id, category_result,
                                                  sector_review_only=True)
 
+    # ── Product-vertical gate ────────────────────────────────────────────
+    # The category is confident, but a vertical-routed category (complaint /
+    # franchise / product_enquiry) couldn't determine the product line. Don't
+    # guess the team — post a vertical decision card so an agent picks it
+    # (client rule: ambiguous vertical → agent decides). Nothing is forwarded.
+    if (category_result is not None and category_auto
+            and category_result.get("vertical_uncertain")
+            and not _PHASE_2_DRY_RUN and not is_social):
+        tracing.event(conv_id, "vertical-review-card", parent=_lf, output={
+            "action": "posted_for_agent_confirmation",
+            "category": category_result.get("category"),
+            "vertical_confidence": category_result.get("vertical_confidence"),
+        })
+        return await _post_category_decision(conv_id, category_result,
+                                             vertical_review_only=True)
+
     # ── Bulk-order region ────────────────────────────────────────────────
     # NO "region needs an agent decision" card. Bulk orders no longer forward
     # (suppress_forward), and the deal OWNER is resolved at Create Deal time by
@@ -5023,11 +5093,13 @@ async def chatwoot_resolve_category_decision(request: Request):
     conv_id    = body.get("conversation_id")
     category   = body.get("category")
     sector     = body.get("sector")      # bulk orders only: government | private
+    vertical   = body.get("vertical")    # vertical-routed cats: the product line
     agent_name = body.get("agent_name")  # injected by the Rails proxy (Current.user)
     if not conv_id or not category:
         raise HTTPException(400, "missing conversation_id or category")
     try:
         return await _resolve_category_decision(int(conv_id), category, sector,
+                                                vertical=vertical,
                                                 agent_name=agent_name or "")
     except Exception as e:
         print(f"[category-decision] resolve endpoint failed for conv {conv_id}: "
