@@ -1006,6 +1006,135 @@ categories:
         cc: [anshu.tiwari@durian.in]
         include_customer_in_cc: true
 
+  # ── New categories (client "Working Team – Feedback" sheet, 2026-07) ──────
+  # Flat, single-owner categories. Keywords ingested verbatim from the
+  # Email-Keywords tab (cols M / N / O). Customer is acknowledged but NOT Cc'd
+  # on the internal forward (matches the sheet's "not in CC" rule for these).
+  finance_related:
+    display_name: Finance / Payment
+    action: forward
+    forward_to: dipesh.patel@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Corporate finance / funding / working-capital matters — business loans,
+      credit lines, overdrafts, invoice discounting, vendor/PO/inventory
+      financing, capex or growth funding. NOT a customer refund/payment dispute
+      (that is a Complaint) and NOT an invoice/GST query about an order.
+    examples:
+      - Proposal for working capital and OD line for your manufacturing unit
+      - Invoice discounting facility for your receivables
+      - Term loan / capex funding options for Durian
+    keywords:
+      - Debt Financing
+      - Financing
+      - Corporate Financing
+      - Business Loan
+      - OD Line
+      - Overdraft Facility
+      - Working Capital
+      - WCDL
+      - Credit Line
+      - Credit Facility
+      - Term Loan
+      - Growth Capital
+      - Capex Funding
+      - Bridge Financing
+      - Invoice Discounting
+      - Vendor Financing
+      - Receivable Financing
+      - PO Funding
+      - Inventory Funding
+  customer_technology:
+    display_name: Customer Technology
+    action: forward
+    forward_to: varsha@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Website / e-commerce technology pitches and requests — website design,
+      development, redesign, optimisation, landing pages, e-commerce build.
+      A vendor offering web/tech services, not a furniture customer.
+    examples:
+      - We build e-commerce websites — proposal for durian.in
+      - Landing page and website optimisation services
+      - Website redesign / upgrade proposal
+    keywords:
+      - Website Development
+      - Website Design
+      - Website Creation
+      - New Website
+      - Website Upgrade
+      - Website Optimization
+      - Ecommerce Website
+      - Landing Page
+  digital_marketing_seo:
+    display_name: Digital Marketing / SEO
+    action: forward
+    forward_to: lav.agarwal@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Digital-marketing, SEO, social-media and paid-ads services pitches —
+      agencies/freelancers offering SEO, Google Ads/PPC, social media
+      management, lead generation, content/performance marketing. A services
+      pitch, distinct from Marketing/Advertising (magazine/PR/print) and from
+      Collaboration (brand/influencer barter).
+    examples:
+      - SEO and Google Ads services to grow durian.in traffic
+      - Social media management and reels marketing proposal
+      - Performance marketing / lead generation for your brand
+    keywords:
+      - Digital Marketing
+      - Online Marketing
+      - Social Media Marketing
+      - SMM
+      - Facebook Marketing
+      - Instagram Marketing
+      - Google Ads
+      - PPC
+      - Lead Generation
+      - Online Promotion
+      - Brand Promotion
+      - Brand Awareness
+      - Marketing Services
+      - Advertising Services
+      - Performance Marketing
+      - Content Marketing
+      - SEO
+      - Search Engine Optimization
+      - Google Ranking
+      - Google Business Profile
+      - Google My Business
+      - GBP Optimization
+      - Local SEO
+      - Google Reviews
+      - Social Media Management
+      - Facebook Page
+      - Instagram Page
+      - LinkedIn Marketing
+      - Social Media Growth
+      - Social Media Promotion
+      - Social Media Services
+      - Content Creation
+      - Reels Marketing
+      - Grow your business online
+      - Improve online presence
+      - Increase website traffic
+      - Generate more leads
+      - Reach more customers
+      - Online branding
+      - Marketing proposal
+      - Digital solutions
+      - Marketing agency
+      - Marketing support
+      - Business growth
+      - Online visibility
+      - Brand building
+
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
 # handles manually. Phase 2: same behaviour as in_channel (agent resolves).
