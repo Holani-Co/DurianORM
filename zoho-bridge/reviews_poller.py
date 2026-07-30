@@ -145,6 +145,11 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
         return
     to_emails = row["email"]
     cc_emails = ", ".join(row.get("cc") or [])
+    # LOCAL TESTING: redirect every review forward to one inbox so a local run
+    # never emails a real store. Env-gated (unset in prod → real recipients).
+    _override = _os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
+    if _override:
+        to_emails, cc_emails = _override, ""
     subject = f"Negative Google review ({rv['stars']}★) — {title}"
     body = (
         f"A {rv['stars']}-star Google review was received for {title}.\n\n"
