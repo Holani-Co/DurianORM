@@ -98,3 +98,29 @@ def reply_path_for_conversation(conversation_id: int) -> str | None:
 def mark_replied(review_id: str):
     with _lock, _conn() as c:
         c.execute("UPDATE seen_reviews SET replied = 1 WHERE review_id = ?", (review_id,))
+
+
+def next_reply_index(bucket_key: str, num_options: int) -> int:
+    """Round-robin index into a reply-bank bucket's options, so consecutive
+    reviews of the SAME (vertical, case) get DIFFERENT phrasings instead of the
+    same template every time. Persists the last-used index per bucket_key
+    (e.g. 'furniture:positive_staff') and advances it by one each call, wrapping
+    at num_options. Returns 0 for an empty/invalid bucket."""
+    if num_options <= 0:
+        return 0
+    with _lock, _conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS reply_rotation (
+                bucket_key TEXT PRIMARY KEY,
+                last_idx   INTEGER DEFAULT -1
+            )
+        """)
+        row = c.execute(
+            "SELECT last_idx FROM reply_rotation WHERE bucket_key = ?", (bucket_key,)
+        ).fetchone()
+        idx = ((row["last_idx"] if row else -1) + 1) % num_options
+        c.execute(
+            "INSERT OR REPLACE INTO reply_rotation (bucket_key, last_idx) VALUES (?, ?)",
+            (bucket_key, idx),
+        )
+        return idx
