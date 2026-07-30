@@ -59,6 +59,128 @@ def _store_label(title: str) -> str:
     return f"store-{slug}" if slug else "store-unknown"
 
 
+# ── 1★/2★ store forward (review_store_forward.yaml) ────────────────────────
+# For a 1- or 2-star review, forward it to the store's concerned person + CC per
+# the client's "Store - Email Forward" matrix, IN ADDITION to posting the public
+# reply. The reviews inbox is an API channel and can't send email, so the
+# forward rides the same email inbox the escalate button uses
+# (REVIEW_ESCALATION_INBOX_ID).
+import os as _os
+try:
+    import yaml as _yaml
+except Exception:
+    _yaml = None
+
+_STORE_FWD_PATH = _os.path.join(_os.path.dirname(__file__), "review_store_forward.yaml")
+_store_fwd_cache = None
+
+
+def _norm_store(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _store_tail(s: str) -> str:
+    """City + area — the last two ' - ' segments, which stay stable across the
+    'Durian Furniture -' / 'Durian Full Home Customisation -' / 'FHC -' naming
+    variations between Google's location name and the client sheet."""
+    parts = [p for p in (s or "").split(" - ") if p.strip()]
+    return _norm_store(" - ".join(parts[-2:])) if len(parts) >= 2 else _norm_store(s)
+
+
+def _load_store_forward() -> list:
+    global _store_fwd_cache
+    if _store_fwd_cache is None:
+        rows = []
+        try:
+            if _yaml:
+                with open(_STORE_FWD_PATH, encoding="utf-8") as f:
+                    rows = (_yaml.safe_load(f) or {}).get("stores") or []
+        except Exception as e:
+            print(f"[reviews] could not load {_STORE_FWD_PATH}: {e}")
+        _store_fwd_cache = [{**r, "_n": _norm_store(r.get("store", "")),
+                             "_tail": _store_tail(r.get("store", ""))} for r in rows]
+    return _store_fwd_cache
+
+
+def _match_store_forward(location: str) -> dict | None:
+    """Match a review's showroom to a store-forward row. Exact normalised match,
+    then containment, then a VERTICAL + city/area (tail) match — the last one
+    handles Google's shorter name vs the sheet's full name, and the vertical
+    disambiguates a Furniture vs FHC store at the same city/area. Returns the
+    row or None (→ no auto-forward, logged for manual routing)."""
+    loc = _norm_store(location)
+    if not loc:
+        return None
+    rows = _load_store_forward()
+    for r in rows:
+        if r["_n"] and r["_n"] == loc:
+            return r
+    for r in rows:
+        if r["_n"] and (r["_n"] in loc or loc in r["_n"]):
+            return r
+    vert = review_reply.review_vertical_for(location)
+    tail = _store_tail(location)
+    if tail:
+        cands = [r for r in rows if r.get("vertical") == vert and r["_tail"] == tail]
+        if len(cands) == 1:
+            return cands[0]
+    return None
+
+
+async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
+    """Email a 1★/2★ review to the store's concerned person + CC. Best-effort:
+    a forward failure never blocks ingestion or the public reply."""
+    row = _match_store_forward(title)
+    if not row or not row.get("email"):
+        print(f"[reviews] no store-forward match for {title!r} ({rv['stars']}★) — not forwarded")
+        try:
+            await chatwoot.post_private_note(
+                conv_id, f"⚠️ {rv['stars']}★ review — no store-forward mapping for "
+                         f"'{title}', so it was not auto-forwarded. Route manually.")
+        except Exception:
+            pass
+        return
+    if not config.REVIEW_ESCALATION_INBOX_ID:
+        print("[reviews] REVIEW_ESCALATION_INBOX_ID not set — cannot forward low-star review")
+        return
+    to_emails = row["email"]
+    cc_emails = ", ".join(row.get("cc") or [])
+    subject = f"Negative Google review ({rv['stars']}★) — {title}"
+    body = (
+        f"A {rv['stars']}-star Google review was received for {title}.\n\n"
+        f"Reviewer: {rv.get('reviewer') or 'Anonymous'}\n"
+        f"Rating: {rv['stars']}/5\n\n"
+        f"Review:\n{rv.get('comment') or '(no text — rating only)'}\n\n"
+        f"Please look into this and respond as appropriate."
+    )
+    try:
+        contact_id, source_id = await chatwoot.create_contact(
+            name="Durian Review Escalations",
+            identifier="durian-review-escalation",
+            inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
+            email="review-escalations@durian.in",
+        )
+        fwd_conv = await chatwoot.create_conversation(
+            source_id=source_id or f"revfwd_{rv['review_id']}",
+            inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
+            contact_id=contact_id,
+            additional_attributes={"mail_subject": subject},
+        )
+        await chatwoot.send_outgoing_message(
+            fwd_conv, body, to_emails=to_emails, cc_emails=cc_emails or None)
+    except Exception as e:
+        print(f"[reviews] low-star forward failed for conv {conv_id}: {e}")
+        return
+    cc_note = f" (cc {cc_emails})" if cc_emails else ""
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"\U0001F4E7 {rv['stars']}★ review auto-forwarded to "
+                     f"{to_emails}{cc_note} (store: {row.get('store')}).")
+    except Exception:
+        pass
+    print(f"[reviews] {rv['stars']}★ forwarded → {to_emails}{cc_note} @ {title}")
+
+
 def agent_name_slug(name: str, email: str = "", agent_id=None) -> str:
     """Slug used in the `replied-by-<slug>` label. Falls back through name →
     email-local-part → id so we NEVER produce an empty slug (the label would
@@ -215,13 +337,20 @@ async def _ingest_review(loc: dict, rv: dict):
         except Exception as e:
             print(f"[reviews] add_label({lbl}) failed for conv {conv_id}: {e}")
 
+    # 1★/2★ → auto-forward to the store's concerned person + CC (client matrix),
+    # IN ADDITION to the public reply below. Best-effort.
+    if rv["stars"] in (1, 2):
+        await _forward_low_star_review(rv, title, conv_id)
+
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag
     # below only gates auto-posting (we won't re-post to Google), not the card.
     _lf = tracing.message_parent(conv_id, review_msg_id, name="review-reply",
                                  stars=rv["stars"], location=title)
-    drafted = await review_reply.draft(
-        channel="review",
+    # Reply bank: classify (vertical × case) + rotate through the case's 10
+    # variants so replies vary, and personalise the [brackets]. Replaces the old
+    # 8 flat canned templates for reviews.
+    drafted = await review_reply.draft_review(
         message=rv["comment"] or "",
         contact_name=rv["reviewer"] or "Customer",
         stars=rv["stars"] or 0,
