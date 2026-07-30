@@ -1,0 +1,466 @@
+# Google-review reply bank — vertical × case × 10 phrasing variants.
+# Generated from 'Durian_Reviews_Bucketed' sheet. The reply drafter classifies a
+# review into (vertical, case) and rotates through options so replies vary.
+# [brackets] are personalised at send time ([Name], [staff member], etc.).
+verticals:
+  furniture:
+    cases:
+      positive_staff:
+        sentiment: positive
+        options:
+        - Thank you so much, [Name]! We're delighted that [staff member] made your visit memorable — your kind words will be shared with them and the whole [store] team. Modern Design. Heritage Roots — that's the Durian experience, and we're glad it showed!
+        - Wonderful to hear, [Name]! [Staff member] will be thrilled with this appreciation. With 40+ years in furniture, guiding customers to the perfect piece is what our teams do best. Thank you for choosing Durian!
+        - Thank you, [Name]! We're proud of [staff member] and glad they took such good care of you. You've joined a family of over 3.2 million happy customers — see you again at Durian!
+        - So glad to hear this, [Name]! Patient, honest guidance is what our teams across 65+ stores are trained for, and it's lovely to know [staff member] delivered exactly that.
+        - Thank you for mentioning [staff member] by name, [Name] — recognition from customers is the best reward our team can get. We look forward to your next visit!
+        - We appreciate this so much, [Name]! Your feedback has been shared with [staff member] and the [store] team. Four decades of serving Indian homes, and reviews like yours keep us inspired!
+        - Thank you, [Name]! It's wonderful to know our team made furniture shopping easy and enjoyable for you. Every Durian piece comes with a 5-year warranty — so our care continues long after your visit!
+        - Delighted to read this, [Name]! [Staff member] and the entire showroom team thank you for your warm words and your trust in Durian's legacy of 40+ years.
+        - Thank you, [Name]! Making customers feel welcome and well-guided is our top priority across all 65+ Durian stores — so glad it showed at [store]. Do visit us again!
+        - Your kind words mean the world to us, [Name]! We'll celebrate this review with [staff member] and the team. Modern Design. Heritage Roots — thank you for being part of the Durian family!
+      positive_product_quality:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! We're so glad you love your [product]. Every Durian piece is crafted in our 9 state-of-the-art manufacturing units and backed by a 5-year warranty — enjoy it for years to come!
+        - Thanks a lot, [Name]! Modern Design. Heritage Roots — 40+ years of craftsmanship go into every Durian piece, and it's wonderful to know your [product] lives up to that legacy.
+        - Thank you, [Name]! Our furniture is designed and manufactured specifically for the Indian lifestyle, and we're thrilled your [product] fits your home perfectly.
+        - So happy to hear this, [Name]! With 1.3 million sq. ft. of manufacturing space and four decades of expertise, quality is built into every piece — and your review proves it!
+        - Thank you, [Name]! Premium quality, responsibly manufactured — that's the Durian promise. And with our 5-year warranty, your [product] is in safe hands for years!
+        - Wonderful, [Name]! Great furniture should look premium and feel premium — delighted yours does both. That's what 40+ years of design experience delivers!
+        - Thank you for the lovely review, [Name]! Solid materials, fine finishing and sustainable manufacturing are what we stand for. Wishing you many happy years with your [product]!
+        - We're thrilled you love your new [product], [Name]! You've joined 3.2 million+ happy customers who trust Durian quality every day. Enjoy!
+        - Thank you, [Name]! Style and sturdiness, designed for Indian homes — glad your [product] delivers both. Visit any of our 65+ stores for your next piece!
+        - Much appreciated, [Name]! Durable, elegant, responsibly made — that's every Durian piece. And remember, your [product] carries our unmatched 5-year warranty!
+      positive_service:
+        sentiment: positive
+        options:
+        - Thank you for the lovely feedback, [Name]! A smooth, pleasant experience is what 40+ years of serving Indian homes has taught us to deliver. We look forward to welcoming you back!
+        - Thank you, [Name]! We're delighted your visit to Durian [store] was a great experience from start to finish. Modern Design. Heritage Roots — see you again!
+        - So glad to hear this, [Name]! Serving you well is what we're here for — just as we've served 3.2 million+ happy customers across India. Thank you for choosing Durian!
+        - Thank you, [Name]! Your wonderful experience is the best compliment we can receive. With 65+ stores pan India, Durian is always close whenever you need us!
+        - We truly appreciate this, [Name]! Consistent, caring service is the Durian promise — happy it showed during your visit to [store].
+        - Thank you, [Name]! Making furniture buying stress-free is our goal, and we're thrilled we hit the mark. Every purchase also carries our 5-year warranty for complete peace of mind!
+        - Delighted to read this, [Name]! The [store] team thanks you for your kind words and your trust in Durian's 40-year legacy.
+        - Thank you so much, [Name]! We hope your new furniture brings you as much joy as your review brought us. Welcome to the Durian family!
+        - Grateful for your feedback, [Name]! We'll keep working to make every visit this good — it's how we've earned the trust of homes across 7000+ pincodes!
+        - Thank you, [Name]! Happy customers are what we work for every day, across every Durian store in the country. We look forward to serving you again!
+      positive_range:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! We're happy you enjoyed exploring our collection at [store]. With designs crafted across 9 state-of-the-art units, there's always something new — do visit again!
+        - Thank you, [Name]! Our showrooms display the best of 40+ years of design evolution — Modern Design. Heritage Roots. Glad it impressed you!
+        - So glad you liked the collection, [Name]! From sofas to dining sets, every piece is designed for the Indian lifestyle. See you again at Durian!
+        - Thank you, [Name]! A wide range under one roof, backed by a 5-year warranty on quality — that's the Durian advantage. Happy browsing on your next visit too!
+        - Delighted to hear this, [Name]! Our latest designs are always on display across our 65+ stores — drop by anytime for a look.
+        - Thank you, [Name]! We're glad the variety and ambience made your visit worthwhile. Four decades of craftsmanship, all in one showroom!
+        - Much appreciated, [Name]! We keep refreshing our collection with new styles, responsibly manufactured — your next favourite piece might already be waiting!
+        - Thank you, [Name]! It's great to know you enjoyed the showroom experience. The [store] team looks forward to your next visit!
+        - Thanks for the kind words, [Name]! Explore, compare, choose at leisure — that's how furniture shopping should feel, and that's how we've won 3.2 million+ happy customers!
+        - Thank you, [Name]! Glad our collection caught your eye. Do follow us for new arrivals and offers — there's always more to discover at Durian!
+      positive_delivery:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Glad the delivery and installation went off without a hitch. With service reaching 7000+ pincodes, we're always just a call away!
+        - Thank you, [Name]! On-time delivery and neat installation are part of the Durian promise — happy we delivered on it, as we do across India every day!
+        - So glad to hear this, [Name]! Our delivery and installation team will be delighted with your feedback. Enjoy your new furniture!
+        - Thank you, [Name]! A smooth delivery is the perfect finish to a purchase. And with our 5-year warranty, our care continues long after installation!
+        - We appreciate this, [Name]! Careful handling and professional installation matter to us — it's how we've served 3.2 million+ happy homes.
+        - Thank you, [Name]! Great to know everything reached you safely and was set up perfectly. Pan-India service is a promise we take pride in!
+        - Thanks for the feedback, [Name]! We'll pass on your appreciation to our logistics and installation team — they'll love it!
+        - Thank you, [Name]! From showroom to your home, we aim for a seamless journey — happy yours was exactly that!
+        - Delighted to hear it, [Name]! Wishing you many wonderful moments with your new furniture, designed for the Indian lifestyle!
+        - Thank you, [Name]! Timely service after the sale matters as much as the sale itself — that's the Durian way, for 40+ years and counting!
+      positive_price:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Premium quality at honest prices, plus a 5-year warranty — that's real value, and we're happy you found it at Durian!
+        - Thank you, [Name]! Premium doesn't have to mean unaffordable — 40+ years of manufacturing expertise across 9 units helps us keep quality high and prices fair!
+        - So glad to hear this, [Name]! Quality furniture at sensible prices is how we've earned 3.2 million+ happy customers. See you again soon!
+        - Thank you, [Name]! Value for money is one of the best compliments we can get. Every rupee buys you design, durability and a 5-year warranty!
+        - We appreciate it, [Name]! Great designs, honest prices, responsible manufacturing — that's the Durian way. Thank you for noticing!
+        - Thank you, [Name]! Because we design and manufacture in-house, real value reaches you directly. Your feedback tells us it's working!
+        - Thanks, [Name]! Do keep an eye out for our seasonal offers — even more value on your next visit to any of our 65+ stores!
+        - Thank you, [Name]! It's wonderful to know your purchase felt worth every rupee. That's the confidence of Modern Design. Heritage Roots!
+        - Grateful for your review, [Name]! Fair pricing with no compromise on quality — backed by four decades of trust. Welcome back anytime!
+        - Thank you, [Name]! Smart furniture shopping deserves great value, and with our unmatched 5-year warranty, the value lasts for years!
+      positive_generic:
+        sentiment: positive
+        options:
+        - Thank you so much for the 5 stars, [Name]! Your support means a lot to the entire Durian [store] team!
+        - Thank you, [Name]! We're glad you had a good experience. You're now part of a 3.2 million+ happy customer family!
+        - Much appreciated, [Name]! Reviews like yours keep our 40-year legacy going strong. Thank you for choosing Durian!
+        - 'Thank you, [Name]! Short and sweet — just like our promise: Modern Design. Heritage Roots!'
+        - Thanks a lot, [Name]! We look forward to welcoming you back to Durian!
+        - Thank you for the wonderful rating, [Name]! It means a lot to our team.
+        - We appreciate your support, [Name]! See you again at Durian [store]!
+        - Thank you, [Name]! Glad you enjoyed your visit. There's always something new to explore across our 65+ stores!
+        - Thanks for the love, [Name]! The [store] team sends their gratitude!
+        - Thank you, [Name]! Your 5 stars made our day. Happy to serve you anytime, anywhere across India!
+      positive_rating_only:
+        sentiment: positive
+        options:
+        - Thank you for the great rating, [Name]! We're glad you had a good experience with Durian.
+        - Thank you, [Name]! Your 5 stars mean a lot to the [store] team. Visit us again soon!
+        - Much appreciated, [Name]! We hope your furniture brings you years of joy — backed by our 5-year warranty!
+        - Thank you for the wonderful rating, [Name]! We look forward to serving you again.
+        - Thanks, [Name]! Your support keeps our 40-year journey going strong. See you at Durian soon!
+        - Thank you, [Name]! Glad we could meet your expectations. Do visit for our new collection!
+        - We appreciate the stars, [Name]! The entire team thanks you for your trust in Durian.
+        - Thank you, [Name]! It was a pleasure serving you. Welcome back anytime!
+        - Thanks for the rating, [Name]! We'd love to hear more about your experience next time you drop by!
+        - Thank you, [Name]! Wishing you many happy moments with your furniture from Durian — Modern Design. Heritage Roots!
+      negative_product_quality:
+        sentiment: negative
+        options:
+        - Thank you for bringing this to our attention, [Name]. Your satisfaction is very important to us — please share your invoice number and photos at escalation@durian.in, and our service team will inspect and resolve this on priority.
+        - We're sorry to hear about your experience, [Name]. Every Durian product is backed by our 5-year warranty, so please reach out at escalation@durian.in with your purchase details — we'll take care of this quickly.
+        - Thank you for your feedback, [Name]. We'd like our quality team to look into this personally. Kindly share your details at escalation@durian.in and we'll arrange an inspection at the earliest.
+        - We understand your concern, [Name], and we're here to help. Your product is covered under our warranty — please contact escalation@durian.in and our team will assess and resolve the issue.
+        - We're sorry for the inconvenience, [Name]. With 40+ years of craftsmanship behind every piece, your experience matters deeply to us. Please reach out at escalation@durian.in so we can make this right.
+        - Thank you for sharing this, [Name]. Our service team would like to examine the product and find the best solution for you — repair or replacement as applicable. Please contact escalation@durian.in.
+        - We hear you, [Name], and we'd like to resolve this for you personally. Please share your invoice number at escalation@durian.in — your case will be handled on priority.
+        - We're sorry your experience didn't match your expectations, [Name]. Your feedback helps us serve you better — please allow our team to inspect and resolve this. Reach us at escalation@durian.in.
+        - Thank you for your patience, [Name]. Durian stands behind every product with a 5-year warranty, and we stand behind you. Please share your details at escalation@durian.in for a quick resolution.
+        - We value your trust, [Name], and want to restore it fully. Please contact escalation@durian.in with your order details — our senior service team will personally oversee your case.
+      negative_after_sales:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. Your service request is important to us and has been escalated to our senior team. Please share your ticket number at escalation@durian.in so we can expedite the resolution.
+        - We're sorry for the inconvenience, [Name]. Our team will reach out to you within 24 hours to take this forward. You can also contact us directly at escalation@durian.in.
+        - We hear you, [Name], and we're on it. Your case has been flagged for priority attention — please share your invoice/ticket number at escalation@durian.in and we'll keep you updated at every step.
+        - Thank you for bringing this to our notice, [Name]. With service reaching 7000+ pincodes, resolving your request quickly is well within our commitment. Please reach us at escalation@durian.in.
+        - We understand the frustration of waiting, [Name], and we appreciate your patience. Our service head has been informed — expect a call from our team shortly, or reach us at escalation@durian.in.
+        - Your concern matters to us, [Name]. We're consolidating your service requests to ensure a single, complete resolution. Kindly share your ticket numbers at escalation@durian.in.
+        - We're sorry for the wait, [Name]. Serving 3.2 million+ customers has taught us that every single case counts — yours included. Our team will contact you within 24 hours.
+        - Thank you for your feedback, [Name]. Your service visit is being scheduled on priority. For anything urgent in the meantime, please reach us at escalation@durian.in.
+        - We value your patience, [Name]. Your case now has the personal attention of our senior service team, and we'll stay with it until it's fully closed. Reach us anytime at escalation@durian.in.
+        - We're here for you, [Name]. After-sales care is part of the Durian promise, and we intend to deliver it fully in your case. Please share your details at escalation@durian.in for immediate assistance.
+      negative_delivery:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. Our team will call you within 24 hours with a confirmed delivery date, and we'll keep you updated until your furniture reaches you.
+        - We're sorry for the wait, [Name]. Your order has been flagged for priority dispatch — please share your order number at escalation@durian.in for a firm delivery commitment.
+        - We understand how important timely delivery is, [Name]. Our logistics team is personally tracking your order now, and you'll hear from us with a confirmed timeline shortly.
+        - Thank you for bringing this to our attention, [Name]. The correct product is being arranged on priority, and our team will confirm the timeline with you directly.
+        - We appreciate your patience, [Name]. With deliveries across 7000+ pincodes, we know timelines matter — your order is being expedited. Reach us at escalation@durian.in for live status.
+        - We're sorry for the inconvenience, [Name]. Your order now has priority attention, and we'll proactively update you until it's delivered. You can also reach us at escalation@durian.in.
+        - Thank you for your understanding, [Name]. Our team is reviewing your order status right now and will call you today with the exact position and next steps.
+        - We hear you, [Name]. A confirmed date will be shared with you within 24 hours, and we'll stand by it. For anything urgent, please contact escalation@durian.in.
+        - Your time is valuable, [Name], and we respect that. Our dispatch team has been alerted and your delivery is being fast-tracked. Thank you for choosing Durian.
+        - We're sorry for the delay, [Name]. Please share your order number at escalation@durian.in — our team will take personal ownership until your furniture is home.
+      negative_staff_behaviour:
+        sentiment: negative
+        options:
+        - Thank you for sharing this, [Name]. Warm, knowledgeable service is what our teams across 65+ stores are trained for, and your feedback has been shared with the [store] manager for review.
+        - We're sorry your visit didn't feel that way, [Name]. Your experience has been taken up with the store leadership, and we'd welcome the chance to serve you the way you deserve.
+        - Thank you for your candour, [Name]. Every commitment made to a customer matters to us — our team will reach out to understand the details and honour it wherever possible.
+        - We appreciate you bringing this to our notice, [Name]. The [store] management is reviewing your experience personally. Please share more details at escalation@durian.in so we can act on specifics.
+        - Your feedback is valuable, [Name]. We're reinforcing product training with the showroom team, and we'd be glad to welcome you back for the experience Durian is known for.
+        - Thank you, [Name]. Customer trust built over 40 years is precious to us, and we'd like to rebuild yours. Our team will contact you to make things right.
+        - We hear you, [Name]. Respectful, attentive service is central to the Durian experience, and your visit is being reviewed with the store team. Thank you for helping us improve.
+        - We're sorry your experience fell short of what you expected, [Name]. Please reach us at escalation@durian.in — we'd genuinely like to hear the details and set things right.
+        - Thank you for the honest feedback, [Name]. It has gone directly to our leadership team. We'd be grateful for another opportunity to show you the true Durian experience.
+        - We value every visitor, [Name], and your experience matters. The store manager will personally look into this, and we hope to welcome you back soon.
+      negative_pricing:
+        sentiment: negative
+        options:
+        - Thank you for the honest feedback, [Name]. Every Durian piece carries 40+ years of craftsmanship and an unmatched 5-year warranty — do ask about our ongoing offers and EMI options on your next visit!
+        - We appreciate your candour, [Name]. Our prices reflect premium materials and responsible manufacturing, but great deals come around often — our team can alert you when your favourite pieces go on offer.
+        - Thank you, [Name]. Durian furniture is an investment in durability — designed for the Indian lifestyle and backed for 5 full years. Our festive offers and EMI plans make it easier on the budget!
+        - Thanks for sharing this, [Name]. We aim for value, not just price tags — in-house manufacturing across 9 units helps us deliver quality that lasts. Our seasonal discounts might be worth a second visit!
+        - Thank you for visiting, [Name]. Premium quality has its worth, and our 5-year warranty ensures it pays back over time. Do explore our ongoing offers — you may find your piece at a friendlier price!
+        - We appreciate the feedback, [Name]. 3.2 million+ customers have found lasting value in Durian — we'd love for you to experience it too. Ask our team about exchange offers and EMI schemes!
+        - Thank you, [Name]. We regularly review our pricing to stay competitive while never compromising on quality. Our sale periods offer genuine savings — hope to see you then!
+        - Thanks for the honest review, [Name]. Four decades of craftsmanship go into every piece, and we never want price alone to hold you back — let our team find options within your budget.
+        - Thank you for the input, [Name]. Value at Durian means design, durability and a 5-year warranty in one package. Do give us another look during our offer seasons!
+        - We hear you, [Name], and thank you for saying it plainly. We'd love a chance to show you the value behind every Durian piece on your next visit!
+      negative_rating_only:
+        sentiment: negative
+        options:
+        - Thank you for your rating, [Name]. We'd genuinely like to understand your experience better — please reach out at escalation@durian.in and we'll do our best to help.
+        - We're sorry to see this rating, [Name]. Your feedback matters to us — please share the details at escalation@durian.in so we can assist you.
+        - Thank you, [Name]. If there's something we can help resolve, our team is ready — please contact escalation@durian.in with your purchase details.
+        - We value your feedback, [Name]. We'd welcome the chance to understand what happened and make it better — reach us at escalation@durian.in.
+        - Thank you for taking the time to rate us, [Name]. Please tell us more about your experience at escalation@durian.in — we're listening.
+        - We're here to help, [Name]. If your rating relates to a product or service concern, our team will take it up on priority — contact escalation@durian.in.
+        - Your experience matters to us, [Name]. Please give us the opportunity to understand and resolve any concern at escalation@durian.in.
+        - Thank you, [Name]. Every rating helps us improve. If there's something specific we can address, please reach out at escalation@durian.in.
+        - We'd love to hear from you, [Name]. Please share what fell short at escalation@durian.in — your feedback will get our full attention.
+        - Thank you for your rating, [Name]. Serving you better is important to us — our team is just a message away at escalation@durian.in.
+      negative_mis_tap:
+        sentiment: negative
+        options:
+        - Thank you for the kind words, [Name]! We noticed the star rating doesn't quite match your lovely review — if it was unintentional, we'd be grateful if you could update it. Either way, glad you had a great experience!
+        - Thank you so much for the wonderful feedback, [Name]! It seems the star rating may have been tapped by mistake — do consider updating it if so. We truly appreciate your visit!
+        - So glad you enjoyed your experience, [Name]! Your words say 5 stars even if the rating doesn't — if it was accidental, an update would mean a lot to our team!
+        - Thank you, [Name]! Your review made us smile, though the rating puzzled us — if the stars were a slip, we'd appreciate a quick edit. Thanks again for choosing Durian!
+        - We loved reading your review, [Name]! Just checking — the low rating alongside such positive words might be unintentional? Either way, thank you for your support!
+        - Thank you for the great feedback, [Name]! If the star rating was a mis-tap, updating it would help other customers see your true experience. Grateful either way!
+        - Thanks, [Name]! Your kind words and the rating tell two different stories — if the stars slipped, do fix them when you get a moment. We appreciate you!
+        - Thank you for the positive review, [Name]! It looks like the rating may not reflect your experience — a quick update would be wonderful if so. See you again at Durian!
+        - So happy you had a good experience, [Name]! If the low stars were accidental, we'd be grateful for a correction — and if not, do tell us more at escalation@durian.in.
+        - Thank you, [Name]! Your review reads like 5 stars to us. If the rating was a slip of the finger, an edit would make our day — thanks for visiting Durian!
+  fhc:
+    cases:
+      positive_staff:
+        sentiment: positive
+        options:
+        - Thank you so much, [Name]! We're delighted that [staff member] made your home journey special. From planning and design to installation, our integrated team walks with you every step — glad it showed!
+        - Wonderful to hear, [Name]! [Staff member] will be thrilled with this appreciation. Designing custom spaces around your personal style is what our team loves doing!
+        - Thank you, [Name]! Our designers listen first and design after — happy [staff member] brought your vision to life. Your kind words will be shared with the whole team!
+        - So glad to hear this, [Name]! An end-to-end experience needs a team that truly cares, and we're proud [staff member] delivered exactly that.
+        - Thank you for mentioning [staff member] by name, [Name]! Guiding you from concept to completed home is our privilege — see you again at Durian Full Home Customisation!
+        - We appreciate this so much, [Name]! Your feedback has been shared with [staff member] and the design team. Tailored homes begin with attentive people!
+        - Thank you, [Name]! From the first sketch to the final fitting, our team stays with you — glad the experience felt as seamless as we intend it to be!
+        - Delighted to read this, [Name]! [Staff member] and the entire Full Home Customisation team thank you for trusting us with your home.
+        - Thank you, [Name]! Great modular homes are built on great conversations — happy our team made yours count. Do visit us again!
+        - Your kind words mean the world to us, [Name]! We'll celebrate this with [staff member] and the team. Thank you for making Durian part of your home story!
+      positive_quality_craft:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! From the solidity of the foundations to the elegance of the fine finishes, every element of a Durian home speaks of quality and care — so glad yours does too!
+        - Thanks a lot, [Name]! With end-to-end in-house manufacturing, quality stays in our hands at every stage — wonderful to know your [modular kitchen/wardrobe] reflects it.
+        - Thank you, [Name]! Precision-built cabinetry and fine finishing are the heart of Durian Full Home Customisation. Enjoy your beautiful new space for years to come!
+        - So happy to hear this, [Name]! Every module is crafted to last and finished to delight — your review tells us we got both right!
+        - Thank you, [Name]! Solid construction, elegant detailing, fully customised — that's the Durian Full Home Customisation promise, and we're thrilled your home lives up to it.
+        - Wonderful, [Name]! A custom home should feel premium in every touch and corner — delighted yours does. Thank you for choosing Durian!
+        - Thank you for the lovely review, [Name]! Quality materials and meticulous craft go into every Durian space. Wishing you many happy years in your new home!
+        - We're thrilled you love your [modular kitchen/wardrobe], [Name]! Built end-to-end by us, for you — that's craftsmanship you can feel every day.
+        - Thank you, [Name]! It's wonderful to know the finish and build quality matched your vision. Your home deserved nothing less!
+        - Much appreciated, [Name]! Durable, elegant, and made just for your home — enjoy your custom space, and we're always here if you need anything!
+      positive_customisation:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Custom spaces designed around your personal style and daily needs — that's what we do, and we're so glad your home feels truly yours!
+        - Thank you, [Name]! Fully customisable, end to end — from layout to the last handle, your home was designed for the way you live. Delighted you love it!
+        - So glad to hear this, [Name]! A home should fit its people, not the other way around — happy our design team tailored yours perfectly.
+        - Thank you, [Name]! Meticulously tailored to enhance your lifestyle — that's the Durian Full Home Customisation way, and your review says it beautifully!
+        - We appreciate this, [Name]! Every family is unique, and so is every Durian home. Thank you for letting us design yours!
+        - Thank you, [Name]! From personal style to practical needs, we design around you. So happy your space feels just right!
+        - Delighted to read this, [Name]! Customisation is our craft — glad every detail of your home reflects your taste.
+        - Thank you, [Name]! Your vision, our execution — that's the partnership we love. Enjoy your beautifully tailored home!
+        - Thanks for the kind words, [Name]! Homes designed around real daily life are the best kind — wonderful to know yours works exactly as you hoped!
+        - Thank you, [Name]! A truly personal home is the finest compliment to our design team. Wishing you countless happy moments in it!
+      positive_variety:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! With 500+ finishes and an extensive selection of designs and materials, there's a perfect match for every style — so glad you found yours!
+        - Thank you, [Name]! Wide variety is our strength — happy you enjoyed exploring the designs, finishes and materials at our studio!
+        - So glad to hear this, [Name]! From classic to contemporary, 500+ finishes mean your home is never off-the-shelf. Delighted you found exactly what you wanted!
+        - Thank you, [Name]! Diverse choices for every style and need — that's the Durian Full Home Customisation promise. Do visit again as we keep adding new finishes!
+        - We appreciate it, [Name]! Choosing from our extensive range is half the fun of building a custom home — glad you enjoyed it!
+        - Thank you, [Name]! With so many materials and finishes to mix and match, every Durian home is one of a kind — just like yours!
+        - Thanks, [Name]! Our design library keeps growing — drop by anytime to see the newest finishes and ideas for your next space!
+        - Thank you, [Name]! It's wonderful to know our variety helped you design a home that's truly your own. See you again at Durian Full Home Customisation!
+        - Grateful for your review, [Name]! Great selection makes great homes — happy our range inspired yours!
+        - Thank you, [Name]! From subtle to statement, 500+ finishes cover it all — delighted your choices came together beautifully!
+      positive_seamless_service:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Planning, design, construction and installation — one integrated team, one seamless experience. So glad your journey with us felt exactly that way!
+        - Thank you, [Name]! An end-to-end modular solution means you relax while we handle everything — happy it worked perfectly for your home!
+        - So glad to hear this, [Name]! From first measurement to final installation, our team stays accountable at every step. Thank you for trusting Durian Full Home Customisation!
+        - Thank you, [Name]! One-stop shop for all things modular — kitchen, wardrobes and beyond — and one smooth experience throughout. Delighted yours was seamless!
+        - We truly appreciate this, [Name]! Coordinated execution is the hardest part of home projects, and the part we're proudest of. Glad it showed!
+        - Thank you, [Name]! No juggling multiple vendors, no chasing timelines — just one team seeing your home through. Happy that made the difference for you!
+        - Delighted to read this, [Name]! Our installation team will love this feedback. Enjoy your beautiful new space!
+        - Thank you, [Name]! A custom home built without stress — that's the experience we design for. Welcome to the Durian family!
+        - Grateful for your feedback, [Name]! Integrated service from day one to handover is our promise — thank you for letting us keep it!
+        - Thank you, [Name]! Smooth planning, precise execution, on-time handover — so glad your project ticked every box. We're always a call away!
+      positive_generic:
+        sentiment: positive
+        options:
+        - Thank you so much for the 5 stars, [Name]! Your support means a lot to the entire Durian Full Home Customisation team!
+        - Thank you, [Name]! We're glad your custom home journey with us was a happy one. Visit us again for your next space!
+        - Much appreciated, [Name]! Reviews like yours inspire our designers every day. Thank you for choosing Durian Full Home Customisation!
+        - Thank you for the wonderful rating, [Name]! Wishing you beautiful moments in your new space!
+        - Thanks a lot, [Name]! From modular kitchens to full-home solutions, we're here whenever you're ready for more!
+        - Thank you, [Name]! Your 5 stars made our day. The Full Home Customisation team sends its gratitude!
+        - We appreciate your support, [Name]! Enjoy your tailored home — built end to end, just for you!
+        - Thank you, [Name]! Glad we could bring your vision to life. Do recommend us to friends planning their dream home!
+        - Thanks for the love, [Name]! There's always a new finish or design to explore at Durian Full Home Customisation — see you soon!
+        - Thank you, [Name]! Your trust in our end-to-end modular expertise means everything. Happy homemaking!
+      negative_workmanship:
+        sentiment: negative
+        options:
+        - Thank you for sharing this with us, [Name]. We're here to hear you and resolve your concerns — please write to us at escalation@durian.in with your project details, and our team will connect with you.
+        - We're sorry to hear about your experience, [Name]. Your concerns matter to us, and we'd like to understand them fully — kindly reach out at escalation@durian.in so our team can assist you.
+        - We hear you, [Name], and we appreciate you bringing this to our attention. Please share your project details at escalation@durian.in — our team will review your concerns and work towards a resolution.
+        - Thank you for your feedback, [Name]. Your satisfaction with your home matters deeply to us. Please connect with us at escalation@durian.in and our team will look into your concerns personally.
+        - We understand your concern, [Name], and we're here to help. Kindly write to escalation@durian.in with the details — our service team will get in touch to understand and address the issue.
+        - We're sorry for the inconvenience, [Name]. We'd like to hear more about your experience — please reach out at escalation@durian.in and our team will take your concerns forward.
+        - Thank you for your patience, [Name]. Every concern deserves a fair hearing and a sincere effort to resolve it — please share yours at escalation@durian.in and we'll connect with you.
+        - We value your trust, [Name], and your feedback helps us serve you better. Please write to us at escalation@durian.in — our team is ready to listen and assist.
+        - Thank you for bringing this to our notice, [Name]. We'd like to understand the issue in detail — kindly reach us at escalation@durian.in and our team will follow up with you.
+        - We appreciate your candour, [Name]. Your concerns are important to us — please share them at escalation@durian.in and our team will do its best to resolve them.
+      negative_delivery:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. We understand how much your home means to you — please share your project details at escalation@durian.in and our team will connect with you on the status.
+        - We're sorry for the wait, [Name]. We're here to hear you and resolve your concerns — kindly write to escalation@durian.in with your project ID and our team will follow up with you.
+        - We understand timelines matter, [Name], especially for your home. Please reach out at escalation@durian.in — our project team will review your case and get in touch.
+        - Thank you for bringing this up, [Name]. Your concerns have our attention — kindly share your details at escalation@durian.in so our team can look into the progress and update you.
+        - We appreciate your understanding, [Name]. We'd like to review where things stand on your project — please write to escalation@durian.in and our team will connect with you.
+        - We're sorry for the inconvenience, [Name]. Please share your project details at escalation@durian.in — our team will hear you out and work towards moving things forward.
+        - Thank you, [Name]. We understand waiting is difficult — kindly reach us at escalation@durian.in and our team will look into your project and keep you informed.
+        - We hear you, [Name]. Your experience matters to us — please write to escalation@durian.in with your project details, and our team will follow up on your concerns.
+        - Thank you for your patience, [Name]. We'd like to understand your situation better and assist — please connect with us at escalation@durian.in.
+        - We're sorry for the delay, [Name]. Please share your details at escalation@durian.in — our team is here to listen and to help take your project towards completion.
+      negative_after_sales:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. We're here to hear you and resolve your concerns — please share your ticket number at escalation@durian.in and our team will follow up with you.
+        - We're sorry for the inconvenience, [Name]. Your service concern matters to us — kindly write to escalation@durian.in and our team will connect with you to take it forward.
+        - We hear you, [Name]. Please share your details at escalation@durian.in — our service team will review your request and get in touch with you.
+        - Thank you for bringing this to our notice, [Name]. We'd like to understand your concern fully — please reach out at escalation@durian.in and our team will assist you.
+        - We understand the frustration of follow-ups, [Name], and we appreciate your patience. Kindly share your details at escalation@durian.in — your concern will be heard and attended to.
+        - Your concern matters to us, [Name]. Please write to escalation@durian.in with the details — our team will review everything together and work towards a resolution.
+        - We're sorry for the wait, [Name]. We're committed to listening and helping — please reach us at escalation@durian.in and our team will connect with you.
+        - Thank you for your feedback, [Name]. Please share your service request details at escalation@durian.in — our team will look into it and follow up with you.
+        - We value your patience, [Name]. Your concerns deserve our full attention — kindly write to escalation@durian.in and we'll take it from there.
+        - We're here for you, [Name]. A Durian home is a long relationship — please share your details at escalation@durian.in and our team will do its best to assist you.
+      negative_staff_experience:
+        sentiment: negative
+        options:
+        - Thank you for sharing this, [Name]. We're here to hear you — your feedback has been shared with the studio team, and we'd welcome the chance to understand your experience better at escalation@durian.in.
+        - We're sorry your visit didn't feel right, [Name]. We'd like to listen and understand what happened — please write to us at escalation@durian.in.
+        - Thank you for your candour, [Name]. Your experience matters to us — kindly share the details at escalation@durian.in and our team will connect with you.
+        - We appreciate you bringing this up, [Name]. We'd like to hear the specifics so we can address your concerns — please reach us at escalation@durian.in.
+        - Your feedback is valuable, [Name]. We'd welcome another opportunity to understand your vision and serve you better — do write to us at escalation@durian.in.
+        - Thank you, [Name]. Designing someone's home is a responsibility we take seriously — please share your experience at escalation@durian.in and our team will reach out to you.
+        - We hear you, [Name]. Clear communication matters throughout a project — thank you for helping us improve. Please connect with us at escalation@durian.in for anything pending.
+        - We're sorry your experience fell short of expectations, [Name]. We'd genuinely like to hear the details — please reach us at escalation@durian.in.
+        - Thank you for the honest feedback, [Name]. It has been shared with our leadership. We'd be grateful for the chance to listen and make things better — escalation@durian.in.
+        - We value every customer's journey, [Name]. Please share your experience at escalation@durian.in — our team is ready to listen and assist.
+      negative_rating_only:
+        sentiment: negative
+        options:
+        - Thank you for your rating, [Name]. We're here to hear you and resolve your concerns — please reach out at escalation@durian.in.
+        - We're sorry to see this rating, [Name]. If there's something on your mind, we'd like to listen — please write to us at escalation@durian.in.
+        - Thank you, [Name]. Your feedback matters — please share the details at escalation@durian.in so we can understand and assist you.
+        - We value your feedback, [Name]. We'd welcome the chance to hear what happened — reach us at escalation@durian.in.
+        - Thank you for taking the time to rate us, [Name]. Please tell us more at escalation@durian.in — we're listening.
+        - Your experience matters to us, [Name]. Please give us the opportunity to understand your concerns at escalation@durian.in.
+        - Thank you, [Name]. Every rating helps us improve. If there's something specific we can look into, please write to escalation@durian.in.
+        - We'd love to hear from you, [Name]. Please share your experience at escalation@durian.in — it will get our full attention.
+        - We're here to help, [Name]. Whether it's design, installation or service, do share your concern at escalation@durian.in.
+        - Thank you for your rating, [Name]. Serving you better is important to us — our team is just a message away at escalation@durian.in.
+  doors:
+    cases:
+      positive_staff:
+        sentiment: positive
+        options:
+        - Thank you so much, [Name]! We're delighted [staff member] helped you find the perfect doors for your home. Your kind words will be shared with the whole team!
+        - Wonderful to hear, [Name]! Guiding you to the right design, size and finish is what our door experts love doing. Thank you for choosing Durian!
+        - Thank you, [Name]! With 40+ years of expertise behind every Durian product, knowledgeable guidance is our promise — glad [staff member] delivered it!
+        - So glad to hear this, [Name]! Doors are the first impression of every home, and our team takes pride in helping you choose well.
+        - Thank you for mentioning [staff member] by name, [Name] — recognition from customers is the best reward. See you again at our Doors Experience Centre!
+        - We appreciate this so much, [Name]! Your feedback has been shared with the team. Thank you for trusting Durian with your home's entrance!
+        - Thank you, [Name]! From selection to final fitting, our team stays with you — happy the experience showed it!
+        - Delighted to read this, [Name]! The entire Doors Experience Centre team thanks you for your warm words.
+        - Thank you, [Name]! Helpful, patient guidance is what we train for — so glad it made your visit worthwhile!
+        - Your kind words mean the world to us, [Name]! We'll celebrate this with the team. Thank you for choosing Durian Doors!
+      positive_product_quality:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Durian doors are engineered for strength and finished for elegance — so glad yours delivers both. Enjoy for years to come!
+        - Thanks a lot, [Name]! Manufactured in our state-of-the-art units with 40+ years of expertise, every Durian door is built to last — wonderful to know yours proves it!
+        - Thank you, [Name]! A door should be sturdy, silent and stunning — delighted yours checks every box!
+        - So happy to hear this, [Name]! Premium materials and precision engineering go into every Durian door. Your review tells us it shows!
+        - Thank you, [Name]! Designed for Indian homes and Indian weather — that's the durability you can count on. Enjoy!
+        - Wonderful, [Name]! Strength on the inside, style on the outside — that's the Durian door promise. Thank you for choosing us!
+        - Thank you for the lovely review, [Name]! Fine finishes and solid construction are our craft. Wishing your home many welcoming years!
+        - We're thrilled you love your Durian doors, [Name]! Responsibly manufactured, beautifully finished — enjoy them every day!
+        - Thank you, [Name]! Great to know the quality and finish matched your expectations. Your home's entrance deserved nothing less!
+        - Much appreciated, [Name]! Durable, elegant, and made to welcome — that's every Durian door. We're always here if you need anything!
+      positive_range:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! From classic wooden finishes to contemporary designs, our Experience Centre showcases it all — glad you found your perfect match!
+        - Thank you, [Name]! A door for every home and every style — happy you enjoyed exploring the range!
+        - So glad to hear this, [Name]! Our collection keeps growing with new designs and finishes — do visit again for your next project!
+        - Thank you, [Name]! Variety in designs, sizes and finishes is our strength — delighted it helped you choose with confidence!
+        - We appreciate it, [Name]! Seeing and feeling the doors before choosing makes all the difference — that's what our Experience Centre is for!
+        - Thank you, [Name]! From main doors to interior doors, everything under one roof — glad the range impressed you!
+        - Thanks, [Name]! New designs arrive regularly at our Experience Centre — drop by anytime for a look!
+        - Thank you, [Name]! It's wonderful to know our display helped you visualise your home perfectly. See you again!
+        - Grateful for your review, [Name]! Great selection makes great homes — happy our range inspired your choice!
+        - Thank you, [Name]! Every style, every budget, every home — that's the Durian Doors range. Delighted you found yours!
+      positive_delivery:
+        sentiment: positive
+        options:
+        - Thank you, [Name]! Glad the delivery and fitting went off smoothly. A perfectly hung door is a job well done — enjoy!
+        - Thank you, [Name]! Precise measurement and professional installation are part of the Durian promise — happy we delivered on it!
+        - So glad to hear this, [Name]! Our installation team will be delighted with your feedback.
+        - Thank you, [Name]! On-time delivery and neat fitting matter as much as the product itself — glad we got both right!
+        - We appreciate this, [Name]! Careful handling and expert installation ensure your doors work flawlessly for years. Enjoy!
+        - Thank you, [Name]! Great to know everything reached you safely and was fitted perfectly!
+        - Thanks for the feedback, [Name]! We'll pass on your appreciation to our fitting team — they'll love it!
+        - Thank you, [Name]! From showroom to doorstep — literally — we aim for a seamless journey. Happy yours was exactly that!
+        - Delighted to hear it, [Name]! Wishing your home many welcoming moments through your new Durian doors!
+        - Thank you, [Name]! Service after the sale is the Durian way — we're just a call away whenever you need us!
+      positive_generic:
+        sentiment: positive
+        options:
+        - Thank you so much for the 5 stars, [Name]! Your support means a lot to the Durian Doors team!
+        - Thank you, [Name]! We're glad you had a great experience at our Doors Experience Centre. Visit again soon!
+        - Much appreciated, [Name]! Reviews like yours keep us motivated. Thank you for choosing Durian!
+        - Thank you for the wonderful rating, [Name]! Wishing your home many welcoming years ahead!
+        - Thanks a lot, [Name]! Whenever you're ready for your next door or home upgrade, we're here!
+        - Thank you, [Name]! Your 5 stars made our day. The team sends its gratitude!
+        - We appreciate your support, [Name]! Enjoy your new Durian doors!
+        - Thank you, [Name]! Glad we could serve you well. Do recommend us to friends building or renovating!
+        - Thanks for the love, [Name]! There's always a new design to explore at our Experience Centre — see you soon!
+        - Thank you, [Name]! Your trust in Durian's 40-year legacy means everything. Happy homemaking!
+      negative_product_quality:
+        sentiment: negative
+        options:
+        - Thank you for bringing this to our attention, [Name]. Please share your invoice number and photos at escalation@durian.in — our service team will inspect your doors and resolve this on priority.
+        - We're sorry to hear about your experience, [Name]. Every Durian door is backed by our quality commitment — please reach out at escalation@durian.in and we'll take care of this quickly.
+        - We understand your concern, [Name]. Our quality team would like to examine the product personally — kindly contact escalation@durian.in to schedule an inspection.
+        - Thank you for your feedback, [Name]. Your doors should serve you flawlessly, and we'll ensure they do — please share your purchase details at escalation@durian.in.
+        - We hear you, [Name], and we're here to help. Repair or replacement, whichever serves you best — our team will assess and act. Reach us at escalation@durian.in.
+        - We're sorry for the inconvenience, [Name]. Please allow our team to inspect and resolve the issue — your case will be handled on priority at escalation@durian.in.
+        - Thank you for your patience, [Name]. With 40+ years of manufacturing expertise, resolving this is well within our capability — please share details at escalation@durian.in.
+        - We value your trust, [Name], and want to restore it fully. Kindly reach out at escalation@durian.in with your order details for a quick resolution.
+        - Thank you for sharing this, [Name]. Our senior service team will personally oversee your case — please contact escalation@durian.in.
+        - We appreciate your feedback, [Name]. Your satisfaction matters deeply — please give us the chance to set this right at escalation@durian.in.
+      negative_delivery:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. Our team will call you within 24 hours with a confirmed delivery and fitting date — and we'll stand by it.
+        - We're sorry for the wait, [Name]. Your order has been flagged for priority dispatch — please share your order number at escalation@durian.in.
+        - We understand timelines matter, [Name], especially during home projects. Your order is being personally tracked — expect an update from us today.
+        - Thank you for bringing this up, [Name]. The fitting team is being scheduled on priority for your address. Reach us at escalation@durian.in for live status.
+        - We appreciate your understanding, [Name]. Your delivery is being fast-tracked, and we'll keep you proactively informed until installation is complete.
+        - We're sorry for the inconvenience, [Name]. Please share your order details at escalation@durian.in — our team will take personal ownership of the timeline.
+        - Thank you, [Name]. A committed date will be shared within 24 hours, and our team will follow through until your doors are perfectly fitted.
+        - We hear you, [Name]. Your project shouldn't wait — dispatch and installation are being aligned on priority. Reach us anytime at escalation@durian.in.
+        - Thank you for your patience, [Name]. We'll coordinate delivery and fitting in one smooth visit and confirm the schedule with you directly.
+        - We're sorry for the delay, [Name]. Your time matters to us — our logistics team has been alerted and will contact you today.
+      negative_after_sales:
+        sentiment: negative
+        options:
+        - Thank you for your patience, [Name]. Your service request has been escalated to our senior team — please share your ticket number at escalation@durian.in for quick resolution.
+        - We're sorry for the inconvenience, [Name]. Our team will reach out within 24 hours to schedule the service visit. You can also contact escalation@durian.in directly.
+        - We hear you, [Name], and we're on it. Continued care after purchase is the Durian way — please share your details at escalation@durian.in.
+        - Thank you for bringing this to our notice, [Name]. Your case now has priority attention, and we'll keep you updated until it's fully closed.
+        - We understand the frustration of follow-ups, [Name]. Our service head has been informed — expect a call shortly, or reach us at escalation@durian.in.
+        - Your concern matters, [Name]. We're taking up your request for one complete resolution — kindly share the details at escalation@durian.in.
+        - We're sorry for the wait, [Name]. Our team will contact you within 24 hours to take this forward on priority.
+        - Thank you for your feedback, [Name]. Your service visit is being scheduled now. For anything urgent, reach us at escalation@durian.in.
+        - We value your patience, [Name]. Your case will stay with our senior team until it's resolved to your satisfaction — reach us anytime at escalation@durian.in.
+        - We're here for you, [Name]. Every Durian door comes with our continued support — please share your details at escalation@durian.in for immediate assistance.
+      negative_rating_only:
+        sentiment: negative
+        options:
+        - Thank you for your rating, [Name]. We'd genuinely like to understand your experience — please reach out at escalation@durian.in and we'll do our best to help.
+        - We're sorry to see this rating, [Name]. If it relates to a product, delivery or service concern, our team will take it up on priority — contact escalation@durian.in.
+        - Thank you, [Name]. Your feedback matters — please share the details at escalation@durian.in so we can assist you.
+        - We value your feedback, [Name]. We'd welcome the chance to understand what happened and make it better — reach us at escalation@durian.in.
+        - Thank you for taking the time to rate us, [Name]. Please tell us more at escalation@durian.in — we're listening.
+        - Your experience matters to us, [Name]. Please give us the opportunity to understand and resolve any concern at escalation@durian.in.
+        - Thank you, [Name]. Every rating helps us improve. If there's something specific we can address, please reach out at escalation@durian.in.
+        - We'd love to hear from you, [Name]. Please share what fell short at escalation@durian.in — your feedback will get our full attention.
+        - We're here to help, [Name]. Whether it's the product, fitting or service, our team is ready — contact escalation@durian.in.
+        - Thank you for your rating, [Name]. Serving you better is important to us — our team is just a message away at escalation@durian.in.
