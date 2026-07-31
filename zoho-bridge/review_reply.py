@@ -15,6 +15,8 @@
 # personalise it (greeting + one specific reference) — never to invent new
 # wording.
 
+import re
+import time
 from pathlib import Path
 
 import config
@@ -676,10 +678,26 @@ async def draft(channel: str, message: str, contact_name: str,
 # phrasing variants. draft_review() classifies a review into (vertical, case)
 # via ONE LLM call (also extracting the reviewer/staff/product to fill the
 # [brackets]), then rotates through the case's variants (reviews_state) so
-# consecutive same-case reviews read differently. This REPLACES the 8 flat
-# canned templates for the review channel.
+# consecutive same-case reviews read differently.
+#
+# SOURCE OF TRUTH: the variant TEXT is owned by Chatwoot canned responses
+# (short_code review_<vertical>_<case>_NN, seeded by sync_review_bank.py) so the
+# client edits/adds/removes wording from the UI and it changes what the AI drafts
+# — UI edits win. The YAML is the structural SEED (which verticals/cases exist,
+# each case's sentiment) AND the fallback text: if a case has no canned responses
+# synced (or the fetch fails), draft_review falls back to the YAML options, so a
+# missing/un-synced template can never break the drafter. Adding a whole new CASE
+# still needs a YAML change (the classifier reads the case list + sentiment from
+# YAML); editing or adding VARIANTS within an existing case is fully UI-driven.
 _REVIEW_BANK_PATH = Path(__file__).parent / "review_reply_bank.yaml"
 _review_bank_cache = None
+
+# UI-override cache: {vertical: {case: [option, ...]}} parsed from the
+# review_<vertical>_<case>_NN canned responses, refreshed every _LIVE_BANK_TTL s
+# (reviews are low-volume; this keeps us from fetching per review).
+_LIVE_BANK_TTL = 300.0
+_live_bank_cache = {"at": -1e9, "data": {}}
+_RE_REVIEW_CODE = re.compile(r"^review_(furniture|fhc|doors)_(.+)_(\d+)$")
 
 
 def _load_review_bank() -> dict:
@@ -692,6 +710,32 @@ def _load_review_bank() -> dict:
             print(f"[review-bank] could not load {_REVIEW_BANK_PATH.name}: {e}")
             _review_bank_cache = {}
     return _review_bank_cache
+
+
+async def _review_bank_live() -> dict:
+    """{vertical: {case: [option, ...]}} built from the review_<vertical>_<case>_NN
+    canned responses (the UI-editable source), variants ordered by NN. Cached for
+    _LIVE_BANK_TTL. Returns {} on any failure so the caller falls back to the YAML
+    seed — a Chatwoot hiccup must never take the drafter down."""
+    now = time.monotonic()
+    if now - _live_bank_cache["at"] < _LIVE_BANK_TTL:
+        return _live_bank_cache["data"]
+    buckets: dict = {}
+    try:
+        for cr in await chatwoot.list_canned_responses():
+            m = _RE_REVIEW_CODE.match((cr.get("short_code") or "").strip())
+            if not m:
+                continue
+            vert, case, nn = m.group(1), m.group(2), int(m.group(3))
+            buckets.setdefault(vert, {}).setdefault(case, []).append((nn, cr.get("content") or ""))
+    except Exception as e:
+        print(f"[review-bank] live canned-response fetch failed: {e}")
+        _live_bank_cache.update(at=now, data={})
+        return {}
+    data = {vert: {case: [c for _, c in sorted(opts)] for case, opts in cases.items()}
+            for vert, cases in buckets.items()}
+    _live_bank_cache.update(at=now, data=data)
+    return data
 
 
 def review_vertical_for(location: str) -> str:
@@ -795,6 +839,9 @@ async def draft_review(message: str, contact_name: str, stars: int = 0,
     vertical = review_vertical_for(location)
     bank = _load_review_bank()
     cases = ((bank.get(vertical) or {}).get("cases")) or {}
+    # UI-editable variant text (canned responses) overlaid per (vertical, case);
+    # falls back to the YAML seed below when a case has none synced.
+    live_vert = (await _review_bank_live()).get(vertical) or {}
     reviewer = (contact_name or "").strip()
     store = _store_display(location)
 
@@ -829,7 +876,8 @@ async def draft_review(message: str, contact_name: str, stars: int = 0,
     product = (parsed.get("product") or "").strip()
     reasoning = (parsed.get("reasoning") or "")[:200]
 
-    options = (cases.get(case) or {}).get("options") or []
+    # UI edits win: live canned-response variants for this case, else YAML seed.
+    options = live_vert.get(case) or (cases.get(case) or {}).get("options") or []
     if not options:
         return result_review("", "handoff", f"review:{vertical}:{case}",
                              "No options in this case.", stars, needs_human=needs_human)
