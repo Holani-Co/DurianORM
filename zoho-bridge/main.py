@@ -923,12 +923,17 @@ def _first_incoming_content(messages: list) -> str:
 
 
 async def _post_category_decision(conv_id: int, category_result: dict,
-                                  sector_review_only: bool = False) -> dict:
+                                  sector_review_only: bool = False,
+                                  vertical_review_only: bool = False) -> dict:
     """Write the pending decision + post the agent-facing card. Idempotent.
 
     sector_review_only: the category is already confident (project_bulk_order)
     but the buyer sector (government/private) is uncertain — the card is shown
-    so the agent confirms the sector before it forwards."""
+    so the agent confirms the sector before it forwards.
+
+    vertical_review_only: the category is confident but a vertical-routed
+    category (complaint/franchise/product_enquiry) couldn't determine the
+    product line — the card shows a vertical picker."""
     try:
         existing = (await chatwoot.get_conversation(conv_id)).get(
             "custom_attributes", {}).get("pending_category_decision")
@@ -969,6 +974,16 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         pending["sector_confidence"] = round(float(category_result.get("sector_confidence") or 0), 2)
         pending["sector_reason"]     = category_result.get("sector_reason") or ""
         pending["sector_review_only"] = bool(sector_review_only)
+    # Vertical-routed categories (complaint / franchise / product_enquiry) whose
+    # product line is unclear: surface the AI's vertical guess + a picker so the
+    # agent confirms which team it goes to.
+    if (category_result.get("rule") or {}).get("vertical_routing"):
+        pending["needs_vertical"]       = True
+        pending["vertical_suggested"]   = category_result.get("vertical") or ""
+        pending["vertical_confidence"]  = round(float(category_result.get("vertical_confidence") or 0), 2)
+        pending["vertical_reason"]      = category_result.get("vertical_reason") or ""
+        pending["verticals"]            = classifier.vertical_choices(suggested)
+        pending["vertical_review_only"] = bool(vertical_review_only)
     try:
         await chatwoot.merge_custom_attributes(
             conv_id, {"pending_category_decision": pending})
@@ -976,7 +991,20 @@ async def _post_category_decision(conv_id: int, category_result: dict,
         print(f"[category-decision] merge_custom_attributes failed: {e}")
 
     pct = int(round(conf * 100))
-    if sector_review_only:
+    if vertical_review_only:
+        vv    = pending.get("vertical_suggested") or "unknown"
+        vvpct = int(round(float(pending.get("vertical_confidence") or 0) * 100))
+        lines = [
+            "🧩 **Which product line? — confirm the vertical**",
+            "",
+            f"This is a **{pending['suggested_display']}**, but I couldn't tell "
+            f"which product line it concerns (best guess: **{vv}**, {vvpct}% "
+            f"confident). They route to different teams, so nothing has been "
+            f"forwarded yet.",
+        ]
+        if pending.get("vertical_reason"):
+            lines.append(f"_{pending['vertical_reason']}_")
+    elif sector_review_only:
         ssec  = pending.get("sector_suggested") or "unknown"
         sspct = int(round(float(pending.get("sector_confidence") or 0) * 100))
         lines = [
@@ -1070,6 +1098,7 @@ async def _post_bulk_region_review(conv_id: int, category_result: dict) -> dict:
 
 async def _resolve_category_decision(conv_id: int, category: str,
                                      sector: Optional[str] = None,
+                                     vertical: Optional[str] = None,
                                      agent_name: str = "") -> dict:
     """Agent confirmed a category — run the real forward/route action for it
     and clear the pending flag. Returns a JSON-friendly dict for the endpoint.
@@ -1098,6 +1127,24 @@ async def _resolve_category_decision(conv_id: int, category: str,
         }
         chosen_sector = sector
 
+    # Vertical-routed category: the agent picked the product line → point the
+    # forward at that vertical's team (copy the rule so the shared dict is safe).
+    chosen_vertical = None
+    if vertical and (rule.get("vertical_routing") or {}).get(vertical):
+        vroute = rule["vertical_routing"][vertical]
+        rule = {
+            **rule,
+            "forward_to": vroute.get("forward_to") or rule.get("forward_to"),
+            "cc":         vroute.get("cc") if vroute.get("cc") is not None
+                          else (rule.get("cc") or []),
+            "bcc":        vroute.get("bcc") if vroute.get("bcc") is not None
+                          else (rule.get("bcc") or []),
+            "include_customer_in_cc": vroute.get(
+                "include_customer_in_cc", rule.get("include_customer_in_cc", False)),
+            "share_executive_email": vroute.get("share_executive_email", False),
+        }
+        chosen_vertical = vertical
+
     sender       = (conv.get("meta") or {}).get("sender") or {}
     sender_email = sender.get("email") or ""
     sender_name  = sender.get("name") or ""
@@ -1118,6 +1165,10 @@ async def _resolve_category_decision(conv_id: int, category: str,
         category_result["sector"] = chosen_sector
         category_result["sector_confidence"] = 1.0
         category_result["sector_reason"] = "Confirmed by agent."
+    if chosen_vertical:
+        category_result["vertical"] = chosen_vertical
+        category_result["vertical_confidence"] = 1.0
+        category_result["vertical_reason"] = "Confirmed by agent."
 
     # Persist the agent's decision onto email_category_v2 — the CRM panel
     # gates its Create Deal button on the stored category, and the deal-owner
@@ -1131,6 +1182,9 @@ async def _resolve_category_decision(conv_id: int, category: str,
         if chosen_sector:
             v2_update.update({"sector": chosen_sector, "sector_confidence": 1.0,
                               "sector_reason": "Confirmed by agent."})
+        if chosen_vertical:
+            v2_update.update({"vertical": chosen_vertical, "vertical_confidence": 1.0,
+                              "vertical_reason": "Confirmed by agent."})
         await chatwoot.merge_custom_attributes(
             conv_id, {"email_category_v2": v2_update})
     except Exception as e:
@@ -1322,6 +1376,13 @@ _EMAIL_CUSTOMER_ACK_ENABLED = (
     os.environ.get("EMAIL_CUSTOMER_ACK_ENABLED", "false").lower() == "true"
 )
 
+# LOCAL TESTING ONLY: when set to an address, EVERY team forward (any category,
+# vertical, sector, region, or location route) is redirected to this one inbox,
+# so a local run never emails a real department. Team Cc/Bcc are dropped; the
+# customer Cc (a real test sender) is kept. UNSET in production — leave the env
+# var out and forwards go to the real configured recipients.
+_LOCAL_FORWARD_OVERRIDE = os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
+
 # Sender local-parts that mark machine-generated / transactional mail (OTPs,
 # shipping/security notifications, third-party system emails). There's no human
 # on the other end, so we must NEVER send a customer acknowledgment back to
@@ -1374,6 +1435,19 @@ def _resolve_acknowledgment_template(category: str) -> Optional[dict]:
     if not key:
         return None
     return templates.get(key)
+
+
+def _append_executive_email(ack_body: str, forward_to: str) -> str:
+    """Append a 'connect with the team directly' line naming the handling team's
+    email address — used for categories/verticals flagged share_executive_email
+    (the client's Email-Keywords "share internal team info = YES" rows). The team
+    address is the rule's forward target; the first address is used when several."""
+    addr = (forward_to or "").split(",")[0].strip()
+    if not addr:
+        return ack_body
+    return (ack_body.rstrip() +
+            f"\n\nFor quicker resolution, you may also connect with our team "
+            f"directly at {addr}.")
 
 
 def _append_ticket_reference(ack_body: str, ticket_number: str) -> str:
@@ -2925,8 +2999,12 @@ async def _phase2_execute_actions(conv_id: int,
         audit.append(
             "ℹ️ Acknowledgment skipped — deal-details gate owns the customer reply."
         )
-    elif cat_key == "product_enquiry" and config.RETAIL_ROUTING_ENABLED:
+    elif (cat_key == "product_enquiry" and action != "forward"
+            and config.RETAIL_ROUTING_ENABLED):
         # The retail routing gate (below) owns the reply for product enquiries —
+        # EXCEPT a laminate enquiry, which the vertical router turned into a
+        # forward (action == "forward") to Cedar India; that gets the normal
+        # forward + acknowledgment instead of the retail gate.
         # it asks for the city or lists the city's showrooms in ONE email, so the
         # generic acknowledgment would be a duplicate.
         audit.append(
@@ -2937,6 +3015,10 @@ async def _phase2_execute_actions(conv_id: int,
             customer_name    = name,
             original_subject = original_subject or "",
         )
+        # Share the handling team's direct email with the customer when the
+        # resolved rule/vertical is flagged share_executive_email (client col G).
+        if rule and rule.get("share_executive_email") and rule.get("forward_to"):
+            ack_body = _append_executive_email(ack_body, rule["forward_to"])
         if cat_key == "complaint":
             # Defer: the ticket doesn't exist yet. Sent after ticket creation
             # so we can append the reference number for the customer.
@@ -2962,6 +3044,14 @@ async def _phase2_execute_actions(conv_id: int,
         if rule.get("include_customer_in_cc") and sender_email:
             cc_list.append(sender_email)
         bcc_list   = list(rule.get("bcc") or [])
+        # LOCAL TESTING: redirect the whole team forward to one inbox (env-gated,
+        # off in prod). Keeps only the customer Cc; drops team Cc/Bcc.
+        if _LOCAL_FORWARD_OVERRIDE:
+            keep_customer = bool(rule.get("include_customer_in_cc") and sender_email)
+            forward_to = _LOCAL_FORWARD_OVERRIDE
+            cc_list    = [sender_email] if keep_customer else []
+            bcc_list   = []
+            audit.append(f"🧪 Local test: team forward redirected to {forward_to}.")
 
         if not forward_to:
             audit.append("⚠️ Forward skipped: no `forward_to` in routing rule")
@@ -3134,8 +3224,11 @@ async def _phase2_execute_actions(conv_id: int,
     # ── Retail routing gate (product enquiry → city → showroom → owner) ──
     # Retail furniture purchase enquiries route to a showroom's CRM owner: ask
     # the city, list the city's showrooms, capture the chosen owner for Create
-    # Deal. Owns the customer reply (generic ack suppressed above).
-    if cat_key == "product_enquiry" and config.RETAIL_ROUTING_ENABLED:
+    # Deal. Owns the customer reply (generic ack suppressed above). A laminate
+    # enquiry is a forward (action == "forward") to Cedar India — it skips the
+    # retail gate and is handled by the forward block above.
+    if (cat_key == "product_enquiry" and action != "forward"
+            and config.RETAIL_ROUTING_ENABLED):
         try:
             audit += await _run_retail_gate(
                 conv_id, sender_name, sender_email,
@@ -3935,6 +4028,22 @@ async def handle_message_created(data: dict) -> dict:
             return await _post_category_decision(conv_id, category_result,
                                                  sector_review_only=True)
 
+    # ── Product-vertical gate ────────────────────────────────────────────
+    # The category is confident, but a vertical-routed category (complaint /
+    # franchise / product_enquiry) couldn't determine the product line. Don't
+    # guess the team — post a vertical decision card so an agent picks it
+    # (client rule: ambiguous vertical → agent decides). Nothing is forwarded.
+    if (category_result is not None and category_auto
+            and category_result.get("vertical_uncertain")
+            and not _PHASE_2_DRY_RUN and not is_social):
+        tracing.event(conv_id, "vertical-review-card", parent=_lf, output={
+            "action": "posted_for_agent_confirmation",
+            "category": category_result.get("category"),
+            "vertical_confidence": category_result.get("vertical_confidence"),
+        })
+        return await _post_category_decision(conv_id, category_result,
+                                             vertical_review_only=True)
+
     # ── Bulk-order region ────────────────────────────────────────────────
     # NO "region needs an agent decision" card. Bulk orders no longer forward
     # (suppress_forward), and the deal OWNER is resolved at Create Deal time by
@@ -4015,6 +4124,13 @@ async def handle_message_created(data: dict) -> dict:
         # instead, since that's the only case an agent needs to act on.
         display = (rule or {}).get("display_name") or category_result["category"]
         note_lines = [f"🗂️ **Auto-classified as: {display}**"]
+        # Show the resolved product line (subcategory) so the routing is
+        # traceable — the redirected forward address alone doesn't reveal it.
+        _vert = category_result.get("vertical")
+        if _vert:
+            note_lines.append(
+                f"↳ Product line: **{classifier.vertical_display_name(category_result['category'], _vert)}**"
+            )
         if category_result.get("category") == "fallback":
             note_lines.append(
                 "_The category wasn't clear — please review and route manually._"
@@ -4676,6 +4792,36 @@ def _validate_routing_doc(doc) -> dict:
                     for a in vals:
                         if not _valid_email(a):
                             errors.append(f"Category '{key}': {field} has an invalid email '{a}'.")
+            # Vertical routing (subcategories): each vertical's forward_to may be
+            # a comma-separated list (e.g. the laminate desk); validate each.
+            vr = cfg.get("vertical_routing")
+            if vr is not None and not isinstance(vr, dict):
+                errors.append(f"Category '{key}': vertical_routing must be an object.")
+            elif isinstance(vr, dict):
+                for vkey, vcfg in vr.items():
+                    if not isinstance(vcfg, dict):
+                        errors.append(f"Category '{key}' vertical '{vkey}' must be an object.")
+                        continue
+                    vft = vcfg.get("forward_to")
+                    if vft:
+                        for addr in str(vft).split(","):
+                            addr = addr.strip()
+                            if addr and not _valid_email(addr):
+                                errors.append(f"Category '{key}' vertical '{vkey}': "
+                                              f"forward_to '{addr}' is not a valid email.")
+                    for vf in ("include_customer_in_cc", "share_executive_email"):
+                        if vf in vcfg and not isinstance(vcfg[vf], bool):
+                            errors.append(f"Category '{key}' vertical '{vkey}': "
+                                          f"{vf} must be true or false.")
+                    for vf in ("cc", "bcc"):
+                        vals = vcfg.get(vf)
+                        if vals and not isinstance(vals, list):
+                            errors.append(f"Category '{key}' vertical '{vkey}': {vf} must be a list.")
+                        elif isinstance(vals, list):
+                            for a in vals:
+                                if not _valid_email(a):
+                                    errors.append(f"Category '{key}' vertical '{vkey}': "
+                                                  f"{vf} has an invalid email '{a}'.")
             if not (cfg.get("description") or "").strip():
                 warnings.append(f"Category '{key}' has no description — the classifier picks it less reliably.")
 
@@ -4812,6 +4958,7 @@ async def admin_routing_config_preview(request: Request,
     finally:
         classifier.reset_preview_rules(token)
     rule = result.get("rule") or {}
+    vertical = result.get("vertical") or ""
     return {
         "category":     cat,
         "display_name": display,
@@ -4819,6 +4966,11 @@ async def admin_routing_config_preview(request: Request,
         "action":       result.get("action"),
         "forward_to":   rule.get("forward_to"),
         "cc":           rule.get("cc") or [],
+        # Resolved product line (subcategory) — so the Preview shows WHICH
+        # vertical matched, which the redirected forward address can't reveal.
+        "vertical":         vertical,
+        "vertical_display": classifier.vertical_display_name(cat, vertical) if vertical else "",
+        "vertical_uncertain": bool(result.get("vertical_uncertain")),
         "reason":       result.get("reason"),
         "alternatives": result.get("alternatives") or [],
     }
@@ -5023,11 +5175,13 @@ async def chatwoot_resolve_category_decision(request: Request):
     conv_id    = body.get("conversation_id")
     category   = body.get("category")
     sector     = body.get("sector")      # bulk orders only: government | private
+    vertical   = body.get("vertical")    # vertical-routed cats: the product line
     agent_name = body.get("agent_name")  # injected by the Rails proxy (Current.user)
     if not conv_id or not category:
         raise HTTPException(400, "missing conversation_id or category")
     try:
         return await _resolve_category_decision(int(conv_id), category, sector,
+                                                vertical=vertical,
                                                 agent_name=agent_name or "")
     except Exception as e:
         print(f"[category-decision] resolve endpoint failed for conv {conv_id}: "

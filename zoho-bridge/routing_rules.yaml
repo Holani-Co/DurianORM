@@ -32,21 +32,53 @@ categories:
   product_enquiry:
     display_name: Product Enquiry
     action: in_channel
+    # Laminate & e-commerce product enquiries forward to their own desks; every
+    # other product enquiry (furniture etc.) falls through to the retail gate
+    # (city → showroom → CRM owner). Doors & Full Home Customization remain their
+    # OWN top-level categories with their existing deal flow — not verticals here.
+    # No vertical_ambiguous:card here, so a furniture enquiry never cards.
+    vertical_routing:
+      # Retail Furniture is the DEFAULT — NO forward_to, so it stays in_channel
+      # and flows to the retail showroom gate (city → showroom → CRM owner). It's
+      # listed so the vertical classifier has a furniture option and doesn't force
+      # an ordinary furniture enquiry into laminate/ecom.
+      retail_furniture:
+        display_name: Retail Furniture
+        keywords: [Sofa, Bed, Mattress, Dining, Recliner, Wardrobe, Chair, Table,
+          Furniture, Sofa Cum Bed, Office Chair, In Stock, Availability]
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Laminate, Laminates, Sunmica, Decorative Laminate, PU Laminate,
+          Laminate Sheet, Laminate Catalogue, Laminate Price]
+      ecom:
+        display_name: E-commerce
+        forward_to: sushil.k@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Online Order, E-commerce, Online Purchase, Buy Online, Website Order,
+          Online Availability, Ecom Enquiry, Online Store Enquiry]
     description: |
       Customer is asking ABOUT a specific product or a category of products
-      before buying — its availability, price, dimensions, materials,
-      colour options, store stock, online link, exchange/upgrade offer, or
-      where to find it. Pre-purchase intent. NOT an existing order.
+      before buying — furniture (sofa, bed, mattress, dining, recliner) OR
+      decorative LAMINATE / sunmica sheets — its availability, price,
+      dimensions, materials, colour options, store stock, online link,
+      catalogue, exchange/upgrade offer, or where to find it. Pre-purchase
+      intent. NOT an existing order. (A laminate enquiry is sub-routed to the
+      Cedar India laminate desk; furniture goes to the retail showroom flow.)
     examples:
       - "Do you have Devansh set 6 by 5 feet"
       - "Single sitter sofa cum bed available?"
-      - "Garden side table"
+      - "Do you have decorative laminates / sunmica sheets? Share the catalogue"
       - "Are there trolly drawers for rooms"
       - "Office chair exchange is possible at pin code 700135?"
       - "Is this available in jamshedpur Jharkhand"
     # Subject-line keyword anchors from the client's Email-Keywords sheet.
-    # NOTE: door / veneer / plywood / laminate / frame product terms route
-    # to the dedicated doors_veneer_plywood category, NOT here.
+    # NOTE: door / veneer / plywood / frame product terms route to the
+    # dedicated doors_veneer_plywood category, NOT here. Laminate DOES belong
+    # here (it is sub-routed to the laminate vertical).
     keywords:
       - Price Inquiry
       - Product Catalog
@@ -57,6 +89,12 @@ categories:
       - store availability
       - sofa availability
       - chair availability
+      - Laminate
+      - Laminates
+      - Sunmica
+      - Decorative Laminate
+      - Laminate Catalogue
+      - Laminate Price
 
   general_information:
     display_name: General Information
@@ -108,10 +146,48 @@ categories:
   complaint:
     display_name: Complaint
     action: forward
+    # Default = Retail Furniture (customer support + Jeevan, customer Cc'd). Used
+    # when the product vertical can't be determined (until an agent picks it).
     forward_to: customersupport@durian.in
-    cc: []
+    cc: [Jeevan.jyoti@durian.in]
     bcc: []
     include_customer_in_cc: true
+    # Route the complaint to the vertical's team (client "Working Team – Feedback"
+    # sheet). Vertical detected by classify_vertical; unclear → agent decision card.
+    vertical_ambiguous: card
+    vertical_routing:
+      retail_furniture:
+        display_name: Retail Furniture
+        forward_to: customersupport@durian.in
+        cc: [Jeevan.jyoti@durian.in]
+        include_customer_in_cc: true
+        keywords: [Sofa, Recliner, Bed, Mattress, Dining, Wardrobe, Cushion, Upholstery,
+          Fabric, Frame, Seat Sagging, Leather Peeling, Foam, Hydraulic, Caster]
+      full_home_customization:
+        display_name: Full Home Customization
+        forward_to: nishita.nayak@durian.in, hofhc.mis@durian.in
+        include_customer_in_cc: false
+        keywords: [Modular Kitchen, Modular Wardrobe, Interior, Vanity Unit, Crockery Unit,
+          Home Interior, Kitchen Installation, Customisation Project, Island Kitchen]
+      ecom:
+        display_name: E-commerce Order
+        forward_to: abhishek.pandey@durian.in
+        include_customer_in_cc: false
+        keywords: [Online Order, Order Status, Delivery, Tracking, Dispatch, Shipment,
+          Not Delivered, Order Delay, In Transit, Courier]
+      doors_veneer_plywood:
+        display_name: Doors / Veneer / Plywood
+        forward_to: anshu.tiwari@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Door, Door Frame, Veneer, Plywood, Flush Door, Door Alignment,
+          Door Installation, Wooden Frame, Door Replacement]
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com
+        include_customer_in_cc: false
+        share_executive_email: true
+        keywords: [Laminate, Laminates, Sunmica, Decorative Laminate]
     description: |
       Customer is unhappy about a product they received, a service issue,
       a defective item, poor experience, damaged delivery, missing parts,
@@ -346,10 +422,35 @@ categories:
   franchise_dealership:
     display_name: Franchise / Dealership Enquiry
     action: forward
+    # Default = Retail Furniture (Ram Sai). Used when the vertical is unclear.
     forward_to: ram.sai@durian.in
     cc: []
     bcc: []
     include_customer_in_cc: false
+    # Franchise routes by the product line the applicant wants to sell (sheet).
+    vertical_ambiguous: card
+    vertical_routing:
+      retail_furniture:
+        display_name: Retail Furniture
+        forward_to: ram.sai@durian.in
+        keywords: [Sofa, Furniture, Ready Furniture, Recliner, Showroom, Store]
+      full_home_customization:
+        display_name: Full Home Customization
+        forward_to: ram.sai@durian.in
+        keywords: [Modular Kitchen, Interior, Home Studio, Full Home, Modular]
+      ecom:
+        display_name: E-commerce
+        forward_to: shilpa@durian.in
+        keywords: [Online, E-commerce, Marketplace, Website Sales]
+      doors_veneer_plywood:
+        display_name: Doors / Veneer / Plywood
+        forward_to: anshu.tiwari@durian.in
+        cc: [rohit.kanoujia@durian.in]
+        keywords: [Doors, Door, Veneer, Plywood, Laminate Dealership, Door Dealership]
+      laminate:
+        display_name: Laminate
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+        keywords: [Laminate, Laminates, Sunmica]
     description: |
       Someone wants to open a Durian franchise / become a dealer /
       authorised reseller / distributor — asking for franchise terms,
@@ -925,9 +1026,10 @@ categories:
 
   # ── Doors / Veneer / Plywood — dedicated product line (Anshu Tiwari) ──
   # Added per the client's Email-Keywords sheet, which routes ALL door /
-  # veneer / plywood / laminate / frame enquiries AND complaints to a
-  # dedicated owner (Anshu Tiwari), separate from the general
-  # complaint/product flows.
+  # veneer / plywood / frame enquiries AND complaints to a dedicated owner
+  # (Anshu Tiwari), separate from the general complaint/product flows.
+  # NOTE: LAMINATE is deliberately NOT here — laminate is its own vertical
+  # (product_enquiry → laminate → Cedar India; complaint → laminate → Cedar).
   doors_veneer_plywood:
     display_name: Doors / Veneer / Plywood
     action: forward
@@ -943,17 +1045,18 @@ categories:
     include_customer_in_cc: true
     description: |
       Any enquiry OR complaint specifically about Durian's doors, door
-      frames, veneers, plywood, or laminates product line — pricing,
-      catalogue, finishes (PU matt/gloss), specific door series (Flush,
-      Herring, Golden Teak), frame options, door installation/replacement,
-      or a defect in a door/veneer/laminate item. This is a dedicated
-      product vertical: even a COMPLAINT about a door routes here (not to
-      the general Complaint category), and even a pre-purchase door
-      enquiry routes here (not to general Product Enquiry).
+      frames, veneers, or plywood product line — pricing, catalogue,
+      finishes (PU matt/gloss), specific door series (Flush, Herring,
+      Golden Teak), frame options, door installation/replacement, or a
+      defect in a door/veneer/plywood item. This is a dedicated product
+      vertical: even a COMPLAINT about a door routes here (not to the
+      general Complaint category), and even a pre-purchase door enquiry
+      routes here (not to general Product Enquiry). Decorative LAMINATE /
+      sunmica is NOT this category — it is its own laminate vertical.
     examples:
       - "Need a quotation for 40 mm flush doors with golden teak veneer"
       - "What are your standard door sizes and frame options?"
-      - "Price list for decorative laminates and PU gloss finish"
+      - "Price list for plywood sheets and PU gloss door finish"
       - "The veneer door installed last month is peeling at the edges"
       - "Interested in bulk door requirement for our project"
     keywords:
@@ -964,8 +1067,8 @@ categories:
       - Wooden Doors
       - Interior Doors
       - Premium Doors
-      - Laminates
-      - Decorative Laminates
+      - Plywood
+      - Plywood Sheets
       - PU Matt Finish
       - PU Gloss Finish
       - Golden Teak Veneer
@@ -973,7 +1076,6 @@ categories:
       - Door Replacement
       - Door Quotation
       - Door Catalog
-      - Laminate Catalog
       - Frame Options
       - Frame Pricing
       - 40 mm Flush Door
@@ -1005,6 +1107,135 @@ categories:
         forward_to: rohit.kanoujia@durian.in
         cc: [anshu.tiwari@durian.in]
         include_customer_in_cc: true
+
+  # ── New categories (client "Working Team – Feedback" sheet, 2026-07) ──────
+  # Flat, single-owner categories. Keywords ingested verbatim from the
+  # Email-Keywords tab (cols M / N / O). Customer is acknowledged but NOT Cc'd
+  # on the internal forward (matches the sheet's "not in CC" rule for these).
+  finance_related:
+    display_name: Finance / Payment
+    action: forward
+    forward_to: dipesh.patel@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Corporate finance / funding / working-capital matters — business loans,
+      credit lines, overdrafts, invoice discounting, vendor/PO/inventory
+      financing, capex or growth funding. NOT a customer refund/payment dispute
+      (that is a Complaint) and NOT an invoice/GST query about an order.
+    examples:
+      - Proposal for working capital and OD line for your manufacturing unit
+      - Invoice discounting facility for your receivables
+      - Term loan / capex funding options for Durian
+    keywords:
+      - Debt Financing
+      - Financing
+      - Corporate Financing
+      - Business Loan
+      - OD Line
+      - Overdraft Facility
+      - Working Capital
+      - WCDL
+      - Credit Line
+      - Credit Facility
+      - Term Loan
+      - Growth Capital
+      - Capex Funding
+      - Bridge Financing
+      - Invoice Discounting
+      - Vendor Financing
+      - Receivable Financing
+      - PO Funding
+      - Inventory Funding
+  customer_technology:
+    display_name: Customer Technology
+    action: forward
+    forward_to: varsha@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Website / e-commerce technology pitches and requests — website design,
+      development, redesign, optimisation, landing pages, e-commerce build.
+      A vendor offering web/tech services, not a furniture customer.
+    examples:
+      - We build e-commerce websites — proposal for durian.in
+      - Landing page and website optimisation services
+      - Website redesign / upgrade proposal
+    keywords:
+      - Website Development
+      - Website Design
+      - Website Creation
+      - New Website
+      - Website Upgrade
+      - Website Optimization
+      - Ecommerce Website
+      - Landing Page
+  digital_marketing_seo:
+    display_name: Digital Marketing / SEO
+    action: forward
+    forward_to: lav.agarwal@durian.in
+    cc: []
+    bcc: []
+    include_customer_in_cc: false
+    description: |
+      Digital-marketing, SEO, social-media and paid-ads services pitches —
+      agencies/freelancers offering SEO, Google Ads/PPC, social media
+      management, lead generation, content/performance marketing. A services
+      pitch, distinct from Marketing/Advertising (magazine/PR/print) and from
+      Collaboration (brand/influencer barter).
+    examples:
+      - SEO and Google Ads services to grow durian.in traffic
+      - Social media management and reels marketing proposal
+      - Performance marketing / lead generation for your brand
+    keywords:
+      - Digital Marketing
+      - Online Marketing
+      - Social Media Marketing
+      - SMM
+      - Facebook Marketing
+      - Instagram Marketing
+      - Google Ads
+      - PPC
+      - Lead Generation
+      - Online Promotion
+      - Brand Promotion
+      - Brand Awareness
+      - Marketing Services
+      - Advertising Services
+      - Performance Marketing
+      - Content Marketing
+      - SEO
+      - Search Engine Optimization
+      - Google Ranking
+      - Google Business Profile
+      - Google My Business
+      - GBP Optimization
+      - Local SEO
+      - Google Reviews
+      - Social Media Management
+      - Facebook Page
+      - Instagram Page
+      - LinkedIn Marketing
+      - Social Media Growth
+      - Social Media Promotion
+      - Social Media Services
+      - Content Creation
+      - Reels Marketing
+      - Grow your business online
+      - Improve online presence
+      - Increase website traffic
+      - Generate more leads
+      - Reach more customers
+      - Online branding
+      - Marketing proposal
+      - Digital solutions
+      - Marketing agency
+      - Marketing support
+      - Business growth
+      - Online visibility
+      - Brand building
 
 # Fallback when the classifier returns low confidence or hits an unrecognised
 # category. Phase 1: surfaces in custom_attributes as "uncategorised" — agent
