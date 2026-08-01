@@ -560,11 +560,14 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
     except Exception as e:
         print(f"[reviews] edit: add {LBL_EDITED} failed conv {conv_id}: {e}")
 
-    # Fresh AI draft from the NEW text, posted as the suggestion card.
+    # Fresh AI draft from the NEW text, posted as the suggestion card. Uses the
+    # reply bank (same path as first ingest) so an edited review re-drafts from
+    # the vertical×case variants with brackets filled — not the retired 8 flat
+    # templates.
     _lf = tracing.message_parent(conv_id, review_msg_id, name="review-edit",
                                  stars=rv["stars"], location=title)
-    drafted = await review_reply.draft(
-        channel="review", message=rv["comment"] or "",
+    drafted = await review_reply.draft_review(
+        message=rv["comment"] or "",
         contact_name=rv["reviewer"] or "Customer",
         stars=rv["stars"] or 0, location=title, lf_parent=_lf,
     )
