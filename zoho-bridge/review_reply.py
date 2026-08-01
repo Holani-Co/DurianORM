@@ -693,14 +693,16 @@ _REVIEW_BANK_PATH = Path(__file__).parent / "review_reply_bank.yaml"
 _review_bank_cache = None
 
 # UI-override cache: {vertical: {case: [option, ...]}} parsed from the
-# reviewbank_<vertical>_<case>_NN canned responses, refreshed every _LIVE_BANK_TTL
-# s (reviews are low-volume; this keeps us from fetching per review). The
-# `reviewbank_` prefix is deliberate — see sync_review_bank.py: it keeps the bank
-# out of the `review_` namespace that draft(channel="review") (the legacy
-# edit/regenerate picker) still scans, so the bank can never leak into that path.
+# review_<vertical>_<case>_NN canned responses, refreshed every _LIVE_BANK_TTL s
+# (reviews are low-volume; this keeps us from fetching per review). The bank
+# lives under the `review_` prefix so the Canned Responses UI files it under the
+# "Google Reviews" tab (templateTaxonomy.js keys tabs on the pre-underscore
+# prefix). Safe now that the edit/regenerate path uses draft_review, not the old
+# draft(channel="review") picker — so no legacy consumer of bare review_ codes
+# remains to collide with.
 _LIVE_BANK_TTL = 300.0
 _live_bank_cache = {"at": -1e9, "data": {}}
-_RE_REVIEW_CODE = re.compile(r"^reviewbank_(furniture|fhc|doors)_(.+)_(\d+)$")
+_RE_REVIEW_CODE = re.compile(r"^review_(furniture|fhc|doors)_(.+)_(\d+)$")
 
 
 def _load_review_bank() -> dict:
