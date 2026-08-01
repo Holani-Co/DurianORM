@@ -3,10 +3,14 @@ import { useAlert } from 'dashboard/composables';
 import AddCanned from './AddCanned.vue';
 import EditCanned from './EditCanned.vue';
 import ChannelFilterTabs from './ChannelFilterTabs.vue';
+import ReviewSubFilters from './ReviewSubFilters.vue';
 import SettingsLayout from '../SettingsLayout.vue';
 import BaseSettingsHeader from '../components/BaseSettingsHeader.vue';
-import { parseShortCode } from 'dashboard/helper/templateTaxonomy';
-import { computed, onMounted, ref, defineOptions } from 'vue';
+import {
+  parseShortCode,
+  parseReviewCode,
+} from 'dashboard/helper/templateTaxonomy';
+import { computed, onMounted, ref, watch, defineOptions } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useStoreGetters, useStore } from 'dashboard/composables/store';
 import { picoSearch } from '@scmmishra/pico-search';
@@ -40,6 +44,15 @@ const cannedResponseAPI = ref({ message: '' });
 const sortOrder = ref('asc');
 const searchQuery = ref('');
 const selectedChannel = ref('all');
+const selectedVertical = ref('all');
+const selectedCategory = ref('all');
+
+// Leaving/entering a channel tab clears the review sub-filters so a stale
+// vertical/category can't hide rows on another tab.
+watch(selectedChannel, () => {
+  selectedVertical.value = 'all';
+  selectedCategory.value = 'all';
+});
 
 const records = computed(() =>
   getters.getSortedCannedResponses.value(sortOrder.value)
@@ -54,10 +67,32 @@ const channelRecords = computed(() => {
   );
 });
 
+// On the Google Reviews tab, narrow further by vertical + category (both derived
+// from the short_code). A no-op on every other channel.
+const reviewFilteredRecords = computed(() => {
+  if (selectedChannel.value !== 'review') return channelRecords.value;
+  return channelRecords.value.filter(r => {
+    const { vertical, category } = parseReviewCode(r.short_code || '');
+    if (
+      selectedVertical.value !== 'all' &&
+      vertical !== selectedVertical.value
+    ) {
+      return false;
+    }
+    if (
+      selectedCategory.value !== 'all' &&
+      category !== selectedCategory.value
+    ) {
+      return false;
+    }
+    return true;
+  });
+});
+
 const filteredRecords = computed(() => {
   const query = searchQuery.value.trim();
-  if (!query) return channelRecords.value;
-  return picoSearch(channelRecords.value, query, [
+  if (!query) return reviewFilteredRecords.value;
+  return picoSearch(reviewFilteredRecords.value, query, [
     { name: 'short_code', weight: 4 },
     'content',
   ]);
@@ -186,6 +221,12 @@ const tableHeaders = computed(() => {
         v-if="records.length"
         v-model="selectedChannel"
         :records="records"
+      />
+      <ReviewSubFilters
+        v-if="selectedChannel === 'review'"
+        v-model:vertical="selectedVertical"
+        v-model:category="selectedCategory"
+        :records="channelRecords"
       />
       <BaseTable
         :headers="tableHeaders"

@@ -13,6 +13,11 @@
       "ALL": "All",
       "OTHER": "Other"
     },
+    "REVIEW_FILTER": {
+      "VERTICAL": "Vertical",
+      "CATEGORY": "Category",
+      "ALL": "All"
+    },
     "NAME_BUILDER": {
       "TITLE": "Build a short code",
       "CHANNEL_LABEL": "Channel",
