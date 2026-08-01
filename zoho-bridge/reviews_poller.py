@@ -127,9 +127,26 @@ def _match_store_forward(location: str) -> dict | None:
     return None
 
 
-async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
-    """Email a 1★/2★ review to the store's concerned person + CC. Best-effort:
-    a forward failure never blocks ingestion or the public reply."""
+# review-bank negative case → the concern-category line in the store escalation.
+# Unmapped negative cases fall back to "Other"; a review with no text leaves the
+# line blank (nothing to categorise).
+_CONCERN_CATEGORY = {
+    "negative_product_quality":  "Product quality",
+    "negative_workmanship":      "Product quality",
+    "negative_after_sales":      "After-sales",
+    "negative_delivery":         "Delivery delay",
+    "negative_staff_behaviour":  "Staff behaviour",
+    "negative_staff_experience": "Staff behaviour",
+    "negative_pricing":          "Other",
+    "negative_mis_tap":          "Other",
+}
+
+
+async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
+                                   case: str = "") -> None:
+    """Email a 1★/2★ review to the store's concerned person + CC. `case` is the
+    review-bank case (from classification) used to name the concern category.
+    Best-effort: a forward failure never blocks ingestion or the public reply."""
     row = _match_store_forward(title)
     if not row or not row.get("email"):
         print(f"[reviews] no store-forward match for {title!r} ({rv['stars']}★) — not forwarded")
@@ -150,17 +167,20 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
     _override = _os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
     if _override:
         to_emails, cc_emails = _override, ""
-    # Client-approved store-owner escalation format. The store-forward matrix has
-    # no manager name, so the salutation stays generic; concern category is left
-    # as the checklist (the forward fires before AI classification) for the
-    # manager to tick from the review text.
+    # Client-approved store-owner escalation format. Manager name (the To
+    # recipient) comes from review_store_forward.yaml, generic when absent.
+    # Concern category is auto-filled from the AI's negative-case classification,
+    # and left blank when the review has no text to categorise.
+    manager = row.get("manager") or "Store Manager"
     store_name = row.get("store") or title
     reviewer = rv.get("reviewer") or "Anonymous"
     review_date = _format_review_time(rv.get("create_time") or "") or "Not available"
-    review_text = rv.get("comment") or "(no text — rating only)"
+    has_text = bool((rv.get("comment") or "").strip())
+    review_text = rv.get("comment") if has_text else "(no text — rating only)"
+    concern = _CONCERN_CATEGORY.get(case, "Other") if has_text else ""
     subject = f"Action Required: Negative Google Review ({rv['stars']}★) — {store_name}"
     body = (
-        "Dear Store Manager,\n\n"
+        f"Dear {manager},\n\n"
         "We have received the following negative review on Google for your "
         "showroom. Please look into this on priority.\n\n"
         "Review Details:\n"
@@ -169,8 +189,7 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
         f"• Rating: {rv['stars']} star\n"
         f"• Date: {review_date}\n"
         f'• Review: "{review_text}"\n'
-        "• Concern category: Product quality / After-sales / Delivery delay / "
-        "Staff behaviour / Other\n\n"
+        f"• Concern category: {concern}\n\n"
         "Action required:\n"
         "1. Identify the customer from your records (enquiry/invoice) and contact "
         "them within 24–48 hours.\n"
@@ -370,11 +389,6 @@ async def _ingest_review(loc: dict, rv: dict):
         except Exception as e:
             print(f"[reviews] add_label({lbl}) failed for conv {conv_id}: {e}")
 
-    # 1★/2★ → auto-forward to the store's concerned person + CC (client matrix),
-    # IN ADDITION to the public reply below. Best-effort.
-    if rv["stars"] in (1, 2):
-        await _forward_low_star_review(rv, title, conv_id)
-
     # 2. AI draft — ALWAYS produce a card so the agent has a template ready,
     # even when Google already has a reply on this review. The has_reply flag
     # below only gates auto-posting (we won't re-post to Google), not the card.
@@ -391,6 +405,13 @@ async def _ingest_review(loc: dict, rv: dict):
         lf_parent=_lf,
     )
     reply, action = drafted["reply"], drafted["action"]
+
+    # 1★/2★ → forward to the store's concerned person + CC (client matrix), IN
+    # ADDITION to the public reply below. Runs AFTER classification so the email
+    # names the concern category from the AI's negative case. Best-effort.
+    if rv["stars"] in (1, 2):
+        _case = (drafted.get("short_code") or "").split(":")[-1]
+        await _forward_low_star_review(rv, title, conv_id, case=_case)
 
     # Client policy (zero-touch): auto vs handoff is decided uniformly for ALL
     # ratings by the severity gate inside review_reply.draft() — a review

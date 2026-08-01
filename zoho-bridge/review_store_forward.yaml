@@ -1,5 +1,8 @@
 # 1-star / 2-star Google review → forward to the store's concerned person + CC.
-# Generated from 'Store - Email Forward' (Store Type Master). Matched by store name.
+# Generated from 'Store - Email Forward' (Store Type Master); `manager` names
+# joined from the 'Stores Details' sheet (by store email, then vertical+city).
+# `manager` is the salutation name for the To recipient; absent where the
+# store isn't in Stores Details (the forward then greets 'Store Manager').
 stores:
 - vertical: doors
   store: Durian Doors - Mumbai - Goregaon
@@ -9,55 +12,65 @@ stores:
 - vertical: doors
   store: Durian Doors - Gurgaon - MG Road
   email: rohit.kanojia@durian.in
+  manager: Mr. Rohit Kanojia
   cc:
   - saharsh@durian.in
 - vertical: doors
   store: Durian Doors - Lucknow - Vibhuti Khand
   email: vinay.singh@durian.in
+  manager: Nitesh
   cc:
   - saharsh@durian.in
 - vertical: doors
   store: Durian Doors - Coimbatore - RS Puram
   email: duriandoorscbe@gmail.com
+  manager: Mr. Ravin Prakash
   cc:
   - saharsh@durian.in
 - vertical: doors
   store: Durian Doors - Indore
   email: indore@durian.in
+  manager: Mr. Amit
   cc:
   - saharsh@durian.in
 - vertical: doors
   store: Durian Doors - Hyderabad - Kukatpally
   email: srinivasaenterprisesie@gmail.com
+  manager: Mr. B Pradeep
   cc:
   - saharsh@durian.in
 - vertical: fhc
   store: Durian Full Home Customisation - Delhi - Kirti Nagar
   email: kirtinagar.homestudio@durian.in
+  manager: Ms. Shubhangi Agarwal
   cc:
   - nishita.nayak@durian.in
   - shilpa@durian.in
 - vertical: fhc
   store: Durian Full Home Customisation - Hyderabad - Kompally
   email: kompally.fhcshowroom@durian.in
+  manager: 'Mr. Sharath Gaddam 🗺️ Google Map: https://www.google.com/maps?z=10&om=1&t=m&q=place_id:ChIJf-C6W8GFyzsRFUD5KJx5aEA'
   cc:
   - nishita.nayak@durian.in
   - shilpa@durian.in
 - vertical: fhc
   store: Durian Full Home Customisation - Mumbai - Goregaon
   email: goregaon.homestudio@durian.in
+  manager: Ms. Janhavi Khapre
   cc:
   - nishita.nayak@durian.in
   - shilpa@durian.in
 - vertical: fhc
   store: Durian Full Home Customisation - Noida - Sector 10
   email: noida.fhcshowroom@durian.in
+  manager: Ms. Shruti Shrivastav
   cc:
   - nishita.nayak@durian.in
   - shilpa@durian.in
 - vertical: fhc
   store: Durian Full Home Customisation - Bangalore - JP Nagar
   email: jpnagar.fhcshowroom@durian.in
+  manager: Ms. Nisha Choudhary
   cc:
   - nishita.nayak@durian.in
   - pankaj.dokania@durian.in
@@ -71,12 +84,14 @@ stores:
 - vertical: fhc
   store: Durian Full Home Customisation - Bikaner - Jaisalmer Road
   email: dreamhome.chandak@gmail.com
+  manager: Ms. Shristi Chandak
   cc:
   - nishita.nayak@durian.in
   - shilpa@durian.in
 - vertical: furniture
   store: Durian Furniture - Ahmedabad - Bodakdev
   email: ahmedabad@durian.in
+  manager: Mr. Yash Bhatt
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -91,6 +106,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Bhubaneshwar - Samantarapur
   email: bhubaneswar@durian.in
+  manager: Mr. Anil Mohapatra
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -98,6 +114,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Chennai - Nungambakkam
   email: chennai@durian.in
+  manager: Mr. Balasubramaian
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -105,6 +122,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Chennai OMR - Perungudi
   email: chennaiomr@durian.in
+  manager: Mr. Selvaraj
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -112,6 +130,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Chhatrapati Sambhajinagar (Aurangabad)
   email: aurangabad@durian.in
+  manager: Mr. Suryankant
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -119,6 +138,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Delhi - Ghitorni
   email: ghitorni@durian.in
+  manager: Mr. Ramesh Yadav
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -126,6 +146,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Delhi - Gurgaon JMD
   email: durian.gurgaon@durian.in
+  manager: Mr. Avanish
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -133,6 +154,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Delhi - Kirti Nagar
   email: durian.kirtinagar@durian.in
+  manager: Mr. Raghvendra
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -140,6 +162,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Delhi - Sohna Road
   email: sohnaroad@durian.in
+  manager: Mr. Pankaj Jha
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -147,6 +170,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Guwahati - Lachitnagar
   email: guwahati.lachitnagar@durian.in
+  manager: Mr. Dipak Yadav
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -154,6 +178,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Hyderabad - Banjara Hills
   email: banjarahills.hyderabad@durian.in
+  manager: Mr. Ramesh Bodakuntal
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -161,6 +186,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Hyderabad - Kompally
   email: hydkompally.retail@durian.in
+  manager: Mr. Ashok Gaddi
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -168,6 +194,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Hyderabad - Sarath City
   email: sarathcity.hyderabad@durian.in
+  manager: Mr. Ramesh Bodakuntal
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -175,6 +202,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Indore - Vijay Nagar
   email: indore@durian.in
+  manager: Mr. Amit
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -182,6 +210,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Jaipur - Vaishali Nagar
   email: jaipur@durian.in
+  manager: Mr. Rajesh Shrama
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -189,6 +218,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Jammu - Kunjwani
   email: jammu@durian.in
+  manager: Mr. Naresh
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -196,6 +226,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Jamshedpur - Adityapur
   email: tata@durian.in
+  manager: Mr. Manikant Choudhary
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -203,6 +234,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Kolkata - Topsia
   email: kolkata.store@durian.in
+  manager: Mr. Bikash Das
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -210,6 +242,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Ludhiana - Daad Village
   email: ludhiana@durian.in
+  manager: Ms. Bhumika
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -217,6 +250,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Mumbai - Goregaon
   email: goregaon@durian.in
+  manager: Mr. Nazneen Merchant
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -224,6 +258,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Mumbai - Worli
   email: worli@durian.in
+  manager: Mr. Arivind Rai
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -231,6 +266,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Noida - Sector 10
   email: durian.noida@durian.in
+  manager: Mr. Mohit Singh
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -238,6 +274,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Patna - Danapur
   email: patna@durian.in
+  manager: Mr. Atish Sinha
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -245,6 +282,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Pune - Baner
   email: pune.baner@durian.in
+  manager: Mr. Ashwani
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -252,6 +290,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Pune - Creaticity
   email: punecreaticity@durian.in
+  manager: Mr. Bikash Saha
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -259,6 +298,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Ranchi - Ashok Nagar
   email: ranchi.retail@durian.in
+  manager: Ms. Anamika
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -266,6 +306,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Surat
   email: surat@durian.in
+  manager: Mr. Vineet Dubey
   cc:
   - nagendra.rao@durian.in
   - sneha.gaikwad@durian.in
@@ -273,10 +314,12 @@ stores:
 - vertical: furniture
   store: Durian Office Furniture- Pune- Creaticity
   email: punecreaticity@durian.in
+  manager: Mr. Bikash Saha
   cc: []
 - vertical: furniture
   store: Durian Furniture - Agra - Sikandra
   email: durianlko@gmail.com
+  manager: Mr. Ranjeet
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -284,6 +327,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Bengaluru - JP Nagar
   email: bangalore@durian.in
+  manager: Mr. Sanjay sharma
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -291,6 +335,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Bengaluru - Shivaji Nagar
   email: bangalore@durian.in
+  manager: Mr. Sanjay sharma
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -298,6 +343,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Bhubaneshwar - Patia
   email: durian.patia@gmail.com
+  manager: Mr. Amar
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -305,6 +351,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Lucknow - Arjunganj
   email: durianlko@gmail.com
+  manager: Mr. Ranjeet
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -312,6 +359,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Lucknow - Indira Nagar
   email: durianlko@gmail.com
+  manager: Mr. Ranjeet
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -319,6 +367,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Noida - Sector 49
   email: duriannoida49@gmail.com
+  manager: MANJARI SARKAR
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -333,6 +382,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Prayagraj - Phaphamau
   email: durianlko@gmail.com
+  manager: Mr. Ranjeet
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -347,6 +397,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Shillong - Demseiniong
   email: durianfurnitureshillong@gmail.com
+  manager: Ms. Bolivia Nongbri
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -354,6 +405,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Siliguri - Sevoke Road
   email: durian.siliguri@gmail.com
+  manager: Miss. Archana Panda
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -368,6 +420,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Tirupati - Avilala
   email: durian.tirupati@gmail.com
+  manager: Mr. Kondalu
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -375,6 +428,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Vadodara - Subhanpura
   email: bnbenterprise0@gmail.com
+  manager: Mr. Bhagwan bari
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -389,6 +443,7 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Mohali - JLPL Industrial Area
   email: ''
+  manager: Mr. Manmohan Singh
   cc:
   - gautam.kumar@durian.in
   - ganguli@durian.in
@@ -396,5 +451,6 @@ stores:
 - vertical: furniture
   store: Durian Furniture - Palghar - Udhyog Nagar
   email: palghar.showroom@durian.in
+  manager: Miss. Manasvi Save
   cc:
   - sinha@durian.in
