@@ -167,11 +167,10 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
     _override = _os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
     if _override:
         to_emails, cc_emails = _override, ""
-    # Client-approved store-owner escalation format. Manager name (the To
-    # recipient) comes from review_store_forward.yaml, generic when absent.
-    # Concern category is auto-filled from the AI's negative-case classification,
-    # and left blank when the review has no text to categorise.
-    manager = row.get("manager") or "Store Manager"
+    # Client-approved store-owner escalation format. Salutation is intentionally
+    # generic ("Store Manager") for consistency across all stores and to avoid
+    # mis-addressing. Concern category is auto-filled from the AI's negative-case
+    # classification, and left blank when the review has no text to categorise.
     store_name = row.get("store") or title
     reviewer = rv.get("reviewer") or "Anonymous"
     review_date = _format_review_time(rv.get("create_time") or "") or "Not available"
@@ -180,7 +179,7 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
     concern = _CONCERN_CATEGORY.get(case, "Other") if has_text else ""
     subject = f"Action Required: Negative Google Review ({rv['stars']}★) — {store_name}"
     body = (
-        f"Dear {manager},\n\n"
+        "Dear Store Manager,\n\n"
         "We have received the following negative review on Google for your "
         "showroom. Please look into this on priority.\n\n"
         "Review Details:\n"
