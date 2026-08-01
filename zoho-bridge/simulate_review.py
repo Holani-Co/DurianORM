@@ -21,6 +21,7 @@ import config
 import chatwoot
 import review_reply
 from reviews_poller import (_store_label, _ensure_label_once, tag_reply_status,
+                            _forward_low_star_review,
                             LBL_UNREPLIED, LBL_REPLIED, LBL_AUTO_REPLIED)
 
 
@@ -34,7 +35,9 @@ async def main():
     # Optional 4th arg: the review's actual date (ISO), for testing review-date
     # sort. Defaults to empty (sorts to the bottom under review-date sort).
     review_date = sys.argv[4] if len(sys.argv) > 4 else ""
-    location = "Durian Experience Centre - MG Road"
+    # 5th arg: showroom name — use a REAL store from the forward matrix so the
+    # 1★/2★ store-forward can match. Defaults to a real Furniture showroom.
+    location = sys.argv[5] if len(sys.argv) > 5 else "Durian Furniture - Pune - Creaticity"
     # Fake but plausible reply path; Send-to-Google will fail locally (expected).
     review_path = "accounts/000/locations/000/reviews/SIMULATED"
     review_id = f"sim_{reviewer}_{stars}".lower().replace(" ", "_")
@@ -73,11 +76,19 @@ async def main():
         except Exception as e:
             print(f"add_label({lbl}) skipped: {e}")
 
-    drafted = await review_reply.draft(
-        channel="review", message=comment, contact_name=reviewer,
-        stars=stars, location=location,
+    # Reply bank drafter (vertical × case × rotating variants) — the real flow.
+    drafted = await review_reply.draft_review(
+        message=comment, contact_name=reviewer, stars=stars, location=location,
     )
     reply, action = drafted["reply"], drafted["action"]
+    print(f"→ classified: {drafted['short_code']}  action={action}")
+
+    # 1★/2★ → auto-forward to the store's concerned person + CC (redirected to
+    # the test inbox locally via LOCAL_FORWARD_OVERRIDE), same as the poller.
+    rv = {"stars": stars, "reviewer": reviewer, "comment": comment,
+          "review_id": review_id}
+    if stars in (1, 2):
+        await _forward_low_star_review(rv, location, conv_id)
 
     if action == "auto" and config.REVIEWS_AUTO_REPLY and reply:
         # Genuinely-positive high-star review → mirror the auto-reply into the

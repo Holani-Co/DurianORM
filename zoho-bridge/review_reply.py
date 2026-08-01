@@ -15,6 +15,8 @@
 # personalise it (greeting + one specific reference) — never to invent new
 # wording.
 
+import re
+import time
 from pathlib import Path
 
 import config
@@ -668,3 +670,241 @@ async def draft(channel: str, message: str, contact_name: str,
 
     return result(reply, "auto", short_code, reasoning, confidence,
                   order_status_enquiry, is_complaint, needs_human)
+
+
+# ── Reply bank (Feature: vertical × case × 10 rotating variants) ────────────
+# The client's review reply bank (review_reply_bank.yaml): for each vertical
+# (furniture / fhc / doors) a set of POSITIVE/NEGATIVE cases, each with ~10
+# phrasing variants. draft_review() classifies a review into (vertical, case)
+# via ONE LLM call (also extracting the reviewer/staff/product to fill the
+# [brackets]), then rotates through the case's variants (reviews_state) so
+# consecutive same-case reviews read differently.
+#
+# SOURCE OF TRUTH: the variant TEXT is owned by Chatwoot canned responses
+# (short_code review_<vertical>_<case>_NN, seeded by sync_review_bank.py) so the
+# client edits/adds/removes wording from the UI and it changes what the AI drafts
+# — UI edits win. The YAML is the structural SEED (which verticals/cases exist,
+# each case's sentiment) AND the fallback text: if a case has no canned responses
+# synced (or the fetch fails), draft_review falls back to the YAML options, so a
+# missing/un-synced template can never break the drafter. Adding a whole new CASE
+# still needs a YAML change (the classifier reads the case list + sentiment from
+# YAML); editing or adding VARIANTS within an existing case is fully UI-driven.
+_REVIEW_BANK_PATH = Path(__file__).parent / "review_reply_bank.yaml"
+_review_bank_cache = None
+
+# UI-override cache: {vertical: {case: [option, ...]}} parsed from the
+# reviewbank_<vertical>_<case>_NN canned responses, refreshed every _LIVE_BANK_TTL
+# s (reviews are low-volume; this keeps us from fetching per review). The
+# `reviewbank_` prefix is deliberate — see sync_review_bank.py: it keeps the bank
+# out of the `review_` namespace that draft(channel="review") (the legacy
+# edit/regenerate picker) still scans, so the bank can never leak into that path.
+_LIVE_BANK_TTL = 300.0
+_live_bank_cache = {"at": -1e9, "data": {}}
+_RE_REVIEW_CODE = re.compile(r"^reviewbank_(furniture|fhc|doors)_(.+)_(\d+)$")
+
+
+def _load_review_bank() -> dict:
+    global _review_bank_cache
+    if _review_bank_cache is None:
+        try:
+            with open(_REVIEW_BANK_PATH, encoding="utf-8") as f:
+                _review_bank_cache = (_yaml.safe_load(f) or {}).get("verticals") or {}
+        except Exception as e:
+            print(f"[review-bank] could not load {_REVIEW_BANK_PATH.name}: {e}")
+            _review_bank_cache = {}
+    return _review_bank_cache
+
+
+async def _review_bank_live() -> dict:
+    """{vertical: {case: [option, ...]}} built from the review_<vertical>_<case>_NN
+    canned responses (the UI-editable source), variants ordered by NN. Cached for
+    _LIVE_BANK_TTL. Returns {} on any failure so the caller falls back to the YAML
+    seed — a Chatwoot hiccup must never take the drafter down."""
+    now = time.monotonic()
+    if now - _live_bank_cache["at"] < _LIVE_BANK_TTL:
+        return _live_bank_cache["data"]
+    buckets: dict = {}
+    try:
+        for cr in await chatwoot.list_canned_responses():
+            m = _RE_REVIEW_CODE.match((cr.get("short_code") or "").strip())
+            if not m:
+                continue
+            vert, case, nn = m.group(1), m.group(2), int(m.group(3))
+            buckets.setdefault(vert, {}).setdefault(case, []).append((nn, cr.get("content") or ""))
+    except Exception as e:
+        print(f"[review-bank] live canned-response fetch failed: {e}")
+        _live_bank_cache.update(at=now, data={})
+        return {}
+    data = {vert: {case: [c for _, c in sorted(opts)] for case, opts in cases.items()}
+            for vert, cases in buckets.items()}
+    _live_bank_cache.update(at=now, data=data)
+    return data
+
+
+def review_vertical_for(location: str) -> str:
+    """Which reply-bank vertical this showroom belongs to, from its name.
+    'Durian Doors - …' → doors; an FHC / Home Studio store → fhc; else furniture
+    (the default and largest network)."""
+    loc = (location or "").lower()
+    if "door" in loc:
+        return "doors"
+    if "fhc" in loc or "full home" in loc or "home studio" in loc or "home customi" in loc:
+        return "fhc"
+    return "furniture"
+
+
+def _store_display(location: str) -> str:
+    """A short store name for the [store] bracket — the locality after the last
+    ' - ' (e.g. 'Durian Furniture - Pune - Creaticity' → 'Pune - Creaticity')."""
+    parts = [p.strip() for p in (location or "").split(" - ") if p.strip()]
+    if len(parts) >= 3:
+        return " - ".join(parts[-2:])
+    return parts[-1] if parts else (location or "our showroom")
+
+
+def _fill_review_brackets(text: str, *, name: str, staff: str, store: str,
+                          product: str) -> str:
+    """Fill the reply-bank [brackets] with the extracted values, falling back to
+    natural generics so a reply NEVER goes out with a literal [bracket] or an
+    awkward empty slot."""
+    repl = {
+        "[Name]": name or "there",
+        "[staff member]": staff or "our team",
+        "[Staff member]": staff or "Our team",
+        "[store]": store or "our showroom",
+        "[product]": product or "your purchase",
+        "[modular kitchen/wardrobe]": product or "your project",
+    }
+    for k, v in repl.items():
+        text = text.replace(k, v)
+    # Safety net: any bracket we didn't map → a neutral phrase, never a literal [x].
+    import re as _re
+    text = _re.sub(r"\[[^\]]+\]", "your purchase", text)
+    return text
+
+
+def _review_case_schema(case_keys: list) -> dict:
+    return {
+        "name": "review_case_classification", "strict": True,
+        "schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "case":         {"type": "string", "enum": case_keys or ["positive_generic"]},
+                "needs_human":  {"type": "boolean"},
+                "staff_member": {"type": "string"},
+                "product":      {"type": "string"},
+                "reasoning":    {"type": "string"},
+            },
+            "required": ["case", "needs_human", "staff_member", "product", "reasoning"],
+        },
+    }
+
+
+def _review_case_prompt(vertical: str, cases: dict, stars: int) -> str:
+    lines = [
+        f"You are triaging a Google review of a Durian {vertical.upper()} showroom "
+        f"so it gets the right reply from an approved reply bank.",
+        f"Star rating: {stars or 'unknown'}/5 (a strong signal: 1-2 = negative "
+        "case, 4-5 = positive; judge the TEXT too — a low star with happy text is "
+        "a mis-tap, a high star with a complaint is negative).",
+        "",
+        "Pick the single best-fitting CASE:",
+    ]
+    for key, cfg in cases.items():
+        lines.append(f"  - {key}  ({(cfg or {}).get('sentiment','')})")
+    lines += [
+        "",
+        "Also extract, for personalising the reply (empty string if not present):",
+        "  - staff_member: the exact name of any staff member the reviewer praises "
+        "or blames (e.g. 'Guddu Kumar', 'Richa'). Empty if none named.",
+        "  - product: the specific product/item mentioned (e.g. 'sofa', 'recliner', "
+        "'modular kitchen', 'wardrobe', 'door'). Empty if none.",
+        "  - needs_human: true ONLY for genuinely serious content — legal threats, "
+        "fraud/scam allegations, safety hazards, or abuse. An ordinary complaint is "
+        "NOT needs_human (it gets an empathetic reply from the bank).",
+        "  - reasoning: one short sentence on why this case.",
+        "Output STRICT JSON per the schema.",
+    ]
+    return "\n".join(lines)
+
+
+async def draft_review(message: str, contact_name: str, stars: int = 0,
+                       location: str = "", lf_parent: dict = None) -> dict:
+    """Draft a Google-review reply from the reply bank. Returns the same shape as
+    draft(): {reply, action, short_code, reasoning, confidence, needs_human,
+    trace}. short_code is 'review:<vertical>:<case>' for traceability.
+
+    action == 'auto' → safe to post publicly; 'handoff' → serious content, card
+    for a human. Rotation (reviews_state) makes repeat cases read differently."""
+    import json
+    import reviews_state as _state
+
+    vertical = review_vertical_for(location)
+    bank = _load_review_bank()
+    cases = ((bank.get(vertical) or {}).get("cases")) or {}
+    # UI-editable variant text (canned responses) overlaid per (vertical, case);
+    # falls back to the YAML seed below when a case has none synced.
+    live_vert = (await _review_bank_live()).get(vertical) or {}
+    reviewer = (contact_name or "").strip()
+    store = _store_display(location)
+
+    if not cases:
+        # No bank for this vertical → hand off with no draft (never guess).
+        return result_review("", "handoff", f"review:{vertical}:none",
+                             "No reply bank for this vertical.", stars, needs_human=False)
+
+    case_keys = list(cases.keys())
+    try:
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL, temperature=0, max_tokens=200,
+            response_format={"type": "json_schema",
+                             "json_schema": _review_case_schema(case_keys)},
+            messages=[
+                {"role": "system", "content": _review_case_prompt(vertical, cases, stars)},
+                {"role": "user", "content": f"REVIEW:\n{(message or '(no text — rating only)')[:1500]}"},
+            ],
+            name="review-case-classification",
+            metadata={"langfuse_tags": ["reviews", "reply-bank"]},
+            **(lf_parent or {}),
+        )
+        parsed = json.loads(r.choices[0].message.content or "{}")
+    except Exception as e:
+        print(f"[review-bank] classify failed: {e}")
+        return result_review("", "handoff", f"review:{vertical}:error",
+                             "Classifier error — needs a human.", stars, needs_human=False)
+
+    case = parsed.get("case") if parsed.get("case") in cases else case_keys[0]
+    needs_human = bool(parsed.get("needs_human"))
+    staff = (parsed.get("staff_member") or "").strip()
+    product = (parsed.get("product") or "").strip()
+    reasoning = (parsed.get("reasoning") or "")[:200]
+
+    # UI edits win: live canned-response variants for this case, else YAML seed.
+    options = live_vert.get(case) or (cases.get(case) or {}).get("options") or []
+    if not options:
+        return result_review("", "handoff", f"review:{vertical}:{case}",
+                             "No options in this case.", stars, needs_human=needs_human)
+    idx = _state.next_reply_index(f"{vertical}:{case}", len(options))
+    reply = _fill_review_brackets(options[idx], name=reviewer, staff=staff,
+                                  store=store, product=product)
+
+    # Serious content → hand off for a human even though we drafted a reply.
+    action = "handoff" if needs_human else "auto"
+    reasoning = (f"{vertical} · {case} · variant {idx + 1}/{len(options)}"
+                 + (f" — {reasoning}" if reasoning else ""))
+    return result_review(reply, action, f"review:{vertical}:{case}", reasoning,
+                         stars, needs_human=needs_human)
+
+
+def result_review(reply, action, short_code, reasoning, stars, needs_human=False):
+    """Shape a draft_review return identically to draft() so the poller consumes
+    it unchanged."""
+    return {
+        "reply": reply, "action": action, "short_code": short_code,
+        "reasoning": reasoning, "confidence": 100 if action == "auto" else 0,
+        "order_status_enquiry": False, "is_complaint": False,
+        "needs_human": needs_human,
+        "trace": build_trace("review", short_code, reasoning, action,
+                             confidence=(100 if action == "auto" else 0),
+                             needs_human=needs_human),
+    }

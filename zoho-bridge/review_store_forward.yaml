@@ -1,0 +1,400 @@
+# 1-star / 2-star Google review → forward to the store's concerned person + CC.
+# Generated from 'Store - Email Forward' (Store Type Master). Matched by store name.
+stores:
+- vertical: doors
+  store: Durian Doors - Mumbai - Goregaon
+  email: namdev.panchal@durian.in
+  cc:
+  - saharsh@durian.in
+- vertical: doors
+  store: Durian Doors - Gurgaon - MG Road
+  email: rohit.kanojia@durian.in
+  cc:
+  - saharsh@durian.in
+- vertical: doors
+  store: Durian Doors - Lucknow - Vibhuti Khand
+  email: vinay.singh@durian.in
+  cc:
+  - saharsh@durian.in
+- vertical: doors
+  store: Durian Doors - Coimbatore - RS Puram
+  email: duriandoorscbe@gmail.com
+  cc:
+  - saharsh@durian.in
+- vertical: doors
+  store: Durian Doors - Indore
+  email: indore@durian.in
+  cc:
+  - saharsh@durian.in
+- vertical: doors
+  store: Durian Doors - Hyderabad - Kukatpally
+  email: srinivasaenterprisesie@gmail.com
+  cc:
+  - saharsh@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Delhi - Kirti Nagar
+  email: kirtinagar.homestudio@durian.in
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Hyderabad - Kompally
+  email: kompally.fhcshowroom@durian.in
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Mumbai - Goregaon
+  email: goregaon.homestudio@durian.in
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Noida - Sector 10
+  email: noida.fhcshowroom@durian.in
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Bangalore - JP Nagar
+  email: jpnagar.fhcshowroom@durian.in
+  cc:
+  - nishita.nayak@durian.in
+  - pankaj.dokania@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Thane
+  email: furnituredurian@gmail.com
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: fhc
+  store: Durian Full Home Customisation - Bikaner - Jaisalmer Road
+  email: dreamhome.chandak@gmail.com
+  cc:
+  - nishita.nayak@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Ahmedabad - Bodakdev
+  email: ahmedabad@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bengaluru - Marathahalli
+  email: marathahallistore.bangalore@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bhubaneshwar - Samantarapur
+  email: bhubaneswar@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Chennai - Nungambakkam
+  email: chennai@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Chennai OMR - Perungudi
+  email: chennaiomr@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Chhatrapati Sambhajinagar (Aurangabad)
+  email: aurangabad@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Delhi - Ghitorni
+  email: ghitorni@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Delhi - Gurgaon JMD
+  email: durian.gurgaon@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Delhi - Kirti Nagar
+  email: durian.kirtinagar@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Delhi - Sohna Road
+  email: sohnaroad@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Guwahati - Lachitnagar
+  email: guwahati.lachitnagar@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Hyderabad - Banjara Hills
+  email: banjarahills.hyderabad@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Hyderabad - Kompally
+  email: hydkompally.retail@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Hyderabad - Sarath City
+  email: sarathcity.hyderabad@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Indore - Vijay Nagar
+  email: indore@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Jaipur - Vaishali Nagar
+  email: jaipur@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Jammu - Kunjwani
+  email: jammu@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Jamshedpur - Adityapur
+  email: tata@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Kolkata - Topsia
+  email: kolkata.store@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Ludhiana - Daad Village
+  email: ludhiana@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Mumbai - Goregaon
+  email: goregaon@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Mumbai - Worli
+  email: worli@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Noida - Sector 10
+  email: durian.noida@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Patna - Danapur
+  email: patna@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Pune - Baner
+  email: pune.baner@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Pune - Creaticity
+  email: punecreaticity@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Ranchi - Ashok Nagar
+  email: ranchi.retail@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Surat
+  email: surat@durian.in
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Office Furniture- Pune- Creaticity
+  email: punecreaticity@durian.in
+  cc: []
+- vertical: furniture
+  store: Durian Furniture - Agra - Sikandra
+  email: durianlko@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bengaluru - JP Nagar
+  email: bangalore@durian.in
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bengaluru - Shivaji Nagar
+  email: bangalore@durian.in
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bhubaneshwar - Patia
+  email: durian.patia@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Lucknow - Arjunganj
+  email: durianlko@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Lucknow - Indira Nagar
+  email: durianlko@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Noida - Sector 49
+  email: duriannoida49@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Panchkula
+  email: chd.durian@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Prayagraj - Phaphamau
+  email: durianlko@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Sambalpur
+  email: dreamdecor.sbp@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Shillong - Demseiniong
+  email: durianfurnitureshillong@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Siliguri - Sevoke Road
+  email: durian.siliguri@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Thane - Subhash Nagar
+  email: furnituredurian@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Tirupati - Avilala
+  email: durian.tirupati@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Vadodara - Subhanpura
+  email: bnbenterprise0@gmail.com
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Bengaluru - Banaswadi
+  email: ''
+  cc:
+  - nagendra.rao@durian.in
+  - sneha.gaikwad@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Mohali - JLPL Industrial Area
+  email: ''
+  cc:
+  - gautam.kumar@durian.in
+  - ganguli@durian.in
+  - shilpa@durian.in
+- vertical: furniture
+  store: Durian Furniture - Palghar - Udhyog Nagar
+  email: palghar.showroom@durian.in
+  cc:
+  - sinha@durian.in
