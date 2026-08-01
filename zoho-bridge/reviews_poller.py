@@ -150,13 +150,41 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int) -> None:
     _override = _os.environ.get("LOCAL_FORWARD_OVERRIDE", "").strip()
     if _override:
         to_emails, cc_emails = _override, ""
-    subject = f"Negative Google review ({rv['stars']}★) — {title}"
+    # Client-approved store-owner escalation format. The store-forward matrix has
+    # no manager name, so the salutation stays generic; concern category is left
+    # as the checklist (the forward fires before AI classification) for the
+    # manager to tick from the review text.
+    store_name = row.get("store") or title
+    reviewer = rv.get("reviewer") or "Anonymous"
+    review_date = _format_review_time(rv.get("create_time") or "") or "Not available"
+    review_text = rv.get("comment") or "(no text — rating only)"
+    subject = f"Action Required: Negative Google Review ({rv['stars']}★) — {store_name}"
     body = (
-        f"A {rv['stars']}-star Google review was received for {title}.\n\n"
-        f"Reviewer: {rv.get('reviewer') or 'Anonymous'}\n"
-        f"Rating: {rv['stars']}/5\n\n"
-        f"Review:\n{rv.get('comment') or '(no text — rating only)'}\n\n"
-        f"Please look into this and respond as appropriate."
+        "Dear Store Manager,\n\n"
+        "We have received the following negative review on Google for your "
+        "showroom. Please look into this on priority.\n\n"
+        "Review Details:\n"
+        f"• Store: {store_name}\n"
+        f"• Reviewer: {reviewer}\n"
+        f"• Rating: {rv['stars']} star\n"
+        f"• Date: {review_date}\n"
+        f'• Review: "{review_text}"\n'
+        "• Concern category: Product quality / After-sales / Delivery delay / "
+        "Staff behaviour / Other\n\n"
+        "Action required:\n"
+        "1. Identify the customer from your records (enquiry/invoice) and contact "
+        "them within 24–48 hours.\n"
+        "2. Listen to their concern patiently, understand the full issue, and work "
+        "out a resolution. Keep escalation@durian.in in the loop if any support is "
+        "needed from HO.\n"
+        "3. Once the issue is genuinely resolved and the customer is satisfied, "
+        "politely request them to update/edit their Google review to reflect their "
+        "revised experience. Do not ask for the edit before the issue is resolved.\n"
+        "4. Reply to this email with the resolution status and customer feedback "
+        "within 3 working days.\n\n"
+        "Please treat every review as an opportunity to win the customer back. A "
+        "resolved complaint often becomes our strongest advocate.\n\n"
+        "Regards,\nCustomer Support Team"
     )
     try:
         contact_id, source_id = await chatwoot.create_contact(
