@@ -132,3 +132,47 @@ export const channelMeta = channelId =>
     icon: 'i-ph-folder',
     categories: [],
   };
+
+// ── Google Reviews sub-taxonomy ─────────────────────────────────────────────
+// Review reply-bank codes are `review_<vertical>_<case>_NN` (seeded by
+// zoho-bridge/sync_review_bank.py). These helpers let the Canned Responses list
+// add Vertical + Category sub-filters on the Google Reviews tab, with everything
+// DERIVED from the short_code so there is nothing to keep in sync with the YAML.
+export const REVIEW_VERTICALS = [
+  { value: 'furniture', label: 'Furniture' },
+  { value: 'doors', label: 'Doors' },
+  { value: 'fhc', label: 'FHC' },
+];
+
+const REVIEW_VERTICAL_IDS = REVIEW_VERTICALS.map(v => v.value);
+
+/**
+ * Parse a review reply-bank code into { vertical, category } — the case with the
+ * trailing `_NN` variant number stripped. Returns nulls for review codes that
+ * don't follow the bank convention (so they simply won't match a sub-filter).
+ */
+export const parseReviewCode = (shortCode = '') => {
+  const { channel, category } = parseShortCode(shortCode);
+  if (channel !== 'review') return { vertical: null, category: null };
+  const idx = category.indexOf('_');
+  if (idx === -1) return { vertical: null, category: null };
+  const vertical = category.slice(0, idx);
+  if (!REVIEW_VERTICAL_IDS.includes(vertical)) {
+    return { vertical: null, category: null };
+  }
+  const kase = category.slice(idx + 1).replace(/_\d+$/, '');
+  return { vertical, category: kase || null };
+};
+
+/** "negative_after_sales" → "Negative · After sales" for the filter dropdown. */
+export const prettyReviewCategory = (category = '') => {
+  const parts = category.split('_');
+  const isSentiment = parts[0] === 'positive' || parts[0] === 'negative';
+  const sentiment = isSentiment
+    ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+    : '';
+  const tail = (isSentiment ? parts.slice(1) : parts).join(' ');
+  const label = tail ? tail.charAt(0).toUpperCase() + tail.slice(1) : '';
+  if (sentiment && label) return `${sentiment} · ${label}`;
+  return sentiment || label || category;
+};
