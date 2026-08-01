@@ -4,10 +4,18 @@
 # SEE and EDIT every reply straight from the UI (Settings → Canned Responses),
 # grouped by vertical via the short_code prefix.
 #
-# short_code scheme:  review_<vertical>_<case>_<NN>
-#   e.g. review_furniture_positive_staff_01, review_doors_negative_quality_03
-# The vertical is the first token after `review_`, so the UI list groups/searches
-# cleanly by furniture / fhc / doors. NN is zero-padded so variants sort 01..10.
+# short_code scheme:  reviewbank_<vertical>_<case>_<NN>
+#   e.g. reviewbank_furniture_positive_staff_01, reviewbank_doors_negative_quality_03
+# The vertical is the first token after `reviewbank_`, so the UI list
+# groups/searches cleanly by furniture / fhc / doors. NN is zero-padded so
+# variants sort 01..10.
+#
+# WHY `reviewbank_` and NOT `review_`: the legacy edit/regenerate path still calls
+# review_reply.draft(channel="review"), which picks from EVERY canned response
+# whose short_code starts with `review_`. Naming the bank `review_*` would make
+# that old picker choose bank variants (which carry unfilled [brackets]) and post
+# them — a real regression. The `reviewbank_` prefix keeps the bank in its own
+# namespace so it can never leak into that path.
 #
 # The reply drafter (review_reply.draft_review) reads these SAME canned responses
 # at reply time — UI edits win, the YAML is the seed/fallback — so editing a body
@@ -15,7 +23,7 @@
 # / sync_showroom_templates.py deliberately: one sync idiom in this repo.
 #
 # NAMESPACE GUARD: only ever touches short_codes matching
-# review_(furniture|fhc|doors)_*. The legacy flat review_* templates
+# reviewbank_(furniture|fhc|doors)_*. The legacy flat review_* templates
 # (review_positive_5star, …) and the hand-tuned social_* templates are never
 # clobbered by a re-sync from this file.
 #
@@ -57,7 +65,7 @@ def _load_bank_entries() -> dict:
         for case, cdata in ((vdata or {}).get("cases") or {}).items():
             options = (cdata or {}).get("options") or []
             for i, body in enumerate(options, start=1):
-                sc = f"review_{vert}_{case}_{i:02d}"
+                sc = f"reviewbank_{vert}_{case}_{i:02d}"
                 entries[sc] = (body or "").strip()
     return entries
 
