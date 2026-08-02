@@ -117,10 +117,20 @@ const isBadReview = computed(
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
-// Manual ticket creation is an email-desk feature — available on any email
-// conversation (even when a ticket already exists, so agents can open another),
-// except while a ticket decision is already pending on this conversation.
-const isEmailChannel = computed(() => channelType.value === 'Channel::Email');
+// Manual ticket creation is available on the channels the Zoho Desk flow
+// supports — email plus Instagram / Facebook DMs. Social contacts often have no
+// email, but the bridge creates the ticket against the contact handle and
+// synthesises a placeholder address server-side, so it works the same. Offered
+// even when a ticket already exists (agents can open another), except while a
+// ticket decision is already pending on this conversation.
+const TICKET_CHANNELS = [
+  'Channel::Email',
+  'Channel::Instagram',
+  'Channel::FacebookPage',
+];
+const isTicketableChannel = computed(() =>
+  TICKET_CHANNELS.includes(channelType.value)
+);
 
 const contactGetter = useMapGetter('contacts/getContact');
 const contactId = computed(() => currentChat.value.meta?.sender?.id);
@@ -199,7 +209,7 @@ onMounted(() => {
         />
         <ManualTicketCreate
           v-if="
-            isEmailChannel &&
+            isTicketableChannel &&
             currentChat &&
             currentChat.id &&
             !conversationCustomAttributes.pending_zoho_ticket
