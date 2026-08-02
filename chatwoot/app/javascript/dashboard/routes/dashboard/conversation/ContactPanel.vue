@@ -25,6 +25,7 @@ import SidebarActionsHeader from 'dashboard/components-next/SidebarActionsHeader
 import LinearIssuesList from 'dashboard/components/widgets/conversation/linear/IssuesList.vue';
 import LinearSetupCTA from 'dashboard/components/widgets/conversation/linear/LinearSetupCTA.vue';
 import ZohoTicketPanel from './ZohoTicketPanel.vue';
+import ManualTicketCreate from './ManualTicketCreate.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import ZohoCrmPanel from './ZohoCrmPanel.vue';
 import ReviewEscalationPanel from './ReviewEscalationPanel.vue';
@@ -116,6 +117,20 @@ const isBadReview = computed(
 );
 
 const channelType = computed(() => currentChat.value.meta?.channel);
+// Manual ticket creation is available on the channels the Zoho Desk flow
+// supports — email plus Instagram / Facebook DMs. Social contacts often have no
+// email, but the bridge creates the ticket against the contact handle and
+// synthesises a placeholder address server-side, so it works the same. Offered
+// even when a ticket already exists (agents can open another), except while a
+// ticket decision is already pending on this conversation.
+const TICKET_CHANNELS = [
+  'Channel::Email',
+  'Channel::Instagram',
+  'Channel::FacebookPage',
+];
+const isTicketableChannel = computed(() =>
+  TICKET_CHANNELS.includes(channelType.value)
+);
 
 const contactGetter = useMapGetter('contacts/getContact');
 const contactId = computed(() => currentChat.value.meta?.sender?.id);
@@ -191,6 +206,15 @@ onMounted(() => {
         <ZohoTicketPanel
           v-else
           :ticket="conversationCustomAttributes.zoho_ticket"
+        />
+        <ManualTicketCreate
+          v-if="
+            isTicketableChannel &&
+            currentChat &&
+            currentChat.id &&
+            !conversationCustomAttributes.pending_zoho_ticket
+          "
+          :conversation-id="currentChat.id"
         />
       </AccordionItem>
     </div>

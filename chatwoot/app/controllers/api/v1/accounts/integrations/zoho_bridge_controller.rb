@@ -95,6 +95,21 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     proxy_to_bridge('/chatwoot/crm/create-deal', 30)
   end
 
+  # POST .../integrations/zoho_bridge/draft_ticket
+  #   body: { conversation_id }
+  # AI autofill for the manual Create-ticket dialog — returns
+  # { subject, description, priority }; nothing is created.
+  def draft_ticket
+    proxy_to_bridge('/chatwoot/ticket/draft', 30)
+  end
+
+  # POST .../integrations/zoho_bridge/create_ticket
+  #   body: { conversation_id, subject, description, priority }
+  # Agent-initiated ticket creation (same dedup + pipeline as the AI path).
+  def create_ticket
+    proxy_to_bridge('/chatwoot/ticket/create', 30)
+  end
+
   private
 
   # Shared proxy helper for the CRM endpoints — injects the acting agent's

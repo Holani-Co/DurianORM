@@ -368,6 +368,8 @@ Rails.application.routes.draw do
                 post :resolve_category_decision
                 post :create_crm_deal
                 post :escalate_review
+                post :draft_ticket
+                post :create_ticket
               end
             end
             resource :routing_config, controller: 'routing_config', only: [:show] do
