@@ -32,6 +32,8 @@ import bms
 import config
 import chatwoot
 import classifier
+import pincode_resolver
+import social_store_templates
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -4513,6 +4515,87 @@ async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
         return lock
 
 
+# ── Social store-address enquiry ("do you have a store near me?") ──────────
+# On IG/FB DMs, when a customer asks where a Durian showroom is near a city or
+# pincode, send THAT nearest store's address template (pincode_resolver +
+# social_store_templates) rather than the generic drafter reply. Dark-launched
+# behind SOCIAL_STORE_TEMPLATES_ENABLED; anything it can't confidently resolve
+# falls through to the existing drafter, so nothing regresses.
+_STORE_HINT = re.compile(
+    r"\b(stores?|showrooms?|outlets?|branch|address|located|location|visit|"
+    r"near(?:est|by)?|pin\s?code|pincode)\b", re.I)
+
+
+async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
+    """One LLM call: is this a store-location enquiry, and what place/vertical?
+    Returns {is_store_enquiry, vertical, pincode, city, location}."""
+    from llm_client import client
+    schema = {"name": "store_enquiry", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["is_store_enquiry", "vertical", "pincode",
+                                      "city", "location"],
+                         "properties": {
+                             "is_store_enquiry": {"type": "boolean"},
+                             "vertical": {"type": "string",
+                                          "enum": ["furniture", "doors", "fhc", ""]},
+                             "pincode": {"type": "string"},
+                             "city": {"type": "string"},
+                             "location": {"type": "string"}}}}
+    system = (
+        "You triage a Durian customer's Instagram/Facebook DM. is_store_enquiry = "
+        "true ONLY if they are asking WHERE a Durian showroom is — a store / "
+        "branch / address enquiry, or 'do you have a store near <place/pincode>?'. "
+        "General product/price/order questions are false. Extract: vertical "
+        "(furniture / doors / fhc [= full home customisation, modular kitchen or "
+        "wardrobe] / '' if unclear), pincode (the 6-digit code if given, else ''), "
+        "city, location (the locality/area if named, else ''). Output STRICT JSON.")
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": f"DM from {customer_name}:\n{text[:1200]}"}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        p = json.loads(resp.choices[0].message.content) or {}
+        return {"is_store_enquiry": bool(p.get("is_store_enquiry")),
+                "vertical": (p.get("vertical") or "").strip(),
+                "pincode": (p.get("pincode") or "").strip(),
+                "city": (p.get("city") or "").strip(),
+                "location": (p.get("location") or "").strip()}
+    except Exception as e:
+        print(f"[social-store] gate LLM failed: {e}")
+        return {"is_store_enquiry": False}
+
+
+async def _maybe_social_store_reply(conv_id: int, message: str,
+                                    contact_name: str) -> dict | None:
+    """Store-address enquiry on a DM → auto-send the nearest store's template.
+    Returns a handled-dict, or None to fall through to the drafter (not store-ish,
+    or store-ish but not confidently resolvable)."""
+    pin = pincode_resolver.extract_pincode(message)
+    if not (pin or _STORE_HINT.search(message or "")):
+        return None                      # cheap gate — skip the LLM for non-store DMs
+    g = await _social_store_gate_llm(contact_name, message)
+    if not g.get("is_store_enquiry"):
+        return None
+    reply = social_store_templates.resolve_store_reply(
+        g.get("vertical") or "furniture",
+        pincode=g.get("pincode") or pin, city=g.get("city"), location=g.get("location"))
+    if not reply:
+        return None                      # couldn't resolve → let the drafter answer
+    try:
+        await chatwoot.send_outgoing_message(
+            conv_id, social_store_templates.plain(reply["text"]))
+        await _label_conversation(conv_id, "store-enquiry")
+        await chatwoot.post_private_note(
+            conv_id, f"\U0001F3EC Store-address enquiry — auto-sent "
+                     f"{reply['store']} ({reply['how']}).")
+    except Exception as e:
+        print(f"[social-store] send failed for conv {conv_id}: {e}")
+        return None
+    print(f"[social-store] conv {conv_id}: auto-sent {reply['store']!r} ({reply['how']})")
+    return {"handled": "social_store_reply", "store": reply["store"], "how": reply["how"]}
+
+
 async def handle_template_suggest(conv: dict, channel: str,
                                   surface: str = "") -> dict:
     """Serialise social drafting per conversation, then run the real handler.
@@ -4599,6 +4682,15 @@ async def _template_suggest_locked(conv: dict, channel: str,
     if last_public and last_public.get("message_type") in (1, "outgoing"):
         print(f"[template-suggest] conv {conv_id} — already replied, nothing new — skipping")
         return {"ignored": True, "reason": "already_replied"}
+
+    # Store-address enquiry ("do you have a showroom near <city/pincode>?") →
+    # auto-send THAT nearest store's address template instead of the generic
+    # drafter reply. Comments stay public-safe (no store details). Anything not
+    # confidently a resolvable store enquiry falls through to the drafter below.
+    if surface != "comment" and config.SOCIAL_STORE_TEMPLATES_ENABLED:
+        store = await _maybe_social_store_reply(conv_id, message, contact_name)
+        if store:
+            return store
 
     # Full two-sided conversation so the drafter chooses the template for the whole
     # exchange in context — no re-asking for details already given, follow-ups

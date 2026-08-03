@@ -421,6 +421,12 @@ RETAIL_ROUTING_ENABLED = _bool("RETAIL_ROUTING_ENABLED", "false")
 RETAIL_DETAILS_MAX_ASKS = int(os.environ.get("RETAIL_DETAILS_MAX_ASKS", "2"))
 RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@durian.in")
 
+# Social store-address enquiries: on IG/FB DMs, a "do you have a store near
+# <city/pincode>?" gets the nearest store's address template (pincode_resolver +
+# social_store_templates) auto-sent, instead of the generic drafter reply.
+# Dark-launched: off until the data + flow are verified in prod.
+SOCIAL_STORE_TEMPLATES_ENABLED = _bool("SOCIAL_STORE_TEMPLATES_ENABLED", "false")
+
 # ── Social auto-send (Instagram / Facebook DM + comment) ───────────────────
 # The drafter (review_reply.draft) rates 0-100 how sure it is that the chosen
 # Durian template is the right, safe reply for a social message. At/above this
