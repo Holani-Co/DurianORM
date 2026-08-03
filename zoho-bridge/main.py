@@ -5527,7 +5527,14 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "",
     if custom.get("crm_contact_id"):
         return str(custom["crm_contact_id"]), False
     name, email = _conv_sender(conv)
-    phone = phone or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+    # Social contacts (IG/FB) carry no email/phone on the Chatwoot record, so fall
+    # back to the number the gate captured from the thread (retail_customer_phone
+    # for furniture, deal_customer_details.phone for doors/FHC) before giving up.
+    phone = (phone
+             or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number")
+             or custom.get("retail_customer_phone")
+             or (custom.get("deal_customer_details") or {}).get("phone")
+             or "")
     if not email and not phone:
         raise HTTPException(400, "conversation has no sender email or phone — cannot key a CRM Contact")
     contact_id, created = await zoho_crm.find_or_create_contact(
