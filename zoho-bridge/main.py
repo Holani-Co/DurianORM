@@ -2457,7 +2457,7 @@ async def _deal_details_gate_llm(customer_name: str, text: str,
 
 async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: str,
                                  subject: str, body: str, category: str,
-                                 *, attempt: int) -> list[str]:
+                                 *, attempt: int, channel: str = "email") -> list[str]:
     """One pass of the deal-details gate. Captures phone + city; when both are
     present it registers the enquiry (auto-acknowledges, marks deal-ready) and
     when either is missing it auto-sends ONE AI-drafted ask (replacing the
@@ -2481,13 +2481,11 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
             await chatwoot.remove_label(conv_id, DEAL_DETAILS_NEEDED_LABEL)
         except Exception:
             pass
-        if _EMAIL_CUSTOMER_ACK_ENABLED and sender_email:
-            try:
-                await chatwoot.send_outgoing_message(
-                    conv_id, _DEAL_DETAILS_ACK.format(customer_name=name),
-                    to_emails=sender_email)
-            except Exception as e:
-                print(f"[deal-gate] ack send failed for conv {conv_id}: {e}")
+        # _EMAIL_CUSTOMER_ACK_ENABLED is an email-channel kill switch; it must not
+        # mute the social ack, where the confirmation IS the conversation.
+        if channel != "email" or (_EMAIL_CUSTOMER_ACK_ENABLED and sender_email):
+            await _retail_send(conv_id, channel, sender_email,
+                               _DEAL_DETAILS_ACK.format(customer_name=name))
         await _label_conversation(conv_id, DEAL_READY_LABEL)
         print(f"[deal-gate] conv {conv_id}: captured phone + city ({city}) — deal-ready")
         return [f"📝 Deal details captured (phone + {city}); enquiry acknowledged "
@@ -2498,18 +2496,16 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
                                     "city" if not have_city else "") if x)
     if attempt >= config.DEAL_DETAILS_MAX_ASKS:
         await chatwoot.merge_custom_attributes(conv_id, {"pending_deal_details": None})
-        await _flag_agent_needed(conv_id, "email")
+        await _flag_agent_needed(conv_id, channel)
         print(f"[deal-gate] conv {conv_id}: ask cap ({attempt}) — leaving to agent")
         return [f"📝 Deal details ({missing}) still missing after {attempt} ask(s) — left to the team."]
     ask = gate.get("ask_reply") or _DEAL_DETAILS_FALLBACK_ASK.format(customer_name=name)
+    # `channel` rides in pending_deal_details so the reply resumes on the same
+    # channel (the reply webhook only knows the conversation, not how we reached them).
     await chatwoot.merge_custom_attributes(conv_id, {
         "pending_deal_details": {"attempts": attempt + 1, "asked_at": _now_iso(),
-                                 "category": category}})
-    if sender_email:
-        try:
-            await chatwoot.send_outgoing_message(conv_id, ask, to_emails=sender_email)
-        except Exception as e:
-            print(f"[deal-gate] ask send failed for conv {conv_id}: {e}")
+                                 "category": category, "channel": channel}})
+    await _retail_send(conv_id, channel, sender_email, ask)
     await _label_conversation(conv_id, DEAL_DETAILS_NEEDED_LABEL)
     print(f"[deal-gate] conv {conv_id}: auto-sent AI ask for {missing} (attempt {attempt + 1})")
     return [f"📝 Deal details ({missing}) missing — auto-sent request for the required details."]
@@ -2525,7 +2521,8 @@ async def _handle_deal_details_reply(conv_id: int, data: dict,
     audit = await _run_deal_details_gate(
         conv_id, sender.get("name") or "", sender.get("email") or "",
         subject, content, str(pending.get("category") or ""),
-        attempt=int(pending.get("attempts") or 1))
+        attempt=int(pending.get("attempts") or 1),
+        channel=str(pending.get("channel") or "email"))
     print(f"[deal-gate] conv {conv_id}: reply re-entry → {audit}")
     return {"handled": "deal_details_reply", "audit": audit}
 
@@ -3728,6 +3725,12 @@ async def handle_message_created(data: dict) -> dict:
         if (pending_retail and config.SOCIAL_RETAIL_DEAL_ENABLED
                 and str(pending_retail.get("channel") or "") == social_channel):
             return await _handle_retail_reply(conv_id, data, conv, pending_retail)
+        # Deal-details re-entry (doors/FHC): a DM awaiting phone + city routes the
+        # reply back into the deal-details gate on the same channel.
+        pending_deal = (conv.get("custom_attributes") or {}).get("pending_deal_details")
+        if (pending_deal and config.SOCIAL_RETAIL_DEAL_ENABLED
+                and str(pending_deal.get("channel") or "") == social_channel):
+            return await _handle_deal_details_reply(conv_id, data, conv, pending_deal)
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
         return await handle_template_suggest(full_conv, social_channel)
 
@@ -4642,12 +4645,13 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                                            attempt=1, channel=channel)
             print(f"[social-store] conv {conv_id}: furniture purchase → retail gate")
             return {"handled": "social_retail_gate", "audit": audit}
-        await _label_conversation(conv_id, "retail-routed")
-        await chatwoot.post_private_note(
-            conv_id, f"\U0001F6D2 {vert.upper()} purchase enquiry on {channel} — "
-                     f"Create Deal routes to the {vert} desk owner.")
-        print(f"[social-store] conv {conv_id}: {vert} purchase → vertical desk")
-        return {"handled": "social_deal_category", "vertical": vert}
+        # doors / FHC route to the vertical desk owner (no showroom pick). Collect
+        # phone + city in-thread via the channel-aware deal-details gate so the
+        # deal is complete; the agent then clicks Create Deal.
+        audit = await _run_deal_details_gate(conv_id, contact_name, "", "", message,
+                                             cat, attempt=1, channel=channel)
+        print(f"[social-store] conv {conv_id}: {vert} purchase → deal-details gate")
+        return {"handled": "social_deal_details", "vertical": vert, "audit": audit}
 
     # Journey #1 — store-address enquiry → send the nearest store's template.
     if g.get("is_store_enquiry") and config.SOCIAL_STORE_TEMPLATES_ENABLED:
