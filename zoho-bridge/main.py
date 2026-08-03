@@ -4618,12 +4618,29 @@ _BUY_HINT = re.compile(
 
 
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
-                                      contact_name: str) -> dict | None:
+                                      contact_name: str, custom: dict) -> dict | None:
     """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
     None to fall through to the drafter.
       purchase intent  → run the (channel-aware) retail gate → agent Create Deal
       store-address enquiry → auto-send the nearest store's template
     Purchase takes precedence (the gate confirms the showroom itself)."""
+    # Already retail-routed (owner captured / details ready): the gate is DONE and
+    # cleared pending_retail, so a follow-up would otherwise re-trigger it and
+    # re-list showrooms. Capture the phone the customer just sent (for Create Deal)
+    # and acknowledge — don't re-run the gate. Everything else falls to the drafter.
+    if custom.get("retail_deal_owner") or custom.get("deal_customer_details"):
+        phones = _extract_phones(message)
+        if phones and not custom.get("retail_customer_phone"):
+            await chatwoot.merge_custom_attributes(
+                conv_id, {"retail_customer_phone": phones[0]})
+            await _retail_send(
+                conv_id, channel, "",
+                f"Thank you, {contact_name}! We've noted your contact number — our "
+                "showroom team will reach out to you shortly.\n\nRegards,\nTeam Durian")
+            print(f"[social-store] conv {conv_id}: captured follow-up phone (already routed)")
+            return {"handled": "social_deal_phone_captured"}
+        return None
+
     pin = pincode_resolver.extract_pincode(message)
     if not (pin or _STORE_HINT.search(message or "") or _BUY_HINT.search(message or "")):
         return None                      # cheap gate — skip the LLM for unrelated DMs
@@ -4777,8 +4794,9 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # confidently a resolvable store enquiry falls through to the drafter below.
     if surface != "comment" and (config.SOCIAL_STORE_TEMPLATES_ENABLED
                                  or config.SOCIAL_RETAIL_DEAL_ENABLED):
-        handled = await _maybe_social_store_or_deal(conv_id, channel, message,
-                                                    contact_name)
+        handled = await _maybe_social_store_or_deal(
+            conv_id, channel, message, contact_name,
+            conv.get("custom_attributes") or {})
         if handled:
             return handled
 
@@ -5527,7 +5545,14 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "",
     if custom.get("crm_contact_id"):
         return str(custom["crm_contact_id"]), False
     name, email = _conv_sender(conv)
-    phone = phone or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+    # Social contacts (IG/FB) carry no email/phone on the Chatwoot record, so fall
+    # back to the number the gate captured from the thread (retail_customer_phone
+    # for furniture, deal_customer_details.phone for doors/FHC) before giving up.
+    phone = (phone
+             or ((conv.get("meta") or {}).get("sender") or {}).get("phone_number")
+             or custom.get("retail_customer_phone")
+             or (custom.get("deal_customer_details") or {}).get("phone")
+             or "")
     if not email and not phone:
         raise HTTPException(400, "conversation has no sender email or phone — cannot key a CRM Contact")
     contact_id, created = await zoho_crm.find_or_create_contact(
