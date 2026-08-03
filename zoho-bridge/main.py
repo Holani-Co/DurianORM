@@ -3721,6 +3721,13 @@ async def handle_message_created(data: dict) -> dict:
             return await _run_social_order_lookup(
                 conv_id, contact_name, social_channel,
                 attempt=int(pending_ol.get("attempts") or 1))
+        # Retail-gate re-entry: a DM mid purchase gate (awaiting city / showroom /
+        # phone) routes the customer's reply back into the gate on the same
+        # channel, not the drafter. Mirrors the order-lookup re-entry above.
+        pending_retail = (conv.get("custom_attributes") or {}).get("pending_retail")
+        if (pending_retail and config.SOCIAL_RETAIL_DEAL_ENABLED
+                and str(pending_retail.get("channel") or "") == social_channel):
+            return await _handle_retail_reply(conv_id, data, conv, pending_retail)
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
         return await handle_template_suggest(full_conv, social_channel)
 
@@ -4557,28 +4564,33 @@ _STORE_HINT = re.compile(
 
 
 async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
-    """One LLM call: is this a store-location enquiry, and what place/vertical?
-    Returns {is_store_enquiry, vertical, pincode, city, location}."""
+    """One LLM call: is this a store-location enquiry and/or a retail purchase
+    intent, and what place/vertical? Returns {is_store_enquiry, wants_to_buy,
+    vertical, pincode, city, location}."""
     from llm_client import client
     schema = {"name": "store_enquiry", "strict": True,
               "schema": {"type": "object", "additionalProperties": False,
-                         "required": ["is_store_enquiry", "vertical", "pincode",
-                                      "city", "location"],
+                         "required": ["is_store_enquiry", "wants_to_buy", "vertical",
+                                      "pincode", "city", "location"],
                          "properties": {
                              "is_store_enquiry": {"type": "boolean"},
+                             "wants_to_buy": {"type": "boolean"},
                              "vertical": {"type": "string",
                                           "enum": ["furniture", "doors", "fhc", ""]},
                              "pincode": {"type": "string"},
                              "city": {"type": "string"},
                              "location": {"type": "string"}}}}
     system = (
-        "You triage a Durian customer's Instagram/Facebook DM. is_store_enquiry = "
-        "true ONLY if they are asking WHERE a Durian showroom is — a store / "
-        "branch / address enquiry, or 'do you have a store near <place/pincode>?'. "
-        "General product/price/order questions are false. Extract: vertical "
-        "(furniture / doors / fhc [= full home customisation, modular kitchen or "
-        "wardrobe] / '' if unclear), pincode (the 6-digit code if given, else ''), "
-        "city, location (the locality/area if named, else ''). Output STRICT JSON.")
+        "You triage a Durian customer's Instagram/Facebook DM. Set:\n"
+        "- is_store_enquiry = true if they ask WHERE a Durian showroom is (store / "
+        "branch / address, 'do you have a store near <place/pincode>?').\n"
+        "- wants_to_buy = true if they express intent to PURCHASE furniture / doors "
+        "/ a modular kitchen or wardrobe (want to buy, pricing to buy, book a "
+        "visit to purchase, need a sofa/bed/wardrobe). A pure 'where is your store' "
+        "with no buying intent is false; an existing-order question is false.\n"
+        "Also extract: vertical (furniture / doors / fhc [= full home customisation, "
+        "modular kitchen or wardrobe] / '' if unclear), pincode (6-digit if given, "
+        "else ''), city, location (locality/area if named, else ''). STRICT JSON.")
     try:
         resp = await client.chat.completions.create(
             model=config.OPENAI_MODEL,
@@ -4587,43 +4599,76 @@ async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
             response_format={"type": "json_schema", "json_schema": schema})
         p = json.loads(resp.choices[0].message.content) or {}
         return {"is_store_enquiry": bool(p.get("is_store_enquiry")),
+                "wants_to_buy": bool(p.get("wants_to_buy")),
                 "vertical": (p.get("vertical") or "").strip(),
                 "pincode": (p.get("pincode") or "").strip(),
                 "city": (p.get("city") or "").strip(),
                 "location": (p.get("location") or "").strip()}
     except Exception as e:
         print(f"[social-store] gate LLM failed: {e}")
-        return {"is_store_enquiry": False}
+        return {"is_store_enquiry": False, "wants_to_buy": False}
 
 
-async def _maybe_social_store_reply(conv_id: int, message: str,
-                                    contact_name: str) -> dict | None:
-    """Store-address enquiry on a DM → auto-send the nearest store's template.
-    Returns a handled-dict, or None to fall through to the drafter (not store-ish,
-    or store-ish but not confidently resolvable)."""
+_BUY_HINT = re.compile(
+    r"\b(buy|buying|purchase|purchasing|order(?:ing)?|price|quote|book|"
+    r"looking for|want|need|interested)\b", re.I)
+
+
+async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
+                                      contact_name: str) -> dict | None:
+    """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
+    None to fall through to the drafter.
+      purchase intent  → run the (channel-aware) retail gate → agent Create Deal
+      store-address enquiry → auto-send the nearest store's template
+    Purchase takes precedence (the gate confirms the showroom itself)."""
     pin = pincode_resolver.extract_pincode(message)
-    if not (pin or _STORE_HINT.search(message or "")):
-        return None                      # cheap gate — skip the LLM for non-store DMs
+    if not (pin or _STORE_HINT.search(message or "") or _BUY_HINT.search(message or "")):
+        return None                      # cheap gate — skip the LLM for unrelated DMs
     g = await _social_store_gate_llm(contact_name, message)
-    if not g.get("is_store_enquiry"):
-        return None
-    reply = social_store_templates.resolve_store_reply(
-        g.get("vertical") or "furniture",
-        pincode=g.get("pincode") or pin, city=g.get("city"), location=g.get("location"))
-    if not reply:
-        return None                      # couldn't resolve → let the drafter answer
-    try:
-        await chatwoot.send_outgoing_message(
-            conv_id, social_store_templates.plain(reply["text"]))
-        await _label_conversation(conv_id, "store-enquiry")
+
+    # Journey #2 — retail purchase intent. Set the deal category (this is what
+    # shows the agent's Create Deal button on a social conversation and routes the
+    # deal owner — email_category_v2 is email-only). Furniture then runs the
+    # channel-aware retail gate to capture the showroom owner in-thread; doors /
+    # FHC route to their vertical desk owner (no showroom pick), surfaced for the
+    # agent to Create Deal.
+    if g.get("wants_to_buy") and config.SOCIAL_RETAIL_DEAL_ENABLED:
+        vert = g.get("vertical") or "furniture"
+        cat = {"furniture": "product_enquiry", "doors": "doors_veneer_plywood",
+               "fhc": "full_home_customization"}.get(vert, "product_enquiry")
+        await chatwoot.merge_custom_attributes(conv_id, {"phase2_category": cat})
+        if vert == "furniture":
+            audit = await _run_retail_gate(conv_id, contact_name, "", "", message,
+                                           attempt=1, channel=channel)
+            print(f"[social-store] conv {conv_id}: furniture purchase → retail gate")
+            return {"handled": "social_retail_gate", "audit": audit}
+        await _label_conversation(conv_id, "retail-routed")
         await chatwoot.post_private_note(
-            conv_id, f"\U0001F3EC Store-address enquiry — auto-sent "
-                     f"{reply['store']} ({reply['how']}).")
-    except Exception as e:
-        print(f"[social-store] send failed for conv {conv_id}: {e}")
-        return None
-    print(f"[social-store] conv {conv_id}: auto-sent {reply['store']!r} ({reply['how']})")
-    return {"handled": "social_store_reply", "store": reply["store"], "how": reply["how"]}
+            conv_id, f"\U0001F6D2 {vert.upper()} purchase enquiry on {channel} — "
+                     f"Create Deal routes to the {vert} desk owner.")
+        print(f"[social-store] conv {conv_id}: {vert} purchase → vertical desk")
+        return {"handled": "social_deal_category", "vertical": vert}
+
+    # Journey #1 — store-address enquiry → send the nearest store's template.
+    if g.get("is_store_enquiry") and config.SOCIAL_STORE_TEMPLATES_ENABLED:
+        reply = social_store_templates.resolve_store_reply(
+            g.get("vertical") or "furniture", pincode=g.get("pincode") or pin,
+            city=g.get("city"), location=g.get("location"))
+        if not reply:
+            return None                  # couldn't resolve → let the drafter answer
+        try:
+            await chatwoot.send_outgoing_message(
+                conv_id, social_store_templates.plain(reply["text"]))
+            await _label_conversation(conv_id, "store-enquiry")
+            await chatwoot.post_private_note(
+                conv_id, f"\U0001F3EC Store-address enquiry — auto-sent "
+                         f"{reply['store']} ({reply['how']}).")
+        except Exception as e:
+            print(f"[social-store] send failed for conv {conv_id}: {e}")
+            return None
+        print(f"[social-store] conv {conv_id}: auto-sent {reply['store']!r} ({reply['how']})")
+        return {"handled": "social_store_reply", "store": reply["store"], "how": reply["how"]}
+    return None
 
 
 async def handle_template_suggest(conv: dict, channel: str,
@@ -4726,10 +4771,12 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # auto-send THAT nearest store's address template instead of the generic
     # drafter reply. Comments stay public-safe (no store details). Anything not
     # confidently a resolvable store enquiry falls through to the drafter below.
-    if surface != "comment" and config.SOCIAL_STORE_TEMPLATES_ENABLED:
-        store = await _maybe_social_store_reply(conv_id, message, contact_name)
-        if store:
-            return store
+    if surface != "comment" and (config.SOCIAL_STORE_TEMPLATES_ENABLED
+                                 or config.SOCIAL_RETAIL_DEAL_ENABLED):
+        handled = await _maybe_social_store_or_deal(conv_id, channel, message,
+                                                    contact_name)
+        if handled:
+            return handled
 
     # Full two-sided conversation so the drafter chooses the template for the whole
     # exchange in context — no re-asking for details already given, follow-ups
