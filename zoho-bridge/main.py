@@ -2779,10 +2779,14 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
                                            ckey, city_data, rooms[0],
                                            need_phone=need_phone, channel=channel)
     # Multiple showrooms → list them and ask which is nearest. The customer picks
-    # BEFORE any deal exists, so Create Deal always has a settled owner.
+    # BEFORE any deal exists, so Create Deal always has a settled owner. This is
+    # the FIRST showroom ask (the city just resolved) — a new question, so it gets
+    # a fresh ask budget (attempt=1) rather than inheriting the city-ask count.
+    # Without this, a DM that answered "which city?" then gets "which showroom?"
+    # would trip the ask cap and route to an agent instead of listing showrooms.
     return await _retail_ask(conv_id, sender_email,
                              _retail_showroom_ask(name, city_data),
-                             {"stage": "showroom", "city_key": ckey}, attempt, "a showroom choice",
+                             {"stage": "showroom", "city_key": ckey}, 1, "a showroom choice",
                              need_phone=need_phone, channel=channel)
 
 
