@@ -1,0 +1,93 @@
+[
+ {
+  "vertical": "fhc",
+  "store": "Kirti Nagar",
+  "city": "Delhi NCR",
+  "lat": 28.61,
+  "lon": 77.21
+ },
+ {
+  "vertical": "fhc",
+  "store": "Goregaon",
+  "city": "Mumbai",
+  "lat": 19.16,
+  "lon": 72.85
+ },
+ {
+  "vertical": "fhc",
+  "store": "JP Nagar  Store",
+  "city": "Bangalore",
+  "lat": 12.97,
+  "lon": 77.59
+ },
+ {
+  "vertical": "fhc",
+  "store": "Bikaner \u2013 NH15 Jaisalmer Road Store",
+  "city": "Bikaner",
+  "lat": 28.02,
+  "lon": 73.31
+ },
+ {
+  "vertical": "fhc",
+  "store": "Kirti Nagar Store",
+  "city": "Delhi NCR",
+  "lat": 28.61,
+  "lon": 77.21
+ },
+ {
+  "vertical": "fhc",
+  "store": "Hyderabad \u2013 Kompally Store",
+  "city": "Hyderabad",
+  "lat": 17.39,
+  "lon": 78.49
+ },
+ {
+  "vertical": "fhc",
+  "store": "Noida \u2013 Sector 10 Store",
+  "city": "Delhi NCR",
+  "lat": 28.61,
+  "lon": 77.21
+ },
+ {
+  "vertical": "doors",
+  "store": "Vibhuti Khand",
+  "city": "Lucknow",
+  "lat": 26.85,
+  "lon": 80.95
+ },
+ {
+  "vertical": "doors",
+  "store": "Gurgaon",
+  "city": "Gurgaon",
+  "lat": 28.46,
+  "lon": 77.03
+ },
+ {
+  "vertical": "doors",
+  "store": "Goregaon",
+  "city": "Goregaon",
+  "lat": 19.16,
+  "lon": 72.85
+ },
+ {
+  "vertical": "doors",
+  "store": "Coimbatore",
+  "city": "Coimbatore",
+  "lat": 11.02,
+  "lon": 76.97
+ },
+ {
+  "vertical": "doors",
+  "store": "Hyderabad",
+  "city": "Hyderabad",
+  "lat": 17.39,
+  "lon": 78.49
+ },
+ {
+  "vertical": "doors",
+  "store": "Indore",
+  "city": "Indore",
+  "lat": 22.72,
+  "lon": 75.86
+ }
+]
