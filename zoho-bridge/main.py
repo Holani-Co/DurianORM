@@ -5559,6 +5559,15 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "",
              or "")
     if not email and not phone:
         raise HTTPException(400, "conversation has no sender email or phone — cannot key a CRM Contact")
+    if not email:
+        # Social DMs (IG/FB) have no email, and Zoho CRM needs one to CREATE a
+        # Contact — so a first-time social customer (phone not yet in CRM) can't
+        # be created from phone-only. Synthesise a deterministic placeholder
+        # (same idiom as the Desk ticket flow's contact email) so the Contact is
+        # created; the real phone still lands in the Mobile field. Deterministic
+        # per sender → a returning DM reuses the same Contact, no duplicates.
+        sid = ((conv.get("meta") or {}).get("sender") or {}).get("id") or conv_id
+        email = f"chatwoot-{sid}@noreply.local"
     contact_id, created = await zoho_crm.find_or_create_contact(
         email, name, phone=phone, owner_id=owner_id)
     if not contact_id:
