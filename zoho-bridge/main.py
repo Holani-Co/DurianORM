@@ -4565,6 +4565,23 @@ async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
 # social_store_templates) rather than the generic drafter reply. Dark-launched
 # behind SOCIAL_STORE_TEMPLATES_ENABLED; anything it can't confidently resolve
 # falls through to the existing drafter, so nothing regresses.
+def _tidy_social_reply(text: str) -> str:
+    """Light, URL-safe cleanup so a cramped canned response doesn't go out looking
+    bad on IG/FB. Conservative on purpose — never touches a '.' (would break links
+    like durian.in/stores) or a comma before a digit (1,000)."""
+    if not text:
+        return text
+    # Space after a comma glued to a letter/emoji: "Contact Number 📞,City" → ", City".
+    text = re.sub(r",(?=[^\s\d,])", ", ", text)
+    # A sign-off should start its own paragraph, not hug the previous line.
+    text = re.sub(r"(?<=\S)\n(Regards\b|Best regards\b|Warm regards\b|Thank you,)",
+                  r"\n\n\1", text)
+    # Trim trailing spaces per line; collapse 3+ blank lines to one.
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 _STORE_HINT = re.compile(
     r"\b(stores?|showrooms?|outlets?|branch|address|located|location|visit|"
     r"near(?:est|by)?|pin\s?code|pincode)\b", re.I)
@@ -4821,6 +4838,9 @@ async def _template_suggest_locked(conv: dict, channel: str,
         return {"ignored": True, "reason": "draft_failed"}
 
     reply, action = drafted["reply"], drafted["action"]
+    # Tidy formatting before it goes out (or onto the card) — a poorly-formatted
+    # canned response shouldn't reach the customer looking cramped.
+    reply = _tidy_social_reply(reply)
     confidence = drafted.get("confidence", 0)
 
     # Existing-order enquiry on a DM ("where is my order?") → hand to the BMS
