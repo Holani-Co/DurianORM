@@ -3724,6 +3724,14 @@ async def handle_message_created(data: dict) -> dict:
             return await _run_social_order_lookup(
                 conv_id, contact_name, social_channel,
                 attempt=int(pending_ol.get("attempts") or 1))
+        # EMI re-entry: a DM awaiting an EMI product / variant pick routes the
+        # reply back into the EMI flow (resolve → auto-send plans), NOT the
+        # drafter — so "the 3 seater one" resumes the enquiry it answers. Same
+        # channel only, like the retail / deal re-entries below.
+        pending_emi = (conv.get("custom_attributes") or {}).get("pending_emi")
+        if (pending_emi and config.EMI_ENABLED
+                and str(pending_emi.get("channel") or "") == social_channel):
+            return await _handle_emi_reply(conv_id, data, conv, pending_emi, social_channel)
         # Retail-gate re-entry: a DM mid purchase gate (awaiting city / showroom /
         # phone) routes the customer's reply back into the gate on the same
         # channel, not the drafter. Mirrors the order-lookup re-entry above.
@@ -4723,48 +4731,90 @@ def _format_emi_reply(product: dict | None, emi: dict, price, contact_name: str)
     return "\n".join(lines)
 
 
-async def _maybe_social_emi(conv_id: int, channel: str, message: str,
-                            contact_name: str) -> dict | None:
-    """EMI enquiry on a DM → resolve the product → auto-send Snapmint plans.
-    Returns a handled-dict, or None to fall through to the drafter."""
-    if not _EMI_HINT.search(message or ""):
-        return None                       # cheap gate — skip the LLM for non-EMI DMs
-    g = await _social_emi_gate_llm(contact_name, message)
-    if not g.get("is_emi_enquiry"):
+# ── EMI follow-up resolution (split questions / variant disambiguation) ─────
+# When an EMI enquiry arrives without a product ("do you offer no-cost EMI?") or
+# names an ambiguous family ("EMI on the Rihanna sofa" → 2str vs 3str), we ask
+# and remember the pending state in `pending_emi`, so the customer's NEXT DM
+# resumes the flow instead of being read as a fresh (contextless) message — the
+# same re-entry pattern as order-lookup / retail. Ask at most _EMI_ASK_CAP times,
+# then hand off to an agent.
+_EMI_ASK_CAP = 2
+_EMI_ORD = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2,
+            "fourth": 3, "4th": 3, "last": -1}
+_EMI_CHEAP = re.compile(
+    r"\b(cheap|cheapest|lower|lowest|less|budget|affordable|smaller)\b", re.I)
+_EMI_COSTLY = re.compile(
+    r"\b(expensive|costly|costlier|higher|highest|premium|bigger|biggest|larger)\b", re.I)
+
+
+def _emi_norm(s) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", str(s or "").lower()).strip()
+
+
+def _extract_emi_price(text) -> int:
+    """A rupee amount stated in free text ('around 80,000', '50k', '1.5 lakh'),
+    or 0. Threshold 1000 so a seater count ('3 seater') is never read as a price."""
+    t = re.sub(r"[₹]|rs\.?|inr", "", str(text or "").lower().replace(",", ""))
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(k|lakh|lac|lakhs)?", t)
+    if not m:
+        return 0
+    v = float(m.group(1))
+    if m.group(2) == "k":
+        v *= 1000
+    elif m.group(2) in ("lakh", "lac", "lakhs"):
+        v *= 100000
+    return int(v) if v >= 1000 else 0
+
+
+def _match_emi_variant(reply: str, candidates: list) -> dict | None:
+    """The one variant a follow-up reply refers to, from the (≤8) candidates we
+    listed — or None to ask again. Handles seater ('3 seater', '3str'), price
+    cues ('cheapest'), ordinals ('second', '2nd') and description overlap."""
+    if not candidates:
         return None
+    if len(candidates) == 1:
+        return candidates[0]
+    r = _emi_norm(reply)
+    rtoks = set(r.split())
+    if _EMI_CHEAP.search(r):
+        return min(candidates, key=lambda c: c.get("sale_price") or 0)
+    if _EMI_COSTLY.search(r):
+        return max(candidates, key=lambda c: c.get("sale_price") or 0)
+    mo = re.search(r"\b(\d+)(st|nd|rd|th)\b", r)   # "2nd"/"3rd" = ordinal, not a seater
+    if mo:
+        i = int(mo.group(1)) - 1
+        return candidates[i] if 0 <= i < len(candidates) else None
+    rdig = set(re.findall(r"\d+", r))
+    best = runner = None
+    bs = rs = -1
+    for c in candidates:
+        text = _emi_norm(f"{c.get('family')} {c.get('name')} {c.get('sku')}")
+        score = (len(rtoks & set(text.split()))
+                 + (3 if rdig & set(re.findall(r"\d+", text)) else 0))
+        if score > bs:
+            rs, runner, bs, best = bs, best, score, c
+        elif score > rs:
+            rs, runner = score, c
+    if best and bs >= 1 and bs > rs:       # a clear, positive winner
+        return best
+    if not rdig:                           # word ordinals — only when no digit was given
+        for w, idx in _EMI_ORD.items():
+            if re.search(rf"\b{w}\b", r):
+                return candidates[idx] if -len(candidates) <= idx < len(candidates) else None
+    return None
 
-    product, skuid, price = None, "", g.get("price") or 0
-    if g.get("product"):
-        product = product_catalog.resolve(g["product"])
-        if not product:
-            cands = product_catalog.search(g["product"], limit=4)
-            if cands:                     # ambiguous family → ask which variant
-                opts = "\n".join(f"• {c['family'].title()} {(c.get('name') or '')}"
-                                 f" — ₹{int(c['sale_price']):,}" for c in cands)
-                await chatwoot.send_outgoing_message(
-                    conv_id, f"Hi {contact_name}! We have a few options — which one "
-                    f"did you mean?\n{opts}\n\nRegards,\nTeam Durian")
-                await _label_conversation(conv_id, "emi-enquiry")
-                return {"handled": "social_emi_ask_variant"}
-    if product:
-        skuid, price = product["sku"], product["sale_price"]
-    elif not skuid:
-        skuid = config.SNAPMINT_DEFAULT_SKUID     # price-only fallback (if configured)
 
-    if not (price and skuid):
-        # Need a product (for the SKU) — ask for it.
-        await chatwoot.send_outgoing_message(
-            conv_id, f"Hi {contact_name}! Sure — could you tell us which product "
-            "(or its price) you'd like EMI options for?\n\nRegards,\nTeam Durian")
-        await _label_conversation(conv_id, "emi-enquiry")
-        return {"handled": "social_emi_ask_product"}
-
+async def _emi_send_resolved(conv_id: int, contact_name: str, product: dict | None,
+                             skuid: str, price) -> dict | None:
+    """Snapmint lookup for a resolved (product / skuid, price) → auto-send the
+    plans. Returns a handled-dict, or None when the lookup failed (leaves an
+    agent note so a human can step in)."""
     emi = await snapmint.get_emi(price, skuid)
     reply = _format_emi_reply(product, emi, price, contact_name) if emi else ""
     if emi and not reply:                 # API answered but EMI not available
         reply = (f"Hi {contact_name}, EMI isn't available on this one, but our team "
                  "can help with other payment options.\n\nRegards,\nTeam Durian")
-    if not reply:                         # API failed → surface for an agent, fall through
+    if not reply:                         # API failed → surface for an agent
         try:
             await chatwoot.post_private_note(
                 conv_id, "💳 EMI enquiry — Snapmint lookup failed, please assist.")
@@ -4781,6 +4831,137 @@ async def _maybe_social_emi(conv_id: int, channel: str, message: str,
         pass
     print(f"[social-emi] conv {conv_id}: auto-sent EMI plans (SKU {skuid}, ₹{int(price):,})")
     return {"handled": "social_emi", "skuid": skuid}
+
+
+async def _emi_ask_variant(conv_id: int, contact_name: str, channel: str,
+                           cands: list, price_hint, attempts: int) -> dict:
+    """List the variants and remember them (pending_emi), so the customer's next
+    reply resolves the pick instead of starting over."""
+    opts = "\n".join(f"• {c['family'].title()} {(c.get('name') or '')}"
+                     f" — ₹{int(c['sale_price']):,}" for c in cands)
+    await chatwoot.send_outgoing_message(
+        conv_id, f"Hi {contact_name}! We have a few options — which one did you "
+        f"mean?\n{opts}\n\nRegards,\nTeam Durian")
+    await _label_conversation(conv_id, "emi-enquiry")
+    await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": {
+        "stage": "variant", "channel": channel, "price_hint": price_hint or 0,
+        "candidates": [{"sku": c["sku"], "family": c.get("family"),
+                        "name": c.get("name"), "sale_price": c.get("sale_price")}
+                       for c in cands],
+        "attempts": attempts, "asked_at": _now_iso()}})
+    return {"handled": "social_emi_ask_variant"}
+
+
+async def _emi_ask_product(conv_id: int, contact_name: str, channel: str,
+                           price_hint, attempts: int) -> dict:
+    """Ask which product, and remember we're waiting (pending_emi) so the reply
+    re-enters the EMI flow."""
+    await chatwoot.send_outgoing_message(
+        conv_id, f"Hi {contact_name}! Sure — could you tell us which product "
+        "(or its price) you'd like EMI options for?\n\nRegards,\nTeam Durian")
+    await _label_conversation(conv_id, "emi-enquiry")
+    await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": {
+        "stage": "product", "channel": channel, "price_hint": price_hint or 0,
+        "attempts": attempts, "asked_at": _now_iso()}})
+    return {"handled": "social_emi_ask_product"}
+
+
+async def _maybe_social_emi(conv_id: int, channel: str, message: str,
+                            contact_name: str) -> dict | None:
+    """EMI enquiry on a DM → resolve the product → auto-send Snapmint plans.
+    Missing/ambiguous product → ask and remember (pending_emi) so the customer's
+    next message resumes. Returns a handled-dict, or None to fall through."""
+    if not _EMI_HINT.search(message or ""):
+        return None                       # cheap gate — skip the LLM for non-EMI DMs
+    g = await _social_emi_gate_llm(contact_name, message)
+    if not g.get("is_emi_enquiry"):
+        return None
+
+    price = g.get("price") or 0
+    if g.get("product"):
+        product = product_catalog.resolve(g["product"])
+        if product:
+            return await _emi_send_resolved(
+                conv_id, contact_name, product, product["sku"], product["sale_price"])
+        cands = product_catalog.search(g["product"], limit=4)
+        if cands:                         # ambiguous family → ask which variant
+            return await _emi_ask_variant(
+                conv_id, contact_name, channel, cands, price, attempts=1)
+
+    # No product resolved. Price + a configured default SKU → quote on the amount.
+    if price and config.SNAPMINT_DEFAULT_SKUID:
+        return await _emi_send_resolved(
+            conv_id, contact_name, None, config.SNAPMINT_DEFAULT_SKUID, price)
+    # Otherwise ask which product (and remember, so the reply resumes).
+    return await _emi_ask_product(conv_id, contact_name, channel, price, attempts=1)
+
+
+async def _resume_social_emi(conv_id: int, contact_name: str, channel: str,
+                             reply: str, pending: dict) -> dict:
+    """A DM already awaiting an EMI product / variant pick — resolve it from the
+    reply and auto-send, or ask once more (up to _EMI_ASK_CAP) then hand to an
+    agent. Mirrors the order-lookup / retail re-entries."""
+    attempts = int(pending.get("attempts") or 1)
+    price_hint = _extract_emi_price(reply) or int(pending.get("price_hint") or 0)
+    stage = str(pending.get("stage") or "product")
+    cands = pending.get("candidates") or []
+
+    product = None
+    if stage == "variant":
+        chosen = _match_emi_variant(reply, cands)
+        if chosen:
+            product = product_catalog.get(chosen["sku"]) or chosen
+    else:                                  # product stage — the reply names the product
+        product = product_catalog.resolve(reply)
+        if not product:
+            found = product_catalog.search(reply, limit=4)
+            if found:                      # narrowed to a family with variants → disambiguate
+                return await _emi_ask_variant(
+                    conv_id, contact_name, channel, found, price_hint, attempts=attempts + 1)
+
+    if product:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": None})
+        return (await _emi_send_resolved(conv_id, contact_name, product,
+                                         product["sku"], product["sale_price"])
+                or {"handled": "social_emi_lookup_failed"})
+
+    if price_hint and config.SNAPMINT_DEFAULT_SKUID:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": None})
+        return (await _emi_send_resolved(conv_id, contact_name, None,
+                                         config.SNAPMINT_DEFAULT_SKUID, price_hint)
+                or {"handled": "social_emi_lookup_failed"})
+
+    # Couldn't resolve — ask once more (same stage) or give up.
+    if attempts >= _EMI_ASK_CAP:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": None})
+        try:
+            await chatwoot.post_private_note(
+                conv_id, "💳 EMI enquiry — couldn't match a product after 2 asks; "
+                "please assist.")
+        except Exception:
+            pass
+        return {"handled": "social_emi_gaveup"}
+    if stage == "variant" and cands:
+        return await _emi_ask_variant(conv_id, contact_name, channel, cands,
+                                      price_hint, attempts=attempts + 1)
+    return await _emi_ask_product(conv_id, contact_name, channel, price_hint,
+                                  attempts=attempts + 1)
+
+
+async def _handle_emi_reply(conv_id: int, data: dict, conv: dict,
+                            pending: dict, channel: str) -> dict:
+    """Webhook entry for a DM that's mid EMI flow (pending_emi set). Idempotent
+    per message id so a retried/duplicate webhook doesn't resolve+send twice."""
+    mid = data.get("id")
+    if mid is not None and _last_autosend_msgid.get(conv_id) == mid:
+        print(f"[social-emi] conv {conv_id} — reply msg {mid} already handled, skipping")
+        return {"ignored": True, "reason": "emi_reply_already_handled"}
+    reply = data.get("content") or ""
+    contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") or "Customer"
+    res = await _resume_social_emi(conv_id, contact_name, channel, reply, pending)
+    if mid is not None:
+        _last_autosend_msgid[conv_id] = mid
+    return res
 
 
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
@@ -4915,6 +5096,11 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # cannot race with the gate writing that attribute.
     if (conv.get("custom_attributes") or {}).get("pending_retail"):
         return {"ignored": True, "reason": "retail_gate_pending"}
+    # Likewise the EMI gate owns the conversation while it waits for the customer
+    # to name the product / variant (pending_emi). The webhook routes those
+    # replies to _handle_emi_reply directly; this guards the handoff path.
+    if (conv.get("custom_attributes") or {}).get("pending_emi"):
+        return {"ignored": True, "reason": "emi_gate_pending"}
 
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
