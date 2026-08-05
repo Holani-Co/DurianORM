@@ -13,19 +13,42 @@ from pathlib import Path
 
 import product_catalog
 
-_PATH = Path(__file__).parent / "data" / "inventory.json"
+# The daily sync writes inventory.local.json (gitignored); we prefer it and fall
+# back to the committed inventory.json seed. Loads are re-read when the active
+# file's mtime changes, so a rebuild is picked up live with no bridge restart.
+_SEED = Path(__file__).parent / "data" / "inventory.json"
+_LOCAL = Path(__file__).parent / "data" / "inventory.local.json"
 _data: dict | None = None
+_loaded_from: Path | None = None
+_loaded_mtime: float = 0.0
 # A snapshot older than this is treated as unusable (client refreshes daily).
 STALE_AFTER_HOURS = 48
 
 
-def _load() -> dict:
+def _active_path() -> Path:
+    return _LOCAL if _LOCAL.exists() else _SEED
+
+
+def invalidate() -> None:
+    """Drop the cache so the next lookup re-reads from disk (called after a
+    rebuild, though the mtime check in _load already handles that automatically)."""
     global _data
-    if _data is None:
+    _data = None
+
+
+def _load() -> dict:
+    global _data, _loaded_from, _loaded_mtime
+    path = _active_path()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    if _data is None or path != _loaded_from or mtime != _loaded_mtime:
         try:
-            _data = json.loads(_PATH.read_text(encoding="utf-8"))
+            _data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             _data = {"products": {}, "generated_at": "", "as_of": ""}
+        _loaded_from, _loaded_mtime = path, mtime
     return _data
 
 

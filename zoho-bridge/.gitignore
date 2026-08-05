@@ -3,3 +3,8 @@
 # Allows redirecting forwards to test emails without touching the
 # committed routing_rules.yaml. Merged on top of the base YAML.
 routing_rules.local.yaml
+
+# Daily-refreshed availability snapshot (inventory_sync rebuilds this from the
+# client's Inventory Tracker on the box). Kept out of git so it never conflicts
+# with a pull; data/inventory.json (committed) is the seed/fallback.
+data/inventory.local.json

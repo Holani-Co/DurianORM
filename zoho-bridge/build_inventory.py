@@ -48,7 +48,11 @@ def _int(v):
         return None
 
 
-def build(xlsx: str, as_of: str = "") -> None:
+def build(xlsx: str, as_of: str = "", out=None) -> None:
+    """Build the snapshot from `xlsx`. `out` defaults to the committed
+    data/inventory.json (dev build); the daily in-process sync passes the
+    gitignored data/inventory.local.json instead so it never fights git pull."""
+    outp = Path(out) if out else _OUT
     wb = openpyxl.load_workbook(xlsx, data_only=True, read_only=True)
     ws = wb[_TAB]
     rows = ws.iter_rows(values_only=True)
@@ -86,8 +90,8 @@ def build(xlsx: str, as_of: str = "") -> None:
                 continue
         products[sku] = rec
 
-    _OUT.parent.mkdir(exist_ok=True)
-    _OUT.write_text(json.dumps({
+    outp.parent.mkdir(exist_ok=True)
+    outp.write_text(json.dumps({
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "as_of": as_of,
         "source": f"{Path(xlsx).name} / {_TAB}",
@@ -97,7 +101,7 @@ def build(xlsx: str, as_of: str = "") -> None:
     in_stock = sum(1 for p in products.values() if p["sellable"] and p["stock"] > 0)
     oos = sum(1 for p in products.values() if p["sellable"] and p["stock"] == 0)
     not_sell = sum(1 for p in products.values() if not p["sellable"])
-    print(f"inventory.json: {len(products)} SKUs "
+    print(f"{outp.name}: {len(products)} SKUs "
           f"({in_stock} in stock, {oos} sellable-but-0, {not_sell} discontinued/expired)"
           + (f"; {dups} duplicate-SKU rows collapsed" if dups else ""))
 

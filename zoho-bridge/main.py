@@ -37,6 +37,7 @@ import social_store_templates
 import product_catalog
 import snapmint
 import inventory
+import inventory_sync
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -67,6 +68,9 @@ def _now_iso() -> str:
 async def _start_reviews_poller():
     # Boot-safe: run_forever() no-ops if Google isn't configured yet.
     asyncio.create_task(reviews_poller.run_forever())
+    # Daily availability-snapshot refresh; no-ops unless INVENTORY_ENABLED +
+    # INVENTORY_XLSX are set (see inventory_sync).
+    asyncio.create_task(inventory_sync.run_forever())
 
 
 @app.on_event("shutdown")

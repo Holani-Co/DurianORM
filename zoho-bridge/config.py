@@ -452,6 +452,13 @@ SOCIAL_RETAIL_DEAL_ENABLED = _bool("SOCIAL_RETAIL_DEAL_ENABLED", "false")
 # no row, an ambiguous product, or a stale snapshot (>48h) declines to assert and
 # offers to check with the team. Dark-launched: off until verified in prod.
 INVENTORY_ENABLED = _bool("INVENTORY_ENABLED", "false")
+# Daily auto-refresh: point INVENTORY_XLSX at wherever the client's Inventory
+# Tracker workbook lands on this box; inventory_sync rebuilds the snapshot from it
+# every INVENTORY_SYNC_INTERVAL_HOURS and hot-swaps it in (no restart). Empty →
+# no auto-refresh; the committed data/inventory.json is used as-is (and will go
+# "stale" after 48h, so availability then falls back to "check with the team").
+INVENTORY_XLSX = os.environ.get("INVENTORY_XLSX", "").strip()
+INVENTORY_SYNC_INTERVAL_HOURS = int(os.environ.get("INVENTORY_SYNC_INTERVAL_HOURS", "24") or "24")
 
 # ── Social auto-send (Instagram / Facebook DM + comment) ───────────────────
 # The drafter (review_reply.draft) rates 0-100 how sure it is that the chosen
