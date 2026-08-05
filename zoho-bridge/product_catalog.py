@@ -88,6 +88,36 @@ def search(query: str, limit: int = 6) -> list[dict]:
     return out
 
 
+def family_variants(query: str, limit: int = 8) -> list[dict]:
+    """Distinct-by-description variants of the ONE family the query names, best
+    first — or [] when the query doesn't cleanly name a single family. Lets a bare
+    'meagan' enumerate 1str/2str/3str/tables instead of just the top-ranked colour
+    variant that search() returns. Used by the availability flow for a truthful
+    'here's the range' answer."""
+    _load()
+    toks = [t for t in _norm(query).split() if len(t) >= 3]
+    fams: set[str] = set()
+    for t in toks:
+        if t in _by_family:
+            fams.add(t)
+        else:
+            fams.update(difflib.get_close_matches(t, list(_by_family), n=1, cutoff=0.84))
+    if len(fams) != 1:
+        return []                       # ambiguous across families, or none → caller falls back
+    fam = fams.pop()
+    out, seen = [], set()
+    for sku in _by_family[fam]:
+        p = _data["products"][sku]
+        k = (p.get("name") or "").strip().lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"sku": sku, **p})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def resolve(query: str) -> dict | None:
     """A single unambiguous product for the query, or None when it's ambiguous
     (several variants) or no match — the caller then shows candidates / asks."""

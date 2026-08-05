@@ -36,6 +36,7 @@ import pincode_resolver
 import social_store_templates
 import product_catalog
 import snapmint
+import inventory
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -3732,6 +3733,13 @@ async def handle_message_created(data: dict) -> dict:
         if (pending_emi and config.EMI_ENABLED
                 and str(pending_emi.get("channel") or "") == social_channel):
             return await _handle_emi_reply(conv_id, data, conv, pending_emi, social_channel)
+        # Availability re-entry: a DM awaiting an availability product / variant
+        # pick routes the reply back into the stock flow (resolve → answer), not
+        # the drafter. Same channel only, like the EMI re-entry above.
+        pending_inv = (conv.get("custom_attributes") or {}).get("pending_inventory")
+        if (pending_inv and config.INVENTORY_ENABLED
+                and str(pending_inv.get("channel") or "") == social_channel):
+            return await _handle_inventory_reply(conv_id, data, conv, pending_inv, social_channel)
         # Retail-gate re-entry: a DM mid purchase gate (awaiting city / showroom /
         # phone) routes the customer's reply back into the gate on the same
         # channel, not the drafter. Mirrors the order-lookup re-entry above.
@@ -4964,6 +4972,298 @@ async def _handle_emi_reply(conv_id: int, data: dict, conv: dict,
     return res
 
 
+# ── Stock / availability gate (INVENTORY_ENABLED) ──────────────────────────
+# "Is the Rihanna sofa in stock?" → answer from the daily inventory snapshot
+# (inventory.py). Mirrors the EMI gate: cheap regex → LLM classify → catalog
+# resolve → snapshot lookup → auto-send. Ambiguous family → answer per-variant
+# when few, else ask (pending_inventory re-entry). Conservative: no row / stale
+# snapshot → offer to check with the team, never assert stock.
+_INV_HINT = re.compile(
+    r"\b(in\s*stock|out\s*of\s*stock|stock|availab(?:le|ility|ilty)|"
+    r"any\s+left|readily\s+available|do you have (?:the|any|a )?\w)\b", re.I)
+_INV_ASK_CAP = 2
+
+
+async def _social_inventory_gate_llm(customer_name: str, text: str) -> dict:
+    """One LLM call: is this a product-availability enquiry, and which product?
+    Returns {is_availability_enquiry, product}."""
+    from llm_client import client
+    schema = {"name": "availability_enquiry", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["is_availability_enquiry", "product"],
+                         "properties": {
+                             "is_availability_enquiry": {"type": "boolean"},
+                             "product": {"type": "string"}}}}
+    system = (
+        "You triage a Durian furniture customer's Instagram/Facebook DM. "
+        "is_availability_enquiry = true ONLY if they ask whether a specific "
+        "PRODUCT is in stock / available / can be delivered (NOT a showroom "
+        "location question, NOT an EMI question). Extract product = the product "
+        "name they mention (e.g. 'Rihanna sofa', 'Adilon coffee table'), '' if "
+        "none. STRICT JSON.")
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": f"DM from {customer_name}:\n{text[:1000]}"}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        p = json.loads(resp.choices[0].message.content) or {}
+        return {"is_availability_enquiry": bool(p.get("is_availability_enquiry")),
+                "product": (p.get("product") or "").strip()}
+    except Exception as e:
+        print(f"[social-inv] gate LLM failed: {e}")
+        return {"is_availability_enquiry": False}
+
+
+def _inv_label(product: dict) -> str:
+    fam = (product.get("family") or "").title()
+    name = (product.get("name") or "").title()
+    return f"{fam} ({name})" if fam and name else (fam or name or "this item")
+
+
+def _fmt_arrival(avail: dict) -> str:
+    """A human 'around 9 Aug' / 'in ~4 days' clause for an out-of-stock item, or
+    '' when we have no date/lead — kept vague on purpose (snapshot, not a promise)."""
+    iso = avail.get("arrival_date")
+    if iso:
+        try:
+            d = datetime.strptime(iso, "%Y-%m-%d")
+            return f" More are expected around {d.day} {d.strftime('%b')}."
+        except ValueError:
+            pass
+    days = avail.get("lead_days")
+    if days:
+        return f" More are expected in about {int(days)} days."
+    return ""
+
+
+def _format_inventory_reply(avail: dict, contact_name: str, label: str) -> str:
+    status = avail.get("status")
+    head = f"Hi {contact_name}! 👋"
+    if status == "in_stock":
+        body = (f"Yes — the {label} is in stock and available. ✅ "
+                "Would you like store details or help placing an order?")
+    elif status == "out_of_stock":
+        body = (f"The {label} is currently out of stock." + _fmt_arrival(avail)
+                + " Shall I have the team confirm and keep one reserved for you?")
+    elif status == "discontinued":
+        body = (f"The {label} has been discontinued, but our team can suggest "
+                "close alternatives — would you like that?")
+    else:
+        return ""
+    return f"{head}\n\n{body}\n\nRegards,\nTeam Durian"
+
+
+async def _inv_offer_to_check(conv_id: int, contact_name: str, label: str,
+                              note: str) -> dict:
+    """Availability is unknown (no stock row, or the snapshot is stale) — never
+    guess; tell the customer we'll confirm and flag it for an agent."""
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(
+        f"Hi {contact_name}! 👋\n\nLet me check with our team on the {label}'s "
+        "availability and get right back to you.\n\nRegards,\nTeam Durian"))
+    await _label_conversation(conv_id, "availability-enquiry")
+    try:
+        await chatwoot.post_private_note(conv_id, f"📦 Availability — {note}")
+    except Exception:
+        pass
+    return {"handled": "social_inventory_check"}
+
+
+async def _inv_send_availability(conv_id: int, contact_name: str, product: dict) -> dict:
+    """Auto-send the availability answer for a resolved product, or offer to check
+    when the snapshot has no row for it / is stale."""
+    avail = inventory.availability(product["sku"])
+    label = _inv_label(product)
+    if not avail:
+        reason = ("snapshot stale, please confirm" if inventory.is_stale()
+                  else f"no stock row for {product['sku']}, please confirm")
+        return await _inv_offer_to_check(conv_id, contact_name, label, reason)
+    reply = _format_inventory_reply(avail, contact_name, label)
+    if not reply:
+        return await _inv_offer_to_check(conv_id, contact_name, label,
+                                         f"unclear status for {product['sku']}, please confirm")
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply))
+    await _label_conversation(conv_id, "availability-enquiry")
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"📦 Availability — auto-answered: {product['sku']} "
+                     f"{avail['status']} (stock {avail['stock']}).")
+    except Exception:
+        pass
+    print(f"[social-inv] conv {conv_id}: auto-answered {product['sku']} → {avail['status']}")
+    return {"handled": "social_inventory", "sku": product["sku"]}
+
+
+def _inv_distinct(cands: list) -> list:
+    """Collapse candidates that read the same to a customer (same description) to
+    one representative SKU each — so a family answer lists sizes, not colour codes."""
+    out, seen = [], set()
+    for c in cands:
+        k = (c.get("name") or "").strip().lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    return out
+
+
+async def _inv_answer_family(conv_id: int, contact_name: str, variants: list) -> dict:
+    """A few variants (e.g. Rihanna 2str / 3str) → one message listing each one's
+    availability from the snapshot. Representative SKU per distinct description."""
+    avails = [inventory.availability(c["sku"]) for c in variants]
+    fam = (variants[0].get("family") or "").title()
+    if not any(avails):                    # nothing known for the whole family → one honest ask
+        return await _inv_offer_to_check(
+            conv_id, contact_name, f"{fam} range",
+            f"no stock rows for {fam} ({', '.join(c['sku'] for c in variants)}), please confirm")
+    lines, notes = [], []
+    for c in variants:
+        av = inventory.availability(c["sku"])
+        name = (c.get("name") or c.get("family") or "").title()
+        if not av:
+            lines.append(f"• {name}: we'll confirm with the team")
+            notes.append(f"{c['sku']}=unknown")
+        elif av["status"] == "in_stock":
+            lines.append(f"• {name}: in stock ✅")
+            notes.append(f"{c['sku']}=in_stock")
+        elif av["status"] == "out_of_stock":
+            lines.append(f"• {name}: out of stock{_fmt_arrival(av)}")
+            notes.append(f"{c['sku']}=oos")
+        else:
+            lines.append(f"• {name}: discontinued")
+            notes.append(f"{c['sku']}=discontinued")
+    fam = (variants[0].get("family") or "").title()
+    body = (f"Hi {contact_name}! 👋\n\nHere's the {fam} range:\n" + "\n".join(lines)
+            + "\n\nWant store details or help ordering one?\n\nRegards,\nTeam Durian")
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(body))
+    await _label_conversation(conv_id, "availability-enquiry")
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"📦 Availability — auto-answered {fam} range ({', '.join(notes)}).")
+    except Exception:
+        pass
+    return {"handled": "social_inventory_family"}
+
+
+async def _inv_ask_variant(conv_id: int, contact_name: str, channel: str,
+                           cands: list, attempts: int) -> dict:
+    opts = "\n".join(f"• {c['family'].title()} {(c.get('name') or '')}" for c in cands)
+    await chatwoot.send_outgoing_message(
+        conv_id, f"Hi {contact_name}! We have a few options — which one did you "
+        f"mean?\n{opts}\n\nRegards,\nTeam Durian")
+    await _label_conversation(conv_id, "availability-enquiry")
+    await chatwoot.merge_custom_attributes(conv_id, {"pending_inventory": {
+        "stage": "variant", "channel": channel,
+        "candidates": [{"sku": c["sku"], "family": c.get("family"),
+                        "name": c.get("name"), "sale_price": c.get("sale_price")}
+                       for c in cands],
+        "attempts": attempts, "asked_at": _now_iso()}})
+    return {"handled": "social_inventory_ask_variant"}
+
+
+async def _inv_ask_product(conv_id: int, contact_name: str, channel: str,
+                           attempts: int) -> dict:
+    await chatwoot.send_outgoing_message(
+        conv_id, f"Hi {contact_name}! Sure — which product would you like to check "
+        "availability for?\n\nRegards,\nTeam Durian")
+    await _label_conversation(conv_id, "availability-enquiry")
+    await chatwoot.merge_custom_attributes(conv_id, {"pending_inventory": {
+        "stage": "product", "channel": channel,
+        "attempts": attempts, "asked_at": _now_iso()}})
+    return {"handled": "social_inventory_ask_product"}
+
+
+async def _maybe_social_inventory(conv_id: int, channel: str, message: str,
+                                  contact_name: str) -> dict | None:
+    """Availability enquiry on a DM → answer from the snapshot. Ambiguous product
+    → list variants (few) or ask (many, pending_inventory). None to fall through."""
+    if not _INV_HINT.search(message or ""):
+        return None
+    g = await _social_inventory_gate_llm(contact_name, message)
+    if not g.get("is_availability_enquiry"):
+        return None
+    if g.get("product"):
+        handled = await _inv_resolve_and_answer(conv_id, contact_name, channel,
+                                                g["product"], attempts=1)
+        if handled:
+            return handled
+    return await _inv_ask_product(conv_id, contact_name, channel, attempts=1)
+
+
+async def _inv_resolve_and_answer(conv_id: int, contact_name: str, channel: str,
+                                  query: str, attempts: int) -> dict | None:
+    """Turn a product NAME into an availability answer: exact single → answer it;
+    a small family (≤3 sizes, e.g. Rihanna 2str/3str) → list each; a big family
+    (Meagan 1/2/3 + tables) → ask which. None when the name matches nothing."""
+    product = product_catalog.resolve(query)
+    if product:
+        return await _inv_send_availability(conv_id, contact_name, product)
+    variants = _inv_distinct(product_catalog.family_variants(query)
+                             or product_catalog.search(query, limit=6))
+    if not variants:
+        return None
+    if len(variants) == 1:                 # one description → a single product, answer it
+        return await _inv_send_availability(
+            conv_id, contact_name, product_catalog.get(variants[0]["sku"]) or variants[0])
+    if len(variants) <= 3:                  # a genuine small range → list each
+        return await _inv_answer_family(conv_id, contact_name, variants)
+    return await _inv_ask_variant(conv_id, contact_name, channel, variants[:4], attempts=attempts)
+
+
+async def _resume_social_inventory(conv_id: int, contact_name: str, channel: str,
+                                   reply: str, pending: dict) -> dict:
+    """A DM already awaiting an availability product / variant pick — resolve from
+    the reply and answer, or ask once more (up to _INV_ASK_CAP) then hand off."""
+    attempts = int(pending.get("attempts") or 1)
+    stage = str(pending.get("stage") or "product")
+    cands = pending.get("candidates") or []
+
+    if stage == "variant":
+        chosen = _match_emi_variant(reply, cands)      # generic variant matcher
+        if chosen:
+            product = product_catalog.get(chosen["sku"]) or chosen
+            await chatwoot.merge_custom_attributes(conv_id, {"pending_inventory": None})
+            return await _inv_send_availability(conv_id, contact_name, product)
+    else:                                  # product stage — the reply names the product
+        handled = await _inv_resolve_and_answer(conv_id, contact_name, channel,
+                                                reply, attempts=attempts + 1)
+        if handled:
+            # cleared only when we actually answered; a fresh ask keeps pending set
+            if handled.get("handled") not in ("social_inventory_ask_variant",
+                                              "social_inventory_ask_product"):
+                await chatwoot.merge_custom_attributes(conv_id, {"pending_inventory": None})
+            return handled
+
+    if attempts >= _INV_ASK_CAP:
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_inventory": None})
+        try:
+            await chatwoot.post_private_note(
+                conv_id, "📦 Availability — couldn't match a product after 2 asks; "
+                "please assist.")
+        except Exception:
+            pass
+        return {"handled": "social_inventory_gaveup"}
+    if stage == "variant" and cands:
+        return await _inv_ask_variant(conv_id, contact_name, channel, cands, attempts=attempts + 1)
+    return await _inv_ask_product(conv_id, contact_name, channel, attempts=attempts + 1)
+
+
+async def _handle_inventory_reply(conv_id: int, data: dict, conv: dict,
+                                  pending: dict, channel: str) -> dict:
+    """Webhook entry for a DM mid availability flow (pending_inventory set).
+    Idempotent per message id, like the EMI re-entry."""
+    mid = data.get("id")
+    if mid is not None and _last_autosend_msgid.get(conv_id) == mid:
+        print(f"[social-inv] conv {conv_id} — reply msg {mid} already handled, skipping")
+        return {"ignored": True, "reason": "inventory_reply_already_handled"}
+    reply = data.get("content") or ""
+    contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") or "Customer"
+    res = await _resume_social_inventory(conv_id, contact_name, channel, reply, pending)
+    if mid is not None:
+        _last_autosend_msgid[conv_id] = mid
+    return res
+
+
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                                       contact_name: str, custom: dict) -> dict | None:
     """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
@@ -5101,6 +5401,9 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # replies to _handle_emi_reply directly; this guards the handoff path.
     if (conv.get("custom_attributes") or {}).get("pending_emi"):
         return {"ignored": True, "reason": "emi_gate_pending"}
+    # Same for the availability gate while it waits for the product/variant pick.
+    if (conv.get("custom_attributes") or {}).get("pending_inventory"):
+        return {"ignored": True, "reason": "inventory_gate_pending"}
 
     contact_name = ((conv.get("meta") or {}).get("sender") or {}).get("name") \
         or "Customer"
@@ -5181,6 +5484,16 @@ async def _template_suggest_locked(conv: dict, channel: str,
 
     if surface != "comment" and config.EMI_ENABLED:
         handled = await _maybe_social_emi(conv_id, channel, gate_message, contact_name)
+        if handled:
+            if latest_msg_id is not None:
+                _last_autosend_msgid[conv_id] = latest_msg_id
+            return handled
+
+    # Availability ("is X in stock?") — answered from the daily snapshot. After
+    # EMI (an EMI question isn't an availability one), before the store/deal gate
+    # so "is the Rihanna available?" isn't read as purchase intent.
+    if surface != "comment" and config.INVENTORY_ENABLED:
+        handled = await _maybe_social_inventory(conv_id, channel, gate_message, contact_name)
         if handled:
             if latest_msg_id is not None:
                 _last_autosend_msgid[conv_id] = latest_msg_id

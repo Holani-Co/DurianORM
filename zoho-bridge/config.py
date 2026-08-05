@@ -446,6 +446,13 @@ SOCIAL_STORE_TEMPLATES_ENABLED = _bool("SOCIAL_STORE_TEMPLATES_ENABLED", "false"
 # of the email gate's RETAIL_ROUTING_ENABLED so social can be enabled separately.
 SOCIAL_RETAIL_DEAL_ENABLED = _bool("SOCIAL_RETAIL_DEAL_ENABLED", "false")
 
+# Stock / availability: on IG/FB DMs an "is X in stock?" question is answered
+# from a daily snapshot of the client's Inventory Tracker (build_inventory.py →
+# data/inventory.json; BMS has no live stock endpoint). Conservative — a SKU with
+# no row, an ambiguous product, or a stale snapshot (>48h) declines to assert and
+# offers to check with the team. Dark-launched: off until verified in prod.
+INVENTORY_ENABLED = _bool("INVENTORY_ENABLED", "false")
+
 # ── Social auto-send (Instagram / Facebook DM + comment) ───────────────────
 # The drafter (review_reply.draft) rates 0-100 how sure it is that the chosen
 # Durian template is the right, safe reply for a social message. At/above this
