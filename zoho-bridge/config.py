@@ -396,7 +396,10 @@ BMS_API_TOKEN          = os.environ.get("BMS_API_TOKEN", "").strip()
 # EMI plans via the Snapmint calculation API (prices in rupees). Dark-launched.
 EMI_ENABLED            = _bool("EMI_ENABLED", "false")
 SNAPMINT_BASE_URL      = os.environ.get("SNAPMINT_BASE_URL", "https://emis.snapmint.com").strip()
-SNAPMINT_MERCHANT_ID   = os.environ.get("SNAPMINT_MERCHANT_ID", "").strip()
+# Durian's Snapmint merchant id — verified live 2026-08-04 (open GET, no auth):
+# merchant_id=12 returns valid EMI for real Durian SKUs (MEAGAN/1, RIHANNA/A/2, …).
+# Override via env only if Snapmint reissues it.
+SNAPMINT_MERCHANT_ID   = os.environ.get("SNAPMINT_MERCHANT_ID", "12").strip()
 SNAPMINT_SUBVENTION    = _bool("SNAPMINT_SUBVENTION", "false")
 # Fallback SKU for a price-only EMI enquiry (customer gives a price but names no
 # product). Snapmint requires a skuid; leave empty to instead ask for the product.
