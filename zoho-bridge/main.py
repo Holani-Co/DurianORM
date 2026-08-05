@@ -34,6 +34,8 @@ import chatwoot
 import classifier
 import pincode_resolver
 import social_store_templates
+import product_catalog
+import snapmint
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -4638,6 +4640,135 @@ _BUY_HINT = re.compile(
     r"looking for|want|need|interested)\b", re.I)
 
 
+# ── Social EMI enquiry ("can I get EMI on this?") ──────────────────────────
+# On IG/FB DMs, an EMI question gets auto-answered with Snapmint's product-wise
+# plans. Product name → product_catalog (SKU + sale price) → snapmint.get_emi →
+# formatted reply. Dark-launched behind EMI_ENABLED; anything not confidently an
+# EMI enquiry falls through to the drafter.
+_EMI_HINT = re.compile(r"\b(emi|emis|instal?lments?|no[\s-]?cost|monthly\s*payment|"
+                       r"finance|financing|installment\s*plan)\b", re.I)
+
+
+async def _social_emi_gate_llm(customer_name: str, text: str) -> dict:
+    """One LLM call: is this an EMI enquiry, and which product / price?
+    Returns {is_emi_enquiry, product, price}."""
+    from llm_client import client
+    schema = {"name": "emi_enquiry", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["is_emi_enquiry", "product", "price"],
+                         "properties": {
+                             "is_emi_enquiry": {"type": "boolean"},
+                             "product": {"type": "string"},
+                             "price": {"type": "number"}}}}
+    system = (
+        "You triage a Durian furniture customer's Instagram/Facebook DM. "
+        "is_emi_enquiry = true ONLY if they ask about EMI / instalments / monthly "
+        "payments / no-cost EMI / financing for a purchase. Extract: product = the "
+        "product name they mention (e.g. 'Rihanna sofa', 'Meagan recliner'), '' if "
+        "none; price = a rupee amount they state (e.g. 40000), 0 if none. STRICT JSON.")
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": f"DM from {customer_name}:\n{text[:1000]}"}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        p = json.loads(resp.choices[0].message.content) or {}
+        return {"is_emi_enquiry": bool(p.get("is_emi_enquiry")),
+                "product": (p.get("product") or "").strip(),
+                "price": p.get("price") or 0}
+    except Exception as e:
+        print(f"[social-emi] gate LLM failed: {e}")
+        return {"is_emi_enquiry": False}
+
+
+def _format_emi_reply(product: dict | None, emi: dict, price, contact_name: str) -> str:
+    """Build the customer-facing EMI DM from a resolved product (optional) + the
+    normalised snapmint result. Returns '' when no plans are usable."""
+    if not emi or not emi.get("emi_available") or not emi.get("plans"):
+        return ""
+    base = (product or {}).get("sale_price") or price
+    all_zero = all(p["zero_cost"] for p in emi["plans"])
+    lines = [f"Hi {contact_name}! 👋",
+             "Yes — No-Cost EMI is available 🎉" if all_zero else "Yes — EMI is available 💳"]
+    if product:
+        lines.append(f"\nOn the {product['family'].title()} "
+                     f"({(product.get('name') or '').title()}) — ₹{int(base):,}:")
+    else:
+        lines.append(f"\nFor ₹{int(base):,}:")
+    for p in emi["plans"]:
+        if p.get("emi") is None or p.get("months") is None:
+            continue
+        tag = (" · No-Cost EMI" if p["zero_cost"]
+               else (f" · +₹{int(p['interest']):,} interest" if p["interest"] else ""))
+        lines.append(f"• ₹{int(p['emi']):,}/month × {p['months']} months{tag}")
+    if emi.get("down_payment"):
+        lines.append(f"\nDown payment: ₹{int(emi['down_payment']):,}")
+    if emi.get("processing_fee"):
+        lines.append(f"Processing fee: ₹{int(emi['processing_fee']):,}")
+    lines += ["\nRegards,", "Team Durian"]
+    return "\n".join(lines)
+
+
+async def _maybe_social_emi(conv_id: int, channel: str, message: str,
+                            contact_name: str) -> dict | None:
+    """EMI enquiry on a DM → resolve the product → auto-send Snapmint plans.
+    Returns a handled-dict, or None to fall through to the drafter."""
+    if not _EMI_HINT.search(message or ""):
+        return None                       # cheap gate — skip the LLM for non-EMI DMs
+    g = await _social_emi_gate_llm(contact_name, message)
+    if not g.get("is_emi_enquiry"):
+        return None
+
+    product, skuid, price = None, "", g.get("price") or 0
+    if g.get("product"):
+        product = product_catalog.resolve(g["product"])
+        if not product:
+            cands = product_catalog.search(g["product"], limit=4)
+            if cands:                     # ambiguous family → ask which variant
+                opts = "\n".join(f"• {c['family'].title()} {(c.get('name') or '')}"
+                                 f" — ₹{int(c['sale_price']):,}" for c in cands)
+                await chatwoot.send_outgoing_message(
+                    conv_id, f"Hi {contact_name}! We have a few options — which one "
+                    f"did you mean?\n{opts}\n\nRegards,\nTeam Durian")
+                await _label_conversation(conv_id, "emi-enquiry")
+                return {"handled": "social_emi_ask_variant"}
+    if product:
+        skuid, price = product["sku"], product["sale_price"]
+    elif not skuid:
+        skuid = config.SNAPMINT_DEFAULT_SKUID     # price-only fallback (if configured)
+
+    if not (price and skuid):
+        # Need a product (for the SKU) — ask for it.
+        await chatwoot.send_outgoing_message(
+            conv_id, f"Hi {contact_name}! Sure — could you tell us which product "
+            "(or its price) you'd like EMI options for?\n\nRegards,\nTeam Durian")
+        await _label_conversation(conv_id, "emi-enquiry")
+        return {"handled": "social_emi_ask_product"}
+
+    emi = await snapmint.get_emi(price, skuid)
+    reply = _format_emi_reply(product, emi, price, contact_name) if emi else ""
+    if emi and not reply:                 # API answered but EMI not available
+        reply = (f"Hi {contact_name}, EMI isn't available on this one, but our team "
+                 "can help with other payment options.\n\nRegards,\nTeam Durian")
+    if not reply:                         # API failed → surface for an agent, fall through
+        try:
+            await chatwoot.post_private_note(
+                conv_id, "💳 EMI enquiry — Snapmint lookup failed, please assist.")
+        except Exception:
+            pass
+        return None
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply))
+    await _label_conversation(conv_id, "emi-enquiry")
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"💳 EMI enquiry — auto-sent plans for ₹{int(price):,} "
+                     f"(SKU {skuid}).")
+    except Exception:
+        pass
+    print(f"[social-emi] conv {conv_id}: auto-sent EMI plans (SKU {skuid}, ₹{int(price):,})")
+    return {"handled": "social_emi", "skuid": skuid}
+
+
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                                       contact_name: str, custom: dict) -> dict | None:
     """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
@@ -4813,6 +4944,14 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # auto-send THAT nearest store's address template instead of the generic
     # drafter reply. Comments stay public-safe (no store details). Anything not
     # confidently a resolvable store enquiry falls through to the drafter below.
+    # EMI enquiry ("can I get EMI on this?") → auto-send Snapmint plans. Checked
+    # BEFORE the store/deal gate so an EMI question isn't mistaken for a purchase
+    # intent. Falls through to the drafter when it's not a resolvable EMI enquiry.
+    if surface != "comment" and config.EMI_ENABLED:
+        handled = await _maybe_social_emi(conv_id, channel, message, contact_name)
+        if handled:
+            return handled
+
     if surface != "comment" and (config.SOCIAL_STORE_TEMPLATES_ENABLED
                                  or config.SOCIAL_RETAIL_DEAL_ENABLED):
         handled = await _maybe_social_store_or_deal(

@@ -391,6 +391,16 @@ COMPLAINT_TICKET_OWNER_DESK_ID    = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_
 ORDER_LOOKUP_ENABLED   = _bool("ORDER_LOOKUP_ENABLED", "false")
 BMS_API_BASE_URL       = os.environ.get("BMS_API_BASE_URL", "").strip()
 BMS_API_TOKEN          = os.environ.get("BMS_API_TOKEN", "").strip()
+
+# EMI (Snapmint) — auto-answer "can I get EMI on this?" on social. Product-wise
+# EMI plans via the Snapmint calculation API (prices in rupees). Dark-launched.
+EMI_ENABLED            = _bool("EMI_ENABLED", "false")
+SNAPMINT_BASE_URL      = os.environ.get("SNAPMINT_BASE_URL", "https://emis.snapmint.com").strip()
+SNAPMINT_MERCHANT_ID   = os.environ.get("SNAPMINT_MERCHANT_ID", "").strip()
+SNAPMINT_SUBVENTION    = _bool("SNAPMINT_SUBVENTION", "false")
+# Fallback SKU for a price-only EMI enquiry (customer gives a price but names no
+# product). Snapmint requires a skuid; leave empty to instead ask for the product.
+SNAPMINT_DEFAULT_SKUID = os.environ.get("SNAPMINT_DEFAULT_SKUID", "").strip()
 # How many times the bridge drafts a "please share your details" ask before
 # giving up and leaving the conversation to the agent entirely.
 ORDER_LOOKUP_MAX_ASKS  = int(os.environ.get("ORDER_LOOKUP_MAX_ASKS", "2"))
