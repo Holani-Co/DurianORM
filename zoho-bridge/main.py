@@ -3738,7 +3738,14 @@ async def handle_message_created(data: dict) -> dict:
                 and str(pending_deal.get("channel") or "") == social_channel):
             return await _handle_deal_details_reply(conv_id, data, conv, pending_deal)
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
-        return await handle_template_suggest(full_conv, social_channel)
+        # Pass THIS webhook's own message down: the message-list fetch inside can
+        # lag the webhook, so the handler must not re-derive the latest message
+        # from a stale fetch (that caused replies to answer the previous message
+        # and to double-send). id gates against retried/duplicate webhooks.
+        return await handle_template_suggest(
+            full_conv, social_channel,
+            latest_message=data.get("content") or "",
+            latest_msg_id=data.get("id"))
 
     # Document extraction (bills / receipts / order screenshots). MUST be
     # scheduled BEFORE the early returns below: the spam/team pipeline only
@@ -4552,6 +4559,13 @@ def _is_low_value_comment(text: str) -> bool:
 _conv_draft_locks: dict[int, asyncio.Lock] = {}
 _conv_draft_locks_guard = asyncio.Lock()
 
+# id of the last incoming message an auto-send gate (EMI / store / deal) actually
+# answered, per conversation. Chatwoot re-fires message_created (retries, and its
+# message-list API lags a beat behind the webhook), so without this a single
+# customer message can be auto-answered twice. Keyed by conv_id; bounded by the
+# handful of live social conversations, cleared naturally as ids advance.
+_last_autosend_msgid: dict[int, int] = {}
+
 
 async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
     async with _conv_draft_locks_guard:
@@ -4845,16 +4859,24 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
 
 
 async def handle_template_suggest(conv: dict, channel: str,
-                                  surface: str = "") -> dict:
+                                  surface: str = "",
+                                  latest_message: str = "",
+                                  latest_msg_id=None) -> dict:
     """Serialise social drafting per conversation, then run the real handler.
-    See the comment above for why this lock exists."""
+    See the comment above for why this lock exists.
+
+    latest_message / latest_msg_id are the content + id of the message that
+    triggered THIS webhook. They are authoritative: the message-list fetch below
+    can lag the webhook, so we trust the webhook's own message as the latest
+    rather than re-deriving it from a possibly-stale fetch."""
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
     lock = await _conversation_draft_lock(conv_id)
     try:
         async with lock:
-            return await _template_suggest_locked(conv, channel, surface)
+            return await _template_suggest_locked(
+                conv, channel, surface, latest_message, latest_msg_id)
     finally:
         # Drop the lock once nobody holds or awaits it, so the registry doesn't
         # grow for the process lifetime. A waiter will have taken it already.
@@ -4864,7 +4886,9 @@ async def handle_template_suggest(conv: dict, channel: str,
 
 
 async def _template_suggest_locked(conv: dict, channel: str,
-                                   surface: str = "") -> dict:
+                                   surface: str = "",
+                                   latest_message: str = "",
+                                   latest_msg_id=None) -> dict:
     """Post a Durian-template AI reply suggestion as a private note for a
     social DM (or, with surface="comment", a public post comment). The agent
     gets the best-matching Durian template (edit / regenerate / send) instead
@@ -4902,6 +4926,18 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # thought across messages ("Can we connect on call?" … "And may I have
     # your catalogue") and the drafter needs the whole thought.
     message = _recent_incoming(all_messages)
+    # The message-list fetch above can lag the webhook by a beat when a customer
+    # fires several DMs in quick succession, so it may not yet include the
+    # message that triggered THIS webhook. Trust the webhook's own message as the
+    # latest — otherwise the drafter/gates answer the PREVIOUS message.
+    latest = (latest_message or "").strip()
+    if latest and latest not in (message or ""):
+        message = f"{message}\n{latest}".strip() if message else latest
+    # Auto-send gates (EMI / store / deal) decide on the SINGLE triggering
+    # message, never the multi-message window: a follow-up like "do you have this
+    # in blue?" must not inherit the previous message's EMI/store intent. Fall
+    # back to the window only when the webhook carried no content (e.g. handoff).
+    gate_message = latest or _latest_incoming(all_messages) or message
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
 
@@ -4947,17 +4983,31 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # EMI enquiry ("can I get EMI on this?") → auto-send Snapmint plans. Checked
     # BEFORE the store/deal gate so an EMI question isn't mistaken for a purchase
     # intent. Falls through to the drafter when it's not a resolvable EMI enquiry.
+    # Idempotency for the AUTO-SEND gates: if we already auto-answered the exact
+    # message that triggered this webhook, a retry/re-fire (Chatwoot re-delivers,
+    # and its message-list API lags a beat) must be ignored — never a second
+    # public reply, and not a fall-through to the drafter card either.
+    if (latest_msg_id is not None
+            and _last_autosend_msgid.get(conv_id) == latest_msg_id):
+        print(f"[template-suggest] conv {conv_id} — msg {latest_msg_id} already "
+              f"auto-answered, skipping re-fire")
+        return {"ignored": True, "reason": "gate_already_autosent"}
+
     if surface != "comment" and config.EMI_ENABLED:
-        handled = await _maybe_social_emi(conv_id, channel, message, contact_name)
+        handled = await _maybe_social_emi(conv_id, channel, gate_message, contact_name)
         if handled:
+            if latest_msg_id is not None:
+                _last_autosend_msgid[conv_id] = latest_msg_id
             return handled
 
     if surface != "comment" and (config.SOCIAL_STORE_TEMPLATES_ENABLED
                                  or config.SOCIAL_RETAIL_DEAL_ENABLED):
         handled = await _maybe_social_store_or_deal(
-            conv_id, channel, message, contact_name,
+            conv_id, channel, gate_message, contact_name,
             conv.get("custom_attributes") or {})
         if handled:
+            if latest_msg_id is not None:
+                _last_autosend_msgid[conv_id] = latest_msg_id
             return handled
 
     # Full two-sided conversation so the drafter chooses the template for the whole
