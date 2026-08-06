@@ -3706,7 +3706,9 @@ async def handle_message_created(data: dict) -> dict:
             return {"ignored": True, "reason": "comment_bot_handles"}
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
         return await handle_template_suggest(full_conv, social_channel,
-                                             surface="comment")
+                                             surface="comment",
+                                             latest_message=data.get("content") or "",
+                                             latest_msg_id=data.get("id"))
 
     # Prod-test phase: the DM bot is OFF (so no customer ever sees a bot
     # message), but the team still wants the Durian template-suggestion card on
@@ -4974,6 +4976,82 @@ async def _handle_emi_reply(conv_id: int, data: dict, conv: dict,
     return res
 
 
+# ── Comment product-reply (COMMENT_PRODUCT_REPLY_ENABLED) ──────────────────
+# A comment on a product post already names the product — it's in the post
+# caption (Chatwoot stores it on additional_attributes.caption). So a comment
+# ("is this available?", "price?") gets one brand-safe public reply that names
+# the product and invites a DM, where the enquiry flow captures contact +
+# location. PUBLIC-SAFE: never posts price or stock — comments are public.
+
+
+def _post_caption(conv: dict) -> str:
+    return ((conv.get("additional_attributes") or {}).get("caption") or "").strip()
+
+
+async def _comment_product_gate_llm(customer_name: str, caption: str,
+                                    comment: str) -> dict:
+    """One LLM call: given the post caption + the comment, is the comment a
+    product enquiry, and which product (from the caption)?
+    Returns {is_product_question, product}."""
+    from llm_client import client
+    schema = {"name": "comment_product", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["is_product_question", "product"],
+                         "properties": {
+                             "is_product_question": {"type": "boolean"},
+                             "product": {"type": "string"}}}}
+    system = (
+        "A customer commented on a Durian furniture Instagram/Facebook POST. You "
+        "get the POST CAPTION and the COMMENT. is_product_question = true only if "
+        "the comment asks about the product — price, availability/stock, EMI, or "
+        "how to buy/order. Praise/emoji/unrelated = false. product = the product "
+        "the POST is about, taken from the caption (e.g. 'Rihanna sofa', 'Adilon "
+        "coffee table'), '' if the caption names none. STRICT JSON.")
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user",
+                       "content": f"POST CAPTION:\n{caption[:800]}\n\n"
+                                  f"COMMENT from {customer_name}:\n{comment[:400]}"}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        p = json.loads(resp.choices[0].message.content) or {}
+        return {"is_product_question": bool(p.get("is_product_question")),
+                "product": (p.get("product") or "").strip()}
+    except Exception as e:
+        print(f"[comment-reply] gate LLM failed: {e}")
+        return {"is_product_question": False}
+
+
+async def _maybe_comment_product_reply(conv_id: int, channel: str, comment: str,
+                                       contact_name: str, caption: str) -> dict | None:
+    """A product-post comment → name the product (from the caption) and invite a
+    DM, where the enquiry flow takes over. None to fall through to the generic
+    comment drafter (no caption / not a product question)."""
+    if not caption:
+        return None                       # no post context → can't identify the product
+    g = await _comment_product_gate_llm(contact_name, caption, comment)
+    if not g.get("is_product_question"):
+        return None
+    product = product_catalog.resolve(g.get("product") or "") if g.get("product") else None
+    label = ((product["family"].title() if product else (g.get("product") or "").title())
+             or "this piece")
+    # PUBLIC-SAFE: no price / no stock — comments are public. Move it to DM, where
+    # the enquiry flow captures contact + location and routes to the nearest store.
+    reply = (f"Hi {contact_name}! The {label} is a lovely choice 😍 Please DM us and "
+             "our team will help you with the details and connect you to your nearest "
+             "store.\n\n💬 Drop us a DM anytime.\n\n— Team Durian")
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply))
+    await _label_conversation(conv_id, "comment-product-reply")
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"💬 Comment auto-reply — {label} · invited to DM (enquiry flow).")
+    except Exception:
+        pass
+    print(f"[comment-reply] conv {conv_id}: replied on {label}, invited to DM")
+    return {"handled": "comment_product_reply", "product": label}
+
+
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                                       contact_name: str, custom: dict) -> dict | None:
     """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
@@ -5145,6 +5223,19 @@ async def _template_suggest_locked(conv: dict, channel: str,
     if surface == "comment" and _is_low_value_comment(message):
         print(f"[template-suggest] conv {conv_id} — low-value comment, no reply (no AI)")
         return {"ignored": True, "reason": "low_value_comment"}
+
+    # Product-post comment → name the product (from the post caption) and invite a
+    # DM, where the enquiry flow captures contact + location. Comment surface only,
+    # before the generic comment drafter. Idempotent per comment id.
+    if surface == "comment" and config.COMMENT_PRODUCT_REPLY_ENABLED:
+        if latest_msg_id is not None and _last_autosend_msgid.get(conv_id) == latest_msg_id:
+            return {"ignored": True, "reason": "comment_reply_already_sent"}
+        handled = await _maybe_comment_product_reply(
+            conv_id, channel, gate_message, contact_name, _post_caption(conv))
+        if handled:
+            if latest_msg_id is not None:
+                _last_autosend_msgid[conv_id] = latest_msg_id
+            return handled
 
     # id of that same latest incoming message, for the Langfuse message span.
     msg_id = next((m.get("id") for m in reversed(all_messages)

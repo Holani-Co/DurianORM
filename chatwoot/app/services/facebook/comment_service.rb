@@ -145,30 +145,33 @@ class Facebook::CommentService
   # way).
   def comment_conversation_attributes
     attrs = { post_id: post_id, type: 'facebook_comment' }
-    permalink = fetch_post_permalink
-    attrs[:permalink_url] = permalink if permalink.present?
+    post = fetch_post_fields
+    attrs[:permalink_url] = post['permalink_url'] if post['permalink_url'].present?
+    # caption lets downstream automation know which product the post is about,
+    # so a comment ("is this available?") can be answered from the post's context.
+    attrs[:caption] = post['message'] if post['message'].present?
     attrs
   end
 
-  # Resolve the post's public URL via Graph. Best-effort: nil on any
-  # failure (network, token missing pages_read_user_content) so a Graph
-  # hiccup never blocks comment ingestion.
-  def fetch_post_permalink
-    return if post_id.blank?
+  # Resolve the post's public URL + caption via Graph in a single call.
+  # Best-effort: {} on any failure (network, token missing
+  # pages_read_user_content) so a Graph hiccup never blocks comment ingestion.
+  def fetch_post_fields
+    return {} if post_id.blank?
 
     token = channel.page_access_token
-    return if token.blank?
+    return {} if token.blank?
 
     response = HTTParty.get(
       "https://graph.facebook.com/v22.0/#{post_id}",
-      query: { fields: 'permalink_url', access_token: token }
+      query: { fields: 'permalink_url,message', access_token: token }
     )
-    return unless response.success?
+    return {} unless response.success?
 
-    response.parsed_response['permalink_url'].presence
+    response.parsed_response || {}
   rescue StandardError => e
-    Rails.logger.warn("Facebook::CommentService permalink fetch failed for post #{post_id}: #{e.message}")
-    nil
+    Rails.logger.warn("Facebook::CommentService post fetch failed for post #{post_id}: #{e.message}")
+    {}
   end
 
   def apply_comment_label
