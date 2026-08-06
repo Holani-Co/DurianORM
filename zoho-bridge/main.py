@@ -4609,6 +4609,12 @@ def _tidy_social_reply(text: str) -> str:
 _STORE_HINT = re.compile(
     r"\b(stores?|showrooms?|outlets?|branch|address|located|location|visit|"
     r"near(?:est|by)?|pin\s?code|pincode)\b", re.I)
+# An availability question about a product is a purchase LEAD (client rule: we
+# never quote stock — we route it to the nearest store as an enquiry). These
+# terms let such a DM reach the store/enquiry gate below.
+_AVAIL_HINT = re.compile(
+    r"\b(available|availab(?:le|ility)|in\s*stock|out\s*of\s*stock|stock|"
+    r"do you have|got any|any\s+left|can i get|kya milega|milega)\b", re.I)
 
 
 async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
@@ -4634,8 +4640,12 @@ async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
         "branch / address, 'do you have a store near <place/pincode>?').\n"
         "- wants_to_buy = true if they express intent to PURCHASE furniture / doors "
         "/ a modular kitchen or wardrobe (want to buy, pricing to buy, book a "
-        "visit to purchase, need a sofa/bed/wardrobe). A pure 'where is your store' "
-        "with no buying intent is false; an existing-order question is false.\n"
+        "visit to purchase, need a sofa/bed/wardrobe), OR if they ask whether a "
+        "SPECIFIC PRODUCT is available / in stock / can they get it — an "
+        "availability question about a product IS a purchase lead (we connect them "
+        "to their nearest store, we NEVER quote stock). A pure 'where is your "
+        "store' with no product/buying intent is false; an existing-order "
+        "question is false.\n"
         "Also extract: vertical (furniture / doors / fhc [= full home customisation, "
         "modular kitchen or wardrobe] / '' if unclear), pincode (6-digit if given, "
         "else ''), city, location (locality/area if named, else ''). STRICT JSON.")
@@ -4989,7 +4999,8 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
         return None
 
     pin = pincode_resolver.extract_pincode(message)
-    if not (pin or _STORE_HINT.search(message or "") or _BUY_HINT.search(message or "")):
+    if not (pin or _STORE_HINT.search(message or "") or _BUY_HINT.search(message or "")
+            or _AVAIL_HINT.search(message or "")):
         return None                      # cheap gate — skip the LLM for unrelated DMs
     g = await _social_store_gate_llm(contact_name, message)
 
