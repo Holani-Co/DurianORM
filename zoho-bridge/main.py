@@ -4633,12 +4633,13 @@ async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
     schema = {"name": "store_enquiry", "strict": True,
               "schema": {"type": "object", "additionalProperties": False,
                          "required": ["is_store_enquiry", "wants_to_buy", "vertical",
-                                      "pincode", "city", "location"],
+                                      "product", "pincode", "city", "location"],
                          "properties": {
                              "is_store_enquiry": {"type": "boolean"},
                              "wants_to_buy": {"type": "boolean"},
                              "vertical": {"type": "string",
                                           "enum": ["furniture", "doors", "fhc", ""]},
+                             "product": {"type": "string"},
                              "pincode": {"type": "string"},
                              "city": {"type": "string"},
                              "location": {"type": "string"}}}}
@@ -4651,8 +4652,10 @@ async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
         "visit to purchase, need a sofa/bed/wardrobe). A pure 'where is your store' "
         "with no buying intent is false; an existing-order question is false.\n"
         "Also extract: vertical (furniture / doors / fhc [= full home customisation, "
-        "modular kitchen or wardrobe] / '' if unclear), pincode (6-digit if given, "
-        "else ''), city, location (locality/area if named, else ''). STRICT JSON.")
+        "modular kitchen or wardrobe] / '' if unclear), product (the specific "
+        "product they name, e.g. 'Rihanna sofa', 'Adilon coffee table'; '' if none), "
+        "pincode (6-digit if given, else ''), city, location (locality/area if "
+        "named, else ''). STRICT JSON.")
     try:
         resp = await client.chat.completions.create(
             model=config.OPENAI_MODEL,
@@ -4663,6 +4666,7 @@ async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
         return {"is_store_enquiry": bool(p.get("is_store_enquiry")),
                 "wants_to_buy": bool(p.get("wants_to_buy")),
                 "vertical": (p.get("vertical") or "").strip(),
+                "product": (p.get("product") or "").strip(),
                 "pincode": (p.get("pincode") or "").strip(),
                 "city": (p.get("city") or "").strip(),
                 "location": (p.get("location") or "").strip()}
@@ -5366,11 +5370,46 @@ async def _maybe_comment_product_reply(conv_id: int, channel: str, comment: str,
     return {"handled": "comment_product_reply", "product": label}
 
 
+async def _purchase_stock_context(conv_id: int, contact_name: str,
+                                  product_name: str) -> str:
+    """On a furniture purchase, resolve the named product + check the snapshot:
+    stash it on the conversation (deal_product / deal_stock_status) and note it for
+    the agent, and return a short customer line about availability (or '').
+    Never blocks the sale — OOS still routes to a store (lead capture). No-op
+    unless INVENTORY_ENABLED and the product resolves."""
+    if not (product_name and config.INVENTORY_ENABLED):
+        return ""
+    product = product_catalog.resolve(product_name)
+    if not product:
+        return ""
+    avail = inventory.availability(product["sku"])
+    label = _inv_label(product)
+    attrs = {"deal_product": product["sku"]}
+    if avail:
+        attrs["deal_stock_status"] = avail["status"]
+    await chatwoot.merge_custom_attributes(conv_id, attrs)
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"🛒 Purchase — {label} (SKU {product['sku']}) · "
+                     f"{avail['status'] if avail else 'stock unknown'}.")
+    except Exception:
+        pass
+    if not avail:
+        return ""
+    if avail["status"] == "in_stock":
+        return f"Great choice — the {label} is available! ✅"
+    if avail["status"] == "out_of_stock":
+        extra = _fmt_arrival(avail).strip()
+        return (f"The {label} is currently made-to-order"
+                f"{(' — ' + extra) if extra else ''}, and we can arrange it for you.")
+    return ""                              # discontinued → let the store team advise
+
+
 async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                                       contact_name: str, custom: dict) -> dict | None:
     """IG/FB DM triage for the two store journeys. Returns a handled-dict, or
     None to fall through to the drafter.
-      purchase intent  → run the (channel-aware) retail gate → agent Create Deal
+      purchase intent  → check stock → run the (channel-aware) retail gate → deal
       store-address enquiry → auto-send the nearest store's template
     Purchase takes precedence (the gate confirms the showroom itself)."""
     # Already retail-routed (owner captured / details ready): the gate is DONE and
@@ -5407,6 +5446,13 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                "fhc": "full_home_customization"}.get(vert, "product_enquiry")
         await chatwoot.merge_custom_attributes(conv_id, {"phase2_category": cat})
         if vert == "furniture":
+            # Check stock for the named product first: confirm availability to the
+            # customer + capture it for the deal, THEN route to the nearest store.
+            # OOS never blocks — we still run the gate and capture the lead.
+            line = await _purchase_stock_context(conv_id, contact_name, g.get("product") or "")
+            if line:
+                await chatwoot.send_outgoing_message(
+                    conv_id, _tidy_social_reply(f"Hi {contact_name}! {line}"))
             audit = await _run_retail_gate(conv_id, contact_name, "", "", message,
                                            attempt=1, channel=channel)
             print(f"[social-store] conv {conv_id}: furniture purchase → retail gate")
@@ -5604,21 +5650,25 @@ async def _template_suggest_locked(conv: dict, channel: str,
                 _last_autosend_msgid[conv_id] = latest_msg_id
             return handled
 
-    # Availability ("is X in stock?") — answered from the daily snapshot. After
-    # EMI (an EMI question isn't an availability one), before the store/deal gate
-    # so "is the Rihanna available?" isn't read as purchase intent.
-    if surface != "comment" and config.INVENTORY_ENABLED:
-        handled = await _maybe_social_inventory(conv_id, channel, gate_message, contact_name)
-        if handled:
-            if latest_msg_id is not None:
-                _last_autosend_msgid[conv_id] = latest_msg_id
-            return handled
-
+    # Store / purchase gate runs BEFORE availability so one intent wins cleanly:
+    # a BUY message ("I want the Rihanna, is it available?") is owned by the
+    # purchase flow (which checks stock itself and routes to the nearest store),
+    # while a pure availability question ("is the Rihanna available?") carries no
+    # buy/store hint, so this gate skips it and it falls through to inventory.
     if surface != "comment" and (config.SOCIAL_STORE_TEMPLATES_ENABLED
                                  or config.SOCIAL_RETAIL_DEAL_ENABLED):
         handled = await _maybe_social_store_or_deal(
             conv_id, channel, gate_message, contact_name,
             conv.get("custom_attributes") or {})
+        if handled:
+            if latest_msg_id is not None:
+                _last_autosend_msgid[conv_id] = latest_msg_id
+            return handled
+
+    # Availability ("is X in stock?") — answered from the daily snapshot. Runs
+    # after the purchase gate above, so it only sees non-buy availability asks.
+    if surface != "comment" and config.INVENTORY_ENABLED:
+        handled = await _maybe_social_inventory(conv_id, channel, gate_message, contact_name)
         if handled:
             if latest_msg_id is not None:
                 _last_autosend_msgid[conv_id] = latest_msg_id
