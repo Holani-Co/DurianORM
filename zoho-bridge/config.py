@@ -446,6 +446,13 @@ SOCIAL_STORE_TEMPLATES_ENABLED = _bool("SOCIAL_STORE_TEMPLATES_ENABLED", "false"
 # of the email gate's RETAIL_ROUTING_ENABLED so social can be enabled separately.
 SOCIAL_RETAIL_DEAL_ENABLED = _bool("SOCIAL_RETAIL_DEAL_ENABLED", "false")
 
+# Comment product-reply: on an IG/FB *comment* on a product post, identify the
+# product from the POST CAPTION (Chatwoot stores it on
+# additional_attributes.caption) and post a brand-safe public reply that names
+# the product and invites the customer to DM — where the enquiry flow captures
+# their contact + location. Public-safe: never posts price or stock. Dark-launched.
+COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
+
 # ── Social auto-send (Instagram / Facebook DM + comment) ───────────────────
 # The drafter (review_reply.draft) rates 0-100 how sure it is that the chosen
 # Durian template is the right, safe reply for a social message. At/above this

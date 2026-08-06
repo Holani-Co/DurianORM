@@ -116,33 +116,35 @@ class Instagram::CommentService
   # "Open in Platform" button can jump straight to the post the comment is on.
   def comment_conversation_attributes
     attrs = { media_id: media_id, type: 'instagram_comment' }
-    permalink = fetch_media_permalink
-    attrs[:permalink] = permalink if permalink.present?
+    media = fetch_media_fields
+    attrs[:permalink] = media['permalink'] if media['permalink'].present?
+    # caption lets downstream automation know which product the post is about,
+    # so a comment ("is this available?") can be answered from the post's context.
+    attrs[:caption] = media['caption'] if media['caption'].present?
     attrs
   end
 
-  # Resolve the public post URL for this comment's media via the Graph API.
-  # The comment webhook carries only the numeric media id (no shortcode /
-  # permalink), and that id is NOT convertible to a public shortcode locally,
-  # so we ask Graph for the canonical permalink. Best-effort: returns nil on
-  # any failure so a Graph hiccup never blocks comment ingestion.
-  def fetch_media_permalink
-    return if media_id.blank?
+  # Resolve the public post URL + caption for this comment's media via Graph in
+  # a single call. The comment webhook carries only the numeric media id, so we
+  # ask Graph. Best-effort: {} on any failure so a Graph hiccup never blocks
+  # comment ingestion.
+  def fetch_media_fields
+    return {} if media_id.blank?
 
     host  = channel.is_a?(Channel::FacebookPage) ? 'graph.facebook.com' : 'graph.instagram.com'
     token = channel.is_a?(Channel::FacebookPage) ? channel.page_access_token : channel.access_token
-    return if token.blank?
+    return {} if token.blank?
 
     response = HTTParty.get(
       "https://#{host}/v22.0/#{media_id}",
-      query: { fields: 'permalink', access_token: token }
+      query: { fields: 'permalink,caption', access_token: token }
     )
-    return unless response.success?
+    return {} unless response.success?
 
-    response.parsed_response['permalink'].presence
+    response.parsed_response || {}
   rescue StandardError => e
-    Rails.logger.warn("Instagram::CommentService permalink fetch failed for media #{media_id}: #{e.message}")
-    nil
+    Rails.logger.warn("Instagram::CommentService media fetch failed for media #{media_id}: #{e.message}")
+    {}
   end
 
   def apply_comment_label
