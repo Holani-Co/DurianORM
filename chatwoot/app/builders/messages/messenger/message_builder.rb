@@ -99,7 +99,35 @@ class Messages::Messenger::MessageBuilder
     message = attachment.message
     message.content_attributes[:image_type] = 'ig_post'
     message.content = I18n.t('conversations.messages.instagram_shared_post_content')
+    # The shared post's asset_id (in the messaging-CDN url) is the IG media id,
+    # so Graph returns the post's caption — which names the product. Store it so
+    # downstream automation can route the DM to the right product flow.
+    caption = fetch_shared_post_caption(message, attachment.external_url)
+    message.content_attributes[:shared_post_caption] = caption if caption.present?
     message.save!
+  end
+
+  # Best-effort: nil on any failure (blank id/token, Graph hiccup) so shared-post
+  # ingestion never breaks. Reuses the inbox's IG/FB token like the comment flow.
+  def fetch_shared_post_caption(message, external_url)
+    asset_id = external_url.to_s[/asset_id=(\d+)/, 1]
+    return if asset_id.blank?
+
+    channel = message.inbox.channel
+    host  = channel.is_a?(Channel::FacebookPage) ? 'graph.facebook.com' : 'graph.instagram.com'
+    token = channel.is_a?(Channel::FacebookPage) ? channel.page_access_token : channel.access_token
+    return if token.blank?
+
+    response = HTTParty.get(
+      "https://#{host}/v22.0/#{asset_id}",
+      query: { fields: 'caption', access_token: token }
+    )
+    return unless response.success?
+
+    response.parsed_response['caption'].presence
+  rescue StandardError => e
+    Rails.logger.warn("Shared-post caption fetch failed for asset #{asset_id}: #{e.message}")
+    nil
   end
 
   # This is a placeholder method to be overridden by child classes

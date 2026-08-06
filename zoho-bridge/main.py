@@ -5127,6 +5127,19 @@ async def _template_suggest_locked(conv: dict, channel: str,
     if not message:
         return {"ignored": True, "reason": "no_customer_message"}
 
+    # Shared-post context: the customer shared a Durian post ("Shared post") and
+    # then asked about it ("Available??", "EMI?"). Chatwoot stored the post's
+    # caption on that message (content_attributes.shared_post_caption); prepend it
+    # so the gates (EMI / store-enquiry / drafter) know WHICH product it's about
+    # and route the question product-specifically instead of a generic greeting.
+    if surface != "comment":
+        post_caption = next(
+            ((m.get("content_attributes") or {}).get("shared_post_caption")
+             for m in reversed(all_messages)
+             if (m.get("content_attributes") or {}).get("shared_post_caption")), None)
+        if post_caption:
+            gate_message = f"[Customer shared this Durian post: {post_caption[:300]}]\n{gate_message}"
+
     # Guardrail (no AI): skip low-value PUBLIC comments — emoji-only, a bare
     # greeting ('good morning', 'jai shri krishna', 'ya fir'), or filler the
     # client does not engage with. No AI call, no card, no agent-needed. Real
