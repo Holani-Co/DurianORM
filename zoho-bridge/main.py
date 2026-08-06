@@ -3717,6 +3717,16 @@ async def handle_message_created(data: dict) -> dict:
     # handoff as before.
     bot_off = os.environ.get("DM_BOT_AUTO_REPLY_ENABLED", "false").lower() != "true"
     if is_social and bot_off:
+        # A bare shared post arrives as its OWN message: Chatwoot overwrites its
+        # text to a "Shared post" placeholder and stores the post caption on it.
+        # Don't auto-reply to the share itself — otherwise the drafter fires a
+        # generic "thanks for sharing", and the customer's actual question
+        # ("EMI?", "is this available?") that follows gets swallowed by the
+        # already-replied guard. Wait for that question; it's then answered WITH
+        # the post's caption context (see the shared-post caption injection).
+        if (data.get("content_attributes") or {}).get("image_type") == "ig_post":
+            print(f"[msg] conv {conv_id}: shared post received — awaiting the customer's question")
+            return {"ignored": True, "reason": "shared_post_awaiting_question"}
         # Order-lookup re-entry: a DM already awaiting order details routes the
         # customer's reply back into the order flow (card), NOT the general
         # auto-reply — otherwise the auto-reply would answer the detail message.
