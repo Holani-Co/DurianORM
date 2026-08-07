@@ -4634,12 +4634,62 @@ async def _managed_conversation_draft_lock(conv_id: int):
 # social_store_templates) rather than the generic drafter reply. Dark-launched
 # behind SOCIAL_STORE_TEMPLATES_ENABLED; anything it can't confidently resolve
 # falls through to the existing drafter, so nothing regresses.
+_SOCIAL_PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d ()-]{8,}\d)(?!\d)")
+
+
+def _social_phone(value: str) -> str:
+    """Return an Indian phone number in the international form social apps and
+    mobile operating systems are most likely to recognise as tap-to-call."""
+    digits = re.sub(r"\D", "", value)
+    if len(digits) == 12 and digits.startswith("91") and digits[2] in "6789":
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        return f"+91 {digits[1:]}"
+    if len(digits) == 10:
+        return f"+91 {digits[:5]} {digits[5:]}"
+    return value.strip()
+
+
+def _make_social_actions_clickable(text: str) -> str:
+    """Use link formats recognised by Instagram/Facebook's plain-text renderer.
+
+    Meta receives these replies as text, not HTML, so markdown links and custom
+    anchors do not survive delivery. Full HTTPS URLs and E.164 phone numbers do.
+    Explicit WhatsApp contacts use wa.me, which is an HTTPS link and therefore
+    remains tappable even when the client does not auto-link phone numbers.
+    """
+    # A bare www.* address is displayed as text by some Instagram clients.
+    text = re.sub(r"(?<![\w@/])www\.", "https://www.", text, flags=re.I)
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        # Map links are easiest to tap when the raw HTTPS URL has its own line.
+        line = re.sub(
+            r"(?i)((?:🗺️\s*)?(?:google\s*)?maps?\s*:)\s*(https?://\S+)",
+            r"\1\n\2",
+            line,
+        )
+
+        if re.search(r"\b(?:contact|call|phone|mobile|whatsapp)\b", line, re.I):
+            is_whatsapp = bool(re.search(r"\bwhatsapp\b", line, re.I))
+
+            def replace_phone(match: re.Match) -> str:
+                formatted = _social_phone(match.group(0))
+                digits = re.sub(r"\D", "", formatted)
+                if is_whatsapp and len(digits) == 12 and digits.startswith("91"):
+                    return f"https://wa.me/{digits}"
+                return formatted
+
+            line = _SOCIAL_PHONE_RE.sub(replace_phone, line)
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _tidy_social_reply(text: str) -> str:
-    """Light, URL-safe cleanup so a cramped canned response doesn't go out looking
-    bad on IG/FB. Conservative on purpose — never touches a '.' (would break links
-    like durian.in/stores) or a comma before a digit (1,000)."""
+    """Light cleanup for customer-facing Instagram/Facebook replies."""
     if not text:
         return text
+    text = _make_social_actions_clickable(text)
     # Space after a comma glued to a letter/emoji: "Contact Number 📞,City" → ", City".
     text = re.sub(r",(?=[^\s\d,])", ", ", text)
     # A sign-off should start its own paragraph, not hug the previous line.

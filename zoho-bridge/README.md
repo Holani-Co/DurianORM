@@ -170,6 +170,11 @@ zoho_bridge: cd ../zoho-bridge && source venv/bin/activate && uvicorn main:app -
 
 ## 4. How filtering works
 
+Customer-facing Instagram/Facebook replies are normalised before sending so
+bare `www.*` addresses become full HTTPS links, Google Maps URLs appear on a
+separate tappable line, contact numbers use international dialling format, and
+numbers explicitly labelled as WhatsApp contacts become `wa.me` links.
+
 **Team classification** runs ONLY when:
 - Event is `message_created`
 - Message is incoming (from customer, not agent/bot)
