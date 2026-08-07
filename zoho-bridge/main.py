@@ -10,6 +10,8 @@
 #                                                 SLA dueDate
 #   4. message_created (outgoing on reviews)    → post agent reply back to
 #                                                 Google Business Profile
+#   5. message_updated (marked store reply)      → record Meta send success /
+#                                                 surface delivery failure
 #
 # Each handler is self-contained; add more by writing a function and
 # wiring it in the dispatcher at the bottom.
@@ -22,6 +24,7 @@ import html
 import json
 import os
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -2637,10 +2640,10 @@ async def _retail_ask(conv_id: int, sender_email: str, ask: str,
                       pending_extra: dict, attempt: int, what: str,
                       need_phone: bool = False,
                       channel: str = "email") -> list[str]:
-    if attempt >= config.RETAIL_DETAILS_MAX_ASKS:
-        await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": None})
-        await _flag_agent_needed(conv_id, channel)
-        return [f"🛍️ Retail: {what} still missing after {attempt} ask(s) — left to the team."]
+    # Keep the retail gate open until the customer supplies enough information.
+    # Customers commonly split their city, pincode, showroom choice, and phone
+    # across several messages (sometimes hours or days apart); a retry cap turns
+    # those normal partial replies into a false human handoff.
     # No phone anywhere in the thread yet → ask for it too (its reply is captured
     # into the deal's Mobile field at Create Deal, from the thread).
     if need_phone:
@@ -2745,6 +2748,32 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
         # Re-entry: the customer is picking a showroom from the listed options.
         city_data = retail.CITIES.get(city_key) or {}
         rooms = retail.showrooms(city_data)
+
+        # A pincode is a more precise showroom choice than a list number or
+        # locality name. Resolve it before the LLM picker, then translate the
+        # pincode sheet's canonical store tag to the retail directory's CRM
+        # owner. Trust the pincode's resolved city even when it differs from the
+        # city supplied earlier by the customer.
+        pin = pincode_resolver.extract_pincode(text)
+        if pin:
+            pin_store = social_store_templates.resolve_store_reply(
+                "furniture", pincode=pin)
+            if pin_store:
+                pin_city = retail.lookup_city(pin_store.get("city") or "")
+                if pin_city:
+                    resolved_city_key, resolved_city_data = pin_city
+                    store_hint = " ".join(
+                        x for x in (pin_store.get("location"), pin_store.get("store"))
+                        if x)
+                    chosen = retail.match_showroom(resolved_city_data, store_hint)
+                    if chosen:
+                        print(f"[retail-gate] conv {conv_id}: pincode {pin} → "
+                              f"{chosen.get('location')} ({pin_store.get('how')})")
+                        return await _retail_capture_owner(
+                            conv_id, sender_email, name,
+                            resolved_city_key, resolved_city_data, chosen,
+                            need_phone=need_phone, channel=channel)
+
         gate = await _retail_gate_llm(name, text, stage="showroom",
                                       showroom_list=retail.list_showrooms_text(city_data))
         idx = gate.get("choice") or 0
@@ -4595,18 +4624,82 @@ async def _conversation_draft_lock(conv_id: int) -> asyncio.Lock:
         return lock
 
 
+@asynccontextmanager
+async def _managed_conversation_draft_lock(conv_id: int):
+    """Acquire the shared conversation lock and remove its registry entry once
+    all current users have finished."""
+    lock = await _conversation_draft_lock(conv_id)
+    try:
+        async with lock:
+            yield
+    finally:
+        async with _conv_draft_locks_guard:
+            if not lock.locked() and _conv_draft_locks.get(conv_id) is lock:
+                del _conv_draft_locks[conv_id]
+
+
 # ── Social store-address enquiry ("do you have a store near me?") ──────────
 # On IG/FB DMs, when a customer asks where a Durian showroom is near a city or
 # pincode, send THAT nearest store's address template (pincode_resolver +
 # social_store_templates) rather than the generic drafter reply. Dark-launched
 # behind SOCIAL_STORE_TEMPLATES_ENABLED; anything it can't confidently resolve
 # falls through to the existing drafter, so nothing regresses.
+_SOCIAL_PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d ()-]{8,}\d)(?!\d)")
+
+
+def _social_phone(value: str) -> str:
+    """Return an Indian phone number in the international form social apps and
+    mobile operating systems are most likely to recognise as tap-to-call."""
+    digits = re.sub(r"\D", "", value)
+    if len(digits) == 12 and digits.startswith("91") and digits[2] in "6789":
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        return f"+91 {digits[1:]}"
+    if len(digits) == 10:
+        return f"+91 {digits[:5]} {digits[5:]}"
+    return value.strip()
+
+
+def _make_social_actions_clickable(text: str) -> str:
+    """Use link formats recognised by Instagram/Facebook's plain-text renderer.
+
+    Meta receives these replies as text, not HTML, so markdown links and custom
+    anchors do not survive delivery. Full HTTPS URLs and E.164 phone numbers do.
+    Explicit WhatsApp contacts use wa.me, which is an HTTPS link and therefore
+    remains tappable even when the client does not auto-link phone numbers.
+    """
+    # A bare www.* address is displayed as text by some Instagram clients.
+    text = re.sub(r"(?<![\w@/])www\.", "https://www.", text, flags=re.I)
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        # Map links are easiest to tap when the raw HTTPS URL has its own line.
+        line = re.sub(
+            r"(?i)((?:🗺️\s*)?(?:google\s*)?maps?\s*:)\s*(https?://\S+)",
+            r"\1\n\2",
+            line,
+        )
+
+        if re.search(r"\b(?:contact|call|phone|mobile|whatsapp)\b", line, re.I):
+            is_whatsapp = bool(re.search(r"\bwhatsapp\b", line, re.I))
+
+            def replace_phone(match: re.Match) -> str:
+                formatted = _social_phone(match.group(0))
+                digits = re.sub(r"\D", "", formatted)
+                if is_whatsapp and len(digits) == 12 and digits.startswith("91"):
+                    return f"https://wa.me/{digits}"
+                return formatted
+
+            line = _SOCIAL_PHONE_RE.sub(replace_phone, line)
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _tidy_social_reply(text: str) -> str:
-    """Light, URL-safe cleanup so a cramped canned response doesn't go out looking
-    bad on IG/FB. Conservative on purpose — never touches a '.' (would break links
-    like durian.in/stores) or a comma before a digit (1,000)."""
+    """Light cleanup for customer-facing Instagram/Facebook replies."""
     if not text:
         return text
+    text = _make_social_actions_clickable(text)
     # Space after a comma glued to a letter/emoji: "Contact Number 📞,City" → ", City".
     text = re.sub(r",(?=[^\s\d,])", ", ", text)
     # A sign-off should start its own paragraph, not hug the previous line.
@@ -4627,6 +4720,10 @@ _STORE_HINT = re.compile(
 _AVAIL_HINT = re.compile(
     r"\b(available|availab(?:le|ility)|in\s*stock|out\s*of\s*stock|stock|"
     r"do you have|got any|any\s+left|can i get|kya milega|milega)\b", re.I)
+
+_STORE_DELIVERY_SOURCE = "durian_social_store_reply"
+_STORE_DELIVERY_FAILED_LABEL = "store-enquiry-delivery-failed"
+_STORE_DELIVERY_RECEIPT_ATTR = "last_social_store_delivery"
 
 
 async def _social_store_gate_llm(customer_name: str, text: str) -> dict:
@@ -5124,17 +5221,31 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
         if not reply:
             return None                  # couldn't resolve → let the drafter answer
         try:
-            await chatwoot.send_outgoing_message(
-                conv_id, social_store_templates.plain(reply["text"]))
-            await _label_conversation(conv_id, "store-enquiry")
-            await chatwoot.post_private_note(
-                conv_id, f"\U0001F3EC Store-address enquiry — auto-sent "
-                         f"{reply['store']} ({reply['how']}).")
+            sent = await chatwoot.send_outgoing_message(
+                conv_id, social_store_templates.plain(reply["text"]),
+                content_attributes={
+                    "source": _STORE_DELIVERY_SOURCE,
+                    "channel": channel,
+                    "store": reply["store"],
+                    "how": reply["how"],
+                })
         except Exception as e:
-            print(f"[social-store] send failed for conv {conv_id}: {e}")
-            return None
-        print(f"[social-store] conv {conv_id}: auto-sent {reply['store']!r} ({reply['how']})")
-        return {"handled": "social_store_reply", "store": reply["store"], "how": reply["how"]}
+            await _flag_agent_needed(conv_id, channel)
+            try:
+                await chatwoot.post_private_note(
+                    conv_id, f"⚠️ Store-address reply could not be queued for "
+                             f"{reply['store']}: {e}")
+            except Exception:
+                pass
+            print(f"[social-store] queue failed for conv {conv_id}: {e}")
+            return {"handled": "social_store_queue_failed", "error": str(e)}
+        # The Chatwoot API only creates the local outgoing row; its background
+        # job delivers to Meta afterward. message_updated finalizes the label and
+        # private note once a Meta source_id or a failed status arrives.
+        print(f"[social-store] conv {conv_id}: queued {reply['store']!r} "
+              f"({reply['how']}, message {sent.get('id')})")
+        return {"handled": "social_store_reply_queued", "store": reply["store"],
+                "how": reply["how"], "message_id": sent.get("id")}
     return None
 
 
@@ -5489,10 +5600,89 @@ async def handle_review_reply(data: dict) -> dict:
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────
+async def handle_message_updated(data: dict) -> dict:
+    """Finalize a social store reply after Chatwoot's background Meta send.
+
+    Creating the outgoing Chatwoot row is not proof of delivery. The marker on
+    the message survives that async boundary; Chatwoot includes status,
+    external_error, and source_id in this webhook after the delivery job runs.
+    """
+    attrs = data.get("content_attributes") or {}
+    if attrs.get("source") != _STORE_DELIVERY_SOURCE:
+        return {"ignored": True, "reason": "not_social_store_delivery"}
+
+    conv = data.get("conversation") or {}
+    conv_id = conv.get("id")
+    message_id = data.get("id")
+    if not conv_id or not message_id:
+        return {"ignored": True, "reason": "missing_delivery_ids"}
+
+    status = str(data.get("status") or "").lower()
+    if status == "failed":
+        outcome = "failed"
+    elif data.get("source_id"):
+        outcome = "sent"
+    else:
+        return {"ignored": True, "reason": "delivery_still_pending"}
+
+    async with _managed_conversation_draft_lock(int(conv_id)):
+        try:
+            current = await chatwoot.get_conversation(int(conv_id))
+        except Exception:
+            current = conv
+        custom = current.get("custom_attributes") or {}
+        previous = custom.get(_STORE_DELIVERY_RECEIPT_ATTR) or {}
+        if (str(previous.get("message_id") or "") == str(message_id)
+                and previous.get("status") == outcome):
+            return {"ignored": True, "reason": "delivery_already_recorded"}
+
+        store = attrs.get("store") or "the selected showroom"
+        how = attrs.get("how") or "store lookup"
+        channel = attrs.get("channel") or "instagram"
+
+        if outcome == "failed":
+            error = str(data.get("external_error") or "Instagram delivery failed")
+            await _label_conversation(int(conv_id), _STORE_DELIVERY_FAILED_LABEL)
+            await _flag_agent_needed(int(conv_id), channel)
+            await chatwoot.post_private_note(
+                int(conv_id),
+                f"⚠️ **Store-address reply failed to deliver — {store}**\n\n"
+                f"{error[:500]}\n\nPlease retry the message or contact the customer manually.")
+            print(f"[social-store] conv {conv_id}: delivery failed for message "
+                  f"{message_id}: {error}")
+        else:
+            try:
+                await chatwoot.remove_label(int(conv_id), _STORE_DELIVERY_FAILED_LABEL)
+            except Exception:
+                pass
+            if (str(previous.get("message_id") or "") == str(message_id)
+                    and previous.get("status") == "failed"):
+                await _clear_agent_needed(int(conv_id), current)
+            await _label_conversation(int(conv_id), "store-enquiry")
+            await chatwoot.post_private_note(
+                int(conv_id),
+                f"\U0001F3EC Store-address enquiry — sent {store} ({how}).")
+            print(f"[social-store] conv {conv_id}: sent {store!r} "
+                  f"({how}, message {message_id})")
+
+        await chatwoot.merge_custom_attributes(int(conv_id), {
+            _STORE_DELIVERY_RECEIPT_ATTR: {
+                "message_id": message_id,
+                "status": outcome,
+                "store": store,
+                "channel": channel,
+                "updated_at": _now_iso(),
+            }
+        })
+        return {"handled": f"social_store_delivery_{outcome}",
+                "message_id": message_id, "store": store}
+
+
 HANDLERS = {
     "conversation_status_changed": handle_status_changed,
     "conversation_updated":        handle_conversation_updated,
     "message_created":             handle_message_created,
+    "message_updated":             handle_message_updated,
 }
 
 

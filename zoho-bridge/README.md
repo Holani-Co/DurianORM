@@ -115,8 +115,9 @@ Chatwoot conversation. Skip if not needed — Zoho silently ignores the `cf` blo
 
 1. Chatwoot → **Settings → Integrations → Webhooks → + New**.
 2. **URL:** `http://localhost:8420/chatwoot/webhook`
-3. **Subscribed Events:** check BOTH:
+3. **Subscribed Events:** check all three:
    - ✅ **Message Created** (for team classification)
+   - ✅ **Message Updated** (for social-message delivery confirmation/failure)
    - ✅ **Conversation Status Changed** (for Zoho ticket on handoff)
 4. Save.
 
@@ -168,6 +169,11 @@ zoho_bridge: cd ../zoho-bridge && source venv/bin/activate && uvicorn main:app -
 ---
 
 ## 4. How filtering works
+
+Customer-facing Instagram/Facebook replies are normalised before sending so
+bare `www.*` addresses become full HTTPS links, Google Maps URLs appear on a
+separate tappable line, contact numbers use international dialling format, and
+numbers explicitly labelled as WhatsApp contacts become `wa.me` links.
 
 **Team classification** runs ONLY when:
 - Event is `message_created`

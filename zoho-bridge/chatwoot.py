@@ -329,7 +329,8 @@ async def send_outgoing_message(conversation_id: int,
                                 content: str,
                                 to_emails:  Optional[str] = None,
                                 cc_emails:  Optional[str] = None,
-                                bcc_emails: Optional[str] = None) -> dict:
+                                bcc_emails: Optional[str] = None,
+                                content_attributes: Optional[dict] = None) -> dict:
     """Send a real customer-facing outgoing message on the conversation.
     Uses Chatwoot's existing outbound email channel — no new SMTP creds
     needed.
@@ -353,6 +354,8 @@ async def send_outgoing_message(conversation_id: int,
     if to_emails:  payload["to_emails"]  = to_emails
     if cc_emails:  payload["cc_emails"]  = cc_emails
     if bcc_emails: payload["bcc_emails"] = bcc_emails
+    if content_attributes:
+        payload["content_attributes"] = content_attributes
 
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
@@ -466,5 +469,3 @@ async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
                 f"Chatwoot post custom_attributes failed [{r.status_code}]: {r.text}"
             )
         return r.json()
-
-
