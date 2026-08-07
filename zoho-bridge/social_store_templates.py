@@ -63,6 +63,20 @@ def _best(name: str, choices, cutoff=0.8):
     return m[0] if m else None
 
 
+def _direct(name: str, choices):
+    """Exact/substring match only. Used before any cross-city fuzzy search so
+    an exact locality such as Goregaon cannot lose to a similar earlier entry
+    such as Gurgaon."""
+    if not name or not choices:
+        return None
+    if name in choices:
+        return name
+    for choice in choices:
+        if name in choice or choice in name:
+            return choice
+    return None
+
+
 def _city_template(vkey: str, city_key: str) -> str | None:
     c = ((_load().get(vkey) or {}).get("cities") or {}).get(city_key) or {}
     return c.get("template")
@@ -95,21 +109,53 @@ def _template_for_tag(vkey: str, tag: str) -> dict | None:
     """Furniture pincode tags name a store ('bhubaneshwar - samantarapur',
     'bangalore-marathalli', 'goregaon'). Split into city/locality and resolve;
     a bare locality (no city) is matched against every city's locations."""
+    cities = (_load().get(vkey) or {}).get("cities") or {}
     parts = [p for p in re.split(r"\s*-\s*|\s+-\s+", tag) if p.strip()]
     if len(parts) >= 2:
-        got = template_for(vkey, city=parts[0], location=" ".join(parts[1:]))
-        if got:
-            return got
-    # single token, or city didn't match → try it as a city, then as a locality.
-    got = template_for(vkey, city=tag)
-    if got:
-        return got
-    cities = (_load().get(vkey) or {}).get("cities") or {}
-    for ckey, cval in cities.items():
-        locs = cval.get("locations") or {}
-        lkey = _best(_norm(tag), locs.keys())
+        city_name = _norm(parts[0])
+        locality_name = _norm(" ".join(parts[1:]))
+        if locality_name == "sn":
+            locality_name = "shivaji nagar"
+        ckey = _best(city_name, cities.keys())
+        if ckey:
+            locs = cities[ckey].get("locations") or {}
+            lkey = _best(locality_name, locs.keys())
+            if lkey:
+                return {"text": locs[lkey], "city": ckey,
+                        "location": lkey, "scope": "location"}
+
+    # For a bare tag, search ALL cities for an exact locality before allowing
+    # any fuzzy match. The old per-city fuzzy loop saw Delhi's "gurgaon" before
+    # Mumbai's exact "goregaon" and returned the wrong showroom.
+    name = _norm(tag)
+    ckey = _direct(name, cities.keys())
+    if ckey:
+        return template_for(vkey, city=ckey)
+    for city_key, city_value in cities.items():
+        locs = city_value.get("locations") or {}
+        lkey = _direct(name, locs.keys())
         if lkey:
-            return {"text": locs[lkey], "city": ckey, "location": lkey, "scope": "location"}
+            return {"text": locs[lkey], "city": city_key,
+                    "location": lkey, "scope": "location"}
+
+    # No exact city/locality exists: fuzzy-match globally rather than accepting
+    # the first vaguely similar locality from the first city in the YAML.
+    ckey = _best(name, cities.keys())
+    if ckey:
+        return template_for(vkey, city=ckey)
+    candidates = [(city_key, locality)
+                  for city_key, city_value in cities.items()
+                  for locality in (city_value.get("locations") or {})]
+    fuzzy = difflib.get_close_matches(
+        name, [locality for _, locality in candidates], n=1, cutoff=0.8)
+    if not fuzzy:
+        return None
+    matched = fuzzy[0]
+    for city_key, locality in candidates:
+        if locality == matched:
+            text = cities[city_key]["locations"][locality]
+            return {"text": text, "city": city_key,
+                    "location": locality, "scope": "location"}
     return None
 
 

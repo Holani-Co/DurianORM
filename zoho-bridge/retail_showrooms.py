@@ -36,6 +36,7 @@ _ALIASES = {
     "gurgaon": "delhi", "gurugram": "delhi", "noida": "delhi",
     "faridabad": "delhi", "ncr": "delhi", "newdelhi": "delhi", "gzb": "delhi",
     "ghaziabad": "delhi",
+    "chandigarh": "panchkula",
     "bombay": "mumbai", "navimumbai": "mumbai", "thane": "mumbai",
     "calcutta": "kolkata",
     "vizag": "visakhapatnam", "vishakhapatnam": "visakhapatnam",
@@ -86,6 +87,11 @@ def match_showroom(city_data: dict, reply: str):
     if len(rooms) == 1:
         return rooms[0]
     text = (reply or "").lower().strip()
+    # The pincode sheet abbreviates Shivaji Nagar as "Bangalore-SN". Expand
+    # that canonical tag before locality matching; ordinary customer replies
+    # are unaffected.
+    if _slug(text) == "bangaloresn":
+        text += " shivaji nagar"
     # 1) explicit number ("2", "option 2", "the 3rd one")
     m = re.search(r"\b([1-9][0-9]?)\b", text)
     if m:

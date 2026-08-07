@@ -431,7 +431,6 @@ DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "2"))
 # showroom owner for the agent's Create Deal. City not in the directory ->
 # customer support.
 RETAIL_ROUTING_ENABLED = _bool("RETAIL_ROUTING_ENABLED", "false")
-RETAIL_DETAILS_MAX_ASKS = int(os.environ.get("RETAIL_DETAILS_MAX_ASKS", "2"))
 RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@durian.in")
 
 # Social store-address enquiries: on IG/FB DMs, a "do you have a store near
