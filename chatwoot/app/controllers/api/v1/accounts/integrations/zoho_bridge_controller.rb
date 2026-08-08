@@ -95,6 +95,15 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     proxy_to_bridge('/chatwoot/crm/create-deal', 30)
   end
 
+  # POST .../integrations/zoho_bridge/contact_deals
+  #   body: { conversation_id }
+  # Read-only: existing CRM deals already linked to this conversation's contact,
+  # so the panel can surface them even when the customer never entered the deal
+  # flow. Creates nothing.
+  def contact_deals
+    proxy_to_bridge('/chatwoot/crm/contact-deals', 20)
+  end
+
   # POST .../integrations/zoho_bridge/draft_ticket
   #   body: { conversation_id }
   # AI autofill for the manual Create-ticket dialog — returns

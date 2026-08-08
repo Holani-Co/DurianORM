@@ -6707,6 +6707,54 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
     return "\n".join(parts)
 
 
+@app.post("/chatwoot/crm/contact-deals")
+async def chatwoot_crm_contact_deals(request: Request):
+    """Existing CRM deals for THIS conversation's contact — READ-ONLY, creates
+    nothing. Lets the CRM panel surface prior deals even when the customer never
+    entered the deal flow (so the agent immediately sees 'this person already has
+    a deal in CRM')."""
+    if not config.ZOHO_CRM_ENABLED:
+        return {"deals": []}
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    if not conv_id:
+        raise HTTPException(400, "missing conversation_id")
+    try:
+        conv = await chatwoot.get_conversation(int(conv_id))
+    except Exception as e:
+        raise HTTPException(500, f"could not read conversation: {e}")
+    custom = conv.get("custom_attributes") or {}
+
+    # Contact id: prefer one already linked on this conversation; else find the
+    # CRM contact by email → phone (find-only — never creates).
+    contact_id = str(custom.get("crm_contact_id") or "")
+    if not contact_id:
+        _name, email = _conv_sender(conv)
+        phone = (str(custom.get("retail_customer_phone") or "")
+                 or str((custom.get("deal_customer_details") or {}).get("phone") or "")
+                 or str(((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""))
+        found = None
+        if email and "@noreply.local" not in email:
+            found = await zoho_crm.search_contact_by_email(email)
+        if not found and phone:
+            found = await zoho_crm.search_contact_by_phone(phone)
+        contact_id = str((found or {}).get("id") or "")
+    if not contact_id:
+        return {"deals": []}
+
+    try:
+        deals = await zoho_crm.get_contact_deals(contact_id)
+    except Exception as e:
+        print(f"[crm] contact-deals lookup failed for conv {conv_id}: {e}")
+        return {"deals": []}
+    return {"contact_id": contact_id, "deals": [{
+        "id":    str(d.get("id") or ""),
+        "name":  d.get("Deal_Name") or "(unnamed deal)",
+        "stage": d.get("Stage") or "",
+        "url":   zoho_crm.deal_url(str(d.get("id") or "")),
+    } for d in deals]}
+
+
 @app.post("/chatwoot/crm/create-deal")
 async def chatwoot_crm_create_deal(request: Request):
     """Create a CRM Deal linked to the CRM Contact for this conversation.
