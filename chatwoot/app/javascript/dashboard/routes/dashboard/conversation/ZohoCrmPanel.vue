@@ -13,7 +13,7 @@
 // The button is category-gated (the agent doesn't see "Create Deal" on a
 // legal complaint) and disables once the Deal exists so a re-click can't
 // create a duplicate.
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
@@ -180,6 +180,25 @@ const createDeal = async (sector = '', ignoreExisting = false) => {
 };
 
 const requestCreateDeal = () => confirmDealDialog.value?.open();
+
+// Prior deals already linked to this contact in CRM — fetched READ-ONLY on load
+// so the agent sees them even when this conversation never entered the deal flow
+// (the whole point of ask #1). Best-effort: never blocks the panel.
+const priorDeals = ref([]);
+const loadPriorDeals = async () => {
+  try {
+    const { data } = await axios.post(
+      `/api/v1/accounts/${accountId.value}/integrations/zoho_bridge/contact_deals`,
+      { conversation_id: Number(props.conversationId) }
+    );
+    priorDeals.value = (data?.deals || []).filter(
+      d => d.id && d.id !== dealId.value
+    );
+  } catch {
+    priorDeals.value = [];
+  }
+};
+onMounted(loadPriorDeals);
 </script>
 
 <template>
@@ -218,6 +237,42 @@ const requestCreateDeal = () => confirmDealDialog.value?.open();
       </a>
     </div>
 
+    <!-- Prior deals for this contact — surfaced on load, regardless of category
+         or whether this conversation ran the deal flow. Lets the agent instantly
+         see the customer already has a deal in CRM when they just text in. -->
+    <div
+      v-if="priorDeals.length"
+      class="flex flex-col gap-1.5 p-2 border rounded-md border-n-weak bg-n-alpha-1"
+    >
+      <span
+        class="flex items-center gap-1.5 text-xs font-medium text-n-slate-12"
+      >
+        <span class="i-lucide-history text-n-slate-10" />
+        This contact already has {{ priorDeals.length }} deal{{
+          priorDeals.length > 1 ? 's' : ''
+        }}
+        in CRM:
+      </span>
+      <ul class="flex flex-col gap-1">
+        <li
+          v-for="d in priorDeals"
+          :key="d.id"
+          class="flex items-center gap-1.5 text-xs text-n-slate-11"
+        >
+          <span class="i-lucide-target text-n-slate-10" />
+          <a
+            :href="d.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-n-brand hover:underline"
+          >
+            {{ d.name }}
+          </a>
+          <span v-if="d.stage" class="text-n-slate-10">· {{ d.stage }}</span>
+        </li>
+      </ul>
+    </div>
+
     <!-- Optional phone — helps match this customer to an existing CRM contact
          by number before a Deal (and its Contact) is created. Hidden while the
          deal-details gate is still collecting the customer's phone + city. -->
@@ -239,7 +294,12 @@ const requestCreateDeal = () => confirmDealDialog.value?.open();
         :disabled="isCreatingDeal || !!dealId || awaitingDealDetails"
         @click="requestCreateDeal"
       >
-        <span class="i-lucide-plus align-middle" />
+        <span
+          :class="
+            isCreatingDeal ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-plus'
+          "
+          class="align-middle"
+        />
         {{
           dealId
             ? 'Deal already created'

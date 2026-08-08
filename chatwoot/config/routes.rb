@@ -367,6 +367,7 @@ Rails.application.routes.draw do
                 post :regenerate_review_reply
                 post :resolve_category_decision
                 post :create_crm_deal
+                post :contact_deals
                 post :escalate_review
                 post :draft_ticket
                 post :create_ticket
