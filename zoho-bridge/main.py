@@ -2280,7 +2280,20 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
             "pending_order_lookup": {"attempts": attempt + 1, "asked_at": _now_iso(),
                                      "category": "existing_order_enquiry"}})
         if _auto:
-            await chatwoot.send_outgoing_message(conv_id, draft)
+            await chatwoot.send_outgoing_message(
+                conv_id, draft, content_attributes={"ai_trace": _gate_trace([
+                    {"type": "policy", "source": "system", "visibility": "internal",
+                     "label": "Flow", "detail": f"Order-status enquiry on {channel}"},
+                    {"type": "policy", "source": "system", "visibility": "internal",
+                     "label": "Safety gate",
+                     "detail": "Order details are revealed only with a matching order "
+                               "number AND phone — nothing is shared before that."},
+                    {"type": "decision", "source": "rule", "visibility": "internal",
+                     "label": "Verification failed" if verify_failed else "Missing details",
+                     "detail": (f"{reason} — asked the customer to re-check both."
+                                if verify_failed else
+                                f"{reason} — requested the still-missing detail(s).")}],
+                    detail="Auto-sent the request for order details.")})
             await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** request for order details. {ctx}")
             await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
             print(f"[order-lookup] conv {conv_id}: auto-sent details ask ({reason})")
@@ -2626,19 +2639,41 @@ async def _retail_gate_llm(customer_name: str, text: str, *, stage: str,
         return {"city": "", "choice": 0, "ask_reply": ""}
 
 
+def _gate_trace(steps: list, *, sent: bool = True, detail: str = "") -> list:
+    """Build an AiTrace.vue chain-of-thought for a GATE auto-reply (EMI, retail,
+    …), so the reasoning shows on the reply exactly like the drafter's does.
+    `steps` are the gate's decision steps ({type, source, visibility, label,
+    detail[, rule, input]}); this appends the final outcome + renumbers.
+    Attach the result as content_attributes.ai_trace on the sent message."""
+    return review_reply.add_outcome_step(
+        list(steps or []), sent=sent,
+        detail=detail or "Sent automatically by the assistant.")
+
+
 async def _retail_send(conv_id: int, channel: str, sender_email: str,
-                       text: str) -> bool:
+                       text: str, *, trace_steps: list = None) -> bool:
     """Send a retail-gate message on whichever channel the conversation is on.
     Email needs an explicit recipient (the inbox fans out to whoever the header
     says); Instagram / Facebook / WhatsApp reply in-thread, so the recipient is
-    implicit. Returns whether the message actually went out."""
+    implicit. Returns whether the message actually went out.
+
+    Carries a chain-of-thought (content_attributes.ai_trace) so every
+    pincode/showroom reply shows its reasoning; callers pass trace_steps for the
+    specific decision (asked for a city, matched a showroom, …)."""
+    ca = {"ai_trace": _gate_trace(
+        [{"type": "policy", "source": "system", "visibility": "internal",
+          "label": "Flow",
+          "detail": f"Retail purchase enquiry on {channel} — routing to the nearest showroom"}]
+        + list(trace_steps or []),
+        detail=f"Sent automatically on {channel} by the retail assistant.")}
     try:
         if channel == "email":
             if not sender_email:
                 return False
-            await chatwoot.send_outgoing_message(conv_id, text, to_emails=sender_email)
+            await chatwoot.send_outgoing_message(conv_id, text, to_emails=sender_email,
+                                                 content_attributes=ca)
         else:
-            await chatwoot.send_outgoing_message(conv_id, text)
+            await chatwoot.send_outgoing_message(conv_id, text, content_attributes=ca)
         return True
     except Exception as e:
         print(f"[retail-gate] send failed for conv {conv_id} ({channel}): {e}")
@@ -2663,7 +2698,11 @@ async def _retail_ask(conv_id: int, sender_email: str, ask: str,
     pending = {"attempts": attempt + 1, "asked_at": _now_iso(),
                "channel": channel, **pending_extra}
     await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": pending})
-    await _retail_send(conv_id, channel, sender_email, ask)
+    await _retail_send(conv_id, channel, sender_email, ask, trace_steps=[
+        {"type": "decision", "source": "model", "visibility": "internal",
+         "label": "Awaiting details",
+         "detail": f"Need {what} to route this enquiry — asked the customer"
+                   f"{' (and their phone)' if need_phone else ''}."}])
     await _label_conversation(conv_id, RETAIL_NEEDED_LABEL)
     return [f"🛍️ Retail: auto-asked customer for {what} (attempt {attempt + 1})."]
 
@@ -2697,7 +2736,12 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
         if need_phone:
             confirm += _RETAIL_PHONE_REQUEST
         confirm += "\n\nRegards,\nTeam Durian"
-        await _retail_send(conv_id, channel, sender_email, confirm)
+        await _retail_send(conv_id, channel, sender_email, confirm, trace_steps=[
+            {"type": "decision", "source": "rule", "visibility": "internal",
+             "label": "Showroom settled", "input": owner["location"],
+             "detail": f"Matched the nearest showroom → owner "
+                       f"{owner['owner_name'] or owner['crm_email']} (id {owner['owner_id']}). "
+                       "Captured for the agent's Create Deal."}])
     try:
         await chatwoot.post_private_note(
             conv_id,
@@ -4964,7 +5008,18 @@ async def _emi_send_resolved(conv_id: int, contact_name: str, product: dict | No
         except Exception:
             pass
         return None
-    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply))
+    _emi_label = ((product or {}).get("family") or "").title() or "the product"
+    emi_trace = _gate_trace([
+        {"type": "policy", "source": "system", "visibility": "internal",
+         "label": "Flow", "detail": "EMI enquiry on a social DM"},
+        {"type": "decision", "source": "rule", "visibility": "internal",
+         "label": "Product resolved", "rule": skuid, "input": _emi_label,
+         "detail": f"Priced at ₹{int(price):,}"},
+        {"type": "tool", "source": "tool", "visibility": "internal",
+         "label": "Snapmint EMI", "detail": f"{len(emi.get('plans') or [])} plan(s) fetched"}],
+        detail="Auto-sent the EMI plans.")
+    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply),
+                                         content_attributes={"ai_trace": emi_trace})
     await _label_conversation(conv_id, "emi-enquiry")
     try:
         await chatwoot.post_private_note(
@@ -4984,7 +5039,14 @@ async def _emi_ask_variant(conv_id: int, contact_name: str, channel: str,
                      f" — ₹{int(c['sale_price']):,}" for c in cands)
     await chatwoot.send_outgoing_message(
         conv_id, f"Hi {contact_name}! We have a few options — which one did you "
-        f"mean?\n{opts}\n\nRegards,\nTeam Durian")
+        f"mean?\n{opts}\n\nRegards,\nTeam Durian",
+        content_attributes={"ai_trace": _gate_trace([
+            {"type": "policy", "source": "system", "visibility": "internal",
+             "label": "Flow", "detail": "EMI enquiry on a social DM"},
+            {"type": "decision", "source": "rule", "visibility": "internal",
+             "label": "Product ambiguous", "input": cands[0].get("family"),
+             "detail": f"{len(cands)} variants match — asked the customer which one."}],
+            detail="Asked which variant before quoting EMI.")})
     await _label_conversation(conv_id, "emi-enquiry")
     await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": {
         "stage": "variant", "channel": channel, "price_hint": price_hint or 0,
@@ -5001,7 +5063,14 @@ async def _emi_ask_product(conv_id: int, contact_name: str, channel: str,
     re-enters the EMI flow."""
     await chatwoot.send_outgoing_message(
         conv_id, f"Hi {contact_name}! Sure — could you tell us which product "
-        "(or its price) you'd like EMI options for?\n\nRegards,\nTeam Durian")
+        "(or its price) you'd like EMI options for?\n\nRegards,\nTeam Durian",
+        content_attributes={"ai_trace": _gate_trace([
+            {"type": "policy", "source": "system", "visibility": "internal",
+             "label": "Flow", "detail": "EMI enquiry on a social DM"},
+            {"type": "decision", "source": "model", "visibility": "internal",
+             "label": "Product not named",
+             "detail": "Couldn't identify a product — asked the customer which one."}],
+            detail="Asked which product before quoting EMI.")})
     await _label_conversation(conv_id, "emi-enquiry")
     await chatwoot.merge_custom_attributes(conv_id, {"pending_emi": {
         "stage": "product", "channel": channel, "price_hint": price_hint or 0,
@@ -5172,7 +5241,16 @@ async def _maybe_comment_product_reply(conv_id: int, channel: str, comment: str,
     reply = (f"Hi {contact_name}! The {label} is a lovely choice 😍 Please DM us and "
              "our team will help you with the details and connect you to your nearest "
              "store.\n\n💬 Drop us a DM anytime.\n\n— Team Durian")
-    await chatwoot.send_outgoing_message(conv_id, _tidy_social_reply(reply))
+    await chatwoot.send_outgoing_message(
+        conv_id, _tidy_social_reply(reply),
+        content_attributes={"ai_trace": _gate_trace([
+            {"type": "policy", "source": "system", "visibility": "internal",
+             "label": "Flow", "detail": "Comment on a product post"},
+            {"type": "decision", "source": "model", "visibility": "internal",
+             "label": "Product from caption", "input": label,
+             "detail": "Identified the product from the post caption — replied publicly and "
+                       "moved the specifics to DM (public-safe: no price/stock)."}],
+            detail="Auto-replied on the comment, invited to DM.")})
     await _label_conversation(conv_id, "comment-product-reply")
     try:
         await chatwoot.post_private_note(
@@ -5256,7 +5334,14 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                 }
             })
             await chatwoot.send_outgoing_message(
-                conv_id, _invalid_pincode_ask(contact_name, raw_pin))
+                conv_id, _invalid_pincode_ask(contact_name, raw_pin),
+                content_attributes={"ai_trace": _gate_trace([
+                    {"type": "policy", "source": "system", "visibility": "internal",
+                     "label": "Flow", "detail": f"Store-address enquiry on {channel}"},
+                    {"type": "decision", "source": "rule", "visibility": "internal",
+                     "label": "Pincode not served", "input": raw_pin,
+                     "detail": "No Durian showroom maps to this pincode — asked for a valid one."}],
+                    detail="Asked for a serviceable pincode.")})
             await _label_conversation(conv_id, RETAIL_NEEDED_LABEL)
             print(f"[social-store] conv {conv_id}: rejected invalid pincode {raw_pin}")
             return {"handled": "invalid_store_pincode", "pincode": raw_pin}
@@ -5277,6 +5362,13 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                     "channel": channel,
                     "store": reply["store"],
                     "how": reply["how"],
+                    "ai_trace": _gate_trace([
+                        {"type": "policy", "source": "system", "visibility": "internal",
+                         "label": "Flow", "detail": f"Store-address enquiry on {channel}"},
+                        {"type": "decision", "source": "rule", "visibility": "internal",
+                         "label": "Nearest store", "input": reply["store"],
+                         "detail": f"Resolved by {reply['how']} → sent that showroom's address."}],
+                        detail=f"Auto-sent the {reply['store']} store details."),
                 })
             if pending_store_pin:
                 await chatwoot.merge_custom_attributes(
