@@ -16,7 +16,6 @@
 import { computed, ref, onMounted } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
-import Dialog from 'dashboard/components-next/dialog/Dialog.vue';
 
 const props = defineProps({
   conversationId: {
@@ -77,7 +76,6 @@ const awaitingDealDetails = computed(
 );
 
 const isCreatingDeal = ref(false);
-const confirmDealDialog = ref(null);
 // When the bridge can't confidently classify the buyer type (government vs
 // private), it returns 409 and the agent decides here — matching the flow's
 // "Govt / CPWD?" decision diamond.
@@ -175,11 +173,12 @@ const createDeal = async (sector = '', ignoreExisting = false) => {
     }
   } finally {
     isCreatingDeal.value = false;
-    confirmDealDialog.value?.close();
   }
 };
 
-const requestCreateDeal = () => confirmDealDialog.value?.open();
+// One-click create — no confirmation modal (the duplicate-deal warning still
+// guards against accidental dupes, and the button disables once a deal exists).
+const requestCreateDeal = () => createDeal();
 
 // Prior deals already linked to this contact in CRM — fetched READ-ONLY on load
 // so the agent sees them even when this conversation never entered the deal flow
@@ -406,15 +405,5 @@ onMounted(loadPriorDeals);
         </button>
       </div>
     </div>
-
-    <!-- Confirmation dialog — mirrors the AI-review-suggestion Send flow. -->
-    <Dialog
-      ref="confirmDealDialog"
-      type="alert"
-      title="Create Deal in Zoho CRM?"
-      description="This will create a new Deal linked to the sender's Contact in Zoho CRM. Continue?"
-      confirm-button-label="Create Deal"
-      @confirm="createDeal"
-    />
   </div>
 </template>
