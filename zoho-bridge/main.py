@@ -2556,6 +2556,15 @@ Regards,
 Team Durian"""
 
 
+def _invalid_pincode_ask(customer_name: str, pincode: str) -> str:
+    shown = str(pincode or "").strip()
+    detail = f" '{shown}'" if shown else ""
+    return (f"Dear {customer_name},\n\nThe pincode{detail} doesn't appear to be "
+            "valid. Please check and send the correct 6-digit pincode, or tell "
+            "us your city/locality so we can find the nearest Durian showroom."
+            "\n\nRegards,\nTeam Durian")
+
+
 def _retail_showroom_ask(name: str, city_data: dict) -> str:
     return (f"Dear {name},\n\nThank you for enquiring about our products! "
             f"We have the following Durian showrooms in "
@@ -2743,6 +2752,21 @@ async def _run_retail_gate(conv_id: int, sender_name: str, sender_email: str,
     if _found:
         await chatwoot.merge_custom_attributes(conv_id, {"retail_customer_phone": _found[0]})
     need_phone = not (phone_on_file or _found)
+
+    # A correction is not an additional sales question and must not consume the
+    # retail ask budget. Preserve the current stage so the customer's next reply
+    # resumes normally, without handing the conversation to an agent.
+    pin = pincode_resolver.extract_pincode(text)
+    if pin and not pincode_resolver.is_known_pincode(pin):
+        pending = {"attempts": attempt, "asked_at": _now_iso(),
+                   "channel": channel, "stage": "showroom" if city_key else "city"}
+        if city_key:
+            pending["city_key"] = city_key
+        await chatwoot.merge_custom_attributes(conv_id, {"pending_retail": pending})
+        await _retail_send(
+            conv_id, channel, sender_email, _invalid_pincode_ask(name, pin))
+        await _label_conversation(conv_id, RETAIL_NEEDED_LABEL)
+        return [f"🛍️ Retail: invalid pincode '{pin}' — asked customer to correct it."]
 
     if city_key:
         # Re-entry: the customer is picking a showroom from the listed options.
@@ -5173,11 +5197,18 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
             return {"handled": "social_deal_phone_captured"}
         return None
 
+    pending_store_pin = custom.get("pending_store_pincode") or {}
     pin = pincode_resolver.extract_pincode(message)
     if not (pin or _STORE_HINT.search(message or "") or _BUY_HINT.search(message or "")
-            or _AVAIL_HINT.search(message or "")):
+            or _AVAIL_HINT.search(message or "") or pending_store_pin):
         return None                      # cheap gate — skip the LLM for unrelated DMs
     g = await _social_store_gate_llm(contact_name, message)
+    if pending_store_pin:
+        # A pincode/city-only correction still belongs to the store enquiry that
+        # prompted it, even if the LLM cannot infer intent from that short reply.
+        g["is_store_enquiry"] = True
+        if not g.get("vertical"):
+            g["vertical"] = pending_store_pin.get("vertical") or "furniture"
 
     # Journey #2 — retail purchase intent. Set the deal category (this is what
     # shows the agent's Create Deal button on a social conversation and routes the
@@ -5205,10 +5236,28 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
 
     # Journey #1 — store-address enquiry → send the nearest store's template.
     if g.get("is_store_enquiry") and config.SOCIAL_STORE_TEMPLATES_ENABLED:
+        raw_pin = g.get("pincode") or pin
+        if raw_pin and not pincode_resolver.is_known_pincode(raw_pin):
+            await chatwoot.merge_custom_attributes(conv_id, {
+                "pending_store_pincode": {
+                    "vertical": g.get("vertical") or "furniture",
+                    "channel": channel,
+                    "asked_at": _now_iso(),
+                }
+            })
+            await chatwoot.send_outgoing_message(
+                conv_id, _invalid_pincode_ask(contact_name, raw_pin))
+            await _label_conversation(conv_id, RETAIL_NEEDED_LABEL)
+            print(f"[social-store] conv {conv_id}: rejected invalid pincode {raw_pin}")
+            return {"handled": "invalid_store_pincode", "pincode": raw_pin}
         reply = social_store_templates.resolve_store_reply(
-            g.get("vertical") or "furniture", pincode=g.get("pincode") or pin,
+            g.get("vertical") or "furniture", pincode=raw_pin,
             city=g.get("city"), location=g.get("location"))
         if not reply:
+            if pending_store_pin:
+                await chatwoot.send_outgoing_message(
+                    conv_id, _invalid_pincode_ask(contact_name, ""))
+                return {"handled": "store_location_still_needed"}
             return None                  # couldn't resolve → let the drafter answer
         try:
             sent = await chatwoot.send_outgoing_message(
@@ -5219,6 +5268,13 @@ async def _maybe_social_store_or_deal(conv_id: int, channel: str, message: str,
                     "store": reply["store"],
                     "how": reply["how"],
                 })
+            if pending_store_pin:
+                await chatwoot.merge_custom_attributes(
+                    conv_id, {"pending_store_pincode": None})
+                try:
+                    await chatwoot.remove_label(conv_id, RETAIL_NEEDED_LABEL)
+                except Exception:
+                    pass
         except Exception as e:
             await _flag_agent_needed(conv_id, channel)
             try:

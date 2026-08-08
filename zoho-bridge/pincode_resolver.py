@@ -5,8 +5,9 @@
 # Two modes, because the client's pincode sheet only tags FURNITURE showrooms:
 #
 #   furniture (default): the client's own per-pincode assignment.
-#     exact pincode tag  →  else nearest TAGGED pincode, inheriting its tag
-#     (keeps the client's territory rules in charge even for gaps).
+#     exact pincode tag  →  else, for a known/geocoded pincode, nearest TAGGED
+#     pincode, inheriting its tag (keeps the client's territory rules in charge
+#     even for gaps without accepting made-up pincodes).
 #
 #   doors / fhc: no client tagging exists, so nearest STORE by distance over the
 #     handful of doors/FHC showrooms (curated city coords).
@@ -26,24 +27,16 @@ _DATA = Path(__file__).parent / "data"
 _DOORS_FHC = {"doors", "fhc"}
 
 _geo: dict | None = None          # {pincode: [lat, lon]} — offline geocoder
-_prefix3: dict | None = None      # {3-digit postal region: (lat, lon)} — approx
 _pin_tag: dict | None = None      # {pincode: showroom_tag}
 _tagged_pts: list | None = None   # [(lat, lon, tag)] for tagged AND geocoded pins
 _nf_stores: list | None = None    # [{vertical, store, city, lat, lon}]
 
 
 def _load() -> None:
-    global _geo, _prefix3, _pin_tag, _tagged_pts, _nf_stores
+    global _geo, _pin_tag, _tagged_pts, _nf_stores
     if _geo is not None:
         return
     _geo = json.loads((_DATA / "pincode_geo.json").read_text())
-    # 3-digit postal-region centroids, so a pincode pgeocode doesn't know (a
-    # Mumbai 400062 etc.) still gets a good-enough location from its region.
-    acc: dict = {}
-    for p, (la, lo) in _geo.items():
-        s, n = acc.get(p[:3], (0.0, 0.0, 0)), None
-        acc[p[:3]] = (s[0] + la, s[1] + lo, s[2] + 1)
-    _prefix3 = {k: (v[0] / v[2], v[1] / v[2]) for k, v in acc.items()}
     t = json.loads((_DATA / "pincode_tags.json").read_text())
     tags = t["tags"]
     _pin_tag = {p: tags[i] for p, i in t["pins"].items()}
@@ -54,13 +47,15 @@ def _load() -> None:
 
 
 def _locate(pin: str):
-    """(lat, lon) for a pincode: exact if geocoded, else its 3-digit region
-    centroid, else None. Region approximation is fine for nearest-showroom over
-    widely-separated stores."""
+    """Exact (lat, lon) for a known pincode, else None.
+
+    Do not approximate an unknown value from its first three digits: that made
+    invalid values such as 400963 look like Mumbai and routed them to Worli.
+    """
     c = _geo.get(pin)
     if c:
         return c[0], c[1]
-    return _prefix3.get(pin[:3])
+    return None
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -88,6 +83,18 @@ def extract_pincode(text: str) -> str | None:
     return None
 
 
+def is_known_pincode(value) -> bool:
+    """Whether a pincode exists in an authoritative local source.
+
+    The geocoder is the validity source for otherwise-unmapped pincodes. The
+    client's exact dealer mapping is also trusted, so a newly assigned pincode
+    can route even if the geocoder snapshot has not caught up yet.
+    """
+    _load()
+    pin = normalize_pincode(value)
+    return bool(pin and (pin in _geo or pin in _pin_tag))
+
+
 def resolve(pincode, vertical: str = "furniture") -> dict | None:
     """Resolve a pincode + product vertical to a showroom.
 
@@ -99,7 +106,7 @@ def resolve(pincode, vertical: str = "furniture") -> dict | None:
     """
     _load()
     pin = normalize_pincode(pincode)
-    if not pin:
+    if not pin or not is_known_pincode(pin):
         return None
     vert = (vertical or "").strip().lower()
 
