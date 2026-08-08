@@ -112,6 +112,7 @@ async def list_reviews(account_id: str, location_id: str, page_size: int = 50) -
             # detect edits and re-surface them.
             "update_time": rv.get("updateTime", ""),
             "has_reply":  bool(rv.get("reviewReply")),
+            "reply_comment": ((rv.get("reviewReply") or {}).get("comment") or "").strip(),
             "reply_path": f"accounts/{account_id}/locations/{location_id}/reviews/{rid}",
         })
     return out
