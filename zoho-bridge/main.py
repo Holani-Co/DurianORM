@@ -2280,7 +2280,20 @@ async def _run_order_lookup(conv_id: int, sender_name: str, sender_email: str,
             "pending_order_lookup": {"attempts": attempt + 1, "asked_at": _now_iso(),
                                      "category": "existing_order_enquiry"}})
         if _auto:
-            await chatwoot.send_outgoing_message(conv_id, draft)
+            await chatwoot.send_outgoing_message(
+                conv_id, draft, content_attributes={"ai_trace": _gate_trace([
+                    {"type": "policy", "source": "system", "visibility": "internal",
+                     "label": "Flow", "detail": f"Order-status enquiry on {channel}"},
+                    {"type": "policy", "source": "system", "visibility": "internal",
+                     "label": "Safety gate",
+                     "detail": "Order details are revealed only with a matching order "
+                               "number AND phone — nothing is shared before that."},
+                    {"type": "decision", "source": "rule", "visibility": "internal",
+                     "label": "Verification failed" if verify_failed else "Missing details",
+                     "detail": (f"{reason} — asked the customer to re-check both."
+                                if verify_failed else
+                                f"{reason} — requested the still-missing detail(s).")}],
+                    detail="Auto-sent the request for order details.")})
             await chatwoot.post_private_note(conv_id, f"📦 **Auto-sent** request for order details. {ctx}")
             await _label_conversation(conv_id, ORDER_DETAILS_NEEDED_LABEL)
             print(f"[order-lookup] conv {conv_id}: auto-sent details ask ({reason})")
