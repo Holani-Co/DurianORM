@@ -1,6 +1,11 @@
 # List of the premium features in EE edition
+# Durian: audit_logs intentionally removed. The nightly CheckNewVersionsJob
+# runs ReconcilePlanConfigService#reconcile_premium_features on the community
+# plan, which disable_features!(*this list) on EVERY account — and this fork's
+# community reconciler ignores manually_managed_features, so a Super Admin
+# toggle gets wiped every midnight. Dropping audit_logs here keeps it enabled
+# for good once it's turned on.
 - disable_branding
-- audit_logs
 - sla
 - custom_roles
 - captain_integration
