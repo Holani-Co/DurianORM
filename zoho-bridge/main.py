@@ -5450,18 +5450,20 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # so the gates (EMI / store-enquiry / drafter) know WHICH product it's about
     # and route the question product-specifically instead of a generic greeting.
     #
-    # Two ways the customer references a post: (a) they REPLY to a post already in
-    # the chat — often one from an earlier, now-resolved conversation, which would
-    # otherwise read as a brand-new greeting; resolve that via the reply reference
-    # (in_reply_to_external_id), searching this and the contact's other chats.
-    # (b) they share a fresh post in THIS conversation — the in-thread scan. Prefer
-    # the reply reference when present so the caption tracks the exact post replied
-    # to rather than the most recent share.
+    # Two ways the customer references a post: (a) they share a fresh post in THIS
+    # conversation, or REPLY to a post whose caption Chatwoot already copied onto
+    # the reply message (see add_replied_post_caption) — both caught by the cheap
+    # in-thread scan. (b) A reply to a post from an earlier, now-resolved
+    # conversation whose caption wasn't copied at ingestion (e.g. shared before
+    # that builder change) — recovered by following the reply reference across the
+    # contact's other chats. In-thread first so the common case skips the extra
+    # cross-conversation fetch.
     if surface != "comment":
-        post_caption = await _replied_to_post_caption(conv, all_messages) or next(
+        post_caption = next(
             ((m.get("content_attributes") or {}).get("shared_post_caption")
              for m in reversed(all_messages)
-             if (m.get("content_attributes") or {}).get("shared_post_caption")), None)
+             if (m.get("content_attributes") or {}).get("shared_post_caption")), None) \
+            or await _replied_to_post_caption(conv, all_messages)
         if post_caption:
             gate_message = f"[Customer shared this Durian post: {post_caption[:300]}]\n{gate_message}"
 

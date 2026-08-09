@@ -169,7 +169,25 @@ class Messages::Instagram::BaseMessageBuilder < Messages::Messenger::MessageBuil
 
     params[:content_attributes][:external_echo] = true if @outgoing_echo
     params[:content_attributes][:is_unsupported] = true if message_is_unsupported?
+    add_replied_post_caption(params[:content_attributes])
     params
+  end
+
+  # Durian: when a customer REPLIES to a Durian post they shared earlier, Meta
+  # sends only the reference (reply_to.mid) — not the post again — and that post
+  # usually lives in an older, now-resolved conversation (IG inboxes default to
+  # a fresh conversation once the last one resolves). Carry the replied-to
+  # post's caption onto this reply so the AI answers about the right product
+  # instead of greeting. Global source_id lookup so it resolves across
+  # conversations; no-op when this isn't a reply or the post had no caption.
+  def add_replied_post_caption(attrs)
+    ref = message_reply_attributes
+    return if ref.blank?
+
+    caption = Message.where(account_id: @inbox.account_id)
+                     .find_by(source_id: ref)
+                     &.content_attributes&.dig('shared_post_caption')
+    attrs[:shared_post_caption] = caption if caption.present?
   end
 
   def message_already_exists?
