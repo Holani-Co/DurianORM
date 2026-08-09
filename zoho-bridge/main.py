@@ -5332,6 +5332,57 @@ async def handle_template_suggest(conv: dict, channel: str,
                 del _conv_draft_locks[conv_id]
 
 
+async def _replied_to_post_caption(conv: dict, all_messages: list) -> str:
+    """Caption of the post a customer REPLIED to (Instagram/Facebook reply-to).
+
+    When a customer replies to a shared Durian post that's already in the chat,
+    Chatwoot stores the replied-to message's external id on the incoming message
+    as content_attributes.in_reply_to_external_id, and the post message itself
+    carries content_attributes.shared_post_caption (source_id == that external
+    id). We resolve the caption so the gates/drafter answer product-specifically
+    instead of greeting.
+
+    Crucially this also covers the OLD-conversation case: because IG/FB inboxes
+    default to a NEW conversation once the last one is resolved, the post the
+    customer is replying to often lives in an earlier (resolved) conversation.
+    So if the referenced message isn't in this conversation, we scan the
+    contact's other recent conversations for it. '' when there's no reply or the
+    replied-to message isn't a shared post."""
+    latest = next(
+        (m for m in reversed(all_messages)
+         if m.get("message_type") in (0, "incoming")), None)
+    ref_id = ((latest or {}).get("content_attributes") or {}).get("in_reply_to_external_id")
+    if not ref_id:
+        return ""
+
+    def _caption_for_ref(msgs: list) -> str:
+        m = next((x for x in msgs
+                  if str(x.get("source_id") or "") == str(ref_id)), None)
+        return ((m or {}).get("content_attributes") or {}).get("shared_post_caption") or ""
+
+    # This conversation first (the common in-thread reply).
+    cap = _caption_for_ref(all_messages)
+    if cap:
+        return cap
+
+    # Cross-conversation: the post lives in an earlier (likely resolved) chat.
+    contact_id = ((conv.get("meta") or {}).get("sender") or {}).get("id")
+    if not contact_id:
+        return ""
+    try:
+        others = await chatwoot.get_contact_conversations(int(contact_id))
+        for c in others[:6]:
+            cid = c.get("id")
+            if not cid or cid == conv.get("id"):
+                continue
+            cap = _caption_for_ref(await chatwoot.get_conversation_messages_raw(cid))
+            if cap:
+                return cap
+    except Exception as e:  # best-effort: never break the webhook over context lookup
+        print(f"[caption] cross-conversation reply-to lookup failed: {e}")
+    return ""
+
+
 async def _template_suggest_locked(conv: dict, channel: str,
                                    surface: str = "",
                                    latest_message: str = "",
@@ -5398,8 +5449,16 @@ async def _template_suggest_locked(conv: dict, channel: str,
     # caption on that message (content_attributes.shared_post_caption); prepend it
     # so the gates (EMI / store-enquiry / drafter) know WHICH product it's about
     # and route the question product-specifically instead of a generic greeting.
+    #
+    # Two ways the customer references a post: (a) they REPLY to a post already in
+    # the chat — often one from an earlier, now-resolved conversation, which would
+    # otherwise read as a brand-new greeting; resolve that via the reply reference
+    # (in_reply_to_external_id), searching this and the contact's other chats.
+    # (b) they share a fresh post in THIS conversation — the in-thread scan. Prefer
+    # the reply reference when present so the caption tracks the exact post replied
+    # to rather than the most recent share.
     if surface != "comment":
-        post_caption = next(
+        post_caption = await _replied_to_post_caption(conv, all_messages) or next(
             ((m.get("content_attributes") or {}).get("shared_post_caption")
              for m in reversed(all_messages)
              if (m.get("content_attributes") or {}).get("shared_post_caption")), None)
