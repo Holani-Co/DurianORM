@@ -5675,15 +5675,31 @@ async def _template_suggest_locked(conv: dict, channel: str,
     if not reply:
         return {"ignored": True, "reason": "no_draft"}
 
+    # Has a HUMAN agent already replied in this thread? A public outgoing message
+    # the bot didn't auto-send (typed by an agent, or an agent-approved card Send)
+    # means a person took the conversation. When the customer later returns, the
+    # bot re-evaluates with full context but must clear a HIGHER bar to take it
+    # back — so a borderline score never yanks a thread a person is handling. A
+    # fresh conversation (no human reply yet) keeps the normal auto-send bar.
+    human_replied = any(
+        m.get("message_type") in (1, "outgoing") and not m.get("private")
+        and (m.get("content") or "").strip()
+        and (m.get("content_attributes") or {}).get("source") != "ai_auto_reply"
+        for m in all_messages)
+    reclaim_bar = (config.SOCIAL_RECLAIM_MIN_CONFIDENCE if human_replied
+                   else config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE)
+
     # Auto-send when the client approved it, the drafter is confident enough,
     # AND it's an ordinary reply — anything flagged handoff (abuse / legal /
     # spam / serious complaint) always goes to a human regardless of score.
     # Ordinary complaints (drafter set action=auto, not a serious escalation) are
     # always auto-replied with the apology template — the client wants complaints
-    # answered, and the apology is safe regardless of the confidence score.
+    # answered, and the apology is safe regardless of the confidence score — but
+    # NOT when a person is already handling it (don't reclaim a human's complaint
+    # on the low bar; it must clear the reclaim bar like anything else).
     auto_send = (config.SOCIAL_AUTO_SEND_ENABLED and action == "auto"
-                 and (confidence >= config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE
-                      or drafted.get("is_complaint")))
+                 and (confidence >= reclaim_bar
+                      or (drafted.get("is_complaint") and not human_replied)))
 
     if auto_send:
         # Don't auto-send the same reply twice — a repeated trigger or details
@@ -5698,14 +5714,22 @@ async def _template_suggest_locked(conv: dict, channel: str,
         # auto-reply and see how it was read, why this template, and why it went
         # out without a human. content_attributes are internal — the customer
         # only ever receives `reply`.
+        if human_replied:
+            outcome_detail = (
+                f"Reclaimed from the human agent on the customer's return — "
+                f"confidence {confidence}% met the higher {reclaim_bar}% take-back "
+                f"bar, so the assistant is handling {channel} again.")
+        elif (drafted.get("is_complaint")
+                and confidence < config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE):
+            outcome_detail = (
+                f"Sent automatically on {channel} — an ordinary complaint is "
+                f"answered with its apology template (confidence {confidence}%).")
+        else:
+            outcome_detail = (
+                f"Sent automatically on {channel} — confidence {confidence}% "
+                f"met the {reclaim_bar}% bar.")
         sent_trace = review_reply.add_outcome_step(
-            drafted["trace"], sent=True,
-            detail=(f"Sent automatically on {channel} — an ordinary complaint is "
-                    f"answered with its apology template (confidence {confidence}%)."
-                    if drafted.get("is_complaint") and
-                    confidence < config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE
-                    else f"Sent automatically on {channel} — confidence {confidence}% "
-                         f"met the {config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% bar."))
+            drafted["trace"], sent=True, detail=outcome_detail)
         try:
             # Public outgoing message → Chatwoot delivers it to the customer on
             # the inbox's own channel (Instagram / Facebook DM or comment).
@@ -5718,16 +5742,26 @@ async def _template_suggest_locked(conv: dict, channel: str,
         except Exception as e:
             print(f"[template-suggest] auto-send failed for conv {conv_id}: {e}")
             return {"ignored": True, "reason": "auto_send_failed"}
+        # Reclaimed a human-handled thread → drop it from the Agent Needed queue
+        # so the "awaiting a person" list stays accurate now the bot has it again.
+        if human_replied:
+            await _clear_agent_needed(conv_id, conv)
         try:
-            await chatwoot.post_private_note(
-                conv_id,
-                f"🤖 **Auto-sent** {channel} reply (confidence {confidence}%) — "
-                f"template `{drafted.get('short_code') or '—'}`.")
+            note = (f"🤖 **Took the conversation back** on {channel} "
+                    f"(confidence {confidence}% ≥ {reclaim_bar}% take-back bar) — "
+                    f"template `{drafted.get('short_code') or '—'}`. Cleared from "
+                    f"Agent Needed."
+                    if human_replied else
+                    f"🤖 **Auto-sent** {channel} reply (confidence {confidence}%) — "
+                    f"template `{drafted.get('short_code') or '—'}`.")
+            await chatwoot.post_private_note(conv_id, note)
         except Exception:
             pass
-        print(f"[template-suggest] {channel} AUTO-SENT on conv {conv_id} "
+        print(f"[template-suggest] {channel} "
+              f"{'RECLAIMED' if human_replied else 'AUTO-SENT'} on conv {conv_id} "
               f"(confidence {confidence}%)")
-        return {"auto_sent": True, "channel": channel, "confidence": confidence}
+        return {"auto_sent": True, "channel": channel, "confidence": confidence,
+                "reclaimed": human_replied}
 
     # Below the confidence bar, a handoff, or auto-send disabled → post the
     # review card for an agent and flag it in the Agent Needed section.
@@ -5739,9 +5773,13 @@ async def _template_suggest_locked(conv: dict, channel: str,
     elif action != "auto":
         hold_reason = ("The drafter handed this to a human — a serious escalation, "
                        "or no approved template fitted what they asked.")
+    elif human_replied:
+        hold_reason = (f"A human agent is handling this conversation; confidence "
+                       f"{confidence}% is below the {reclaim_bar}% bar to take it "
+                       f"back, so it stays with them.")
     else:
         hold_reason = (f"Confidence {confidence}% is below the "
-                       f"{config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% auto-send bar.")
+                       f"{reclaim_bar}% auto-send bar.")
     held_trace = review_reply.add_outcome_step(drafted["trace"], sent=False,
                                                detail=hold_reason)
     try:
