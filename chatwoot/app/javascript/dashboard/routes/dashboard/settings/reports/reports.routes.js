@@ -25,6 +25,7 @@ import LiveReports from './LiveReports.vue';
 import SLAReports from './SLAReports.vue';
 import OrmOverviewReports from './OrmOverviewReports.vue';
 import AiPerformanceReports from './AiPerformanceReports.vue';
+import CrmFunnelReports from './CrmFunnelReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -149,6 +150,12 @@ export default {
           name: 'ai_performance_reports',
           meta,
           component: AiPerformanceReports,
+        },
+        {
+          path: 'crm-funnel',
+          name: 'crm_funnel_reports',
+          meta,
+          component: CrmFunnelReports,
         },
         {
           path: 'overview',

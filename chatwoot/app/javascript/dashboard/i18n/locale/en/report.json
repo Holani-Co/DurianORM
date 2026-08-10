@@ -1,4 +1,18 @@
 {
+  "CRM_FUNNEL_REPORTS": {
+    "HEADER": "CRM / Lead funnel",
+    "FETCH_ERROR": "Failed to load the CRM funnel, please try again.",
+    "EMPTY": "No deals in this period.",
+    "TILE": {
+      "CONVERSION": "Enquiry → deal",
+      "CONVERSION_INFO": "Share of routed enquiries that became a CRM deal."
+    },
+    "SECTION": {
+      "FUNNEL": "Lead funnel",
+      "VERTICAL": "Deals by vertical",
+      "CATEGORY": "Deals by enquiry category"
+    }
+  },
   "AI_PERFORMANCE_REPORTS": {
     "HEADER": "AI Performance",
     "FETCH_ERROR": "Failed to load AI performance, please try again.",

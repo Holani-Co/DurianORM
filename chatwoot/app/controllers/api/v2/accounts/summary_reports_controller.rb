@@ -37,6 +37,12 @@ class Api::V2::Accounts::SummaryReportsController < Api::V1::Accounts::BaseContr
     render json: builder.build
   end
 
+  # Durian — CRM / Lead funnel: enquiries → qualified → deals, by vertical/category.
+  def crm_funnel
+    builder = V2::Reports::CrmFunnelBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
   private
 
   def check_authorization
