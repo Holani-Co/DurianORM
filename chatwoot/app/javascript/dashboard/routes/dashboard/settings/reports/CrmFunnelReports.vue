@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAccount } from 'dashboard/composables/useAccount';
 import { useAlert } from 'dashboard/composables';
+import { downloadCsvFile } from 'dashboard/helper/downloadHelper';
 import ReportHeader from './components/ReportHeader.vue';
 import ReportFilters from './components/ReportFilters.vue';
 import ReportMetricCard from './components/ReportMetricCard.vue';
@@ -18,6 +19,7 @@ const axios = window.axios;
 
 const isLoading = ref(false);
 const report = ref(null);
+const range = ref({ from: 0, to: 0 });
 
 const fetchReport = async ({ from, to }) => {
   if (!from || !to) return;
@@ -35,7 +37,27 @@ const fetchReport = async ({ from, to }) => {
   }
 };
 
-const onFilterChange = ({ from, to }) => fetchReport({ from, to });
+const onFilterChange = ({ from, to }) => {
+  range.value = { from, to };
+  fetchReport({ from, to });
+};
+
+// Download the deals for the selected period in the Zoho Deals import layout.
+const downloadingDeals = ref(false);
+const downloadDeals = async () => {
+  downloadingDeals.value = true;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/orm_exports/deals`,
+      { params: { since: range.value.from, until: range.value.to } }
+    );
+    downloadCsvFile('orm-deals.csv', data);
+  } catch {
+    useAlert(t('ORM_OVERVIEW_REPORTS.DOWNLOAD.ERROR'));
+  } finally {
+    downloadingDeals.value = false;
+  }
+};
 
 const num = value => (value || 0).toLocaleString();
 
@@ -78,6 +100,29 @@ const categoryRows = computed(() =>
       :show-business-hours="false"
       @filter-change="onFilterChange"
     />
+
+    <!-- Deals for the selected period, in the Zoho Deals import layout. -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm text-n-slate-11">
+        {{ $t('ORM_OVERVIEW_REPORTS.DOWNLOAD.LABEL') }}
+      </span>
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg outline-1 outline outline-n-container bg-n-solid-2 text-n-slate-12 hover:bg-n-alpha-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="downloadingDeals"
+        @click="downloadDeals"
+      >
+        <span
+          class="size-3.5"
+          :class="
+            downloadingDeals
+              ? 'i-lucide-loader-2 animate-spin'
+              : 'i-lucide-download'
+          "
+        />
+        {{ $t('ORM_OVERVIEW_REPORTS.DOWNLOAD.DEALS') }}
+      </button>
+    </div>
 
     <div
       class="grid grid-cols-1 gap-4 lg:grid-cols-3"
