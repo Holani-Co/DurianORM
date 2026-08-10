@@ -4680,6 +4680,42 @@ def _context_blob_text(blob: dict) -> str:
     return "\n".join(lines)
 
 
+def _offer_not_expired(offer: dict) -> bool:
+    exp = offer.get("expires_at")
+    if not exp:
+        return True
+    try:
+        return datetime.fromisoformat(str(exp).replace("Z", "+00:00")) > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return True
+
+
+async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
+                            context_blob: dict) -> None:
+    """After greeting a customer, share the client's current offer (image +
+    caption) — managed from the ORM Offers tab. Phase 1: the top-priority live
+    offer, once per conversation. Best-effort — never breaks the greeting.
+    (Phase 2 will pick the offer that matches context_blob for known customers.)"""
+    if not config.OFFERS_ENABLED:
+        return
+    if (conv.get("custom_attributes") or {}).get("offer_greeted"):
+        return
+    try:
+        live = [o for o in (await chatwoot.get_offers())
+                if o.get("active") and o.get("image_url") and _offer_not_expired(o)]
+        if not live:
+            return
+        live.sort(key=lambda o: (o.get("priority") if o.get("priority") is not None else 9999))
+        offer = live[0]
+        sent = await chatwoot.send_offer_message(
+            conv_id, offer.get("caption") or "", offer["image_url"])
+        if sent:
+            await chatwoot.merge_custom_attributes(conv_id, {"offer_greeted": True})
+            print(f"[offer] shared offer {offer.get('id')} on conv {conv_id}")
+    except Exception as e:
+        print(f"[offer] send failed for conv {conv_id}: {e}")
+
+
 async def _build_contact_context_blob(conv: dict, all_messages: list,
                                       contact_id) -> dict:
     """Contact-level context: the per-conversation blob, enriched with durable
@@ -5866,6 +5902,9 @@ async def _template_suggest_locked(conv: dict, channel: str,
             pass
         print(f"[template-suggest] {channel} AUTO-SENT on conv {conv_id} "
               f"(confidence {confidence}%)")
+        # Just greeted the customer → follow with the client's current offer.
+        if surface != "comment" and (drafted.get("short_code") or "").endswith("_dm_greeting"):
+            await _maybe_send_offer(conv, conv_id, channel, context_blob)
         return {"auto_sent": True, "channel": channel, "confidence": confidence}
 
     # Below the confidence bar, a handoff, or auto-send disabled → post the

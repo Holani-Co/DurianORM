@@ -3,7 +3,9 @@
 # ActiveStorage (has_one_attached :image on Offer). The bridge reads the live
 # offers to surface one on a customer's greeting.
 class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
-  before_action :check_admin
+  # Reading is open to any agent (the bot fetches live offers for greetings);
+  # managing offers is admin-only.
+  before_action :check_admin, only: [:create, :update, :destroy]
   before_action :fetch_offer, only: [:update, :destroy]
 
   def index

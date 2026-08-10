@@ -463,6 +463,12 @@ COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
 SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
 SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
 
+# ── Offers on greeting ─────────────────────────────────────────────────────
+# When a customer greets, share the client-managed top-priority offer (image +
+# caption) right after the greeting. Offers are managed from the ORM Offers tab.
+# Dark-launched OFF; set OFFERS_ENABLED=true once the client has added offers.
+OFFERS_ENABLED = _bool("OFFERS_ENABLED", "false")
+
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is
 # created, the customer must have provided all three of order id + registered
