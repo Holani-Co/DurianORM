@@ -6,6 +6,7 @@
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
+import { useAccount } from 'dashboard/composables/useAccount';
 import { useAlert } from 'dashboard/composables';
 import ReportHeader from './components/ReportHeader.vue';
 import ReportFilters from './components/ReportFilters.vue';
@@ -13,6 +14,7 @@ import ReportMetricCard from './components/ReportMetricCard.vue';
 
 const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
+const { accountScopedRoute } = useAccount();
 const axios = window.axios;
 
 const isLoading = ref(false);
@@ -50,6 +52,69 @@ const autoHandledPct = computed(() => {
   const total = report.value?.conversations?.total || 0;
   const handled = report.value?.ai?.auto_handled_conversations || 0;
   return total ? `${Math.round((handled / total) * 100)}%` : '0%';
+});
+
+// Deep-link a tile to the conversations carrying its label (deals / tickets /
+// agent-needed), so clicking the number lands on exactly those conversations.
+const labelRoute = label =>
+  label ? accountScopedRoute('label_conversations', { label }) : null;
+
+const tiles = computed(() => {
+  const r = report.value || {};
+  const drills = r.drilldowns || {};
+  return [
+    {
+      key: 'conversations',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS_INFO'),
+      value: num(r.conversations?.total),
+    },
+    {
+      key: 'auto_handled',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED_INFO'),
+      value: autoHandledPct.value,
+    },
+    {
+      key: 'auto_replies',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES_INFO'),
+      value: num(r.ai?.auto_replies_sent),
+    },
+    {
+      key: 'agent_needed',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED_INFO'),
+      value: num(r.ai?.agent_needed_open),
+      to: labelRoute(drills.agent_needed),
+    },
+    {
+      key: 'first_response',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE_INFO'),
+      value: durationLabel.value,
+    },
+    {
+      key: 'deals',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.DEALS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.DEALS_INFO'),
+      value: num(r.deals?.created),
+      to: labelRoute(drills.deals),
+    },
+    {
+      key: 'tickets',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.TICKETS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.TICKETS_INFO'),
+      value: num(r.tickets?.raised),
+      to: labelRoute(drills.tickets),
+    },
+    {
+      key: 'avg_rating',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING_INFO'),
+      value: `${r.reviews?.avg_stars || 0} ★`,
+    },
+  ];
 });
 
 const byChannel = computed(() =>
@@ -94,54 +159,27 @@ const reviewRows = computed(() => {
       class="grid grid-cols-2 gap-4 md:grid-cols-4"
       :class="{ 'opacity-50': isLoading }"
     >
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS_INFO')"
-        :value="num(report?.conversations?.total)"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED_INFO')"
-        :value="autoHandledPct"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES_INFO')"
-        :value="num(report?.ai?.auto_replies_sent)"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED_INFO')"
-        :value="num(report?.ai?.agent_needed_open)"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE_INFO')"
-        :value="durationLabel"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.DEALS')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.DEALS_INFO')"
-        :value="num(report?.deals?.created)"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.TICKETS')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.TICKETS_INFO')"
-        :value="num(report?.tickets?.raised)"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
-      <ReportMetricCard
-        :label="$t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING')"
-        :info-text="$t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING_INFO')"
-        :value="`${report?.reviews?.avg_stars || 0} ★`"
-        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
-      />
+      <component
+        :is="tile.to ? 'router-link' : 'div'"
+        v-for="tile in tiles"
+        :key="tile.key"
+        :to="tile.to"
+        class="block shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
+        :class="
+          tile.to
+            ? 'cursor-pointer transition-[outline,box-shadow] hover:outline-n-slate-6 hover:shadow-md'
+            : ''
+        "
+      >
+        <ReportMetricCard
+          :label="tile.label"
+          :info-text="tile.info"
+          :value="tile.value"
+        />
+        <span v-if="tile.to" class="block mt-2 text-xs text-n-slate-10">
+          {{ $t('ORM_OVERVIEW_REPORTS.VIEW_CONVERSATIONS') }}
+        </span>
+      </component>
     </div>
 
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">

@@ -25,16 +25,29 @@ class V2::Reports::OrmOverviewBuilder
     @params = params
   end
 
+  # Labels the bridge tags conversations with, reused as the drill-through
+  # target for the matching tile so the number and the list always agree.
+  DEAL_LABEL = 'deal-created'
+  TICKET_LABEL = 'zoho-ticket'
+  AGENT_NEEDED_LABEL = 'agent-needed'
+
   def build
     {
       range: { since: range.begin.to_i, until: range.end.to_i },
       conversations: conversations_summary,
       ai: ai_summary,
       first_response: { avg_seconds: avg_first_response_seconds },
-      deals: { created: deals_created_count },
-      tickets: { raised: tickets_raised_count },
+      deals: { created: label_count(DEAL_LABEL) },
+      tickets: { raised: label_count(TICKET_LABEL) },
       reviews: reviews_summary,
-      categories: category_mix
+      categories: category_mix,
+      # Which label each drillable tile filters on, so the UI can deep-link the
+      # exact conversations behind the number.
+      drilldowns: {
+        deals: DEAL_LABEL,
+        tickets: TICKET_LABEL,
+        agent_needed: AGENT_NEEDED_LABEL
+      }
     }
   end
 
@@ -73,40 +86,32 @@ class V2::Reports::OrmOverviewBuilder
     {
       auto_replies_sent: auto_reply_messages.count,
       auto_handled_conversations: auto_reply_messages.distinct.count(:conversation_id),
-      agent_needed_open: agent_needed_open_count
+      agent_needed_open: label_count(AGENT_NEEDED_LABEL, only_open: true)
     }
   end
 
-  # Live count of conversations currently tagged agent-needed and still open —
-  # the "awaiting a person" queue (a now metric, not scoped to the range).
-  def agent_needed_open_count
+  # Count of conversations tagged with `label`. Scoped to conversations started
+  # in the range, except the agent-needed queue which is a live "now" count of
+  # what's still open — so the tile matches the label view the tile drills into.
+  def label_count(label, only_open: false)
+    conversation_scope = { account_id: account.id }
+    if only_open
+      conversation_scope[:status] = Conversation.statuses[:open]
+    else
+      conversation_scope[:created_at] = range
+    end
     ActsAsTaggableOn::Tagging
       .joins('INNER JOIN conversations ON taggings.taggable_id = conversations.id')
       .joins('INNER JOIN tags ON taggings.tag_id = tags.id')
       .where(taggable_type: 'Conversation', context: 'labels')
-      .where(tags: { name: 'agent-needed' })
-      .where(conversations: { account_id: account.id, status: Conversation.statuses[:open] })
+      .where(tags: { name: label })
+      .where(conversations: conversation_scope)
       .count
   end
 
   def avg_first_response_seconds
     avg = ReportingEvent.where(account_id: account.id, name: 'first_response', created_at: range).average(:value)
     avg ? avg.to_f.round : 0
-  end
-
-  # Conversations that produced a CRM deal. Keyed on conversation start date as a
-  # proxy — the deal-creation time isn't stamped separately on the conversation.
-  def deals_created_count
-    conversations_in_range.where("custom_attributes ->> 'crm_deal_id' IS NOT NULL").count
-  end
-
-  # Conversations that raised at least one Zoho ticket (current shape stores a
-  # zoho_tickets array; a few legacy ones use the single zoho_ticket key).
-  def tickets_raised_count
-    conversations_in_range
-      .where("jsonb_array_length(COALESCE(custom_attributes -> 'zoho_tickets', '[]'::jsonb)) > 0 " \
-             "OR custom_attributes ? 'zoho_ticket'")
-      .count
   end
 
   # Google reviews bucketed by their ACTUAL posting date (review_created_at, a
