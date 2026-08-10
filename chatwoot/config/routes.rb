@@ -510,6 +510,7 @@ Rails.application.routes.draw do
               get :label
               get :channel
               get :orm_overview
+              get :ai_performance
             end
           end
           resources :reports, only: [:index] do

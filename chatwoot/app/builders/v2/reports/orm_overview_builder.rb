@@ -8,6 +8,8 @@
 # custom_attributes, the ai_auto_reply marker on messages, review attributes),
 # so there is no new capture — this just surfaces it.
 class V2::Reports::OrmOverviewBuilder
+  include V2::Reports::OrmMetrics
+
   # Human names for the inbox channel types Durian actually runs. Anything not
   # listed falls back to the demodulised class name (e.g. Channel::Foo → Foo).
   CHANNEL_NAMES = {
@@ -55,14 +57,6 @@ class V2::Reports::OrmOverviewBuilder
 
   attr_reader :account, :params
 
-  def range
-    @range ||= begin
-      since = Time.zone.at((params[:since].presence || 30.days.ago.to_i).to_i)
-      till  = Time.zone.at((params[:until].presence || Time.current.to_i).to_i)
-      since..till
-    end
-  end
-
   def conversations_in_range
     @conversations_in_range ||= account.conversations.where(created_at: range)
   end
@@ -88,25 +82,6 @@ class V2::Reports::OrmOverviewBuilder
       auto_handled_conversations: auto_reply_messages.distinct.count(:conversation_id),
       agent_needed_open: label_count(AGENT_NEEDED_LABEL, only_open: true)
     }
-  end
-
-  # Count of conversations tagged with `label`. Scoped to conversations started
-  # in the range, except the agent-needed queue which is a live "now" count of
-  # what's still open — so the tile matches the label view the tile drills into.
-  def label_count(label, only_open: false)
-    conversation_scope = { account_id: account.id }
-    if only_open
-      conversation_scope[:status] = Conversation.statuses[:open]
-    else
-      conversation_scope[:created_at] = range
-    end
-    ActsAsTaggableOn::Tagging
-      .joins('INNER JOIN conversations ON taggings.taggable_id = conversations.id')
-      .joins('INNER JOIN tags ON taggings.tag_id = tags.id')
-      .where(taggable_type: 'Conversation', context: 'labels')
-      .where(tags: { name: label })
-      .where(conversations: conversation_scope)
-      .count
   end
 
   def avg_first_response_seconds

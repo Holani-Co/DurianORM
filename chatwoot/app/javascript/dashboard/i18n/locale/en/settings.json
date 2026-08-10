@@ -547,6 +547,7 @@
     "BETA": "Beta",
     "REPORTS_OVERVIEW": "Overview",
     "REPORTS_ORM_OVERVIEW": "ORM Overview",
+    "REPORTS_AI_PERFORMANCE": "AI Performance",
     "REAUTHORIZE": "Your inbox connection has expired, please reconnect\n to continue receiving and sending messages",
     "HELP_CENTER": {
       "TITLE": "Help Center",

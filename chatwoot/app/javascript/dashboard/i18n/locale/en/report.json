@@ -1,4 +1,24 @@
 {
+  "AI_PERFORMANCE_REPORTS": {
+    "HEADER": "AI Performance",
+    "FETCH_ERROR": "Failed to load AI performance, please try again.",
+    "EMPTY": "No auto-replies in this period.",
+    "TILE": {
+      "AUTO_REPLIES": "Auto-replies sent",
+      "AUTO_REPLIES_INFO": "Public replies the assistant sent automatically in this period.",
+      "AUTO_SEND_RATE": "Auto-send rate",
+      "AUTO_SEND_RATE_INFO": "Share of conversations the assistant handled on its own.",
+      "AVG_CONFIDENCE": "Avg confidence",
+      "AVG_CONFIDENCE_INFO": "Average confidence score on the replies it auto-sent.",
+      "HANDOFFS": "Handoffs to a human",
+      "HANDOFFS_INFO": "Conversations the assistant escalated to an agent (agent-needed)."
+    },
+    "SECTION": {
+      "TEMPLATES": "Templates used",
+      "CONFIDENCE": "Confidence distribution",
+      "GATES": "Answered automatically by gate"
+    }
+  },
   "ORM_OVERVIEW_REPORTS": {
     "HEADER": "ORM Overview",
     "FETCH_ERROR": "Failed to load the ORM overview, please try again.",

@@ -31,6 +31,12 @@ class Api::V2::Accounts::SummaryReportsController < Api::V1::Accounts::BaseContr
     render json: builder.build
   end
 
+  # Durian — AI Performance: auto-send rate, confidence, template usage, gates.
+  def ai_performance
+    builder = V2::Reports::AiPerformanceBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
   private
 
   def check_authorization

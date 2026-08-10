@@ -24,6 +24,7 @@ import BotReports from './BotReports.vue';
 import LiveReports from './LiveReports.vue';
 import SLAReports from './SLAReports.vue';
 import OrmOverviewReports from './OrmOverviewReports.vue';
+import AiPerformanceReports from './AiPerformanceReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -142,6 +143,12 @@ export default {
           name: 'orm_overview_reports',
           meta,
           component: OrmOverviewReports,
+        },
+        {
+          path: 'ai-performance',
+          name: 'ai_performance_reports',
+          meta,
+          component: AiPerformanceReports,
         },
         {
           path: 'overview',

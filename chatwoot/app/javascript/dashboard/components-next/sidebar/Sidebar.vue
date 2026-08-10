@@ -597,6 +597,11 @@ const menuItems = computed(() => {
           to: accountScopedRoute('orm_overview_reports'),
         },
         {
+          name: 'Report AI Performance',
+          label: t('SIDEBAR.REPORTS_AI_PERFORMANCE'),
+          to: accountScopedRoute('ai_performance_reports'),
+        },
+        {
           name: 'Report Overview',
           label: t('SIDEBAR.REPORTS_OVERVIEW'),
           to: accountScopedRoute('account_overview_reports'),
