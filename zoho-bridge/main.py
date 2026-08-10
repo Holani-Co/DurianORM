@@ -4690,12 +4690,62 @@ def _offer_not_expired(offer: dict) -> bool:
         return True
 
 
+def _offer_tags(offer: dict) -> list:
+    return [str(t).strip().lower() for t in (offer.get("tags") or []) if str(t).strip()]
+
+
+async def _pick_offer_llm(interest: str, offers: list) -> dict | None:
+    """Let the model pick the offer whose caption best fits the customer's
+    interest — the AI half of the hybrid match. Returns None (→ top priority)
+    when nothing clearly fits or the call fails."""
+    from llm_client import client
+    listing = "\n".join(f"{i + 1}. {(o.get('caption') or '')[:160]}"
+                        for i, o in enumerate(offers))
+    schema = {"name": "offer_pick", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["choice"],
+                         "properties": {"choice": {"type": "integer"}}}}
+    system = ("Pick the single Durian offer that best fits what the customer is "
+              "interested in. Return choice = the offer number, or 0 if none "
+              "clearly fits. STRICT JSON.")
+    user = f"Customer interest: {interest}\n\nOffers:\n{listing}"
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        choice = int((json.loads(resp.choices[0].message.content) or {}).get("choice") or 0)
+        if 1 <= choice <= len(offers):
+            return offers[choice - 1]
+    except Exception as e:
+        print(f"[offer] AI pick failed: {e}")
+    return None
+
+
+async def _pick_offer(offers: list, context_blob: dict) -> dict:
+    """Choose the offer that best fits the customer (hybrid). New customer / no
+    interest → the top-priority offer. Known interest → an offer whose TAG matches
+    it (deterministic, client-controlled); else an AI relevance pick from the
+    captions; else the top-priority offer."""
+    by_priority = sorted(
+        offers, key=lambda o: (o.get("priority") if o.get("priority") is not None else 9999))
+    interest = " ".join(str(context_blob.get(k) or "")
+                        for k in ("product", "category")).strip().lower()
+    if not interest:
+        return by_priority[0]
+    tagged = [o for o in by_priority if any(t in interest for t in _offer_tags(o))]
+    if tagged:
+        return tagged[0]
+    return (await _pick_offer_llm(interest, by_priority)) or by_priority[0]
+
+
 async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
                             context_blob: dict) -> None:
     """After greeting a customer, share the client's current offer (image +
-    caption) — managed from the ORM Offers tab. Phase 1: the top-priority live
-    offer, once per conversation. Best-effort — never breaks the greeting.
-    (Phase 2 will pick the offer that matches context_blob for known customers.)"""
+    caption) — managed from the ORM Offers tab. New customers get the top-priority
+    offer; known customers get the one matching their interest (tag, then AI).
+    Once per conversation. Best-effort — never breaks the greeting."""
     if not config.OFFERS_ENABLED:
         return
     if (conv.get("custom_attributes") or {}).get("offer_greeted"):
@@ -4705,8 +4755,7 @@ async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
                 if o.get("active") and o.get("image_url") and _offer_not_expired(o)]
         if not live:
             return
-        live.sort(key=lambda o: (o.get("priority") if o.get("priority") is not None else 9999))
-        offer = live[0]
+        offer = await _pick_offer(live, context_blob)
         sent = await chatwoot.send_offer_message(
             conv_id, offer.get("caption") or "", offer["image_url"])
         if sent:
