@@ -3,10 +3,10 @@
 # ActiveStorage (has_one_attached :image on Offer). The bridge reads the live
 # offers to surface one on a customer's greeting.
 class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
-  # Reading is open to any agent (the bot fetches live offers for greetings);
-  # managing offers is admin-only.
+  # Reading + sending are open to any agent (the bot fetches live offers for
+  # greetings; agents send them in a conversation); managing is admin-only.
   before_action :check_admin, only: [:create, :update, :destroy]
-  before_action :fetch_offer, only: [:update, :destroy]
+  before_action :fetch_offer, only: [:update, :destroy, :send_to_conversation]
 
   def index
     @offers = Current.account.offers.order(priority: :asc, created_at: :desc)
@@ -26,6 +26,24 @@ class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
   def destroy
     @offer.destroy!
     head :ok
+  end
+
+  # POST /offers/:id/send_to_conversation  { conversation_id }
+  # Agent manually pushes this offer's image + caption to the customer. Builds an
+  # outgoing message with the offer image attached (reusing the stored blob) so
+  # Chatwoot delivers it on the conversation's channel.
+  def send_to_conversation
+    conversation = Current.account.conversations.find_by!(display_id: params[:conversation_id])
+    return render json: { error: 'Offer has no image' }, status: :unprocessable_entity unless @offer.image.attached?
+
+    message = conversation.messages.build(
+      account_id: Current.account.id, inbox_id: conversation.inbox_id,
+      message_type: :outgoing, content: @offer.caption, sender: Current.user
+    )
+    message.attachments.build(account_id: Current.account.id, file_type: :image)
+            .file.attach(@offer.image.blob)
+    message.save!
+    render json: { success: true }
   end
 
   private

@@ -1,4 +1,12 @@
 {
+  "OFFERS_PANEL": {
+    "TITLE": "Offers",
+    "EMPTY": "No active offers. Add some in Settings → Offers.",
+    "SEND": "Send",
+    "SENDING": "Sending…",
+    "SENT": "Offer sent to the customer.",
+    "SEND_ERROR": "Couldn't send that offer, please try again."
+  },
   "CONVERSATION": {
     "SELECT_A_CONVERSATION": "Please select a conversation from left pane",
     "CSAT_REPLY_MESSAGE": "Please rate the conversation",

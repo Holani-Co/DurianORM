@@ -28,6 +28,7 @@ import ZohoTicketPanel from './ZohoTicketPanel.vue';
 import ManualTicketCreate from './ManualTicketCreate.vue';
 import ZohoTicketsListPanel from './ZohoTicketsListPanel.vue';
 import ZohoCrmPanel from './ZohoCrmPanel.vue';
+import OffersPanel from './OffersPanel.vue';
 import ReviewEscalationPanel from './ReviewEscalationPanel.vue';
 import RelatedTicketsPanel from './RelatedTicketsPanel.vue';
 import PendingTicketDecisionPanel from './PendingTicketDecisionPanel.vue';
@@ -232,6 +233,21 @@ onMounted(() => {
           v-if="currentChat && currentChat.id"
           :conversation-id="currentChat.id"
           :custom-attributes="conversationCustomAttributes"
+        />
+      </AccordionItem>
+    </div>
+    <!-- Offers — agent can push any active promotional offer (image + caption)
+         to the customer on demand. -->
+    <div id="sidebar-section-offers" class="px-2 pt-3">
+      <AccordionItem
+        :title="$t('OFFERS_PANEL.TITLE')"
+        :is-open="isContactSidebarItemOpen('is_offers_open')"
+        compact
+        @toggle="value => toggleSidebarUIState('is_offers_open', value)"
+      >
+        <OffersPanel
+          v-if="currentChat && currentChat.id"
+          :conversation-id="currentChat.id"
         />
       </AccordionItem>
     </div>
