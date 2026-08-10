@@ -422,7 +422,7 @@ ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 # email (which REPLACES the generic acknowledgment) and waits for the reply.
 # The "Create Deal" button/endpoint stays blocked until both are captured.
 DEAL_DETAILS_GATE_ENABLED = _bool("DEAL_DETAILS_GATE_ENABLED", "false")
-DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "2"))
+DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "5"))
 
 # ── Retail routing gate ────────────────────────────────────────────────────
 # Retail furniture product enquiries (a few pieces, NOT bulk) route by
