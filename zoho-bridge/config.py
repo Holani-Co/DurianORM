@@ -463,6 +463,14 @@ COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
 SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
 SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
 
+# Reclaim bar: once a HUMAN agent has actually replied in a DM, the bot has been
+# handed the conversation. When the customer later returns, the bot re-evaluates
+# with full context but only takes it BACK (auto-replies again, clearing the
+# agent-needed queue) when it's clearly confident — a higher bar than a fresh
+# conversation, so a borderline score never yanks a thread a person is handling.
+# Below this bar it stays a review card and the conversation remains the human's.
+SOCIAL_RECLAIM_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_RECLAIM_MIN_CONFIDENCE", "90"))
+
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is
 # created, the customer must have provided all three of order id + registered
