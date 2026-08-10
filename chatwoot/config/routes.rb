@@ -126,6 +126,8 @@ Rails.application.routes.draw do
             end
           end
           resources :canned_responses, only: [:index, :create, :update, :destroy]
+          # Durian — client-managed promotional offers surfaced on greetings.
+          resources :offers, only: [:index, :create, :update, :destroy]
           resources :automation_rules, only: [:index, :create, :show, :update, :destroy] do
             post :clone
           end

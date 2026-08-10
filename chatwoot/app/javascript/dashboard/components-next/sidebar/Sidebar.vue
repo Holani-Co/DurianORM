@@ -834,6 +834,12 @@ const menuItems = computed(() => {
           to: accountScopedRoute('routing_config_index'),
         },
         {
+          name: 'Settings Offers',
+          label: t('SIDEBAR.OFFERS'),
+          icon: 'i-lucide-badge-percent',
+          to: accountScopedRoute('offers_index'),
+        },
+        {
           name: 'Settings Audit Logs',
           label: t('SIDEBAR.AUDIT_LOGS'),
           icon: 'i-lucide-briefcase',

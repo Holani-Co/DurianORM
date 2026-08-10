@@ -10,13 +10,12 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_05_15_000000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_10_120000) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
-  enable_extension "vector"
 
   create_table "access_tokens", force: :cascade do |t|
     t.string "owner_type"
@@ -156,15 +155,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_15_000000) do
     t.index ["account_id"], name: "index_applied_slas_on_account_id"
     t.index ["conversation_id"], name: "index_applied_slas_on_conversation_id"
     t.index ["sla_policy_id"], name: "index_applied_slas_on_sla_policy_id"
-  end
-
-  create_table "article_embeddings", force: :cascade do |t|
-    t.bigint "article_id", null: false
-    t.text "term", null: false
-    t.vector "embedding", limit: 1536
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["embedding"], name: "index_article_embeddings_on_embedding", using: :ivfflat
   end
 
   create_table "articles", force: :cascade do |t|
@@ -316,25 +306,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_15_000000) do
     t.text "content"
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
-  end
-
-  create_table "captain_assistant_responses", force: :cascade do |t|
-    t.string "question", null: false
-    t.text "answer", null: false
-    t.vector "embedding", limit: 1536
-    t.bigint "assistant_id", null: false
-    t.bigint "documentable_id"
-    t.bigint "account_id", null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.integer "status", default: 1, null: false
-    t.string "documentable_type"
-    t.boolean "edited", default: false, null: false
-    t.index ["account_id"], name: "index_captain_assistant_responses_on_account_id"
-    t.index ["assistant_id"], name: "index_captain_assistant_responses_on_assistant_id"
-    t.index ["documentable_id", "documentable_type"], name: "idx_cap_asst_resp_on_documentable"
-    t.index ["embedding"], name: "vector_idx_knowledge_entries_embedding", using: :ivfflat
-    t.index ["status"], name: "index_captain_assistant_responses_on_status"
   end
 
   create_table "captain_assistants", force: :cascade do |t|
@@ -1073,6 +1044,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_15_000000) do
     t.index ["secondary_actor_type", "secondary_actor_id"], name: "uniq_secondary_actor_per_account_notifications"
     t.index ["user_id", "account_id", "snoozed_until", "read_at"], name: "idx_notifications_performance"
     t.index ["user_id"], name: "index_notifications_on_user_id"
+  end
+
+  create_table "offers", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "caption", null: false
+    t.integer "priority", default: 0, null: false
+    t.boolean "active", default: true, null: false
+    t.jsonb "tags", default: [], null: false
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_offers_on_account_id"
   end
 
   create_table "platform_app_permissibles", force: :cascade do |t|
