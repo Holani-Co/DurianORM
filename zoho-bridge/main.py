@@ -4667,7 +4667,51 @@ def _context_blob_text(blob: dict) -> str:
         lines.append("- This enquiry has ALREADY been routed to the showroom team.")
     if blob.get("deal_id"):
         lines.append("- A CRM deal already exists for this customer.")
+    if blob.get("returning"):
+        lines.append("- This is a RETURNING customer who has contacted us before "
+                     "(the facts above may come from an earlier conversation).")
     return "\n".join(lines)
+
+
+async def _build_contact_context_blob(conv: dict, all_messages: list,
+                                      contact_id) -> dict:
+    """Contact-level context: the per-conversation blob, enriched with durable
+    facts from the SAME contact's OTHER conversations. Instagram spawns a fresh
+    conversation per session, so a returning customer's product / phone / city /
+    deal live in earlier threads — this carries them forward. Best-effort: any
+    lookup failure just returns the per-conversation blob."""
+    blob = _build_context_blob(conv, all_messages)
+    # If the current thread already knows who + what, no need for extra fetches.
+    if not contact_id or (blob.get("product") and blob.get("phone") and blob.get("name")):
+        return blob
+
+    fill_keys = ("name", "phone", "email", "city", "pincode",
+                 "product", "showroom", "category", "deal_id")
+    prior_seen = False
+    try:
+        others = await chatwoot.get_contact_conversations(int(contact_id))
+    except Exception as e:
+        print(f"[context] contact-conversations lookup failed: {e}")
+        return blob
+
+    for c in (others or [])[:5]:
+        cid = c.get("id")
+        if not cid or cid == conv.get("id"):
+            continue
+        prior_seen = True
+        if all(blob.get(k) for k in fill_keys):
+            break                          # everything filled — stop fetching
+        try:
+            msgs = await chatwoot.get_conversation_messages_raw(cid)
+        except Exception:
+            continue
+        prior = _build_context_blob(c, msgs)
+        for k in fill_keys:                # current thread wins; earlier fills gaps
+            if not blob.get(k) and prior.get(k):
+                blob[k] = prior[k]
+
+    blob["returning"] = prior_seen
+    return blob
 
 
 def _reply_is_repeat(candidate: str, previous: str, thresh: float = 0.85) -> bool:
@@ -5699,12 +5743,15 @@ async def _template_suggest_locked(conv: dict, channel: str,
               f"auto-answered, skipping re-fire")
         return {"ignored": True, "reason": "gate_already_autosent"}
 
-    # Per-conversation context blob: durable facts (name, phone, city, pincode,
+    # Contact-level context blob: durable facts (name, phone, city, pincode,
     # product, showroom, routing) distilled from the WHOLE history + the gates'
-    # custom_attributes. Feeds the EMI gate and the drafter so the AI stops
-    # re-asking for details already given and can answer "emi on this" about the
-    # product the customer already named.
-    context_blob = _build_context_blob(conv, all_messages)
+    # custom_attributes, AND enriched from the same contact's earlier
+    # conversations (Instagram spawns a new conversation per session). Feeds the
+    # EMI gate and the drafter so the AI stops re-asking for details already
+    # given and can answer "emi on this" about the product the customer named —
+    # even if that was in a previous conversation.
+    _blob_contact_id = ((conv.get("meta") or {}).get("sender") or {}).get("id")
+    context_blob = await _build_contact_context_blob(conv, all_messages, _blob_contact_id)
     known_facts = _context_blob_text(context_blob)
 
     if surface != "comment" and config.EMI_ENABLED:
