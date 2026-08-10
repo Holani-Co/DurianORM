@@ -2494,12 +2494,27 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
 
     gate = await _deal_details_gate_llm(name, text, have_phone)
     city = gate.get("city") or ""
+    # Customers often answer "which city?" with their PINCODE. The gate LLM is
+    # told never to infer a city from an area code, so a pincode used to be
+    # rejected and the gate looped to the ask cap. Resolve it here instead — a
+    # known pincode IS a valid location answer.
+    pincode = ""
+    if not city:
+        pin = pincode_resolver.extract_pincode(text)
+        if pin and pincode_resolver.is_known_pincode(pin):
+            pincode = pin
+            # The customer's own city/region from the pincode tags (Varanasi for
+            # 221105), not the nearest store — the deal records where the
+            # CUSTOMER is; owner-routing handles which store services it.
+            resolved = pincode_resolver.resolve(pin, "furniture")
+            city = (resolved or {}).get("store") or f"Pincode {pin}"
     have_city = bool(city)
 
     if have_phone and have_city:
         # Both in hand → capture for the deal, acknowledge, mark ready.
         await chatwoot.merge_custom_attributes(conv_id, {
             "deal_customer_details": {"phone": phones[0], "city": city,
+                                      "pincode": pincode or None,
                                       "captured_at": _now_iso()},
             "pending_deal_details": None})
         try:
