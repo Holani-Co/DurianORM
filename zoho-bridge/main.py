@@ -4601,6 +4601,75 @@ def _conversation_transcript(messages: list, limit: int = 14) -> str:
     return "\n".join(lines[-limit:])
 
 
+def _build_context_blob(conv: dict, all_messages: list) -> dict:
+    """Durable facts about the customer, distilled from the WHOLE conversation
+    (the drafter transcript is windowed to the last 14 messages and loses early
+    context) plus the custom_attributes the gates already wrote. Feeds the EMI
+    gate (so "emi on this" resolves the product the customer already named) and
+    the drafter (so it stops re-asking for details already given). Per
+    conversation — the "context blob" for this person's thread."""
+    ca = conv.get("custom_attributes") or {}
+    sender = (conv.get("meta") or {}).get("sender") or {}
+    labels = conv.get("labels") or []
+    incoming = [(m.get("content") or "").strip()
+                for m in (all_messages or [])
+                if m.get("message_type") in (0, "incoming") and (m.get("content") or "").strip()]
+    joined = "\n".join(incoming)
+
+    # Phone: what the retail gate captured, else the first Indian mobile seen.
+    phone = ca.get("retail_customer_phone")
+    if not phone:
+        pm = re.search(r"(?:\+?91[\s-]?)?[6-9]\d{9}", joined)
+        phone = pm.group(0) if pm else None
+    # Pincode: a standalone 6-digit number.
+    pinm = re.search(r"\b[1-9]\d{5}\b", joined)
+    # Product: the most-recent catalogue match across the customer's messages.
+    product = None
+    for text in reversed(incoming):
+        hit = product_catalog.resolve(text)
+        if not hit:
+            found = product_catalog.search(text, limit=1)
+            hit = found[0] if found else None
+        if hit:
+            product = hit.get("name") or hit.get("sku")
+            break
+    owner = ca.get("retail_deal_owner") or {}
+    name = sender.get("name")
+    return {
+        "name": name if name not in (None, "", "..") else None,
+        "phone": phone,
+        "email": sender.get("email"),
+        "pincode": pinm.group(0) if pinm else None,
+        "city": owner.get("city"),
+        "product": product,
+        "showroom": owner.get("location") or owner.get("owner_name"),
+        "category": ca.get("phase2_category") or ca.get("email_category"),
+        "routed": "retail-routed" in labels,
+        "deal_id": ca.get("crm_deal_id"),
+    }
+
+
+def _context_blob_text(blob: dict) -> str:
+    """The context blob as a compact directive block for the drafter — only the
+    facts we actually have, with an instruction never to re-ask for them."""
+    rows = [
+        ("Name", blob.get("name")),
+        ("Contact number", blob.get("phone")),
+        ("Email", blob.get("email")),
+        ("City", blob.get("city")),
+        ("Pincode", blob.get("pincode")),
+        ("Product of interest", blob.get("product")),
+        ("Showroom already routed to", blob.get("showroom")),
+        ("Enquiry category", blob.get("category")),
+    ]
+    lines = [f"- {label}: {val}" for label, val in rows if val]
+    if blob.get("routed"):
+        lines.append("- This enquiry has ALREADY been routed to the showroom team.")
+    if blob.get("deal_id"):
+        lines.append("- A CRM deal already exists for this customer.")
+    return "\n".join(lines)
+
+
 def _reply_is_repeat(candidate: str, previous: str, thresh: float = 0.85) -> bool:
     """True when the candidate reply is essentially what we already sent (a
     repeated webhook, or the customer split their details across messages — both
@@ -5079,10 +5148,14 @@ async def _emi_ask_product(conv_id: int, contact_name: str, channel: str,
 
 
 async def _maybe_social_emi(conv_id: int, channel: str, message: str,
-                            contact_name: str) -> dict | None:
+                            contact_name: str, context_product: str = None) -> dict | None:
     """EMI enquiry on a DM → resolve the product → auto-send Snapmint plans.
     Missing/ambiguous product → ask and remember (pending_emi) so the customer's
-    next message resumes. Returns a handled-dict, or None to fall through."""
+    next message resumes. Returns a handled-dict, or None to fall through.
+
+    context_product: the product the customer already named earlier in the
+    conversation (from the context blob) — used when THIS message has no product
+    of its own, e.g. "any emi on this?" after they said "want to buy Ophelia"."""
     if not _EMI_HINT.search(message or ""):
         return None                       # cheap gate — skip the LLM for non-EMI DMs
     g = await _social_emi_gate_llm(contact_name, message)
@@ -5090,12 +5163,14 @@ async def _maybe_social_emi(conv_id: int, channel: str, message: str,
         return None
 
     price = g.get("price") or 0
-    if g.get("product"):
-        product = product_catalog.resolve(g["product"])
+    # This message's product, else the one already established in the thread.
+    prod_name = g.get("product") or context_product
+    if prod_name:
+        product = product_catalog.resolve(prod_name)
         if product:
             return await _emi_send_resolved(
                 conv_id, contact_name, product, product["sku"], product["sale_price"])
-        cands = product_catalog.search(g["product"], limit=4)
+        cands = product_catalog.search(prod_name, limit=4)
         if cands:                         # ambiguous family → ask which variant
             return await _emi_ask_variant(
                 conv_id, contact_name, channel, cands, price, attempts=1)
@@ -5624,8 +5699,17 @@ async def _template_suggest_locked(conv: dict, channel: str,
               f"auto-answered, skipping re-fire")
         return {"ignored": True, "reason": "gate_already_autosent"}
 
+    # Per-conversation context blob: durable facts (name, phone, city, pincode,
+    # product, showroom, routing) distilled from the WHOLE history + the gates'
+    # custom_attributes. Feeds the EMI gate and the drafter so the AI stops
+    # re-asking for details already given and can answer "emi on this" about the
+    # product the customer already named.
+    context_blob = _build_context_blob(conv, all_messages)
+    known_facts = _context_blob_text(context_blob)
+
     if surface != "comment" and config.EMI_ENABLED:
-        handled = await _maybe_social_emi(conv_id, channel, gate_message, contact_name)
+        handled = await _maybe_social_emi(conv_id, channel, gate_message, contact_name,
+                                          context_product=context_blob.get("product"))
         if handled:
             if latest_msg_id is not None:
                 _last_autosend_msgid[conv_id] = latest_msg_id
@@ -5652,6 +5736,7 @@ async def _template_suggest_locked(conv: dict, channel: str,
         drafted = await review_reply.draft(
             channel=channel, message=message, contact_name=contact_name,
             lf_parent=_lf, surface=surface, conversation=conversation,
+            known_facts=known_facts,
         )
     except Exception as e:
         print(f"[template-suggest] draft failed for conv {conv_id}: {e}")
