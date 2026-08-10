@@ -27,6 +27,7 @@ import OrmOverviewReports from './OrmOverviewReports.vue';
 import AiPerformanceReports from './AiPerformanceReports.vue';
 import CrmFunnelReports from './CrmFunnelReports.vue';
 import ReviewsReports from './ReviewsReports.vue';
+import FollowUpReports from './FollowUpReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -163,6 +164,12 @@ export default {
           name: 'orm_reviews_reports',
           meta,
           component: ReviewsReports,
+        },
+        {
+          path: 'follow-ups',
+          name: 'follow_up_reports',
+          meta,
+          component: FollowUpReports,
         },
         {
           path: 'overview',

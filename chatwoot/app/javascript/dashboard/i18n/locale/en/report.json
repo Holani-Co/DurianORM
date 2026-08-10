@@ -1,4 +1,20 @@
 {
+  "FOLLOW_UP_REPORTS": {
+    "HEADER": "Follow-ups",
+    "SUBTITLE": "Conversations your team labelled for follow-up. Pick which labels count with Configure.",
+    "CONFIGURE": "Configure labels",
+    "PICKER_TITLE": "Which labels are follow-ups?",
+    "PICKER_HINT": "Tick the labels that mean a conversation needs following up. Create the labels themselves in Settings → Labels; new ones show here to tick.",
+    "NO_LABELS": "No labels exist yet. Create some in Settings → Labels first.",
+    "SAVE": "Save",
+    "CANCEL": "Cancel",
+    "COL_LABEL": "Follow-up label",
+    "COL_OPEN": "Open backlog",
+    "COL_TOTAL": "In period",
+    "EMPTY": "No follow-up labels selected yet — click Configure labels to pick them.",
+    "FETCH_ERROR": "Couldn't load follow-ups, please try again.",
+    "SAVE_ERROR": "Couldn't save the label selection, please try again."
+  },
   "REVIEWS_REPORTS": {
     "HEADER": "Reviews",
     "FETCH_ERROR": "Failed to load reviews, please try again.",

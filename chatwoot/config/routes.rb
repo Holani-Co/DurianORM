@@ -115,6 +115,8 @@ Rails.application.routes.draw do
             get :emi
             get :overview
           end
+          # Durian — Follow-ups report + its admin-chosen label configuration.
+          resource :follow_up_report, controller: 'follow_up_reports', only: [:show, :update]
           resources :callbacks, only: [] do
             collection do
               post :register_facebook_page
