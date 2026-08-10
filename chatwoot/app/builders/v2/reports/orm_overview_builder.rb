@@ -33,21 +33,28 @@ class V2::Reports::OrmOverviewBuilder
   TICKET_LABEL = 'zoho-ticket'
   AGENT_NEEDED_LABEL = 'agent-needed'
 
+  EMI_LABEL = 'emi-enquiry'
+
   def build
     {
       range: { since: range.begin.to_i, until: range.end.to_i },
       conversations: conversations_summary,
       ai: ai_summary,
-      first_response: { avg_seconds: avg_first_response_seconds },
+      first_response: { avg_seconds: avg_first_response_for(range) },
       deals: { created: label_count(DEAL_LABEL) },
       tickets: { raised: label_count(TICKET_LABEL) },
+      emi: { enquiries: label_count(EMI_LABEL) },
       reviews: reviews_summary,
       categories: category_mix,
+      # Same metrics over the immediately-preceding period of equal length, so
+      # every tile can show whether it's up or down. Keyed to the tile names.
+      previous: period_numbers(prev_range),
       # Which label each drillable tile filters on, so the UI can deep-link the
       # exact conversations behind the number.
       drilldowns: {
         deals: DEAL_LABEL,
         tickets: TICKET_LABEL,
+        emi: EMI_LABEL,
         agent_needed: AGENT_NEEDED_LABEL
       }
     }
@@ -84,9 +91,42 @@ class V2::Reports::OrmOverviewBuilder
     }
   end
 
-  def avg_first_response_seconds
-    avg = ReportingEvent.where(account_id: account.id, name: 'first_response', created_at: range).average(:value)
+  def avg_first_response_for(on_range)
+    avg = ReportingEvent.where(account_id: account.id, name: 'first_response', created_at: on_range).average(:value)
     avg ? avg.to_f.round : 0
+  end
+
+  # The period of equal length immediately before the selected range.
+  def prev_range
+    @prev_range ||= begin
+      duration = range.end - range.begin
+      (range.begin - duration)..range.begin
+    end
+  end
+
+  # The numeric tile values for a period, used for the previous-period deltas.
+  def period_numbers(on_range)
+    auto = account.messages.reorder(nil)
+                  .where(created_at: on_range)
+                  .where("content_attributes ->> 'source' = 'ai_auto_reply'")
+    {
+      conversations: account.conversations.where(created_at: on_range).count,
+      auto_handled: auto.distinct.count(:conversation_id),
+      auto_replies: auto.count,
+      deals: label_count(DEAL_LABEL, on_range: on_range),
+      tickets: label_count(TICKET_LABEL, on_range: on_range),
+      emi: label_count(EMI_LABEL, on_range: on_range),
+      reviews: reviews_count_for(on_range),
+      first_response: avg_first_response_for(on_range)
+    }
+  end
+
+  # Count of reviews posted in a period (by their actual posting date).
+  def reviews_count_for(on_range)
+    account.conversations.where("additional_attributes ->> 'type' = 'google_review'").find_each.count do |conv|
+      posted = safe_time((conv.additional_attributes || {})['review_created_at'])
+      posted && on_range.cover?(posted)
+    end
   end
 
   # Google reviews bucketed by their ACTUAL posting date (review_created_at, a

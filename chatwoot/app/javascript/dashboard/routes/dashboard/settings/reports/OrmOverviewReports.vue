@@ -55,9 +55,39 @@ const autoHandledPct = computed(() => {
 });
 
 // Deep-link a tile to the conversations carrying its label (deals / tickets /
-// agent-needed), so clicking the number lands on exactly those conversations.
+// emi / agent-needed), so clicking the number lands on exactly those.
 const labelRoute = label =>
   label ? accountScopedRoute('label_conversations', { label }) : null;
+
+// Current raw numbers keyed to match report.previous, for the deltas.
+const cur = computed(() => {
+  const r = report.value || {};
+  return {
+    conversations: r.conversations?.total || 0,
+    auto_replies: r.ai?.auto_replies_sent || 0,
+    deals: r.deals?.created || 0,
+    tickets: r.tickets?.raised || 0,
+    emi: r.emi?.enquiries || 0,
+    first_response: r.first_response?.avg_seconds || 0,
+  };
+});
+
+// % change vs the previous period. goodWhenDown flips the colour for metrics
+// where lower is better (first response). null when there's nothing to compare.
+const computeDelta = (key, goodWhenDown = false) => {
+  const previous = report.value?.previous;
+  if (!previous || !(key in previous)) return null;
+  const c = cur.value[key];
+  const p = previous[key] || 0;
+  if (p === 0 && c === 0) return null;
+  const pct = p === 0 ? 100 : Math.round(((c - p) / p) * 100);
+  let dir = 'flat';
+  if (c > p) dir = 'up';
+  else if (c < p) dir = 'down';
+  let good = null;
+  if (dir !== 'flat') good = goodWhenDown ? dir === 'down' : dir === 'up';
+  return { pct: Math.abs(pct), dir, good };
+};
 
 const tiles = computed(() => {
   const r = report.value || {};
@@ -68,6 +98,7 @@ const tiles = computed(() => {
       label: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS'),
       info: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS_INFO'),
       value: num(r.conversations?.total),
+      delta: computeDelta('conversations'),
     },
     {
       key: 'auto_handled',
@@ -80,6 +111,7 @@ const tiles = computed(() => {
       label: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES'),
       info: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES_INFO'),
       value: num(r.ai?.auto_replies_sent),
+      delta: computeDelta('auto_replies'),
     },
     {
       key: 'agent_needed',
@@ -93,6 +125,7 @@ const tiles = computed(() => {
       label: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE'),
       info: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE_INFO'),
       value: durationLabel.value,
+      delta: computeDelta('first_response', true),
     },
     {
       key: 'deals',
@@ -100,6 +133,7 @@ const tiles = computed(() => {
       info: t('ORM_OVERVIEW_REPORTS.TILE.DEALS_INFO'),
       value: num(r.deals?.created),
       to: labelRoute(drills.deals),
+      delta: computeDelta('deals'),
     },
     {
       key: 'tickets',
@@ -107,6 +141,15 @@ const tiles = computed(() => {
       info: t('ORM_OVERVIEW_REPORTS.TILE.TICKETS_INFO'),
       value: num(r.tickets?.raised),
       to: labelRoute(drills.tickets),
+      delta: computeDelta('tickets'),
+    },
+    {
+      key: 'emi',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.EMI'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.EMI_INFO'),
+      value: num(r.emi?.enquiries),
+      to: labelRoute(drills.emi),
+      delta: computeDelta('emi'),
     },
     {
       key: 'avg_rating',
@@ -116,6 +159,14 @@ const tiles = computed(() => {
     },
   ];
 });
+
+const DELTA_ARROWS = { up: '▲', down: '▼', flat: '' };
+const deltaText = delta =>
+  delta ? `${DELTA_ARROWS[delta.dir]} ${delta.pct}%` : '';
+const deltaClass = delta => {
+  if (!delta || delta.good === null) return 'text-n-slate-10';
+  return delta.good ? 'text-n-teal-11' : 'text-n-ruby-11';
+};
 
 const byChannel = computed(() =>
   Object.entries(report.value?.conversations?.by_channel || {}).sort(
@@ -176,6 +227,16 @@ const reviewRows = computed(() => {
           :info-text="tile.info"
           :value="tile.value"
         />
+        <span
+          v-if="tile.delta"
+          class="block mt-1 text-xs font-medium"
+          :class="deltaClass(tile.delta)"
+        >
+          {{ deltaText(tile.delta) }}
+          <span class="text-n-slate-10">
+            {{ $t('ORM_OVERVIEW_REPORTS.VS_PREVIOUS') }}
+          </span>
+        </span>
         <span v-if="tile.to" class="block mt-2 text-xs text-n-slate-10">
           {{ $t('ORM_OVERVIEW_REPORTS.VIEW_CONVERSATIONS') }}
         </span>

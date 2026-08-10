@@ -59,6 +59,7 @@
     "FETCH_ERROR": "Failed to load the ORM overview, please try again.",
     "EMPTY": "No data for this period.",
     "VIEW_CONVERSATIONS": "View conversations →",
+    "VS_PREVIOUS": "vs previous period",
     "TILE": {
       "CONVERSATIONS": "Conversations",
       "CONVERSATIONS_INFO": "Inbound conversations started in this period, across all channels.",
@@ -75,7 +76,9 @@
       "TICKETS": "Tickets raised",
       "TICKETS_INFO": "Conversations that raised at least one Zoho Desk ticket.",
       "AVG_RATING": "Avg review rating",
-      "AVG_RATING_INFO": "Average Google review star rating for reviews posted in this period."
+      "AVG_RATING_INFO": "Average Google review star rating for reviews posted in this period.",
+      "EMI": "EMI enquiries",
+      "EMI_INFO": "Conversations that asked about EMI / financing in this period."
     },
     "SECTION": {
       "BY_CHANNEL": "Conversations by channel",

@@ -13,14 +13,15 @@ module V2::Reports::OrmMetrics
   end
 
   # Count of conversations tagged with `label`, scoped to conversations started
-  # in the range — or, with only_open, the live count still open (the "now"
-  # queue). Matches the label view the matching tile drills into.
-  def label_count(label, only_open: false)
+  # in the range (or on_range, e.g. the previous period) — or, with only_open,
+  # the live count still open (the "now" queue). Matches the label view the
+  # matching tile drills into.
+  def label_count(label, only_open: false, on_range: nil)
     conversation_scope = { account_id: account.id }
     if only_open
       conversation_scope[:status] = Conversation.statuses[:open]
     else
-      conversation_scope[:created_at] = range
+      conversation_scope[:created_at] = on_range || range
     end
     ActsAsTaggableOn::Tagging
       .joins('INNER JOIN conversations ON taggings.taggable_id = conversations.id')
