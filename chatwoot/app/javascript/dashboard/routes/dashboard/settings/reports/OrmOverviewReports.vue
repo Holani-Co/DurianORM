@@ -1,0 +1,376 @@
+<script setup>
+// Durian — ORM Overview health board. One screen: how much of the inbound the
+// AI handled on its own, how much still needs a person, and what business it
+// generated (deals, tickets) plus the review pulse — for a date range. Reads a
+// single bridge-fed endpoint (summary_reports/orm_overview).
+import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useMapGetter } from 'dashboard/composables/store';
+import { useAccount } from 'dashboard/composables/useAccount';
+import { useAlert } from 'dashboard/composables';
+import { downloadCsvFile } from 'dashboard/helper/downloadHelper';
+import ReportHeader from './components/ReportHeader.vue';
+import ReportFilters from './components/ReportFilters.vue';
+import ReportMetricCard from './components/ReportMetricCard.vue';
+
+const { t } = useI18n();
+const accountId = useMapGetter('getCurrentAccountId');
+const { accountScopedRoute } = useAccount();
+const axios = window.axios;
+
+const isLoading = ref(false);
+const report = ref(null);
+// Keep the active range so the CSV exports cover the same period on screen.
+const range = ref({ from: 0, to: 0 });
+
+const fetchOverview = async ({ from, to }) => {
+  if (!from || !to) return;
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get(
+      `/api/v2/accounts/${accountId.value}/summary_reports/orm_overview`,
+      { params: { since: from, until: to } }
+    );
+    report.value = data;
+  } catch {
+    useAlert(t('ORM_OVERVIEW_REPORTS.FETCH_ERROR'));
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const onFilterChange = ({ from, to }) => {
+  range.value = { from, to };
+  fetchOverview({ from, to });
+};
+
+// CSV downloads (Zoho-importable columns for deals; sensible columns for the
+// rest). Reviews excluded — they have their own report. Each export covers the
+// selected date range.
+const downloading = ref('');
+const downloadOptions = [
+  { kind: 'overview', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.OVERVIEW') },
+  { kind: 'deals', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.DEALS') },
+  { kind: 'tickets', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.TICKETS') },
+  { kind: 'emi', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.EMI') },
+];
+
+const download = async kind => {
+  downloading.value = kind;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/orm_exports/${kind}`,
+      { params: { since: range.value.from, until: range.value.to } }
+    );
+    downloadCsvFile(`orm-${kind}.csv`, data);
+  } catch {
+    useAlert(t('ORM_OVERVIEW_REPORTS.DOWNLOAD.ERROR'));
+  } finally {
+    downloading.value = '';
+  }
+};
+
+const num = value => (value || 0).toLocaleString();
+
+const durationLabel = computed(() => {
+  const seconds = report.value?.first_response?.avg_seconds || 0;
+  if (!seconds) return '—';
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+});
+
+const autoHandledPct = computed(() => {
+  const total = report.value?.conversations?.total || 0;
+  const handled = report.value?.ai?.auto_handled_conversations || 0;
+  return total ? `${Math.round((handled / total) * 100)}%` : '0%';
+});
+
+// Deep-link a tile to the conversations carrying its label (deals / tickets /
+// emi / agent-needed), so clicking the number lands on exactly those.
+const labelRoute = label =>
+  label ? accountScopedRoute('label_conversations', { label }) : null;
+
+// Current raw numbers keyed to match report.previous, for the deltas.
+const cur = computed(() => {
+  const r = report.value || {};
+  return {
+    conversations: r.conversations?.total || 0,
+    auto_replies: r.ai?.auto_replies_sent || 0,
+    deals: r.deals?.created || 0,
+    tickets: r.tickets?.raised || 0,
+    emi: r.emi?.enquiries || 0,
+    first_response: r.first_response?.avg_seconds || 0,
+  };
+});
+
+// % change vs the previous period. goodWhenDown flips the colour for metrics
+// where lower is better (first response). null when there's nothing to compare.
+const computeDelta = (key, goodWhenDown = false) => {
+  const previous = report.value?.previous;
+  if (!previous || !(key in previous)) return null;
+  const c = cur.value[key];
+  const p = previous[key] || 0;
+  if (p === 0 && c === 0) return null;
+  const pct = p === 0 ? 100 : Math.round(((c - p) / p) * 100);
+  let dir = 'flat';
+  if (c > p) dir = 'up';
+  else if (c < p) dir = 'down';
+  let good = null;
+  if (dir !== 'flat') good = goodWhenDown ? dir === 'down' : dir === 'up';
+  return { pct: Math.abs(pct), dir, good };
+};
+
+const tiles = computed(() => {
+  const r = report.value || {};
+  const drills = r.drilldowns || {};
+  return [
+    {
+      key: 'conversations',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.CONVERSATIONS_INFO'),
+      value: num(r.conversations?.total),
+      delta: computeDelta('conversations'),
+    },
+    {
+      key: 'auto_handled',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_HANDLED_INFO'),
+      value: autoHandledPct.value,
+    },
+    {
+      key: 'auto_replies',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AUTO_REPLIES_INFO'),
+      value: num(r.ai?.auto_replies_sent),
+      delta: computeDelta('auto_replies'),
+    },
+    {
+      key: 'agent_needed',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AGENT_NEEDED_INFO'),
+      value: num(r.ai?.agent_needed_open),
+      to: labelRoute(drills.agent_needed),
+    },
+    {
+      key: 'first_response',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.FIRST_RESPONSE_INFO'),
+      value: durationLabel.value,
+      delta: computeDelta('first_response', true),
+    },
+    {
+      key: 'deals',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.DEALS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.DEALS_INFO'),
+      value: num(r.deals?.created),
+      to: labelRoute(drills.deals),
+      delta: computeDelta('deals'),
+    },
+    {
+      key: 'tickets',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.TICKETS'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.TICKETS_INFO'),
+      value: num(r.tickets?.raised),
+      to: labelRoute(drills.tickets),
+      delta: computeDelta('tickets'),
+    },
+    {
+      key: 'emi',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.EMI'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.EMI_INFO'),
+      value: num(r.emi?.enquiries),
+      to: labelRoute(drills.emi),
+      delta: computeDelta('emi'),
+    },
+    {
+      key: 'avg_rating',
+      label: t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING'),
+      info: t('ORM_OVERVIEW_REPORTS.TILE.AVG_RATING_INFO'),
+      value: `${r.reviews?.avg_stars || 0} ★`,
+    },
+  ];
+});
+
+const DELTA_ARROWS = { up: '▲', down: '▼', flat: '' };
+const deltaText = delta =>
+  delta ? `${DELTA_ARROWS[delta.dir]} ${delta.pct}%` : '';
+const deltaClass = delta => {
+  if (!delta || delta.good === null) return 'text-n-slate-10';
+  return delta.good ? 'text-n-teal-11' : 'text-n-ruby-11';
+};
+
+const byChannel = computed(() =>
+  Object.entries(report.value?.conversations?.by_channel || {}).sort(
+    (a, b) => b[1] - a[1]
+  )
+);
+
+const categories = computed(() =>
+  Object.entries(report.value?.categories || {}).sort((a, b) => b[1] - a[1])
+);
+
+const humanizeCategory = key =>
+  key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+
+const reviewRows = computed(() => {
+  const dist = report.value?.reviews?.distribution || {};
+  const total = report.value?.reviews?.count || 0;
+  return [5, 4, 3, 2, 1].map(star => {
+    const count = dist[star] || 0;
+    return {
+      star,
+      label: `${star} ★`,
+      count,
+      pct: total ? Math.round((count / total) * 100) : 0,
+    };
+  });
+});
+</script>
+
+<template>
+  <ReportHeader :header-title="$t('ORM_OVERVIEW_REPORTS.HEADER')" />
+  <div class="flex flex-col gap-4">
+    <ReportFilters
+      :show-entity-filter="false"
+      :show-group-by="false"
+      :show-business-hours="false"
+      @filter-change="onFilterChange"
+    />
+
+    <!-- CSV exports for the selected period (deals in Zoho import layout). -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm text-n-slate-11">
+        {{ $t('ORM_OVERVIEW_REPORTS.DOWNLOAD.LABEL') }}
+      </span>
+      <button
+        v-for="opt in downloadOptions"
+        :key="opt.kind"
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg outline-1 outline outline-n-container bg-n-solid-2 text-n-slate-12 hover:bg-n-alpha-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="!!downloading"
+        @click="download(opt.kind)"
+      >
+        <span
+          class="size-3.5"
+          :class="
+            downloading === opt.kind
+              ? 'i-lucide-loader-2 animate-spin'
+              : 'i-lucide-download'
+          "
+        />
+        {{ opt.label }}
+      </button>
+    </div>
+
+    <div
+      class="grid grid-cols-2 gap-4 md:grid-cols-4"
+      :class="{ 'opacity-50': isLoading }"
+    >
+      <component
+        :is="tile.to ? 'router-link' : 'div'"
+        v-for="tile in tiles"
+        :key="tile.key"
+        :to="tile.to"
+        class="block shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
+        :class="
+          tile.to
+            ? 'cursor-pointer transition-[outline,box-shadow] hover:outline-n-slate-6 hover:shadow-md'
+            : ''
+        "
+      >
+        <ReportMetricCard
+          :label="tile.label"
+          :info-text="tile.info"
+          :value="tile.value"
+        />
+        <span
+          v-if="tile.delta"
+          class="block mt-1 text-xs font-medium"
+          :class="deltaClass(tile.delta)"
+        >
+          {{ deltaText(tile.delta) }}
+          <span class="text-n-slate-10">
+            {{ $t('ORM_OVERVIEW_REPORTS.VS_PREVIOUS') }}
+          </span>
+        </span>
+        <span v-if="tile.to" class="block mt-2 text-xs text-n-slate-10">
+          {{ $t('ORM_OVERVIEW_REPORTS.VIEW_CONVERSATIONS') }}
+        </span>
+      </component>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <!-- Conversations by channel -->
+      <div
+        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
+      >
+        <h3 class="mb-4 text-sm font-medium text-n-slate-12">
+          {{ $t('ORM_OVERVIEW_REPORTS.SECTION.BY_CHANNEL') }}
+        </h3>
+        <ul v-if="byChannel.length" class="flex flex-col gap-2">
+          <li
+            v-for="[name, count] in byChannel"
+            :key="name"
+            class="flex items-center justify-between text-sm"
+          >
+            <span class="text-n-slate-11">{{ name }}</span>
+            <span class="font-medium text-n-slate-12">{{ num(count) }}</span>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-n-slate-10">
+          {{ $t('ORM_OVERVIEW_REPORTS.EMPTY') }}
+        </p>
+      </div>
+
+      <!-- Enquiry mix -->
+      <div
+        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
+      >
+        <h3 class="mb-4 text-sm font-medium text-n-slate-12">
+          {{ $t('ORM_OVERVIEW_REPORTS.SECTION.CATEGORIES') }}
+        </h3>
+        <ul v-if="categories.length" class="flex flex-col gap-2">
+          <li
+            v-for="[key, count] in categories"
+            :key="key"
+            class="flex items-center justify-between text-sm"
+          >
+            <span class="text-n-slate-11">{{ humanizeCategory(key) }}</span>
+            <span class="font-medium text-n-slate-12">{{ num(count) }}</span>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-n-slate-10">
+          {{ $t('ORM_OVERVIEW_REPORTS.EMPTY') }}
+        </p>
+      </div>
+
+      <!-- Reviews breakdown -->
+      <div
+        class="shadow outline-1 outline outline-n-container rounded-xl bg-n-solid-2 px-6 py-5"
+      >
+        <h3 class="mb-4 text-sm font-medium text-n-slate-12">
+          {{ $t('ORM_OVERVIEW_REPORTS.SECTION.REVIEWS') }}
+        </h3>
+        <ul class="flex flex-col gap-2">
+          <li
+            v-for="row in reviewRows"
+            :key="row.star"
+            class="flex items-center gap-3 text-sm"
+          >
+            <span class="w-8 text-n-slate-11">{{ row.label }}</span>
+            <span class="flex-1 h-2 rounded-full bg-n-alpha-1 overflow-hidden">
+              <span
+                class="block h-full rounded-full bg-n-teal-9"
+                :style="{ width: `${row.pct}%` }"
+              />
+            </span>
+            <span class="w-8 text-right font-medium text-n-slate-12">
+              {{ num(row.count) }}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</template>

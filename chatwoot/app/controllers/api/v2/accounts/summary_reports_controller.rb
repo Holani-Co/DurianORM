@@ -24,6 +24,31 @@ class Api::V2::Accounts::SummaryReportsController < Api::V1::Accounts::BaseContr
     render_report_with(V2::Reports::ChannelSummaryBuilder)
   end
 
+  # Durian — ORM Overview health board (AI auto-handling, handoffs, deals,
+  # tickets, reviews) for a date range.
+  def orm_overview
+    builder = V2::Reports::OrmOverviewBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
+  # Durian — AI Performance: auto-send rate, confidence, template usage, gates.
+  def ai_performance
+    builder = V2::Reports::AiPerformanceBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
+  # Durian — CRM / Lead funnel: enquiries → qualified → deals, by vertical/category.
+  def crm_funnel
+    builder = V2::Reports::CrmFunnelBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
+  # Durian — Reviews dashboard: rating spread, auto/manual reply, by location.
+  def reviews
+    builder = V2::Reports::ReviewsBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
   private
 
   def check_authorization

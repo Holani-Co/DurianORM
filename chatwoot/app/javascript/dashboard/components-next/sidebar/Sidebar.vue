@@ -592,6 +592,31 @@ const menuItems = computed(() => {
       icon: 'i-lucide-chart-spline',
       children: [
         {
+          name: 'Report ORM Overview',
+          label: t('SIDEBAR.REPORTS_ORM_OVERVIEW'),
+          to: accountScopedRoute('orm_overview_reports'),
+        },
+        {
+          name: 'Report AI Performance',
+          label: t('SIDEBAR.REPORTS_AI_PERFORMANCE'),
+          to: accountScopedRoute('ai_performance_reports'),
+        },
+        {
+          name: 'Report CRM Funnel',
+          label: t('SIDEBAR.REPORTS_CRM_FUNNEL'),
+          to: accountScopedRoute('crm_funnel_reports'),
+        },
+        {
+          name: 'Report Reviews',
+          label: t('SIDEBAR.REPORTS_REVIEWS'),
+          to: accountScopedRoute('orm_reviews_reports'),
+        },
+        {
+          name: 'Report Follow-ups',
+          label: t('SIDEBAR.REPORTS_FOLLOW_UPS'),
+          to: accountScopedRoute('follow_up_reports'),
+        },
+        {
           name: 'Report Overview',
           label: t('SIDEBAR.REPORTS_OVERVIEW'),
           to: accountScopedRoute('account_overview_reports'),
@@ -1004,10 +1029,10 @@ const menuItems = computed(() => {
       />
       <!-- Always-visible collapse / expand toggle anchored to the edge -->
       <button
-        type="button"
         v-tooltip.right="
           isEffectivelyCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
         "
+        type="button"
         class="hidden md:flex absolute top-1/2 -translate-y-1/2 ltr:-right-3 rtl:-left-3 z-50 w-7 h-7 items-center justify-center rounded-full bg-n-solid-2 border border-n-weak shadow text-n-slate-11 hover:text-n-slate-12 hover:bg-n-alpha-2 transition-colors cursor-pointer"
         :aria-label="
           isEffectivelyCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
@@ -1016,10 +1041,8 @@ const menuItems = computed(() => {
         @click.stop="toggleCollapsed"
       >
         <span
-          :class="[
-            'i-lucide-chevron-left text-base transition-transform',
-            { 'rotate-180': isEffectivelyCollapsed },
-          ]"
+          class="i-lucide-chevron-left text-base transition-transform"
+          :class="[{ 'rotate-180': isEffectivelyCollapsed }]"
         />
       </button>
     </div>

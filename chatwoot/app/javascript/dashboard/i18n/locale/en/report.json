@@ -1,4 +1,115 @@
 {
+  "FOLLOW_UP_REPORTS": {
+    "HEADER": "Follow-ups",
+    "SUBTITLE": "Conversations your team labelled for follow-up. Pick which labels count with Configure.",
+    "CONFIGURE": "Configure labels",
+    "PICKER_TITLE": "Which labels are follow-ups?",
+    "PICKER_HINT": "Tick the labels that mean a conversation needs following up. Create the labels themselves in Settings → Labels; new ones show here to tick.",
+    "NO_LABELS": "No labels exist yet. Create some in Settings → Labels first.",
+    "SAVE": "Save",
+    "CANCEL": "Cancel",
+    "COL_LABEL": "Follow-up label",
+    "COL_OPEN": "Open backlog",
+    "COL_TOTAL": "In period",
+    "EMPTY": "No follow-up labels selected yet — click Configure labels to pick them.",
+    "FETCH_ERROR": "Couldn't load follow-ups, please try again.",
+    "SAVE_ERROR": "Couldn't save the label selection, please try again."
+  },
+  "REVIEWS_REPORTS": {
+    "HEADER": "Reviews",
+    "FETCH_ERROR": "Failed to load reviews, please try again.",
+    "EMPTY": "No reviews with a location in this period.",
+    "NO_LOW": "No 1–2★ reviews in this period. 🎉",
+    "TILE": {
+      "COUNT": "Reviews received",
+      "COUNT_INFO": "Google reviews posted in this period.",
+      "AVG": "Average rating",
+      "AVG_INFO": "Mean star rating of reviews posted in this period.",
+      "AUTO_RATE": "Auto-reply rate",
+      "AUTO_RATE_INFO": "Share of replied reviews that were answered automatically.",
+      "LOW": "Needs attention",
+      "LOW_INFO": "Reviews rated 1★ or 2★ in this period."
+    },
+    "SECTION": {
+      "DISTRIBUTION": "Rating distribution",
+      "LOCATION": "By store location",
+      "LOW": "Recent low ratings (1–2★)"
+    }
+  },
+  "CRM_FUNNEL_REPORTS": {
+    "HEADER": "CRM / Lead funnel",
+    "FETCH_ERROR": "Failed to load the CRM funnel, please try again.",
+    "EMPTY": "No deals in this period.",
+    "TILE": {
+      "CONVERSION": "Enquiry → deal",
+      "CONVERSION_INFO": "Share of routed enquiries that became a CRM deal."
+    },
+    "SECTION": {
+      "FUNNEL": "Lead funnel",
+      "VERTICAL": "Deals by vertical",
+      "CATEGORY": "Deals by enquiry category"
+    }
+  },
+  "AI_PERFORMANCE_REPORTS": {
+    "HEADER": "AI Performance",
+    "FETCH_ERROR": "Failed to load AI performance, please try again.",
+    "EMPTY": "No auto-replies in this period.",
+    "TILE": {
+      "AUTO_REPLIES": "Auto-replies sent",
+      "AUTO_REPLIES_INFO": "Public replies the assistant sent automatically in this period.",
+      "AUTO_SEND_RATE": "Auto-send rate",
+      "AUTO_SEND_RATE_INFO": "Share of conversations the assistant handled on its own.",
+      "AVG_CONFIDENCE": "Avg confidence",
+      "AVG_CONFIDENCE_INFO": "Average confidence score on the replies it auto-sent.",
+      "HANDOFFS": "Handoffs to a human",
+      "HANDOFFS_INFO": "Conversations the assistant escalated to an agent (agent-needed)."
+    },
+    "SECTION": {
+      "TEMPLATES": "Templates used",
+      "CONFIDENCE": "Confidence distribution",
+      "GATES": "Answered automatically by gate"
+    }
+  },
+  "ORM_OVERVIEW_REPORTS": {
+    "HEADER": "ORM Overview",
+    "FETCH_ERROR": "Failed to load the ORM overview, please try again.",
+    "EMPTY": "No data for this period.",
+    "VIEW_CONVERSATIONS": "View conversations →",
+    "VS_PREVIOUS": "vs previous period",
+    "DOWNLOAD": {
+      "LABEL": "Download CSV:",
+      "OVERVIEW": "Overview",
+      "DEALS": "Deals",
+      "TICKETS": "Tickets",
+      "EMI": "EMI",
+      "ERROR": "Couldn't generate that export, please try again."
+    },
+    "TILE": {
+      "CONVERSATIONS": "Conversations",
+      "CONVERSATIONS_INFO": "Inbound conversations started in this period, across all channels.",
+      "AUTO_HANDLED": "AI auto-handled",
+      "AUTO_HANDLED_INFO": "Share of conversations the assistant replied to on its own, without a human.",
+      "AUTO_REPLIES": "AI replies sent",
+      "AUTO_REPLIES_INFO": "Total public replies the assistant sent automatically.",
+      "AGENT_NEEDED": "Awaiting a human",
+      "AGENT_NEEDED_INFO": "Conversations currently open and still waiting on an agent.",
+      "FIRST_RESPONSE": "Avg first response",
+      "FIRST_RESPONSE_INFO": "Average time to the first reply in this period.",
+      "DEALS": "Deals created",
+      "DEALS_INFO": "Conversations that produced a Zoho CRM deal.",
+      "TICKETS": "Tickets raised",
+      "TICKETS_INFO": "Conversations that raised at least one Zoho Desk ticket.",
+      "AVG_RATING": "Avg review rating",
+      "AVG_RATING_INFO": "Average Google review star rating for reviews posted in this period.",
+      "EMI": "EMI enquiries",
+      "EMI_INFO": "Conversations that asked about EMI / financing in this period."
+    },
+    "SECTION": {
+      "BY_CHANNEL": "Conversations by channel",
+      "CATEGORIES": "Enquiry mix",
+      "REVIEWS": "Review ratings"
+    }
+  },
   "REPORT": {
     "HEADER": "Conversations",
     "LOADING_CHART": "Loading chart data...",

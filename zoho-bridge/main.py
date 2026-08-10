@@ -628,6 +628,10 @@ async def _surface_ticket_in_chatwoot(
     except Exception as e:
         print(f"[zoho] merge_custom_attributes failed for conv {conv_id}: {e}")
 
+    # Permanent marker so every ticket-raising conversation is filterable — the
+    # ORM Overview report's "Tickets raised" tile drills into this label.
+    await _label_conversation(conv_id, ZOHO_TICKET_LABEL)
+
 
 # ── Ticket dedup: pause auto-create when contact has open ticket ──────────
 # Flow:
@@ -2390,6 +2394,9 @@ DEAL_READY_LABEL          = "deal-ready"
 # Applied when a CRM Deal is actually created, so agents can filter every
 # conversation that produced a deal — plus a per-vertical tag for what kind.
 DEAL_CREATED_LABEL        = "deal-created"
+# Applied when a Zoho Desk ticket is raised, so every ticket-raising
+# conversation is filterable (the ORM Overview "Tickets raised" tile drills here).
+ZOHO_TICKET_LABEL         = "zoho-ticket"
 _DEAL_VERTICAL_LABEL = {
     "project_bulk_order":      "deal-bulk",
     "full_home_customization": "deal-fhc",

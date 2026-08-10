@@ -23,6 +23,11 @@ import CsatResponses from './CsatResponses.vue';
 import BotReports from './BotReports.vue';
 import LiveReports from './LiveReports.vue';
 import SLAReports from './SLAReports.vue';
+import OrmOverviewReports from './OrmOverviewReports.vue';
+import AiPerformanceReports from './AiPerformanceReports.vue';
+import CrmFunnelReports from './CrmFunnelReports.vue';
+import ReviewsReports from './ReviewsReports.vue';
+import FollowUpReports from './FollowUpReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -135,6 +140,36 @@ export default {
           redirect: to => {
             return { name: 'account_overview_reports', params: to.params };
           },
+        },
+        {
+          path: 'orm-overview',
+          name: 'orm_overview_reports',
+          meta,
+          component: OrmOverviewReports,
+        },
+        {
+          path: 'ai-performance',
+          name: 'ai_performance_reports',
+          meta,
+          component: AiPerformanceReports,
+        },
+        {
+          path: 'crm-funnel',
+          name: 'crm_funnel_reports',
+          meta,
+          component: CrmFunnelReports,
+        },
+        {
+          path: 'orm-reviews',
+          name: 'orm_reviews_reports',
+          meta,
+          component: ReviewsReports,
+        },
+        {
+          path: 'follow-ups',
+          name: 'follow_up_reports',
+          meta,
+          component: FollowUpReports,
         },
         {
           path: 'overview',
