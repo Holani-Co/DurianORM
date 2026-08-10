@@ -43,6 +43,13 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Email inboxes only: allow extra To recipients as email chips beside the
+  // contact. The conversation still belongs to the selected contact; these are
+  // additional addresses on the outgoing email's To line.
+  allowAdditionalTo: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits([
@@ -56,6 +63,16 @@ const i18nPrefix = 'COMPOSE_NEW_CONVERSATION.FORM.CONTACT_SELECTOR';
 const { t } = useI18n();
 
 const inputType = ref(INPUT_TYPES.EMAIL);
+
+// Extra To recipients (comma-separated string, shared as v-model with the
+// form). Rendered as email chips next to the contact once one is selected.
+const toEmails = defineModel('toEmails', { type: String, default: '' });
+const toEmailsArray = computed(() =>
+  toEmails.value ? toEmails.value.split(',').map(email => email.trim()) : []
+);
+const handleToUpdate = value => {
+  toEmails.value = value.join(',');
+};
 
 const contactsList = computed(() => {
   return props.contacts?.map(({ name, id, thumbnail, email, ...rest }) => ({
@@ -150,6 +167,18 @@ const handleInput = value => {
         @on-click-outside="emit('updateDropdown', 'contacts', false)"
         @add="emit('setSelectedContact', $event)"
         @remove="emit('clearSelectedContact')"
+      />
+
+      <!-- Extra To recipients (email inboxes only, once a contact is picked) —
+           additional addresses on the outgoing email's To line. -->
+      <TagInput
+        v-if="allowAdditionalTo && selectedContact"
+        :model-value="toEmailsArray"
+        :placeholder="t(`${i18nPrefix}.ADD_TO_PLACEHOLDER`)"
+        type="email"
+        allow-create
+        class="flex-1 min-h-7"
+        @update:model-value="handleToUpdate"
       />
     </div>
   </div>

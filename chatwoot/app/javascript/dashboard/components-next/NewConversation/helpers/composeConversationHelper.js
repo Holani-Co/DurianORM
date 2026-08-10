@@ -126,6 +126,7 @@ export const prepareNewMessagePayload = ({
   subject,
   ccEmails,
   bccEmails,
+  toEmails,
   currentUser,
   attachedFiles = [],
   directUploadsEnabled = false,
@@ -155,6 +156,18 @@ export const prepareNewMessagePayload = ({
 
   if (bccEmails) {
     payload.message.bcc_emails = bccEmails;
+  }
+
+  // Extra To recipients: the mailer sends to content_attributes.to_emails
+  // verbatim (it does NOT auto-add the contact), so include the contact's own
+  // email first, then the extras, de-duplicated.
+  if (toEmails) {
+    const extras = toEmails
+      .split(',')
+      .map(email => email.trim())
+      .filter(Boolean);
+    const all = [selectedContact.email, ...extras].filter(Boolean);
+    payload.message.to_emails = [...new Set(all)].join(',');
   }
 
   return payload;
