@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAccount } from 'dashboard/composables/useAccount';
 import { useAlert } from 'dashboard/composables';
+import { downloadCsvFile } from 'dashboard/helper/downloadHelper';
 import ReportHeader from './components/ReportHeader.vue';
 import ReportFilters from './components/ReportFilters.vue';
 import ReportMetricCard from './components/ReportMetricCard.vue';
@@ -19,6 +20,8 @@ const axios = window.axios;
 
 const isLoading = ref(false);
 const report = ref(null);
+// Keep the active range so the CSV exports cover the same period on screen.
+const range = ref({ from: 0, to: 0 });
 
 const fetchOverview = async ({ from, to }) => {
   if (!from || !to) return;
@@ -36,7 +39,36 @@ const fetchOverview = async ({ from, to }) => {
   }
 };
 
-const onFilterChange = ({ from, to }) => fetchOverview({ from, to });
+const onFilterChange = ({ from, to }) => {
+  range.value = { from, to };
+  fetchOverview({ from, to });
+};
+
+// CSV downloads (Zoho-importable columns for deals; sensible columns for the
+// rest). Reviews excluded — they have their own report. Each export covers the
+// selected date range.
+const downloading = ref('');
+const downloadOptions = [
+  { kind: 'overview', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.OVERVIEW') },
+  { kind: 'deals', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.DEALS') },
+  { kind: 'tickets', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.TICKETS') },
+  { kind: 'emi', label: t('ORM_OVERVIEW_REPORTS.DOWNLOAD.EMI') },
+];
+
+const download = async kind => {
+  downloading.value = kind;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/orm_exports/${kind}`,
+      { params: { since: range.value.from, until: range.value.to } }
+    );
+    downloadCsvFile(`orm-${kind}.csv`, data);
+  } catch {
+    useAlert(t('ORM_OVERVIEW_REPORTS.DOWNLOAD.ERROR'));
+  } finally {
+    downloading.value = '';
+  }
+};
 
 const num = value => (value || 0).toLocaleString();
 
@@ -205,6 +237,31 @@ const reviewRows = computed(() => {
       :show-business-hours="false"
       @filter-change="onFilterChange"
     />
+
+    <!-- CSV exports for the selected period (deals in Zoho import layout). -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm text-n-slate-11">
+        {{ $t('ORM_OVERVIEW_REPORTS.DOWNLOAD.LABEL') }}
+      </span>
+      <button
+        v-for="opt in downloadOptions"
+        :key="opt.kind"
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg outline-1 outline outline-n-container bg-n-solid-2 text-n-slate-12 hover:bg-n-alpha-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="!!downloading"
+        @click="download(opt.kind)"
+      >
+        <span
+          class="size-3.5"
+          :class="
+            downloading === opt.kind
+              ? 'i-lucide-loader-2 animate-spin'
+              : 'i-lucide-download'
+          "
+        />
+        {{ opt.label }}
+      </button>
+    </div>
 
     <div
       class="grid grid-cols-2 gap-4 md:grid-cols-4"

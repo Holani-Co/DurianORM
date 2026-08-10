@@ -108,6 +108,13 @@ Rails.application.routes.draw do
           resource :audit_logs, only: [:show]
           # Durian — star-segregated Google-reviews CSV for a date range.
           resource :reviews_report, controller: 'reviews_reports', only: [:show]
+          # Durian — downloadable CSV exports for the ORM reports section.
+          resource :orm_exports, controller: 'orm_exports', only: [] do
+            get :deals
+            get :tickets
+            get :emi
+            get :overview
+          end
           resources :callbacks, only: [] do
             collection do
               post :register_facebook_page
