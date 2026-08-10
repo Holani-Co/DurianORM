@@ -458,7 +458,7 @@ def add_outcome_step(trace: list[dict], *, sent: bool, detail: str) -> list[dict
 
 async def draft(channel: str, message: str, contact_name: str,
                 stars: int = 0, location: str = "", lf_parent: dict = None,
-                surface: str = "", conversation: str = ""):
+                surface: str = "", conversation: str = "", known_facts: str = ""):
     """Pick + personalise an approved template for the given channel.
 
     Returns a dict: {reply, action, short_code, reasoning, trace}. `trace` is an
@@ -574,6 +574,18 @@ async def draft(channel: str, message: str, contact_name: str,
         context_lines.append(f"Star rating: {stars or 'unknown'}/5")
         if location:
             context_lines.append(f"Showroom: {location}")
+    # Durable facts already known about this customer (distilled from the whole
+    # thread, which may be longer than the windowed transcript below). This is
+    # what stops the drafter re-asking for the same details in circles.
+    if known_facts:
+        context_lines.append(
+            "── WHAT WE ALREADY KNOW ABOUT THIS CUSTOMER ──\n" + known_facts + "\n"
+            "IMPORTANT: We already have every detail listed above — do NOT ask "
+            "for any of them again. If we already have their name, contact "
+            "number and city/location, do NOT pick a details-collection "
+            "template; acknowledge and tell them our showroom/team will reach "
+            "out shortly, or answer their actual question. Always move the "
+            "conversation forward — never repeat a question they've answered.")
     # The FULL conversation (both sides), so the template is chosen for the whole
     # exchange in context — not a single message in isolation. This is what stops
     # re-asking for details already given and lets follow-ups be understood.
