@@ -51,6 +51,7 @@ const formState = reactive({
   subject: '',
   ccEmails: '',
   bccEmails: '',
+  toEmails: '',
   attachedFiles: [],
 });
 
@@ -59,6 +60,7 @@ const clearFormState = () => {
     subject: '',
     ccEmails: '',
     bccEmails: '',
+    toEmails: '',
     attachedFiles: [],
   });
 };

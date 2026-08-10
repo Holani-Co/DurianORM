@@ -616,6 +616,7 @@
       "CONTACT_SELECTOR": {
         "LABEL": "To:",
         "TAG_INPUT_PLACEHOLDER": "Enter at least 2 characters to search by name, email, or phone number",
+        "ADD_TO_PLACEHOLDER": "Add more recipients…",
         "CONTACT_CREATING": "Creating contact..."
       },
       "INBOX_SELECTOR": {

@@ -70,6 +70,7 @@ const state = props.formState || {
   subject: '',
   ccEmails: '',
   bccEmails: '',
+  toEmails: '',
   attachedFiles: [],
 };
 
@@ -129,7 +130,8 @@ const validationStates = computed(() => ({
 }));
 
 const newMessagePayload = () => {
-  const { message, subject, ccEmails, bccEmails, attachedFiles } = state;
+  const { message, subject, ccEmails, bccEmails, toEmails, attachedFiles } =
+    state;
   return prepareNewMessagePayload({
     targetInbox: props.targetInbox,
     selectedContact: props.selectedContact,
@@ -137,6 +139,7 @@ const newMessagePayload = () => {
     subject,
     ccEmails,
     bccEmails,
+    toEmails,
     currentUser: props.currentUser,
     attachedFiles,
     directUploadsEnabled: props.isDirectUploadsEnabled,
@@ -284,6 +287,7 @@ const clearForm = () => {
     subject: '',
     ccEmails: '',
     bccEmails: '',
+    toEmails: '',
     attachedFiles: [],
   });
   v$.value.$reset();
@@ -367,6 +371,7 @@ useKeyboardEvents({
   >
     <div class="flex-1 overflow-y-auto divide-y divide-n-strong">
       <ContactSelector
+        v-model:to-emails="state.toEmails"
         :contacts="contacts"
         :selected-contact="selectedContact"
         :show-contacts-dropdown="showContactsDropdown"
@@ -376,6 +381,7 @@ useKeyboardEvents({
         :contactable-inboxes-list="contactableInboxesList"
         :show-inboxes-dropdown="showInboxesDropdown"
         :has-errors="validationStates.isContactInvalid"
+        :allow-additional-to="inboxTypes.isEmail"
         @search-contacts="handleContactSearch"
         @set-selected-contact="setSelectedContact"
         @clear-selected-contact="clearSelectedContact"
