@@ -26,6 +26,7 @@ import SLAReports from './SLAReports.vue';
 import OrmOverviewReports from './OrmOverviewReports.vue';
 import AiPerformanceReports from './AiPerformanceReports.vue';
 import CrmFunnelReports from './CrmFunnelReports.vue';
+import ReviewsReports from './ReviewsReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -156,6 +157,12 @@ export default {
           name: 'crm_funnel_reports',
           meta,
           component: CrmFunnelReports,
+        },
+        {
+          path: 'orm-reviews',
+          name: 'orm_reviews_reports',
+          meta,
+          component: ReviewsReports,
         },
         {
           path: 'overview',

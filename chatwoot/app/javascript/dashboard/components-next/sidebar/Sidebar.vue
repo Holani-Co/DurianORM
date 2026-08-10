@@ -607,6 +607,11 @@ const menuItems = computed(() => {
           to: accountScopedRoute('crm_funnel_reports'),
         },
         {
+          name: 'Report Reviews',
+          label: t('SIDEBAR.REPORTS_REVIEWS'),
+          to: accountScopedRoute('orm_reviews_reports'),
+        },
+        {
           name: 'Report Overview',
           label: t('SIDEBAR.REPORTS_OVERVIEW'),
           to: accountScopedRoute('account_overview_reports'),

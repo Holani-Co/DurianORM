@@ -1,4 +1,25 @@
 {
+  "REVIEWS_REPORTS": {
+    "HEADER": "Reviews",
+    "FETCH_ERROR": "Failed to load reviews, please try again.",
+    "EMPTY": "No reviews with a location in this period.",
+    "NO_LOW": "No 1–2★ reviews in this period. 🎉",
+    "TILE": {
+      "COUNT": "Reviews received",
+      "COUNT_INFO": "Google reviews posted in this period.",
+      "AVG": "Average rating",
+      "AVG_INFO": "Mean star rating of reviews posted in this period.",
+      "AUTO_RATE": "Auto-reply rate",
+      "AUTO_RATE_INFO": "Share of replied reviews that were answered automatically.",
+      "LOW": "Needs attention",
+      "LOW_INFO": "Reviews rated 1★ or 2★ in this period."
+    },
+    "SECTION": {
+      "DISTRIBUTION": "Rating distribution",
+      "LOCATION": "By store location",
+      "LOW": "Recent low ratings (1–2★)"
+    }
+  },
   "CRM_FUNNEL_REPORTS": {
     "HEADER": "CRM / Lead funnel",
     "FETCH_ERROR": "Failed to load the CRM funnel, please try again.",

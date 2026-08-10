@@ -512,6 +512,7 @@ Rails.application.routes.draw do
               get :orm_overview
               get :ai_performance
               get :crm_funnel
+              get :reviews
             end
           end
           resources :reports, only: [:index] do

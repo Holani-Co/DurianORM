@@ -43,6 +43,12 @@ class Api::V2::Accounts::SummaryReportsController < Api::V1::Accounts::BaseContr
     render json: builder.build
   end
 
+  # Durian — Reviews dashboard: rating spread, auto/manual reply, by location.
+  def reviews
+    builder = V2::Reports::ReviewsBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
   private
 
   def check_authorization
