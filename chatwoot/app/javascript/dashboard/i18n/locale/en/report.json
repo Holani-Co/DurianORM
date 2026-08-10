@@ -1,4 +1,32 @@
 {
+  "ORM_OVERVIEW_REPORTS": {
+    "HEADER": "ORM Overview",
+    "FETCH_ERROR": "Failed to load the ORM overview, please try again.",
+    "EMPTY": "No data for this period.",
+    "TILE": {
+      "CONVERSATIONS": "Conversations",
+      "CONVERSATIONS_INFO": "Inbound conversations started in this period, across all channels.",
+      "AUTO_HANDLED": "AI auto-handled",
+      "AUTO_HANDLED_INFO": "Share of conversations the assistant replied to on its own, without a human.",
+      "AUTO_REPLIES": "AI replies sent",
+      "AUTO_REPLIES_INFO": "Total public replies the assistant sent automatically.",
+      "AGENT_NEEDED": "Awaiting a human",
+      "AGENT_NEEDED_INFO": "Conversations currently open and still waiting on an agent.",
+      "FIRST_RESPONSE": "Avg first response",
+      "FIRST_RESPONSE_INFO": "Average time to the first reply in this period.",
+      "DEALS": "Deals created",
+      "DEALS_INFO": "Conversations that produced a Zoho CRM deal.",
+      "TICKETS": "Tickets raised",
+      "TICKETS_INFO": "Conversations that raised at least one Zoho Desk ticket.",
+      "AVG_RATING": "Avg review rating",
+      "AVG_RATING_INFO": "Average Google review star rating for reviews posted in this period."
+    },
+    "SECTION": {
+      "BY_CHANNEL": "Conversations by channel",
+      "CATEGORIES": "Enquiry mix",
+      "REVIEWS": "Review ratings"
+    }
+  },
   "REPORT": {
     "HEADER": "Conversations",
     "LOADING_CHART": "Loading chart data...",

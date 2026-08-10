@@ -509,6 +509,7 @@ Rails.application.routes.draw do
               get :inbox
               get :label
               get :channel
+              get :orm_overview
             end
           end
           resources :reports, only: [:index] do

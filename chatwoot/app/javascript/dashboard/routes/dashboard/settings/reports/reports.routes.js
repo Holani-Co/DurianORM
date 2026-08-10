@@ -23,6 +23,7 @@ import CsatResponses from './CsatResponses.vue';
 import BotReports from './BotReports.vue';
 import LiveReports from './LiveReports.vue';
 import SLAReports from './SLAReports.vue';
+import OrmOverviewReports from './OrmOverviewReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -135,6 +136,12 @@ export default {
           redirect: to => {
             return { name: 'account_overview_reports', params: to.params };
           },
+        },
+        {
+          path: 'orm-overview',
+          name: 'orm_overview_reports',
+          meta,
+          component: OrmOverviewReports,
         },
         {
           path: 'overview',

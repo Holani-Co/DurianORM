@@ -24,6 +24,13 @@ class Api::V2::Accounts::SummaryReportsController < Api::V1::Accounts::BaseContr
     render_report_with(V2::Reports::ChannelSummaryBuilder)
   end
 
+  # Durian — ORM Overview health board (AI auto-handling, handoffs, deals,
+  # tickets, reviews) for a date range.
+  def orm_overview
+    builder = V2::Reports::OrmOverviewBuilder.new(account: Current.account, params: permitted_params)
+    render json: builder.build
+  end
+
   private
 
   def check_authorization
