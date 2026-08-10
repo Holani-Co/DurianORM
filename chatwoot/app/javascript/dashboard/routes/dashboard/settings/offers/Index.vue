@@ -274,17 +274,17 @@ const remove = async o => {
         </button>
         <button
           type="button"
-          class="shrink-0 size-7 flex items-center justify-center rounded-md hover:bg-n-alpha-2 text-n-slate-11"
+          class="shrink-0 size-10 flex items-center justify-center rounded-lg outline-1 outline outline-n-container text-n-slate-11 hover:bg-n-alpha-2 hover:text-n-slate-12"
           @click="startEdit(o)"
         >
-          <span class="size-4 i-lucide-pencil" />
+          <span class="size-5 i-lucide-pencil" />
         </button>
         <button
           type="button"
-          class="shrink-0 size-7 flex items-center justify-center rounded-md hover:bg-n-alpha-2 text-n-ruby-11"
+          class="shrink-0 size-10 flex items-center justify-center rounded-lg outline-1 outline outline-n-container text-n-ruby-11 hover:bg-n-ruby-3"
           @click="remove(o)"
         >
-          <span class="size-4 i-lucide-trash-2" />
+          <span class="size-5 i-lucide-trash-2" />
         </button>
       </div>
     </div>
