@@ -2513,6 +2513,8 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
                                _DEAL_DETAILS_ACK.format(customer_name=name))
         await _label_conversation(conv_id, DEAL_READY_LABEL)
         print(f"[deal-gate] conv {conv_id}: captured phone + city ({city}) — deal-ready")
+        # Email channel: create the deal now (no Create-Deal click needed).
+        await _maybe_auto_create_deal(conv_id, channel)
         return [f"📝 Deal details captured (phone + {city}); enquiry acknowledged "
                 f"— ready for the agent to create the deal."]
 
@@ -2758,6 +2760,8 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
             "→ Click **Create Deal** to log this enquiry to that showroom owner.")
     except Exception as e:
         print(f"[retail-gate] note failed for conv {conv_id}: {e}")
+    # Email channel: create the deal now (no Create-Deal click needed).
+    await _maybe_auto_create_deal(conv_id, channel)
     return [f"🛍️ Retail routed to {owner['location']} (owner {owner['owner_id']}) — Create Deal ready."]
 
 
@@ -7141,12 +7145,25 @@ async def chatwoot_crm_create_deal(request: Request):
     Idempotent via crm_deal_id. Body: {conversation_id, agent_name?, sector?}
     — `sector` is the agent's government/private choice when classification
     was ambiguous (the endpoint returns 409 to request it)."""
-    if not config.ZOHO_CRM_ENABLED:
-        raise HTTPException(503, "CRM not configured")
     body = await request.json()
     conv_id = body.get("conversation_id")
     if not conv_id:
         raise HTTPException(400, "missing conversation_id")
+    return await _create_crm_deal(
+        conv_id, agent_name=body.get("agent_name") or "an agent",
+        sector=(body.get("sector") or ""), phone=str(body.get("phone") or ""),
+        ignore_existing=bool(body.get("ignore_existing")))
+
+
+async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
+                           phone="", ignore_existing=False):
+    """Core Create-Deal logic, shared by the manual button endpoint and the
+    email-channel auto-create. Raises HTTPException for the cases that need a
+    human decision (409 buyer-type unclear, 422 unresolvable location, 409
+    existing-deal warning) — the auto path catches these and defers to the
+    manual button; the endpoint surfaces them to the panel."""
+    if not config.ZOHO_CRM_ENABLED:
+        raise HTTPException(503, "CRM not configured")
     try:
         conv     = await chatwoot.get_conversation(int(conv_id))
         messages = await chatwoot.get_conversation_messages(int(conv_id))
@@ -7210,7 +7227,7 @@ async def chatwoot_crm_create_deal(request: Request):
     # location-wise owner. Ambiguous buyer type → 409 so the panel asks the
     # agent to pick Government/Private. Unresolvable location → 422, do NOT
     # tag CRM (client rule).
-    sector_override = (body.get("sector") or "").lower()
+    sector_override = (sector or "").lower()
     owner = await _resolve_deal_owner(custom, body_text, subject, email,
                                       sector_override=sector_override)
     if owner.get("sector_unclear"):
@@ -7225,8 +7242,7 @@ async def chatwoot_crm_create_deal(request: Request):
     # deal-details gate captured from the customer — so we reuse an existing CRM
     # contact by number without the agent typing it. `ignore_existing` is the
     # "Create anyway" override for the duplicate-deal warning below.
-    phone_override  = str(body.get("phone") or "").strip() or str(_captured.get("phone") or "")
-    ignore_existing = bool(body.get("ignore_existing"))
+    phone_override  = str(phone or "").strip() or str(_captured.get("phone") or "")
 
     # Remember the agent's sector decision so re-runs / other flows see it.
     if sector_override in ("government", "private"):
@@ -7386,7 +7402,6 @@ async def chatwoot_crm_create_deal(request: Request):
     await _clear_agent_needed(int(conv_id), conv)
 
     try:
-        agent_name = body.get("agent_name") or "an agent"
         await chatwoot.post_private_note(
             int(conv_id),
             f"✅ CRM Deal created by {agent_name} — "
@@ -7408,6 +7423,28 @@ async def chatwoot_crm_create_deal(request: Request):
     return {"deal_id": deal_id, "created": True,
             "url": zoho_crm.deal_url(deal_id),
             "contact_id": contact_id, "contact_created": contact_created}
+
+
+async def _maybe_auto_create_deal(conv_id: int, channel: str) -> None:
+    """EMAIL channel only: an enquiry just became fully qualified, so create the
+    CRM deal automatically instead of waiting for an agent to click Create Deal
+    (the client validated the flow). Other channels keep the manual button. If
+    the deal needs a human decision (buyer-type unclear, unresolvable location,
+    an existing-deal warning) we leave the manual Create-Deal path in place."""
+    if channel != "email" or not config.AUTO_DEAL_EMAIL_ENABLED:
+        return
+    if not config.ZOHO_CRM_ENABLED:
+        return
+    try:
+        result = await _create_crm_deal(int(conv_id), agent_name="the bridge (auto, email)")
+        state = "created" if result.get("created") else "already existed"
+        print(f"[auto-deal] conv {conv_id}: deal {result.get('deal_id')} {state}")
+    except HTTPException as e:
+        code = e.detail.get("code") if isinstance(e.detail, dict) else e.detail
+        print(f"[auto-deal] conv {conv_id}: needs a human ({e.status_code}: {code}) "
+              "— left for the agent's Create Deal button")
+    except Exception as e:
+        print(f"[auto-deal] conv {conv_id}: failed ({e}) — left for the agent")
 
 
 # ── Spam-review digest endpoint ───────────────────────────────────────────
