@@ -31,10 +31,34 @@ const load = async () => {
 };
 onMounted(load);
 
+// Priorities are unique — one #1, one #2, etc. Offer only the free positions so
+// you can't create a second offer at a priority that's already taken.
+const availablePriorities = computed(() => {
+  const taken = new Set(
+    offers.value.filter(o => o.id !== editing.value?.id).map(o => o.priority)
+  );
+  const slots = [];
+  for (let p = 1; p <= offers.value.length + 1; p += 1) {
+    if (!taken.has(p)) slots.push(p);
+  }
+  // Keep the offer's own current priority selectable while editing.
+  if (editing.value?.priority && !slots.includes(editing.value.priority)) {
+    slots.push(editing.value.priority);
+  }
+  return slots.sort((a, b) => a - b);
+});
+
+const smallestFreePriority = () => {
+  const taken = new Set(offers.value.map(o => o.priority));
+  let p = 1;
+  while (taken.has(p)) p += 1;
+  return p;
+};
+
 const startAdd = () => {
   editing.value = {
     caption: '',
-    priority: offers.value.length + 1,
+    priority: smallestFreePriority(),
     active: true,
     tags: [],
     expires_at: null,
@@ -179,12 +203,14 @@ const remove = async o => {
           <label class="text-sm font-medium text-n-slate-12">
             {{ $t('OFFERS.FORM.PRIORITY') }}
           </label>
-          <input
+          <select
             v-model.number="editing.priority"
-            type="number"
-            min="1"
             class="px-3 py-2 text-sm rounded-lg outline-1 outline outline-n-weak bg-n-solid-1 text-n-slate-12"
-          />
+          >
+            <option v-for="p in availablePriorities" :key="p" :value="p">
+              {{ p }}
+            </option>
+          </select>
         </div>
         <div class="flex flex-col gap-1.5">
           <label class="text-sm font-medium text-n-slate-12">
