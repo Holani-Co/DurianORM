@@ -4760,6 +4760,10 @@ async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
         if not live:
             return
         offer = await _pick_offer(live, context_blob)
+        # Let the greeting (sent just before) land first — the offer is a separate
+        # message on the same channel, so a brief pause keeps the order on screen.
+        if config.OFFER_GREETING_DELAY_SECONDS > 0:
+            await asyncio.sleep(config.OFFER_GREETING_DELAY_SECONDS)
         sent = await chatwoot.send_offer_message(
             conv_id, offer.get("caption") or "", offer["image_url"])
         if sent:

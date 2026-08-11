@@ -477,6 +477,10 @@ SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFI
 # caption) right after the greeting. Offers are managed from the ORM Offers tab.
 # Dark-launched OFF; set OFFERS_ENABLED=true once the client has added offers.
 OFFERS_ENABLED = _bool("OFFERS_ENABLED", "false")
+# The greeting reply and the offer are two separate messages; Chatwoot dispatches
+# each to the channel as its own async job, so we pause briefly before the offer
+# to keep the greeting first on the customer's screen. Tunable via env.
+OFFER_GREETING_DELAY_SECONDS = float(os.environ.get("OFFER_GREETING_DELAY_SECONDS", "1.5"))
 
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is
