@@ -2528,6 +2528,8 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
                                _DEAL_DETAILS_ACK.format(customer_name=name))
         await _label_conversation(conv_id, DEAL_READY_LABEL)
         print(f"[deal-gate] conv {conv_id}: captured phone + city ({city}) — deal-ready")
+        # Email channel: create the deal now (no Create-Deal click needed).
+        await _maybe_auto_create_deal(conv_id, channel)
         return [f"📝 Deal details captured (phone + {city}); enquiry acknowledged "
                 f"— ready for the agent to create the deal."]
 
@@ -2773,6 +2775,8 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
             "→ Click **Create Deal** to log this enquiry to that showroom owner.")
     except Exception as e:
         print(f"[retail-gate] note failed for conv {conv_id}: {e}")
+    # Email channel: create the deal now (no Create-Deal click needed).
+    await _maybe_auto_create_deal(conv_id, channel)
     return [f"🛍️ Retail routed to {owner['location']} (owner {owner['owner_id']}) — Create Deal ready."]
 
 
@@ -4695,6 +4699,95 @@ def _context_blob_text(blob: dict) -> str:
     return "\n".join(lines)
 
 
+def _offer_not_expired(offer: dict) -> bool:
+    exp = offer.get("expires_at")
+    if not exp:
+        return True
+    try:
+        return datetime.fromisoformat(str(exp).replace("Z", "+00:00")) > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return True
+
+
+def _offer_tags(offer: dict) -> list:
+    return [str(t).strip().lower() for t in (offer.get("tags") or []) if str(t).strip()]
+
+
+async def _pick_offer_llm(interest: str, offers: list) -> dict | None:
+    """Let the model pick the offer whose caption best fits the customer's
+    interest — the AI half of the hybrid match. Returns None (→ top priority)
+    when nothing clearly fits or the call fails."""
+    from llm_client import client
+    listing = "\n".join(f"{i + 1}. {(o.get('caption') or '')[:160]}"
+                        for i, o in enumerate(offers))
+    schema = {"name": "offer_pick", "strict": True,
+              "schema": {"type": "object", "additionalProperties": False,
+                         "required": ["choice"],
+                         "properties": {"choice": {"type": "integer"}}}}
+    system = ("Pick the single Durian offer that best fits what the customer is "
+              "interested in. Return choice = the offer number, or 0 if none "
+              "clearly fits. STRICT JSON.")
+    user = f"Customer interest: {interest}\n\nOffers:\n{listing}"
+    try:
+        resp = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            response_format={"type": "json_schema", "json_schema": schema})
+        choice = int((json.loads(resp.choices[0].message.content) or {}).get("choice") or 0)
+        if 1 <= choice <= len(offers):
+            return offers[choice - 1]
+    except Exception as e:
+        print(f"[offer] AI pick failed: {e}")
+    return None
+
+
+async def _pick_offer(offers: list, context_blob: dict) -> dict:
+    """Choose the offer that best fits the customer (hybrid). New customer / no
+    interest → the top-priority offer. Known interest → an offer whose TAG matches
+    it (deterministic, client-controlled); else an AI relevance pick from the
+    captions; else the top-priority offer."""
+    by_priority = sorted(
+        offers, key=lambda o: (o.get("priority") if o.get("priority") is not None else 9999))
+    interest = " ".join(str(context_blob.get(k) or "")
+                        for k in ("product", "category")).strip().lower()
+    if not interest:
+        return by_priority[0]
+    tagged = [o for o in by_priority if any(t in interest for t in _offer_tags(o))]
+    if tagged:
+        return tagged[0]
+    return (await _pick_offer_llm(interest, by_priority)) or by_priority[0]
+
+
+async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
+                            context_blob: dict) -> None:
+    """After greeting a customer, share the client's current offer (image +
+    caption) — managed from the ORM Offers tab. New customers get the top-priority
+    offer; known customers get the one matching their interest (tag, then AI).
+    Once per conversation. Best-effort — never breaks the greeting."""
+    if not config.OFFERS_ENABLED:
+        return
+    if (conv.get("custom_attributes") or {}).get("offer_greeted"):
+        return
+    try:
+        live = [o for o in (await chatwoot.get_offers())
+                if o.get("active") and o.get("image_url") and _offer_not_expired(o)]
+        if not live:
+            return
+        offer = await _pick_offer(live, context_blob)
+        # Let the greeting (sent just before) land first — the offer is a separate
+        # message on the same channel, so a brief pause keeps the order on screen.
+        if config.OFFER_GREETING_DELAY_SECONDS > 0:
+            await asyncio.sleep(config.OFFER_GREETING_DELAY_SECONDS)
+        sent = await chatwoot.send_offer_message(
+            conv_id, offer.get("caption") or "", offer["image_url"])
+        if sent:
+            await chatwoot.merge_custom_attributes(conv_id, {"offer_greeted": True})
+            print(f"[offer] shared offer {offer.get('id')} on conv {conv_id}")
+    except Exception as e:
+        print(f"[offer] send failed for conv {conv_id}: {e}")
+
+
 async def _build_contact_context_blob(conv: dict, all_messages: list,
                                       contact_id) -> dict:
     """Contact-level context: the per-conversation blob, enriched with durable
@@ -5881,6 +5974,9 @@ async def _template_suggest_locked(conv: dict, channel: str,
             pass
         print(f"[template-suggest] {channel} AUTO-SENT on conv {conv_id} "
               f"(confidence {confidence}%)")
+        # Just greeted the customer → follow with the client's current offer.
+        if surface != "comment" and (drafted.get("short_code") or "").endswith("_dm_greeting"):
+            await _maybe_send_offer(conv, conv_id, channel, context_blob)
         return {"auto_sent": True, "channel": channel, "confidence": confidence}
 
     # Below the confidence bar, a handoff, or auto-send disabled → post the
@@ -7068,12 +7164,25 @@ async def chatwoot_crm_create_deal(request: Request):
     Idempotent via crm_deal_id. Body: {conversation_id, agent_name?, sector?}
     — `sector` is the agent's government/private choice when classification
     was ambiguous (the endpoint returns 409 to request it)."""
-    if not config.ZOHO_CRM_ENABLED:
-        raise HTTPException(503, "CRM not configured")
     body = await request.json()
     conv_id = body.get("conversation_id")
     if not conv_id:
         raise HTTPException(400, "missing conversation_id")
+    return await _create_crm_deal(
+        conv_id, agent_name=body.get("agent_name") or "an agent",
+        sector=(body.get("sector") or ""), phone=str(body.get("phone") or ""),
+        ignore_existing=bool(body.get("ignore_existing")))
+
+
+async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
+                           phone="", ignore_existing=False):
+    """Core Create-Deal logic, shared by the manual button endpoint and the
+    email-channel auto-create. Raises HTTPException for the cases that need a
+    human decision (409 buyer-type unclear, 422 unresolvable location, 409
+    existing-deal warning) — the auto path catches these and defers to the
+    manual button; the endpoint surfaces them to the panel."""
+    if not config.ZOHO_CRM_ENABLED:
+        raise HTTPException(503, "CRM not configured")
     try:
         conv     = await chatwoot.get_conversation(int(conv_id))
         messages = await chatwoot.get_conversation_messages(int(conv_id))
@@ -7137,7 +7246,7 @@ async def chatwoot_crm_create_deal(request: Request):
     # location-wise owner. Ambiguous buyer type → 409 so the panel asks the
     # agent to pick Government/Private. Unresolvable location → 422, do NOT
     # tag CRM (client rule).
-    sector_override = (body.get("sector") or "").lower()
+    sector_override = (sector or "").lower()
     owner = await _resolve_deal_owner(custom, body_text, subject, email,
                                       sector_override=sector_override)
     if owner.get("sector_unclear"):
@@ -7152,8 +7261,7 @@ async def chatwoot_crm_create_deal(request: Request):
     # deal-details gate captured from the customer — so we reuse an existing CRM
     # contact by number without the agent typing it. `ignore_existing` is the
     # "Create anyway" override for the duplicate-deal warning below.
-    phone_override  = str(body.get("phone") or "").strip() or str(_captured.get("phone") or "")
-    ignore_existing = bool(body.get("ignore_existing"))
+    phone_override  = str(phone or "").strip() or str(_captured.get("phone") or "")
 
     # Remember the agent's sector decision so re-runs / other flows see it.
     if sector_override in ("government", "private"):
@@ -7313,7 +7421,6 @@ async def chatwoot_crm_create_deal(request: Request):
     await _clear_agent_needed(int(conv_id), conv)
 
     try:
-        agent_name = body.get("agent_name") or "an agent"
         await chatwoot.post_private_note(
             int(conv_id),
             f"✅ CRM Deal created by {agent_name} — "
@@ -7335,6 +7442,28 @@ async def chatwoot_crm_create_deal(request: Request):
     return {"deal_id": deal_id, "created": True,
             "url": zoho_crm.deal_url(deal_id),
             "contact_id": contact_id, "contact_created": contact_created}
+
+
+async def _maybe_auto_create_deal(conv_id: int, channel: str) -> None:
+    """EMAIL channel only: an enquiry just became fully qualified, so create the
+    CRM deal automatically instead of waiting for an agent to click Create Deal
+    (the client validated the flow). Other channels keep the manual button. If
+    the deal needs a human decision (buyer-type unclear, unresolvable location,
+    an existing-deal warning) we leave the manual Create-Deal path in place."""
+    if channel != "email" or not config.AUTO_DEAL_EMAIL_ENABLED:
+        return
+    if not config.ZOHO_CRM_ENABLED:
+        return
+    try:
+        result = await _create_crm_deal(int(conv_id), agent_name="the bridge (auto, email)")
+        state = "created" if result.get("created") else "already existed"
+        print(f"[auto-deal] conv {conv_id}: deal {result.get('deal_id')} {state}")
+    except HTTPException as e:
+        code = e.detail.get("code") if isinstance(e.detail, dict) else e.detail
+        print(f"[auto-deal] conv {conv_id}: needs a human ({e.status_code}: {code}) "
+              "— left for the agent's Create Deal button")
+    except Exception as e:
+        print(f"[auto-deal] conv {conv_id}: failed ({e}) — left for the agent")
 
 
 # ── Spam-review digest endpoint ───────────────────────────────────────────

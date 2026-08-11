@@ -1,4 +1,32 @@
 {
+  "OFFERS": {
+    "HEADER": "Offers",
+    "DESCRIPTION": "Add the offers you post on Instagram (image + caption). The assistant shares the top offer when a customer greets, and agents can send the others. Change them anytime — it's not static.",
+    "ADD": "Add offer",
+    "EMPTY": "No offers yet. Click Add offer to create one.",
+    "PRIORITY_LABEL": "Priority #{n}",
+    "ACTIVATE": "Activate",
+    "DEACTIVATE": "Deactivate",
+    "DELETE_CONFIRM": "Delete this offer?",
+    "CAPTION_REQUIRED": "Please add a caption.",
+    "IMAGE_REQUIRED": "Please upload an offer image.",
+    "FETCH_ERROR": "Couldn't load offers, please try again.",
+    "SAVE_ERROR": "Couldn't save the offer, please try again.",
+    "DELETE_ERROR": "Couldn't delete the offer, please try again.",
+    "FORM": {
+      "IMAGE": "Offer image",
+      "CAPTION": "Caption",
+      "CAPTION_PH": "e.g. Monsoon Sale — up to 40% off all sofas. Visit your nearest Durian showroom!",
+      "PRIORITY": "Priority (1 = shown first)",
+      "EXPIRES": "Expires on (optional)",
+      "TAGS": "Tags (optional)",
+      "TAGS_PH": "sofa, living room, emi",
+      "TAGS_HINT": "Used to match this offer to a customer's interest. Comma-separated.",
+      "ACTIVE": "Active",
+      "SAVE": "Save",
+      "CANCEL": "Cancel"
+    }
+  },
   "ROUTING_CONFIG": {
     "HEADER": "Routing Config",
     "DESCRIPTION": "How inbound emails are categorised, forwarded, and assigned to CRM owners. These rules run on the zoho-bridge; the defaults come from routing_rules.yaml.",
@@ -509,6 +537,7 @@
     "CANNED_RESPONSES": "Canned Responses",
     "INTEGRATIONS": "Integrations",
     "ROUTING_CONFIG": "Routing Config",
+    "OFFERS": "Offers",
     "PROFILE_SETTINGS": "Profile Settings",
     "ACCOUNT_SETTINGS": "Account Settings",
     "APPLICATIONS": "Applications",

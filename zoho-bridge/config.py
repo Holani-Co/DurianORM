@@ -424,6 +424,15 @@ ORDER_LOOKUP_AUTO_SEND = _bool("ORDER_LOOKUP_AUTO_SEND", "false")
 DEAL_DETAILS_GATE_ENABLED = _bool("DEAL_DETAILS_GATE_ENABLED", "false")
 DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "5"))
 
+# EMAIL channel only: the client validated the deal flow, so once an enquiry is
+# fully qualified (deal-details gate captured phone + city, or the retail gate
+# settled a showroom owner) the bridge creates the CRM deal automatically —
+# no agent Create-Deal click. Instagram / Facebook / other channels keep the
+# manual button. Any case needing a human (buyer-type unclear, unresolvable
+# location, an existing-deal warning) falls back to the manual flow untouched.
+# Kill switch: set AUTO_DEAL_EMAIL_ENABLED=false to revert to fully manual.
+AUTO_DEAL_EMAIL_ENABLED = _bool("AUTO_DEAL_EMAIL_ENABLED", "true")
+
 # ── Retail routing gate ────────────────────────────────────────────────────
 # Retail furniture product enquiries (a few pieces, NOT bulk) route by
 # city -> showroom -> CRM owner (retail_showrooms.yaml). The gate asks the
@@ -462,6 +471,16 @@ COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
 # confidence bar to auto-send less.
 SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
 SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
+
+# ── Offers on greeting ─────────────────────────────────────────────────────
+# When a customer greets, share the client-managed top-priority offer (image +
+# caption) right after the greeting. Offers are managed from the ORM Offers tab.
+# Dark-launched OFF; set OFFERS_ENABLED=true once the client has added offers.
+OFFERS_ENABLED = _bool("OFFERS_ENABLED", "false")
+# The greeting reply and the offer are two separate messages; Chatwoot dispatches
+# each to the channel as its own async job, so we pause briefly before the offer
+# to keep the greeting first on the customer's screen. Tunable via env.
+OFFER_GREETING_DELAY_SECONDS = float(os.environ.get("OFFER_GREETING_DELAY_SECONDS", "1.5"))
 
 # ── Complaint-details gate ─────────────────────────────────────────────────
 # Client rule: before a complaint is forwarded to support AND a Zoho ticket is

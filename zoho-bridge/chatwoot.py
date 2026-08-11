@@ -202,6 +202,46 @@ async def create_message(conversation_id: int, content: str,
         return r.json()
 
 
+async def get_offers() -> list[dict]:
+    """All promotional offers (the admin manages them; the bot filters to the
+    live ones). Best-effort — [] on any failure so a greeting never breaks."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(_acct_url("/offers"), headers=_headers())
+            if r.status_code >= 300:
+                return []
+            body = r.json()
+            return body if isinstance(body, list) else (body.get("payload") or [])
+    except Exception as e:
+        print(f"[chatwoot] get_offers failed: {e}")
+        return []
+
+
+async def send_offer_message(conversation_id: int, caption: str,
+                             image_url: str) -> dict | None:
+    """Send an outgoing image message (offer graphic + caption). Downloads the
+    Chatwoot-hosted image and re-uploads it as an attachment so Chatwoot delivers
+    it on the channel (Instagram/Facebook). Best-effort; None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            img = await client.get(image_url, headers=_headers())
+            if img.status_code >= 300:
+                print(f"[chatwoot] offer image fetch failed [{img.status_code}]")
+                return None
+            ctype = img.headers.get("content-type", "image/jpeg")
+            files = {"attachments[]": ("offer", img.content, ctype)}
+            data = {"content": caption or "", "message_type": "outgoing", "private": "false"}
+            r = await client.post(_conv_url(conversation_id, "/messages"),
+                                  headers=_headers(), data=data, files=files)
+            if r.status_code >= 300:
+                print(f"[chatwoot] send_offer_message failed [{r.status_code}]: {r.text[:200]}")
+                return None
+            return r.json()
+    except Exception as e:
+        print(f"[chatwoot] send_offer_message error: {e}")
+        return None
+
+
 async def toggle_status(conversation_id: int, status: str,
                         snoozed_until: str | None = None) -> dict:
     """status ∈ {open, resolved, pending, snoozed}.
