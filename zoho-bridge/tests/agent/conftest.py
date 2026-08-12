@@ -23,8 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import chatwoot                     # noqa: E402
 import config                       # noqa: E402
 import customer_profile             # noqa: E402
+import product_catalog              # noqa: E402
+import product_images               # noqa: E402
 import snapmint                     # noqa: E402
 import social_agent                 # noqa: E402
+import website_search               # noqa: E402
 import zoho_crm                     # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -173,7 +176,14 @@ class FakeChatwoot:
         return list(self.sc.get("offers") or [])
 
     async def send_offer_message(self, conv_id, caption, image_url):
-        self.offer_sends.append({"conv": conv_id, "caption": caption})
+        self.offer_sends.append({"conv": conv_id, "caption": caption,
+                                 "image_url": image_url})
+        return {"id": 1}
+
+    async def send_image_bytes(self, conv_id, caption, content,
+                               ctype="image/png"):
+        self.offer_sends.append({"conv": conv_id, "caption": caption,
+                                 "image_url": "generated://preview"})
         return {"id": 1}
 
     async def assign_team(self, conv_id, team_id):
@@ -205,7 +215,7 @@ class Engine:
                      "create_message", "post_private_note", "get_contact",
                      "update_contact_attributes", "search_contacts",
                      "list_canned_responses", "get_offers", "send_offer_message",
-                     "assign_team"):
+                     "send_image_bytes", "assign_team"):
             monkeypatch.setattr(chatwoot, name, getattr(self.fake, name))
 
         async def fake_emi(price, skuid, **kw):
@@ -232,9 +242,121 @@ class Engine:
         monkeypatch.setattr(zoho_crm, "search_contact_by_phone", fake_crm_search)
         monkeypatch.setattr(zoho_crm, "get_contact_deals", fake_crm_deals)
 
-        async def fake_preview(room_url, product_url, name):
-            return "https://fake.local/preview.jpg"
+        async def fake_preview(room_url, product_url, name, placement=""):
+            return b"fake-preview-bytes"
         monkeypatch.setattr(social_agent, "_generate_room_preview", fake_preview)
+
+        # Room analysis (placement obviousness) → the scenario's
+        # `room_analysis:` dict verbatim; absent → {} → the skill treats the
+        # room as ambiguous and asks the placement question.
+        _analysis = scenario.get("room_analysis")
+
+        async def fake_analyze(room_url, product_desc):
+            return dict(_analysis or {})
+        monkeypatch.setattr(social_agent, "_analyze_room", fake_analyze)
+
+        # Live-site search (website_search.search) → deterministic storefront
+        # results, priced consistently with the catalog fixtures so EMI math
+        # and history text line up. `website_results:` in a scenario overrides
+        # every query with that list.
+        site_override = scenario.get("website_results")
+
+        def _prod(title, cat, sp, mrp, slug, excl=False):
+            return {"title": title, "category": cat, "selling_price": sp,
+                    "mrp": mrp,
+                    "url": f"https://www.durian.in/product/{slug}",
+                    "image": f"https://images.durian.in/{slug}.jpg",
+                    "in_store_exclusive": excl}
+        _CORNER = [
+            _prod("Benjamin Corner", "Sectional Sofas", 120480, 240960,
+                  "benjamin-corner-i-ash-grey-premium-leatherette-7-seater-corner-sofa"),
+            _prod("Lewis", "Sectional Sofas", 109520, 219040,
+                  "lewis-dark-oak-brown-fabric-7-seater-sectional-sofa")]
+        _DINING = [_prod("Esmeralda", "Dining Sets", 204880, 409760,
+                         "esmeralda2-marble-dining-set-1-6")]
+        _RECLINER = [_prod("Valerano", "Recliners", 144900, 289800,
+                           "valerano-coffee-brown-leather-3-seater-recliner")]
+        _SOFAS = [_prod("Benjamin", "Sofas", 120480, 240960,
+                        "benjamin-i-leatherette-3-seater-sofa"),
+                  _prod("Clarkson", "Sofas", 43800, 87600,
+                        "clarkson-premium-leatherette-3-seater-camel-brown-sofa")]
+        _BEDS = [_prod("Alister", "Beds", 98000, 196000,
+                       "alister-upholstered-queen-bed")]
+        _WARDROBE = [_prod("Hanson", "Wardrobes", 76000, 152000,
+                           "hanson-4-door-wardrobe")]
+
+        def _catalog_mirror(q, rows):
+            # Per-SKU top matches, one row per family — like real Unbxd rows,
+            # so "esmeralda dining set 1+6" prices the SET, not the cheapest
+            # chair in the family.
+            out, seen = [], set()
+            for t in product_catalog.search(q, limit=rows * 3):
+                fam = (t.get("family") or "").strip()
+                if not fam or fam in seen:
+                    continue
+                seen.add(fam)
+                out.append({
+                    "title": fam.title(),
+                    "category": (t.get("category") or "Furniture").title(),
+                    "selling_price": t.get("sale_price"),
+                    "mrp": t.get("mrp"),
+                    "url": product_images.link(fam) or
+                           "https://www.durian.in/product/" +
+                           fam.lower().replace(" ", "-"),
+                    "image": "", "in_store_exclusive": False})
+                if len(out) >= rows:
+                    break
+            return out
+
+        # First tokens of catalog family names ("vivian", "meagan"…) so a
+        # customer who NAMES a product always gets that product, even when a
+        # category word ("recliner") appears in the same query.
+        _GENERIC = {"corner", "sofa", "sofas", "bed", "beds", "dining",
+                    "recliner", "wardrobe", "door", "set", "single", "study",
+                    "office", "coffee", "side", "king", "queen", "tv"}
+        _FAMILY_TOKENS = {
+            t for p in json.loads(
+                (Path(__file__).resolve().parents[2] /
+                 "data" / "product_catalog.json").read_text())["products"].values()
+            for t in [((p.get("family") or "").lower().split() or [""])[0]]
+            if t and t not in _GENERIC}
+
+        async def fake_site_search(query, rows=4):
+            q = (query or "").lower()
+            if site_override is not None:
+                return [dict(p) for p in site_override][:rows]
+            # Curated rows FIRST — their prices anchor scenario histories, so
+            # a re-search mid-conversation must return the same figures.
+            if "lewis" in q:
+                return [_CORNER[1]]
+            if "clarkson" in q:
+                return [_SOFAS[1]]
+            if "benjamin" in q:
+                return ([_CORNER[0]] if "corner" in q
+                        else [_SOFAS[0], _CORNER[0]])[:rows]
+            q_toks = set(re.split(r"[^a-z0-9]+", q))
+            if q_toks & _FAMILY_TOKENS:      # named product wins over category
+                named = _catalog_mirror(q, rows)
+                if named:
+                    return named
+            if any(w in q for w in ("corner", "l shape", "l-shape", "lshape",
+                                    "sectional")):
+                return _CORNER[:rows]
+            if any(w in q for w in ("esmeralda", "dining", "marble")):
+                return _DINING[:rows]
+            if "recliner" in q:
+                return _RECLINER[:rows]
+            if "wardrobe" in q:
+                return _WARDROBE[:rows]
+            if "bed" in q:
+                return _BEDS[:rows]
+            if "sofa" in q:
+                return (_SOFAS + _CORNER)[:rows]
+            # Anything else mirrors the catalog as storefront rows so every
+            # family the photo/EMI suites use resolves consistently with the
+            # sitemap + price fixtures.
+            return _catalog_mirror(q, rows)
+        monkeypatch.setattr(website_search, "search", fake_site_search)
 
         async def fake_deal_creator(conv_id, agent_name=""):
             self.fake.deal_calls.append(conv_id)
@@ -274,8 +396,15 @@ class Engine:
             conv["labels"] += prior.get("labels") or []
         self.fake.new_conversation(scenario.get("inbox") or "durianfurniture_official",
                                    comment=scenario.get("surface") == "comment")
+        if scenario.get("conv_attrs"):
+            self.fake.conv["custom_attributes"].update(scenario["conv_attrs"])
         if scenario.get("profile"):
-            self.fake.contact_attrs[customer_profile.PROFILE_KEY] = scenario["profile"]
+            # Deep copy: YAML anchors (&x/*x) make scenarios SHARE the parsed
+            # dict, and runs mutate the seeded profile (merge_events) — a
+            # shared object would leak one scenario's events into the next.
+            import copy
+            self.fake.contact_attrs[customer_profile.PROFILE_KEY] = \
+                copy.deepcopy(scenario["profile"])
         if scenario.get("profile_bulk_events"):
             prof = self.fake.contact_attrs.get(customer_profile.PROFILE_KEY) \
                 or customer_profile.empty_profile()
@@ -318,7 +447,8 @@ class Engine:
                 [{"type": "card", "text": c["content"],
                   "hold": (res or {}).get("hold") or (res or {}).get("reason") or ""}
                  for c in self.fake.cards[c0:]] +
-                [{"type": "offer", "text": o.get("caption") or ""}
+                [{"type": "offer", "text": o.get("caption") or "",
+                  "image_url": o.get("image_url") or ""}
                  for o in self.fake.offer_sends[o0:]])
             self.timeline.append({
                 "at": step.get("at", "0m"), "text": step.get("text", ""),
@@ -361,6 +491,12 @@ class Engine:
             got = (node or {}).get(path.split(".")[-1])
             want(got == value or (value == "*" and got),
                  f"attr {path}={got!r} != {value!r}")
+        for path in exp.get("attrs_absent") or []:
+            node = self.fake.conv["custom_attributes"]
+            for part in path.split(".")[:-1]:
+                node = (node or {}).get(part) or {}
+            got = (node or {}).get(path.split(".")[-1])
+            want(not got, f"attr must be absent: {path}={got!r}")
         for lbl in exp.get("labels") or []:
             want(lbl in self.fake.conv["labels"], f"label missing: {lbl}")
         for lbl in exp.get("labels_absent") or []:
@@ -422,6 +558,21 @@ class Engine:
         if exp.get("images_sent_min") is not None:
             want(len(self.fake.offer_sends) >= exp["images_sent_min"],
                  f"images sent {len(self.fake.offer_sends)} < {exp['images_sent_min']}")
+        if exp.get("images_sent_max") is not None:
+            want(len(self.fake.offer_sends) <= exp["images_sent_max"],
+                 f"images sent {len(self.fake.offer_sends)} > {exp['images_sent_max']}")
+        img_blobs = [f"{o.get('caption') or ''} {o.get('image_url') or ''}"
+                     for o in self.fake.offer_sends]
+        for frag in exp.get("images_sent_contains") or []:
+            want(any(re.search(frag, b, re.I) for b in img_blobs),
+                 f"no image send matches: {frag!r} (sent: {img_blobs})")
+        for frag in exp.get("images_sent_not_contains") or []:
+            want(not any(re.search(frag, b, re.I) for b in img_blobs),
+                 f"image send must not match: {frag!r}")
+        if exp.get("images_unique"):
+            urls = [o.get("image_url") for o in self.fake.offer_sends
+                    if o.get("image_url")]
+            want(len(urls) == len(set(urls)), "duplicate image URL sent")
         return errors, sent_text, card_text
 
 
@@ -484,16 +635,34 @@ correct behavior, never penalize it:
 - Room previews (seeing furniture in the customer's own photo) REQUIRE a
   registered enquiry first (phone + showroom routing), are capped per day, and
   beyond the cap the customer is routed to the sales team.
-- The capability intro ("I can share prices, EMI options…") is the designed
-  greeting for a first contact with no stated intent.
+- Greeting rules: a customer who opens WITH clear intent is served directly,
+  no preamble — no intro or welcome-back line required. The capability intro
+  ("I can share prices, EMI options…") is the designed greeting ONLY for a
+  first contact with no history and no stated intent. A NO-intent opener
+  from a customer whose profile shows history gets the returning-customer
+  opener ("Welcome back — still considering the …?", their newest interest)
+  — required in that case, never penalize it.
 - Offers shared in chat come from the share_offer tool (its results appear in
   the tool trail); treat them as grounded.
 - Order status, dealer/franchise, bulk orders, collabs, discount haggling and
   serious complaints are escalated to humans by design.
+- The transcript header names the surface. In a private DM, sharing showroom
+  store cards WITH phone numbers and map links is required behavior.
+- Product photos (share_product_images results in the trail) are sent as
+  actual images; the text only needs the listing link, not a description of
+  the photos. The designed photo policy: front-view photo per variant, up to
+  3; photos for a product go out once per conversation; a NEW variant the
+  customer asks for gets just that variant's photos; an explicit "send them
+  again" re-sends; a comparison sends exactly one front view per product.
+  All of these are correct — never penalize photo counts that follow them,
+  and never penalize mentioning that more colours can be requested.
+- When the photo tool reports NO photos on file for a product, the correct
+  reply says photos are unavailable and pivots (showroom visit / listing
+  link). Penalize invented image descriptions — never the honest pivot.
 Return STRICT JSON: {"score": n, "reason": "one line"}"""
 
 
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gpt-5.4-nano")
+JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gpt-5.6-terra")
 
 
 async def judge_transcript(transcript: str) -> dict:
@@ -502,7 +671,9 @@ async def judge_transcript(transcript: str) -> dict:
     from llm_client import client as _judge_client, floor_effort
     from openai import RateLimitError
     r = None
-    for attempt in range(4):
+    # Generous backoff: a starved judge must WAIT, not hand out zeros — a
+    # score-0 for a 429 fails the scenario for infra reasons, not quality.
+    for attempt in range(7):
         try:
             r = await _judge_client.chat.completions.create(
                 model=JUDGE_MODEL,
@@ -512,9 +683,9 @@ async def judge_transcript(transcript: str) -> dict:
                           {"role": "user", "content": transcript[:6000]}])
             break
         except RateLimitError:
-            if attempt == 3:
+            if attempt == 6:
                 return {"score": 0, "reason": "judge rate-limited"}
-            await asyncio.sleep(1.5 * (attempt + 1))
+            await asyncio.sleep(min(2 ** attempt, 30))
     u = getattr(r, "usage", None)
     if u:
         TOKENS["judge_in"] += getattr(u, "prompt_tokens", 0) or 0

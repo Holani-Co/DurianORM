@@ -44,6 +44,7 @@
 
 - id: visualizer_success_after_enquiry
   config: {VISUALIZER_ENABLED: true}
+  room_analysis: {same_type_count: 1, same_type_item: "old fabric sofa"}
   profile:
     v: 1
     updated_at: "2026-08-12T10:00:00+05:30"
@@ -58,7 +59,7 @@
     - {at: "-1h", text: "I want the meagan sofa. 9560150835, pincode 110054"}
     - {at: "-59m", who: durian, text: "Thank you, our Delhi - Kirti Nagar showroom team will assist you."}
   script:
-    - {at: "0m", text: "here is my living room, show the meagan in it please", photo: true}
+    - {at: "0m", text: "here is my living room, show the slate grey meagan in it please", photo: true}
   expect:
     tools_called: ["visualize_in_room"]
     profile_has_event: [{kind: visualized, what_contains: MEAGAN}]

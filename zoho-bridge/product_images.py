@@ -54,19 +54,67 @@ def variants(family: str, limit: int = 3) -> list[dict]:
     return out
 
 
-def share_set(family: str) -> tuple[list[tuple[str, str]], str | None]:
-    """The customer-facing photo set per the client's rule: several variants →
-    one photo each (max 3); a single variant → up to two photos of it.
+# Customer-vocabulary equivalences for variant hints ("3-seater" vs "Three
+# Seater", grey vs gray). Seater-count words matter most in practice.
+_EQ = {"grey": ("grey", "gray"), "gray": ("gray", "grey"),
+       "1": ("1", "one"), "one": ("one", "1"),
+       "2": ("2", "two"), "two": ("two", "2"),
+       "3": ("3", "three"), "three": ("three", "3")}
+
+
+def _match_score(name: str, toks: list[str]) -> int:
+    text = (name or "").lower()
+    return sum(any(a in text for a in _EQ.get(t, (t,))) for t in toks)
+
+
+def _caption(v: dict, family: str) -> str:
+    """Customer-facing caption: the variant name, unless the sitemap gave us
+    junk (bare digits like '2') — then the family name."""
+    name = (v.get("variant") or "").strip()
+    return name if re.search(r"[a-z]", name, re.I) else family.title()
+
+
+def share_set(family: str, prefer: str | None = None, compare: bool = False,
+              exclude=None) -> tuple[list[tuple[str, str]], str | None]:
+    """The customer-facing photo set. Every variant's FIRST image is the
+    site's front view — that is always the one we lead with.
+    Default: one front-view photo per variant (max 3, site order); a
+    single-variant family → up to two photos of it.
+    `prefer`: customer's colour/size words — that variant ranks first (and
+    the listing link points at it). `compare`: exactly one front view.
+    `exclude`: image URLs already sent this conversation — never repeated;
+    with `prefer` this becomes a targeted top-up of just that variant.
     Returns ([(caption, image_url)…], listing_link)."""
-    vs = variants(family, limit=3)
+    exclude = set(exclude or ())
+    vs = variants(family, limit=8)
     if not vs:
         return [], None
+    if prefer:
+        toks = [t for t in re.split(r"[^a-z0-9]+", prefer.lower()) if t]
+        vs = sorted(vs, key=lambda v: -_match_score(v.get("variant", ""), toks))
+
+    def fresh(v):
+        return [i for i in v.get("images", []) if i not in exclude]
+
     link_url = vs[0].get("url")
+    if compare:
+        for v in vs:
+            imgs = fresh(v)
+            if imgs:
+                return [(_caption(v, family), imgs[0])], link_url
+        return [], link_url
+    if prefer and exclude:      # targeted top-up: only the asked variant
+        imgs = fresh(vs[0])[:2]
+        return [(_caption(vs[0], family), i) for i in imgs], link_url
     if len(vs) == 1:
         v = vs[0]
-        caption = v.get("variant") or family
-        return [(caption, img) for img in v.get("images", [])[:2]], link_url
-    return [(v.get("variant") or family, v["images"][0]) for v in vs], link_url
+        return [(_caption(v, family), img) for img in fresh(v)[:2]], link_url
+    out = []
+    for v in vs[:3]:
+        imgs = fresh(v)
+        if imgs:
+            out.append((_caption(v, family), imgs[0]))
+    return out, link_url
 
 
 def link(family: str) -> str | None:

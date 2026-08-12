@@ -9,7 +9,9 @@
 #   guardrails (all deterministic, all demote send → review card):
 #     stored-PII mask · re-ask detector · link allowlist · plain-text scrub ·
 #     confidence bar · comment-surface rules (no prices/contacts in public) ·
-#     turn budget (converge → handoff) · human-override standdown
+#     turn budget (converge → handoff) · human claim window (a human's public
+#     reply silences the agent for SOCIAL_AGENT_HUMAN_CLAIM_MINUTES, renewed
+#     per reply; the manually-set agent_mode_standdown attr is permanent)
 #
 # Bounded writes only: route_to_showroom / register_enquiry set the same
 # attributes the legacy gates set (the deal flow's contract), share_offer sends
@@ -20,6 +22,7 @@
 # Rollout: SOCIAL_AGENT_ENABLED + SOCIAL_AGENT_CHANNELS + contact allowlist.
 
 import asyncio
+import base64
 import json
 import re
 from datetime import datetime
@@ -36,6 +39,7 @@ import retail_showrooms as retail
 import review_reply
 import snapmint
 import social_store_templates
+import website_search
 import zoho_crm
 
 IST = profile_mod.IST
@@ -144,42 +148,62 @@ def _skill(name, description, params, returns, example):
 
 @_skill(
     "search_products",
-    "Look up Durian products. USE WHEN a customer names or describes a product "
-    "(handles customer vocabulary: 'L-shaped' finds corner sofas). Returns "
-    "DISTINCT products grouped by family with price ranges — present different "
-    "products, never several finishes of one. Empty families[] = we could not "
-    "find it: rephrase and retry ONCE, then say so honestly, never invent.",
+    "Look up Durian products on the LIVE durian.in storefront — the website's "
+    "own search, so results are current sellable products at live prices "
+    "(handles customer vocabulary: 'L-shaped' finds sectional sofas). USE WHEN "
+    "a customer names or describes a product. Quote a product WITH its link — "
+    "the link previews the product and its page carries every photo, so do "
+    "not send photos separately unless the customer asks or you are "
+    "comparing. EMI exists on everything: a one-line 'EMI options available' "
+    "needs no fetch, but any EMI figure requires get_emi_plans first. Empty "
+    "products[] = not found: rephrase and retry ONCE, then say so honestly, "
+    "never invent.",
     {"query": {"type": "string", "description": "product words from the customer"}},
-    {"families": "list of {family, name, price_from, price_to, variants} — "
-                 "prices pre-formatted in Indian notation, quote them verbatim",
-     "price_period": "str — the price list month these prices come from"},
+    {"products": "list of {title, category, price, mrp?, link, note?} — "
+                 "prices pre-formatted in Indian notation, quote them "
+                 "verbatim; mrp present only when the price is a discount "
+                 "off it",
+     "note": "str — set when there is something to relay honestly"},
     ({"query": "l shaped sofa"},
-     {"families": [{"family": "BENJAMIN CORNER", "name": "LEATHERETTE CORNER SOFA",
-                    "price_from": "₹1,20,480", "price_to": "₹1,44,900",
-                    "variants": 13}]}),
+     {"products": [{"title": "Prescott", "category": "Sectional Sofas",
+                    "price": "₹4,47,300", "mrp": "₹8,94,600",
+                    "link": "https://www.durian.in/product/prescott-sea-salt-"
+                            "grey-fabric-5-seater-corner-sofa"}]}),
 )
-def _sk_search_products(ctx, query: str = "", **_) -> dict:
-    fams = product_catalog.search_families(query or "", limit=4)
-    for f in fams:      # prices leave the skill ONLY in Indian notation
-        f["price_from"] = inr(f.get("price_from"))
-        f["price_to"] = inr(f.get("price_to"))
-        url = product_images.link(f.get("family") or "")
-        if url:
-            f["link"] = url
-            f["photos"] = "available via share_product_images"
-    return {"families": fams, "price_period": product_catalog.price_period()} \
-        if fams else {"families": [], "note": "no match — try different words once"}
+async def _sk_search_products(ctx, query: str = "", **_) -> dict:
+    try:
+        found = await website_search.search(query or "", rows=4)
+    except Exception as e:
+        return {"products": [], "note": f"live search unavailable "
+                f"({type(e).__name__}) — retry once; still failing → tell "
+                f"the customer honestly and offer the showroom"}
+    out = []
+    for p in found:     # prices leave the skill ONLY in Indian notation
+        item = {"title": p["title"], "category": p["category"],
+                "price": inr(p.get("selling_price")), "link": p["url"]}
+        try:
+            if p.get("mrp") and float(p["mrp"]) > float(p.get("selling_price") or 0):
+                item["mrp"] = inr(p["mrp"])
+        except (TypeError, ValueError):
+            pass
+        if p.get("in_store_exclusive"):
+            item["note"] = "in-store exclusive — seen at a showroom, not sold online"
+        out.append(item)
+    return {"products": out} if out \
+        else {"products": [], "note": "no match — try different words once"}
 
 
 @_skill(
     "get_emi_plans",
-    "Snapmint EMI plans for a product (sku/family) or a price in rupees. "
-    "MANDATORY before ANY statement about EMI — availability included — every "
-    "single time EMI/installments come up, even when plans were quoted in an "
-    "earlier turn (always re-fetch; history is not current truth). Also use it "
-    "to add a one-line EMI mention to a price quote. Quote returned numbers "
-    "EXACTLY, digit for digit. error set → EMI unavailable, say so, never "
-    "invent plans. Side effect: tags the conversation emi-enquiry.",
+    "Snapmint EMI plan details for a product (sku/family) or a price in "
+    "rupees. Call ONLY when the customer asks about EMI/instalments — never "
+    "volunteer plan figures with a product quote (a one-line 'EMI options "
+    "available' mention needs no fetch). MANDATORY before quoting ANY EMI "
+    "figure — tenure, monthly amount, down payment — every single time, even "
+    "when plans were quoted in an earlier turn (always re-fetch; history is "
+    "not current truth). Quote returned numbers EXACTLY, digit for digit. "
+    "error set → EMI unavailable, say so, never invent plans. Side effect: "
+    "tags the conversation emi-enquiry.",
     {"sku": {"type": "string"}, "price": {"type": "number"}},
     {"product": "str", "price": "₹-formatted str", "down_payment": "₹-formatted str",
      "plans": "list of {months, emi_per_month, zero_cost, total_payment, "
@@ -385,18 +409,20 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
 
 @_skill(
     "share_product_images",
-    "Send the customer photos of a product family they are interested in — "
-    "every photo is that variant's FRONT view. Default: one photo per "
-    "variant (up to 3 variants, site order; a single-variant product gets "
-    "two photos). Customer named a colour/size → pass it as `variant` so "
-    "that photo leads. Comparing two products → call once per product with "
-    "compare=true (exactly one front view each). Photos go once per product "
-    "per conversation; a later call for the same family delivers only a "
-    "variant not yet pictured (pass `variant`) — unless resend=true, which "
-    "you set ONLY when the customer explicitly asks to see the photos "
-    "again. DMs only: in a public comment thread this refuses — invite "
-    "them to DM. After calling, include the returned listing link in your "
-    "text reply so they can tap through.",
+    "Send product photos ONLY when the customer explicitly asks to see "
+    "photos, or when comparing shortlisted products — never with an ordinary "
+    "quote: the listing link in your reply already previews the product and "
+    "its page carries every photo. Every photo sent is that variant's FRONT "
+    "view. Default: one photo per variant (up to 3 variants, site order; a "
+    "single-variant product gets two photos). Customer named a colour/size → "
+    "pass it as `variant` so that photo leads. Comparing two products → call "
+    "once per product with compare=true (exactly one front view each). "
+    "Photos go once per product per conversation; a later call for the same "
+    "family delivers only a variant not yet pictured (pass `variant`) — "
+    "unless resend=true, which you set ONLY when the customer explicitly "
+    "asks to see the photos again. DMs only: in a public comment thread "
+    "this refuses — invite them to DM. After calling, include the returned "
+    "listing link in your text reply so they can tap through.",
     {"family": {"type": "string",
                 "description": "catalog family, e.g. BENJAMIN CORNER-I"},
      "variant": {"type": "string",
@@ -457,7 +483,7 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
         if ok:
             sent += 1
             delivered.append(img_url)
-    note = ""
+    note_bits = []
     if sent:
         new_shared = shared if fam in shared else shared + [fam]
         new_urls = sent_urls + [u for u in delivered if u not in sent_urls]
@@ -467,31 +493,55 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
         conv.setdefault("custom_attributes", {}).update(
             {"product_images_shared": new_shared,
              "product_images_sent": new_urls})
+        note_bits.append("photos delivered as images — now write the "
+                         "accompanying reply text and include this listing "
+                         f"link in it: {link_url}")
         total = len(product_images.variants(fam, limit=8))
         if not compare and not prefer and total > len(photos):
-            note = (f"only {len(photos)} of {total} variants pictured — tell "
-                    "the customer they can ask for any specific colour or "
-                    "size's photos")
+            note_bits.append(f"only {len(photos)} of {total} variants "
+                             "pictured — invite them to ask for any specific "
+                             "colour or size's photos")
     return {"sent": sent, "link": link_url,
-            "variants": [c for c, _ in photos][:sent], "note": note}
+            "variants": [c for c, _ in photos][:sent],
+            "note": "; ".join(note_bits)}
 
 
 @_skill(
     "visualize_in_room",
     "Generate a preview of a Durian product placed in the customer's OWN room "
-    "photo. PRECONDITIONS (all enforced in code): the customer has completed "
+    "photo. ALWAYS CALL FIRST — never ask the customer about colour or "
+    "placement preemptively: this skill LOOKS at their room photo, and when "
+    "the room makes placement obvious (one same-type piece → it gets "
+    "replaced) no question is needed; you ask ONLY when a denial says so. "
+    "PRECONDITIONS (all enforced in code): the customer has completed "
     "an enquiry (phone + showroom routing), has sent a room photo in this "
-    "conversation, and is within the daily preview limit. Denials return "
-    "`denied` with what to do: need_enquiry → collect their details via the "
-    "normal flow first; need_photo → ask for a photo of their space; "
+    "conversation, and is within the daily preview limit. Pass `variant` when "
+    "the customer named or previously discussed one, and `placement` when "
+    "they said where it should go. Denials return `denied` with what to do: "
+    "need_enquiry → collect their details via the normal flow first; "
+    "need_photo → ask for a photo of their space; need_variant / "
+    "need_placement → ask exactly the ONE question in the note, then call "
+    "again with their answer (never more than these two questions in total); "
     "daily_cap → tell them our sales team will prepare more mock-ups and "
     "escalate_to_human. Every preview is indicative — say so.",
-    {"family": {"type": "string"}, "variant": {"type": "string"}},
-    {"sent": "bool", "denied": "one of need_enquiry|need_photo|daily_cap|unavailable",
+    {"family": {"type": "string"},
+     "variant": {"type": "string",
+                 "description": "colour/size the customer wants visualized, "
+                                "if named or previously discussed"},
+     "placement": {"type": "string",
+                   "description": "where IN the room, only when the customer "
+                                  "actually said it — 'replace my current "
+                                  "sofa', 'by the window'. NEVER generic "
+                                  "phrases like 'in my room'"}},
+    {"sent": "bool",
+     "denied": "one of need_enquiry|need_photo|need_variant|need_placement|"
+               "daily_cap|unavailable",
      "note": "what to do next"},
-    ({"family": "MEAGAN"}, {"sent": True}),
+    ({"family": "VERONICA", "variant": "canary yellow",
+      "placement": "replace the current sofa"}, {"sent": True}),
 )
-async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "", **_) -> dict:
+async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
+                                placement: str = "", **_) -> dict:
     if not config.VISUALIZER_ENABLED:
         return {"sent": False, "denied": "unavailable",
                 "note": "room previews are not live yet — do not mention the "
@@ -524,36 +574,231 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "", **_) -
         return {"sent": False, "denied": "need_photo",
                 "note": "ask them to send a photo of their space"}
     fam = (family or "").strip().upper()
-    refs = product_images.variants(fam, limit=1)
-    if not refs:
+    all_vars = product_images.variants(fam, limit=8)
+    if not all_vars:
         return {"sent": False, "denied": "unavailable",
                 "note": "no reference photo for this product — previews need "
                         "one; offer the showroom"}
-    preview_url = await _generate_room_preview(
-        room_photo, refs[0]["images"][0], refs[0].get("variant") or fam)
-    if not preview_url:
+    prefer = (variant or "").strip()
+    if not prefer and len(all_vars) > 1:
+        opts = ", ".join(v.get("variant") or fam for v in all_vars[:6])
+        return {"sent": False, "denied": "need_variant",
+                "note": "ask ONE short question — which one do they want to "
+                        f"see ({opts}) — then call again with `variant`"}
+    photos, _ = product_images.share_set(fam, prefer=prefer or None,
+                                         compare=True)
+    ref_name, ref_url = photos[0] if photos else (fam, all_vars[0]["images"][0])
+    pl = (placement or "").strip()
+    # "in my room" is where the PREVIEW happens, not a placement — models
+    # harvest it from the request; treat vacuous phrases as no placement.
+    if pl and re.fullmatch(
+            r"\W*(?:in|into|inside)?\s*(?:my|the|our)?\s*"
+            r"(?:living\s*room|bed\s*room|drawing\s*room|room|space|home|"
+            r"house|hall|flat)\W*", pl, re.I):
+        pl = ""
+    if not pl:
+        # Vaibhav's obviousness rule: exactly one same-category piece in the
+        # room means "replace it" — only genuine ambiguity earns a question.
+        analysis = await _analyze_room(room_photo, ref_name)
+        if analysis.get("same_type_count") == 1:
+            item = analysis.get("same_type_item") or "existing piece"
+            pl = f"replace the existing {item} with it"
+        elif (analysis.get("confident_spot") or "").strip():
+            pl = analysis["confident_spot"].strip()
+        else:
+            q = (analysis.get("question") or "").strip() or \
+                "where in their room should it go — replacing something " \
+                "there, or a specific spot?"
+            return {"sent": False, "denied": "need_placement",
+                    "note": f"ask ONE short question — {q} — then call again "
+                            "with `placement`"}
+    img = await _generate_room_preview(room_photo, ref_url, ref_name, pl)
+    if not img:
         return {"sent": False, "denied": "unavailable",
                 "note": "preview generation failed — apologise briefly and "
                         "offer the showroom team"}
-    await chatwoot.send_offer_message(
+    sent = await chatwoot.send_image_bytes(
         conv_id, f"Indicative preview — finish and scale may vary. "
-                 f"({refs[0].get('variant') or fam})", preview_url)
+                 f"({ref_name})", img)
+    if not sent:
+        return {"sent": False, "denied": "unavailable",
+                "note": "preview delivery failed — apologise briefly and "
+                        "offer the showroom team"}
+    await chatwoot.merge_custom_attributes(conv_id, {"visualizer_request": {
+        "family": fam, "variant": ref_name, "placement": pl}})
     profile_mod.merge_events(prof, [{
         "t": profile_mod._iso(profile_mod.now()), "msg": None, "conv": conv_id,
-        "inbox": "", "kind": "visualized", "what": fam}])
-    return {"sent": True}
+        "inbox": "", "kind": "visualized",
+        "what": f"{fam} — {ref_name} — {pl}"}])
+    return {"sent": True,
+            "note": "remind them it is indicative; the showroom team can "
+                    "refine it further"}
+
+
+async def _gemini_generate(model: str, parts: list, timeout: float = 60):
+    """One generateContent call; returns the parsed body. Retries per-minute
+    429s and 5xx briefly; raises on hard failure — callers decide the
+    fail-safe. (A free-tier 'limit: 0' quota error is hard: retrying a
+    billing wall would just stall the webhook turn.)"""
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent")
+    import httpx
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(4):
+            r = await client.post(url, headers={"x-goog-api-key":
+                                                config.GEMINI_API_KEY},
+                                  json={"contents": [{"parts": parts}]})
+            retryable = (r.status_code == 429 and "limit: 0" not in r.text) \
+                or r.status_code >= 500
+            if retryable and attempt < 3:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+            r.raise_for_status()
+            return r.json()
+
+
+async def _fetch_bytes(url: str) -> tuple[bytes, str]:
+    """Download an image → (bytes, mime)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.content, r.headers.get("content-type",
+                                        "image/jpeg").split(";")[0]
+
+
+def _inline_part(content: bytes, mime: str) -> dict:
+    return {"inline_data": {"mime_type": mime,
+                            "data": base64.b64encode(content).decode()}}
+
+
+async def _fetch_image_part(url: str) -> dict:
+    """Download an image and wrap it as a Gemini inline_data part."""
+    content, mime = await _fetch_bytes(url)
+    return _inline_part(content, mime)
+
+
+def _gemini_text(body: dict) -> str:
+    for cand in body.get("candidates") or []:
+        for part in (cand.get("content") or {}).get("parts") or []:
+            if part.get("text"):
+                return part["text"]
+    return ""
+
+
+def _gemini_image(body: dict) -> bytes | None:
+    for cand in body.get("candidates") or []:
+        for part in (cand.get("content") or {}).get("parts") or []:
+            data = (part.get("inline_data") or part.get("inlineData")
+                    or {}).get("data")
+            if data:
+                return base64.b64decode(data)
+    return None
+
+
+async def _analyze_room(room_image_url: str, product_desc: str) -> dict:
+    """Cheap vision pass over the room photo: is placement obvious?
+    Any failure → {} → the skill asks the generic placement question
+    (fail-safe is to ask, never to guess or crash). Tests monkeypatch."""
+    if not config.GEMINI_API_KEY:
+        return {}
+    try:
+        part = await _fetch_image_part(room_image_url)
+        prompt = (
+            "You are helping place furniture in this customer's room photo. "
+            f"They want to try: {product_desc}. Reply STRICT JSON only: "
+            '{"same_type_count": <int, pieces of the SAME furniture category '
+            'visible in the room>, "same_type_item": "<short description of '
+            'that piece, only when exactly one>", "confident_spot": "<ONLY if '
+            'no same-category piece exists and ONE spot is unmistakably '
+            'right: a short placement phrase; else empty>", "question": '
+            '"<one short question offering the concrete placement options '
+            'you can actually see in this room>"}')
+        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL,
+                                      [part, {"text": prompt}], timeout=30)
+        text = _gemini_text(body).strip()
+        text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+        out = json.loads(text)
+        return out if isinstance(out, dict) else {}
+    except Exception as e:
+        print(f"[agent] room analysis failed: {type(e).__name__}: {e}")
+        return {}
+
+
+def _preview_prompt(product_name: str, placement: str,
+                    with_swatch: bool = False) -> str:
+    p = (
+        "The first image is the customer's real room. The second image is "
+        f"the product: {product_name}. Create ONE photorealistic image of "
+        f"the same room with the product placed in it — "
+        f"{placement or 'at the most natural spot'}. Keep the room's "
+        "camera angle and every other detail unchanged; scale the product "
+        "true to real life; match the room's lighting and shadows; keep "
+        "the product's exact shape and design from its photo.")
+    if with_swatch:
+        p += (" The third image is the exact upholstery fabric the customer "
+              "chose — upholster the product precisely in that fabric's "
+              "colour and texture.")
+    else:
+        p += " Keep the product's exact colour from its photo."
+    return p + " No text, no watermarks, no borders."
+
+
+async def _compose_preview(room: tuple[bytes, str], prod: tuple[bytes, str],
+                           product_name: str, placement: str,
+                           swatch: tuple[bytes, str] | None = None
+                           ) -> bytes | None:
+    """Room + product reference (+ optional fabric swatch for the chosen
+    colour) → composite bytes on the configured engine (VISUALIZER_ENGINE):
+    OpenAI images/edits or the Gemini image model. None on any failure."""
+    prompt = _preview_prompt(product_name, placement, with_swatch=bool(swatch))
+    engine = (config.VISUALIZER_ENGINE or "").lower()
+    try:
+        if engine.startswith("gpt"):
+            import httpx
+            ext = {"image/png": "png", "image/webp": "webp"}
+            imgs = [("room", room), ("product", prod)] + \
+                   ([("fabric", swatch)] if swatch else [])
+            files = [("image[]", (f"{label}." + ext.get(t[1], "jpg"),
+                                  t[0], t[1])) for label, t in imgs]
+            data = {"model": config.VISUALIZER_ENGINE, "prompt": prompt,
+                    "size": "auto", "quality": "medium"}
+            async with httpx.AsyncClient(timeout=240) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/images/edits",
+                    headers={"Authorization":
+                             f"Bearer {config.OPENAI_API_KEY}"},
+                    data=data, files=files)
+                r.raise_for_status()
+                b64 = (r.json().get("data") or [{}])[0].get("b64_json")
+                return base64.b64decode(b64) if b64 else None
+        if not config.GEMINI_API_KEY:
+            return None
+        parts = [_inline_part(*room), _inline_part(*prod)] + \
+                ([_inline_part(*swatch)] if swatch else []) + \
+                [{"text": prompt}]
+        body = await _gemini_generate(config.GEMINI_IMAGE_MODEL, parts,
+                                      timeout=90)
+        return _gemini_image(body)
+    except Exception as e:
+        print(f"[agent] preview compose failed ({engine}): "
+              f"{type(e).__name__}: {e}")
+        return None
 
 
 async def _generate_room_preview(room_image_url: str, product_image_url: str,
-                                 product_name: str) -> str | None:
-    """Room-preview generation — wired to Gemini (Nano Banana) once
-    GEMINI_API_KEY lands; until then every call reports unavailable. Tests
-    monkeypatch this."""
-    if not config.GEMINI_API_KEY:
+                                 product_name: str,
+                                 placement: str = "") -> bytes | None:
+    """Fetch both images and compose on the configured engine. Returns raw
+    image bytes; None on any failure (the skill reports unavailable).
+    Tests monkeypatch this."""
+    try:
+        room = await _fetch_bytes(room_image_url)
+        prod = await _fetch_bytes(product_image_url)
+    except Exception as e:
+        print(f"[agent] preview fetch failed: {type(e).__name__}: {e}")
         return None
-    # TODO(gemini): images API call — room + product reference + placement
-    # prompt → composite; upload → URL. Finalised when the key arrives.
-    return None
+    return await _compose_preview(room, prod, product_name, placement)
 
 
 @_skill(
@@ -759,8 +1004,14 @@ def is_low_value_comment(text: str) -> bool:
     return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == ""
 
 
-def human_replied(messages: list) -> bool:
-    """A human agent has sent a public reply → the AI stands down for good."""
+def last_human_reply_at(messages: list) -> int | None:
+    """Epoch of the newest PUBLIC reply a human agent sent, or None. A human
+    reply is a turn, not a takeover: it claims the conversation for
+    SOCIAL_AGENT_HUMAN_CLAIM_MINUTES from that moment (each further human
+    reply renews the claim), and the agent resumes once the window lapses.
+    The permanent form is the agent_mode_standdown conversation attribute,
+    set and cleared by humans only — code never stamps it."""
+    latest = None
     for m in messages or []:
         if m.get("message_type") not in (1, "outgoing") or m.get("private"):
             continue
@@ -771,8 +1022,13 @@ def human_replied(messages: list) -> bool:
             continue
         if ca.get("type") == "ai_review_suggestion":
             continue
-        return True
-    return False
+        try:
+            t = int(m.get("created_at") or 0)
+        except (TypeError, ValueError):
+            t = 0
+        if t and (latest is None or t > latest):
+            latest = t
+    return latest
 
 
 # ── Prompt ──────────────────────────────────────────────────────────────────
@@ -832,8 +1088,12 @@ EVERY TURN, IN THIS ORDER:
 anything the profile already holds (stored numbers → last 4 digits only).
 2. FETCH: list the fact classes your reply will contain and call each one's \
 owning skill —
-   product / price → search_products · EMI, availability OR numbers → \
-get_emi_plans · showroom / location → find_showrooms · current offers → \
+   product / price → search_products · EMI figures — only when the customer \
+asks for EMI details → get_emi_plans (a bare "EMI options available" line \
+needs no fetch) · photos → share_product_images when the customer asks to \
+see them; when you compare products for the customer, send ONE front view \
+of each (compare=true per product); otherwise NO photos — the listing link \
+IS the visual · showroom / location → find_showrooms · current offers → \
 share_offer
    Owned facts are fetched fresh EVERY turn they are mentioned — the \
 profile's old quotes are history, not current truth. Not fetched → cannot \
@@ -848,7 +1108,10 @@ product on every account — the account's vertical only picks the deal route.
 renders no markdown), shortest useful answer, one question at a time, figures \
 copied digit-for-digit from skill results. Prices appear EXACTLY as the \
 skills return them — Indian notation like ₹1,09,520, never reformatted or \
-rounded. Light "ji"/"bilkul" warmth only if the customer is informal. Sign \
+rounded. EVERY product you quote carries its durian.in link from \
+search_products — no exception, comparisons included; the link previews the \
+product. Add one line "EMI options available" where useful. Light \
+"ji"/"bilkul" warmth only if the customer is informal. Sign \
 off "Regards,\\nTeam Durian" on substantive replies, not one-liners.
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
 and it carries TWO equal duties:
@@ -882,8 +1145,15 @@ specific colour's photos. \
 Whenever you name a specific product's price, ALWAYS include its listing \
 `link` (from search_products / share_product_images) in your text so they \
 can tap through — a price without its link is incomplete.
-- Room previews (visualize_in_room) unlock only after the enquiry is \
-registered; follow the skill's `note` on any denial.
+- Room previews (visualize_in_room): when the context shows the VISUALIZER \
+PASS FREE line, a specific product is in play, and you have not offered it \
+yet in this conversation, offer ONCE — they send a photo of their space and \
+we show the product in it. Previews unlock after the enquiry is registered; \
+follow the skill's `note` on any denial. Never pre-ask colour or placement — \
+CALL the skill first (it sees the room photo and placement is often \
+obvious); need_variant / need_placement notes are your script: ask exactly \
+that ONE question (at most these two questions), then call again with the \
+customer's answer.
 - ESCALATE (escalate_to_human): order status / delivery / warranty; dealer / \
 franchise; bulk / B2B / projects; collabs; discount requests beyond listed \
 offers (one firm polite line first); serious complaints; abuse — any insult \
@@ -959,14 +1229,18 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
     ca = conv.get("custom_attributes") or {}
-    if ca.get("agent_mode_standdown") or human_replied(all_messages):
-        if not ca.get("agent_mode_standdown"):
-            try:
-                await chatwoot.merge_custom_attributes(
-                    conv_id, {"agent_mode_standdown": True})
-            except Exception:
-                pass
+    if ca.get("agent_mode_standdown"):
+        # Manual, permanent claim — a human set it on the conversation and
+        # only a human clears it. Code never stamps this.
         return {"ignored": True, "reason": "human_owns_conversation"}
+    last_human = last_human_reply_at(all_messages)
+    if last_human and (now.timestamp() - last_human
+                       < config.SOCIAL_AGENT_HUMAN_CLAIM_MINUTES * 60):
+        # A human's public reply claims the conversation for a rolling
+        # window (renewed by each further reply) — their turn, not a
+        # takeover. Once it lapses the agent resumes with their replies
+        # in its history.
+        return {"ignored": True, "reason": "human_claim_active"}
 
     # ── Profile: load or cold-start, ingest this conversation's new events ──
     prof = None
@@ -1031,7 +1305,16 @@ async def _handle_locked(conv, conv_id, channel, surface,
     templates = await _templates_block(channel, surface)
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
                             templates, n_customer)
-    user = (f"── CONVERSATION (IST timestamps) ──\n{transcript}\n\n"
+    viz_pass = ""
+    if config.VISUALIZER_ENABLED and surface != "comment":
+        _today = profile_mod.now().date().isoformat()
+        _used = sum(1 for e in prof.get("events") or []
+                    if e.get("kind") == "visualized"
+                    and str(e.get("t", "")).startswith(_today))
+        if _used < config.VISUALIZER_DAILY_CAP:
+            viz_pass = ("\n\n── VISUALIZER PASS FREE TODAY ──\n"
+                        "A room preview is available for this customer.")
+    user = (f"── CONVERSATION (IST timestamps) ──\n{transcript}{viz_pass}\n\n"
             f"── REPLY NOW TO ──\n{latest or (incoming_texts[-1] if incoming_texts else '')}")
 
     ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
@@ -1081,6 +1364,26 @@ async def _handle_locked(conv, conv_id, channel, surface,
             except ValueError:
                 args = {}
             if call.name == "finish":
+                if not (args.get("reply") or "").strip() and not _repaired:
+                    # Some models treat delivered photos as the whole reply
+                    # and finish() with no words. One repair round-trip via
+                    # the tool-result channel, same budget as prose repair.
+                    _repaired = True
+                    input_items.append({"type": "function_call",
+                                        "name": call.name,
+                                        "arguments": call.arguments,
+                                        "call_id": call.call_id})
+                    input_items.append({
+                        "type": "function_call_output",
+                        "call_id": call.call_id,
+                        "output": json.dumps({
+                            "error": "finish.reply was empty — the customer "
+                                     "sees your photos but no words. Call "
+                                     "finish again with the accompanying "
+                                     "reply text (include the listing link "
+                                     "per policy), confidence and learned[]."
+                        })})
+                    break
                 finish = args
                 break
             skill = SKILLS.get(call.name)

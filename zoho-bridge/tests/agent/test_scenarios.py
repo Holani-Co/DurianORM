@@ -56,7 +56,30 @@ def test_scenario(scenario, engine_factory):
     exp = scenario.get("expect") or {}
     judge = exp.get("judge")
     if judge and not os.environ.get("SKIP_JUDGE"):
-        convo = []
+        surface = scenario.get("surface") or "dm"
+        convo = ["Surface: public comment reply under a post"
+                 if surface == "comment" else "Surface: private DM"]
+        prof = scenario.get("profile") or {}
+        facts = []
+        if (prof.get("identity") or {}).get("phone"):
+            facts.append("phone number on file")
+        shr = ((prof.get("commercial") or {}).get("showroom") or {}).get("value")
+        if shr:
+            facts.append(f"already routed to showroom {shr} — enquiry registered")
+        city = ((prof.get("location") or {}).get("city") or {}).get("value")
+        if city:
+            facts.append(f"city {city}")
+        for ev in (prof.get("events") or [])[-3:]:
+            if ev.get("what"):
+                facts.append(f"{ev.get('kind')}: {ev.get('what')}")
+        if facts:
+            convo.append("Customer profile on file BEFORE this exchange: "
+                         + ", ".join(facts))
+        for h in scenario.get("history") or []:
+            who = ("Customer" if h.get("who", "customer") == "customer"
+                   else "Assistant")
+            convo.append(f"[earlier in this conversation] {who}: "
+                         f"{h.get('text', '')}")
         for step in scenario.get("script") or []:
             convo.append(f"Customer: {step.get('text', '')}")
         if eng.tools_trail:

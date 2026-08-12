@@ -1,0 +1,67 @@
+# Website-search era (search_products = live durian.in storefront, faked
+# deterministically in conftest). Defaults under test: every quoted product
+# carries its listing link; EMI is a one-line mention until the customer asks
+# for details; photos go out only on explicit request or when comparing.
+
+- id: product_quote_carries_link
+  script:
+    - {at: "0m", text: "hi, looking for an l shaped sofa for my living room"}
+  expect:
+    tools_called: ["search_products"]
+    tools_not_called: ["share_product_images"]
+    sent_contains: ["durian\\.in/product/benjamin-corner", "1,20,480"]
+    judge: {min: 3}
+
+- id: emi_stays_a_mention_until_asked
+  script:
+    - {at: "0m", text: "what is the price of the esmeralda dining set?"}
+  expect:
+    tools_called: ["search_products"]
+    tools_not_called: ["get_emi_plans", "share_product_images"]
+    sent_contains: ["2,04,880", "durian\\.in/product/esmeralda"]
+    sent_not_contains: ["per month", "/month", "down.?payment"]
+    judge: {min: 3}
+
+- id: emi_details_on_request
+  history:
+    - {at: "-10m", text: "price of the esmeralda dining set?"}
+    - {at: "-9m", who: durian, text: "The Esmeralda marble dining set is ₹2,04,880. EMI options are available. https://www.durian.in/product/esmeralda2-marble-dining-set-1-6"}
+  script:
+    - {at: "0m", text: "what are the emi options?"}
+  expect:
+    tools_called: ["get_emi_plans"]
+    sent_contains: ["34,146"]
+    labels: ["emi-enquiry"]
+    judge: {min: 3}
+
+- id: no_unsolicited_photos
+  script:
+    - {at: "0m", text: "do you have recliners? what would one cost"}
+  expect:
+    tools_called: ["search_products"]
+    tools_not_called: ["share_product_images"]
+    sent_contains: ["1,44,900", "durian\\.in/product/valerano"]
+    judge: {min: 3}
+
+- id: photos_on_explicit_ask
+  history:
+    - {at: "-10m", text: "looking for an l shaped sofa"}
+    - {at: "-9m", who: durian, text: "The Benjamin Corner in leatherette is ₹1,20,480. EMI options are available. https://www.durian.in/product/benjamin-corner-i-ash-grey-premium-leatherette-7-seater-corner-sofa"}
+  script:
+    - {at: "0m", text: "can you send me some photos of it?"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 1
+    judge: {min: 3}
+
+- id: photos_on_comparison
+  history:
+    - {at: "-10m", text: "looking for an l shaped sofa around 1.2 lakh"}
+    - {at: "-9m", who: durian, text: "Two options — Benjamin Corner (leatherette) at ₹1,20,480 and Lewis (fabric) at ₹1,09,520. EMI options are available on both."}
+  script:
+    - {at: "0m", text: "can you compare the two for me?"}
+  expect:
+    # Photos on comparison are encouraged, not mandated — the explicit
+    # "X vs Y" form hard-asserts them in 15_image_coverage.
+    tools_not_called: ["get_emi_plans"]
+    judge: {min: 3}

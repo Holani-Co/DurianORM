@@ -79,7 +79,12 @@ def bubble_thread(rec):
                 hold = esc(o.get("hold") or "held for review")
                 out.append(f'<div class="row out"><div class="bub card">{esc(o["text"])}</div><div class="meta hold">held for agent — {hold}</div></div>')
             elif o["type"] == "offer":
-                out.append(f'<div class="row out"><div class="bub offer"><span class="offer-tag">OFFER IMAGE</span>{esc(o["text"])}</div><div class="meta">sent · offer</div></div>')
+                img = o.get("image_url") or ""
+                pic = (f'<img class="pimg" src="{esc(img)}" loading="lazy">'
+                       if "durian.in" in img else "")
+                tag = "PHOTO" if pic else "OFFER IMAGE"
+                kind = "photo" if pic else "offer"
+                out.append(f'<div class="row out"><div class="bub offer"><span class="offer-tag">{tag}</span>{pic}{esc(o["text"])}</div><div class="meta">sent · {kind}</div></div>')
         if not step.get("outputs"):
             h = esc(step.get("handled") or "no output")
             out.append(f'<div class="sysline">({h})</div>')
@@ -154,6 +159,7 @@ h1 {{ font-size:20px; font-weight:600; margin-bottom:4px; }}
 .bub.card {{ background:transparent; border:1.5px dashed #b8860b; color:#e3c56d; border-bottom-right-radius:5px; }}
 .bub.offer {{ background:#20313f; border:1px solid #2e4a61; }}
 .offer-tag {{ display:block; font-size:10px; letter-spacing:1px; color:#6fa8dc; margin-bottom:4px; }}
+.pimg {{ width:100%; max-width:220px; border-radius:8px; display:block; margin:2px 0 6px; }}
 .meta {{ font-size:10.5px; color:var(--mut); margin-top:3px; padding:0 4px; }}
 .meta.hold {{ color:#b8860b; }}
 .tools {{ display:flex; gap:5px; justify-content:center; flex-wrap:wrap; margin:2px 0; }}

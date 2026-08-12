@@ -211,7 +211,15 @@ async def get_offers() -> list[dict]:
             if r.status_code >= 300:
                 return []
             body = r.json()
-            return body if isinstance(body, list) else (body.get("payload") or [])
+            offers = body if isinstance(body, list) else (body.get("payload") or [])
+            # The offers serializer builds image_url with url_for, which
+            # yields a PATH (/rails/active_storage/…) — absolutize against
+            # the internal base so the image download works.
+            for o in offers:
+                u = (o.get("image_url") or "").strip()
+                if u.startswith("/"):
+                    o["image_url"] = config.CHATWOOT_BASE_URL.rstrip("/") + u
+            return offers
     except Exception as e:
         print(f"[chatwoot] get_offers failed: {e}")
         return []
@@ -248,6 +256,33 @@ async def send_offer_message(conversation_id: int, caption: str,
             return r.json()
     except Exception as e:
         print(f"[chatwoot] send_offer_message error: {e}")
+        return None
+
+
+async def send_image_bytes(conversation_id: int, caption: str,
+                           content: bytes,
+                           ctype: str = "image/png") -> dict | None:
+    """Send an in-memory image (e.g. a generated room preview) + caption as
+    two messages — same split as send_offer_message, same phantom-echo
+    reason. Best-effort; None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            files = {"attachments[]": ("preview.png", content, ctype)}
+            data = {"message_type": "outgoing", "private": "false"}
+            r = await client.post(_conv_url(conversation_id, "/messages"),
+                                  headers=_headers(), data=data, files=files)
+            if r.status_code >= 300:
+                print(f"[chatwoot] send_image_bytes failed "
+                      f"[{r.status_code}]: {r.text[:200]}")
+                return None
+            if (caption or "").strip():
+                await client.post(
+                    _conv_url(conversation_id, "/messages"), headers=_headers(),
+                    json={"content": caption.strip(),
+                          "message_type": "outgoing", "private": False})
+            return r.json()
+    except Exception as e:
+        print(f"[chatwoot] send_image_bytes error: {e}")
         return None
 
 

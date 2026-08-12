@@ -4,15 +4,15 @@ Every runtime tool, its arguments, return shape, and one example. Regenerate via
 
 ## search_products
 
-Look up Durian products. USE WHEN a customer names or describes a product (handles customer vocabulary: 'L-shaped' finds corner sofas). Returns DISTINCT products grouped by family with price ranges — present different products, never several finishes of one. Empty families[] = we could not find it: rephrase and retry ONCE, then say so honestly, never invent.
+Look up Durian products on the LIVE durian.in storefront — the website's own search, so results are current sellable products at live prices (handles customer vocabulary: 'L-shaped' finds sectional sofas). USE WHEN a customer names or describes a product. Quote a product WITH its link — the link previews the product and its page carries every photo, so do not send photos separately unless the customer asks or you are comparing. EMI exists on everything: a one-line 'EMI options available' needs no fetch, but any EMI figure requires get_emi_plans first. Empty products[] = not found: rephrase and retry ONCE, then say so honestly, never invent.
 
 **Args**: `{"query": {"type": "string", "description": "product words from the customer"}}`
-**Returns**: `{"families": "list of {family, name, price_from, price_to, variants} \u2014 prices pre-formatted in Indian notation, quote them verbatim", "price_period": "str \u2014 the price list month these prices come from"}`
-**Example**: `{"query": "l shaped sofa"}` → `{"families": [{"family": "BENJAMIN CORNER", "name": "LEATHERETTE CORNER SOFA", "price_from": "\u20b91,20,480", "price_to": "\u20b91,44,900", "variants": 13}]}`
+**Returns**: `{"products": "list of {title, category, price, mrp?, link, note?} \u2014 prices pre-formatted in Indian notation, quote them verbatim; mrp present only when the price is a discount off it", "note": "str \u2014 set when there is something to relay honestly"}`
+**Example**: `{"query": "l shaped sofa"}` → `{"products": [{"title": "Prescott", "category": "Sectional Sofas", "price": "\u20b94,47,300", "mrp": "\u20b98,94,600", "link": "https://www.durian.in/product/prescott-sea-salt-grey-fabric-5-seater-corner-sofa"}]}`
 
 ## get_emi_plans
 
-Snapmint EMI plans for a product (sku/family) or a price in rupees. MANDATORY before ANY statement about EMI — availability included — every single time EMI/installments come up, even when plans were quoted in an earlier turn (always re-fetch; history is not current truth). Also use it to add a one-line EMI mention to a price quote. Quote returned numbers EXACTLY, digit for digit. error set → EMI unavailable, say so, never invent plans. Side effect: tags the conversation emi-enquiry.
+Snapmint EMI plan details for a product (sku/family) or a price in rupees. Call ONLY when the customer asks about EMI/instalments — never volunteer plan figures with a product quote (a one-line 'EMI options available' mention needs no fetch). MANDATORY before quoting ANY EMI figure — tenure, monthly amount, down payment — every single time, even when plans were quoted in an earlier turn (always re-fetch; history is not current truth). Quote returned numbers EXACTLY, digit for digit. error set → EMI unavailable, say so, never invent plans. Side effect: tags the conversation emi-enquiry.
 
 **Args**: `{"sku": {"type": "string"}, "price": {"type": "number"}}`
 **Returns**: `{"product": "str", "price": "\u20b9-formatted str", "down_payment": "\u20b9-formatted str", "plans": "list of {months, emi_per_month, zero_cost, total_payment, interest} \u2014 all amounts pre-formatted, quote verbatim"}`
@@ -52,19 +52,19 @@ Check current offers and, when one fits, SEND it (image + caption) — at most o
 
 ## share_product_images
 
-Send the customer photos of a product family they are interested in — one photo per variant (up to 3 variants; a single-variant product gets two photos). USE ONCE per product per conversation, whenever a customer shows real interest in a specific product. After calling, include the returned listing link in your text reply so they can tap through.
+Send product photos ONLY when the customer explicitly asks to see photos, or when comparing shortlisted products — never with an ordinary quote: the listing link in your reply already previews the product and its page carries every photo. Every photo sent is that variant's FRONT view. Default: one photo per variant (up to 3 variants, site order; a single-variant product gets two photos). Customer named a colour/size → pass it as `variant` so that photo leads. Comparing two products → call once per product with compare=true (exactly one front view each). Photos go once per product per conversation; a later call for the same family delivers only a variant not yet pictured (pass `variant`) — unless resend=true, which you set ONLY when the customer explicitly asks to see the photos again. DMs only: in a public comment thread this refuses — invite them to DM. After calling, include the returned listing link in your text reply so they can tap through.
 
-**Args**: `{"family": {"type": "string", "description": "catalog family, e.g. BENJAMIN CORNER-I"}}`
+**Args**: `{"family": {"type": "string", "description": "catalog family, e.g. BENJAMIN CORNER-I"}, "variant": {"type": "string", "description": "colour/size words the customer used, e.g. 'camel brown' or '3 seater'"}, "compare": {"type": "boolean", "description": "true when comparing products \u2014 exactly one front-view photo of this family"}, "resend": {"type": "boolean", "description": "true ONLY when the customer explicitly asked to see already-sent photos again"}}`
 **Returns**: `{"sent": "int \u2014 photos delivered", "link": "listing URL for your reply", "variants": "list of variant names sent", "note": "str"}`
-**Example**: `{"family": "MEAGAN"}` → `{"sent": 3, "link": "https://www.durian.in/product/meagan-\u2026", "variants": ["Mushroom Brown 2 Seater", "Grey 3 Seater"]}`
+**Example**: `{"family": "MEAGAN", "variant": "camel brown"}` → `{"sent": 1, "link": "https://www.durian.in/product/meagan-camel-brown-\u2026", "variants": ["Camel Brown Premium Leatherette 2 Seater Sofa"]}`
 
 ## visualize_in_room
 
-Generate a preview of a Durian product placed in the customer's OWN room photo. PRECONDITIONS (all enforced in code): the customer has completed an enquiry (phone + showroom routing), has sent a room photo in this conversation, and is within the daily preview limit. Denials return `denied` with what to do: need_enquiry → collect their details via the normal flow first; need_photo → ask for a photo of their space; daily_cap → tell them our sales team will prepare more mock-ups and escalate_to_human. Every preview is indicative — say so.
+Generate a preview of a Durian product placed in the customer's OWN room photo. ALWAYS CALL FIRST — never ask the customer about colour or placement preemptively: this skill LOOKS at their room photo, and when the room makes placement obvious (one same-type piece → it gets replaced) no question is needed; you ask ONLY when a denial says so. PRECONDITIONS (all enforced in code): the customer has completed an enquiry (phone + showroom routing), has sent a room photo in this conversation, and is within the daily preview limit. Pass `variant` when the customer named or previously discussed one, and `placement` when they said where it should go. Denials return `denied` with what to do: need_enquiry → collect their details via the normal flow first; need_photo → ask for a photo of their space; need_variant / need_placement → ask exactly the ONE question in the note, then call again with their answer (never more than these two questions in total); daily_cap → tell them our sales team will prepare more mock-ups and escalate_to_human. Every preview is indicative — say so.
 
-**Args**: `{"family": {"type": "string"}, "variant": {"type": "string"}}`
-**Returns**: `{"sent": "bool", "denied": "one of need_enquiry|need_photo|daily_cap|unavailable", "note": "what to do next"}`
-**Example**: `{"family": "MEAGAN"}` → `{"sent": true}`
+**Args**: `{"family": {"type": "string"}, "variant": {"type": "string", "description": "colour/size the customer wants visualized, if named or previously discussed"}, "placement": {"type": "string", "description": "where IN the room, only when the customer actually said it \u2014 'replace my current sofa', 'by the window'. NEVER generic phrases like 'in my room'"}}`
+**Returns**: `{"sent": "bool", "denied": "one of need_enquiry|need_photo|need_variant|need_placement|daily_cap|unavailable", "note": "what to do next"}`
+**Example**: `{"family": "VERONICA", "variant": "canary yellow", "placement": "replace the current sofa"}` → `{"sent": true}`
 
 ## escalate_to_human
 

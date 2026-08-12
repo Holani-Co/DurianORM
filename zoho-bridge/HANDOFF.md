@@ -305,3 +305,120 @@ pure function.
 - Local dev stack (Chatwoot): OrbStack Docker (pg 5434 / redis 6380) +
   `overmind start -f Procfile.local` in `chatwoot/` — running as of handoff.
 - Client-facing docs: `zoho-bridge/SKILLS.md` (generated).
+
+---
+
+## 10 · Addendum — image-coverage phase (2026-08-13, later session)
+
+Done this session (all still UNCOMMITTED, on top of everything above):
+
+- **Front-view rule confirmed & pinned**: the sitemap (hence
+  `data/product_images.json`) preserves the site gallery order, so
+  `images[0]` per variant IS the front view. `share_set()` always leads with
+  it; unit tests pin exact URLs.
+- **`share_product_images` is now variant-aware** (Vaibhav's decisions):
+  `variant` hint (colour/size words; grey≈gray, 2≈two) makes that variant
+  lead and the listing link follow it; `compare=true` → exactly one front
+  view per product; `resend=true` ONLY on an explicit customer re-ask
+  (re-sends allowed then); already-shared family + new `variant` → targeted
+  top-up (≤2 photos of just that variant, never repeating a sent URL —
+  tracked in conv attr `product_images_sent`; `product_images_shared`
+  semantics unchanged). >3 variants → first 3 in site order + skill note
+  telling the model to invite colour-specific asks. Comment surface →
+  skill refuses, invites to DM. Junk sitemap variant names ('2') fall back
+  to the family name as caption. SKILLS.md regenerated.
+- **Loop repair extended**: finish() with EMPTY reply now gets ONE repair
+  round-trip via the tool-result channel (DeepSeek sends photos then
+  finishes wordless — "did the work, said nothing" v2, fixed 5 scenarios).
+  Photo-skill success note now carries "write your reply, include this
+  link: <url>" — result-channel pressure that weak models actually follow.
+- **Suite 15** (`15_image_coverage.yaml`, 16 scenarios): front-view URL
+  pinning, variant targeting (incl. Hinglish seater), comparisons (fresh +
+  after-share), re-send boundaries, top-up, post-split, EMI+photos,
+  no-photos honesty (AMANDA), comment/escalation/greeting negatives.
+  Harness: `offer_sends` records `image_url`; new expects
+  `images_sent_contains/max/not_contains`, `images_unique`; review.html
+  renders real product photos in the phone bubbles (`.pimg`).
+- **Judge upgraded to `gpt-5.6-terra`** (Vaibhav's call, env-overridable) +
+  judge now sees surface, profile facts, last 3 profile events, and history;
+  rubric gained photo policy, no-photos honesty, full greeting decision tree
+  (intent → no preamble!), DM store cards. Judge 429 backoff now 7×/exp —
+  score-0-on-starvation was failing runs.
+- **Gemini key landed** in `.env` (`GEMINI_API_KEY`); visualizer still dark.
+  Image-gen cache design agreed: hot cache on disk, long tail on the Spaces
+  bucket, daily cron for stale source images (memory:
+  `image-phase-decisions`).
+- **Latest results**: Luna 79/79 scenarios (+18 units + skills_md fresh),
+  DeepSeek suite-15 16/16 (its 3 old-suite misses are yesterday's throttle
+  artifacts). review.html: 151 transcripts, photos rendered.
+- **Watch**: `comparison_after_share` flickered once on the fairmont LINK
+  (image sends were right) — known link-inclusion class. `t_luna_final` /
+  `t_ds_images` jsonls are consolidated into `transcripts_luna/deepseek`
+  (build_review reads ONLY those two names).
+- **Next**: image generation flow (Gemini) per §7.2 + Spaces cache above —
+  Vaibhav reviews the rendered HTML first.
+
+### §10.1 — Visualizer flow (same day, later)
+
+- **Flow built per Vaibhav's spec** (all UNCOMMITTED): `visualize_in_room`
+  now takes `variant` + `placement`; code-enforced question protocol —
+  need_variant (colour list in the note) and need_placement, at most these
+  TWO questions ever; his obviousness rule in code: `_analyze_room` (Gemini
+  flash on the room photo) → exactly one same-type piece = "replace it",
+  no question. Vacuous placements ("in my room") are stripped in code —
+  models harvest them. CALL-FIRST contract in the skill description AND
+  prompt: the model must never pre-ask colour/placement (only the skill
+  sees the room; Luna asked preemptively without it ~1 in 3 until this).
+- **Generation is REAL now**: `_generate_room_preview` → Gemini
+  `GEMINI_IMAGE_MODEL` via REST/httpx (no new deps), returns bytes;
+  delivered by new `chatwoot.send_image_bytes` (multipart, same two-message
+  split as offers). `GEMINI_ANALYSIS_MODEL` (flash) added to config.
+  Fail-safes: analysis failure → ask the generic placement question;
+  generation/delivery failure → honest unavailable + showroom.
+- **Eagerness**: context gains "VISUALIZER PASS FREE TODAY" (enabled + cap
+  unused, DMs only) + prompt: offer ONCE when a specific product is in play,
+  pre-enquiry (his call — the offer pulls the enquiry).
+- **Capture**: `visualized` event carries "FAM — variant — placement";
+  `visualizer_request` conv attr for the sales team.
+- **Suite 17** (8 scenarios, 2× stable): eager offer / cap-silent / variant
+  question / obvious-replace / placement question / two-questions-max /
+  all-details-one-message. Harness: `room_analysis:` scenario key seeds the
+  vision verdict; `send_image_bytes` in the FakeChatwoot patch list;
+  **profiles deep-copied at seeding** (YAML anchors shared the dict —
+  one scenario's visualized event leaked into the next and tripped the cap).
+- **Trial ready, blocked on room files**: `tests/agent/visualizer_trial.py`
+  — per room: flash picks the variant for the room (his auto-pick call) →
+  vets the 2 reference photos → placement by the obviousness rule →
+  compose → `runs/<date>/viz_trial/viz_review.html` (room | reference |
+  composite). Rooms go in `tests/agent/rooms/` (waiting on Vaibhav's 3
+  photos). ~4 Gemini calls/room, ≈₹5–6 each.
+
+### §10.2 — Generation live: dual engine + the swatch discovery
+
+- **Both engines now compose** via `_compose_preview` (shared by prod skill
+  and trial): `VISUALIZER_ENGINE` = "gpt-image-2" (OpenAI key, works today;
+  images/edits, size=auto quality=medium — it does NOT take input_fidelity)
+  or "gemini" (`GEMINI_IMAGE_MODEL` gemini-3.1-flash-image / Nano Banana —
+  Vaibhav enabled paid tier 2026-08-13; free tier is limit:0 for ALL image
+  models, and `_gemini_generate` fails fast on that, retries only real
+  429/5xx). Analysis model pinned `gemini-3.5-flash` (3.1-flash doesn't
+  exist).
+- **THE SWATCH DISCOVERY** (vet stage caught it, exactly Vaibhav's fear):
+  VERONICA's sitemap gallery is 100% fabric SWATCHES, no product shots.
+  Real photos exist only in the Unbxd family-feed rows. And only in BEIGE —
+  so colour variants ride in as a THIRD reference image (the swatch) with
+  an "upholster exactly in this fabric" prompt clause. Trial vet pool =
+  sitemap variant images + Unbxd(variant query) + Unbxd(bare family), ≤7,
+  flash picks best full-product shot + judges colour match; unusable pool →
+  compose SKIPPED (never paste a swatch into a room).
+- **Trial results 2026-08-13**: 3 rooms × 2 engines = 6/6 composites,
+  variant auto-picked per room (canary yellow / brown sepia / ice grey —
+  flash matched each room's palette), placement per the obviousness rule.
+  Review: `runs/2026-08-13/viz_trial/viz_review_full.html` (self-contained,
+  sent to Vaibhav). Awaiting his engine/quality verdict.
+- **NOT yet in the prod skill**: the pooled vet + swatch flow lives only in
+  the trial; `visualize_in_room` still takes share_set's front image (a
+  swatch for Veronica-class families!). Port after Vaibhav's verdict —
+  ~one flash vet call inside the skill, cap 1/day bounds cost.
+- Full board after all visualizer changes: **115/116** (decline_recorded
+  flake only). review.html now carries 169 transcripts incl. suite 17.

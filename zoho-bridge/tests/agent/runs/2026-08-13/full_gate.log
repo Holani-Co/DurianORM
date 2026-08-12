@@ -1,0 +1,123 @@
+bringing up nodes...
+bringing up nodes...
+
+.........R.............................................................. [ 61%]
+..R.............R...F.R.........................                         [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+_____________________ test_scenario[photos_on_comparison] ______________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'photos_on_comparison', 'history': [{'at': '-10m', 'text': 'looking for an l shaped sofa around 1.2 lakh'}, {'a...ext': 'can you compare the two for me?'}], 'expect': {'tools_not_called': ['get_emi_plans'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x10daca0c0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        dump = os.environ.get("DUMP_TRANSCRIPTS")
+        if dump:
+            import json as _json
+            import re as _re
+            import config as _config
+            prof = scenario.get("profile") or {}
+            ident, loc = prof.get("identity") or {}, prof.get("location") or {}
+            summary = ", ".join(x for x in [
+                ("phone …" + _re.sub(r"\D", "", (ident.get("phone") or {}).get("value", ""))[-4:])
+                if ident.get("phone") else "",
+                (loc.get("city") or {}).get("value", ""),
+                (loc.get("pincode") or {}).get("value", ""),
+                f"{len(prof.get('events') or [])} events" if prof.get("events") else "",
+                f"{scenario['profile_bulk_events']} bulk events"
+                if scenario.get("profile_bulk_events") else ""] if x)
+            context = {
+                "profile_set": bool(prof or scenario.get("profile_bulk_events")),
+                "profile_summary": summary,
+                "history": scenario.get("history") or [],
+                "prior_conversations": [
+                    {"comment": bool(p.get("comment")), "messages": p.get("messages") or []}
+                    for p in scenario.get("prior_conversations") or []],
+                "offers": [o.get("caption") for o in scenario.get("offers") or []],
+                "crm_fixture": bool((scenario.get("crm") or {}).get("contact")),
+                "linked": len(scenario.get("linked_contacts") or [])}
+            with open(dump, "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "suite": scenario["suite"], "id": scenario["id"],
+                    "model": _config.SOCIAL_AGENT_MODEL,
+                    "surface": scenario.get("surface") or "dm",
+                    "passed": not errors, "errors": errors, "context": context,
+                    "steps": getattr(eng, "timeline", [])}, ensure_ascii=False) + "\n")
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            surface = scenario.get("surface") or "dm"
+            convo = ["Surface: public comment reply under a post"
+                     if surface == "comment" else "Surface: private DM"]
+            prof = scenario.get("profile") or {}
+            facts = []
+            if (prof.get("identity") or {}).get("phone"):
+                facts.append("phone number on file")
+            shr = ((prof.get("commercial") or {}).get("showroom") or {}).get("value")
+            if shr:
+                facts.append(f"already routed to showroom {shr} — enquiry registered")
+            city = ((prof.get("location") or {}).get("city") or {}).get("value")
+            if city:
+                facts.append(f"city {city}")
+            for ev in (prof.get("events") or [])[-3:]:
+                if ev.get("what"):
+                    facts.append(f"{ev.get('kind')}: {ev.get('what')}")
+            if facts:
+                convo.append("Customer profile on file BEFORE this exchange: "
+                             + ", ".join(facts))
+            for h in scenario.get("history") or []:
+                who = ("Customer" if h.get("who", "customer") == "customer"
+                       else "Assistant")
+                convo.append(f"[earlier in this conversation] {who}: "
+                             f"{h.get('text', '')}")
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: It contradicts the previously grounded Lewis price of ₹1,09,520 by stating ₹36,200, creating an ungrounded/misleading comparison.
+E             --- sent ---
+E             Here’s a quick comparison:
+E             
+E             Benjamin Corner — ₹1,20,480
+E             Ash Grey premium leatherette, 7-seater corner sofa. Higher-priced option with a leatherette finish.
+E             https://www.durian.in/product/benjamin-corner-i-ash-grey-premium-leatherette-7-seater-corner-sofa
+E             
+E             Lewis — ₹36,200
+E             Dark Oak Brown fabric, 7-seater sectional sofa. More budget-friendly option with a fabric finish.
+E             https://www.durian.in/product/lewis-dark-oak-brown-fabric-7-seater-sectional-sofa
+E             
+E             Both are 7-seater L-shaped configurations. Benjamin suits a leatherette look, while Lewis offers significant savings with a fabric finish.
+E             
+E             Regards,
+E             Team Durian
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x10dcf85c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x10dcf85c0> = {'score': 1, 'reason': 'It contradicts the previously grounded Lewis price of ₹1,09,520 by stating ₹36,200, creating an ungrounded/misleading comparison.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x109d13680>('min', 3)
+E            +    where <built-in method get of dict object at 0x109d13680> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:93: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-5.6-luna in organization org-rT1E9gWoaz8LwuMETaJB1Dnw on tokens per min (TPM): Limit 200000, Used 194862, Requested 5502. Please try again in 109ms. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'tokens', 'param': None, 'code': 'rate_limit_exceeded'}}
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[photos_on_comparison] - A...
+1 failed, 115 passed, 4 rerun in 382.92s (0:06:22)

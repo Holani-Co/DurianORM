@@ -24,16 +24,54 @@
     anywhere_contains: ["team.*(take|reach)|specialist"]
     attrs: {agent_handoff_notified: true}
 
-- id: human_override_standdown
+# A human's public reply claims the conversation for a rolling window
+# (SOCIAL_AGENT_HUMAN_CLAIM_MINUTES, default 30) — a turn, not a takeover.
+- id: human_claim_active
   history:
     - {at: "-30m", text: "I need help with my sofa order"}
     - {at: "-25m", who: human_agent, text: "Hi, this is Neha from Durian. Let me personally look into this for you."}
   script:
     - {at: "0m", text: "thank you Neha, any update?"}
   expect:
+    handled: human_claim_active
+    no_public_send: true
+    attrs_absent: [agent_mode_standdown]
+
+- id: human_claim_renewed          # each human reply renews the window
+  history:
+    - {at: "-90m", text: "I need help with my sofa order"}
+    - {at: "-85m", who: human_agent, text: "Hi, this is Neha from Durian. Let me check with the showroom."}
+    - {at: "-40m", text: "any update?"}
+    - {at: "-20m", who: human_agent, text: "Still coordinating with the showroom — I will confirm shortly."}
+  script:
+    - {at: "0m", text: "ok thank you"}
+  expect:
+    handled: human_claim_active
+    no_public_send: true
+    attrs_absent: [agent_mode_standdown]
+
+- id: human_claim_expired_agent_resumes   # window lapsed → agent's turn again
+  history:
+    - {at: "-3h", text: "I need help choosing a sofa"}
+    - {at: "-2h", who: human_agent, text: "Hi, this is Neha from Durian. Happy to help — do you have a budget in mind?"}
+  script:
+    - {at: "0m", text: "what L-shaped sofas do you have?"}
+  expect:
+    tools_called: ["search_products"]
+    anywhere_contains: ["(?i)corner|l.?shaped|sofa"]
+    attrs_absent: [agent_mode_standdown]
+    judge: {min: 3}
+
+- id: manual_standdown_holds       # the human-set attr is the permanent claim
+  conv_attrs: {agent_mode_standdown: true}
+  history:
+    - {at: "-3d", text: "there is a problem with my order, please help"}
+    - {at: "-3d", who: human_agent, text: "This is Neha — I am personally handling this one."}
+  script:
+    - {at: "0m", text: "hello? any update"}
+  expect:
     handled: human_owns_conversation
     no_public_send: true
-    attrs: {agent_mode_standdown: true}
 
 - id: converge_directive
   history:

@@ -3,7 +3,7 @@
     - {at: "0m", text: "I'm looking for an L-shaped sofa"}
   expect:
     tools_called: ["search_products"]
-    anywhere_contains: ["Benjamin", "Lewis|Gloria"]
+    anywhere_contains: ["Benjamin", "Lewis"]
     judge: {min: 3}
 
 - id: emi_exact_numbers

@@ -43,18 +43,26 @@ def test_comment_rules():
     assert not sa.is_low_value_comment("price please")
 
 
-def test_human_replied():
-    bot = {"message_type": 1, "content_attributes": {"source": "ai_auto_reply"}}
-    card = {"message_type": 1, "private": True, "content_attributes": {"type": "ai_review_suggestion"}}
-    human = {"message_type": 1, "content": "Let me look into this for you",
+def test_last_human_reply_at():
+    bot = {"message_type": 1, "created_at": 1000,
+           "content_attributes": {"source": "ai_auto_reply"}}
+    card = {"message_type": 1, "created_at": 2000, "private": True,
+            "content_attributes": {"type": "ai_review_suggestion"}}
+    human = {"message_type": 1, "created_at": 3000,
+             "content": "Let me look into this for you",
              "content_attributes": {}}
-    empty_artifact = {"message_type": 1, "content": "", "content_attributes": {}}
-    assert not sa.human_replied([bot, card])
-    assert sa.human_replied([bot, human])
-    assert not sa.human_replied([bot, empty_artifact])
-    legacy_str = {"message_type": 1, "content": "Hello!",
+    later = {"message_type": 1, "created_at": 9000,
+             "content": "Update: the showroom will call you.",
+             "content_attributes": {}}
+    empty_artifact = {"message_type": 1, "created_at": 4000, "content": "",
+                      "content_attributes": {}}
+    legacy_str = {"message_type": 1, "created_at": 5000, "content": "Hello!",
                   "content_attributes": '{"source": "ai_auto_reply"}'}
-    assert not sa.human_replied([bot, legacy_str])
+    assert sa.last_human_reply_at([bot, card]) is None
+    assert sa.last_human_reply_at([bot, human]) == 3000
+    assert sa.last_human_reply_at([later, bot, human]) == 9000  # newest wins
+    assert sa.last_human_reply_at([bot, empty_artifact]) is None
+    assert sa.last_human_reply_at([bot, legacy_str]) is None
 
 
 def test_fold_decline_ordering():
@@ -157,3 +165,35 @@ def test_share_set_no_photos_family():
 def test_share_set_junk_variant_caption_falls_back():
     ph, _ = pi.share_set("ESMERALDA")
     assert ph and all(c == "Esmeralda" for c, _ in ph)
+
+
+def test_website_search_normalize():
+    import website_search as ws
+    body = {"response": {"products": [
+        {"_root_": "1", "title": "Prescott", "category": ["Sectional Sofas"],
+         "mrp": 894600, "sellingPrice": 447300, "availability": "true",
+         "discontinuedProducts": "false", "exclusive": "In-store Exclusive",
+         "productURL": "https://www.durian.in/product/prescott-corner",
+         "imageURL": "https://img/p.jpg"},
+        {"_root_": "1", "title": "Prescott", "category": ["Sectional Sofas"],
+         "mrp": 894600, "sellingPrice": 447300, "availability": "true",
+         "discontinuedProducts": "false",
+         "productURL": "https://www.durian.in/product/prescott-corner"},
+        {"_root_": "2", "title": "Dead", "availability": "true",
+         "discontinuedProducts": "true", "mrp": 100, "sellingPrice": 50,
+         "productURL": "https://www.durian.in/product/dead"},
+        {"_root_": "3", "title": "Ghost", "availability": "false",
+         "mrp": 100, "sellingPrice": 50,
+         "productURL": "https://www.durian.in/product/ghost"},
+        {"_root_": "4", "title": "NoUrl", "availability": "true", "mrp": 5},
+        {"_root_": "5", "title": "Lewis", "category": "Sofas",
+         "mrp": 294400, "availability": "true",
+         "productURL": "https://www.durian.in/product/lewis"},
+    ]}}
+    out = ws.normalize(body, rows=4)
+    assert [p["title"] for p in out] == ["Prescott", "Lewis"]
+    p = out[0]
+    assert p["category"] == "Sectional Sofas" and p["in_store_exclusive"]
+    assert p["selling_price"] == 447300 and p["mrp"] == 894600
+    assert out[1]["selling_price"] == 294400          # falls back to mrp
+    assert ws.normalize({}, 4) == []

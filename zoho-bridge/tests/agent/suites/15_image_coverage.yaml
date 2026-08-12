@@ -1,0 +1,191 @@
+# Suite 15 — comprehensive product-image coverage.
+# The front-view rule: every variant's FIRST image (site gallery order) is the
+# front view; that is always the photo that goes out. URL fragments asserted
+# below are the actual front-view image ids from data/product_images.json.
+
+# ── main-image correctness ──────────────────────────────────────────────────
+
+- id: front_view_leads
+  script:
+    - {at: "0m", text: "I like the meagan sofa, show me what it looks like"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 3
+    images_sent_max: 3
+    images_unique: true
+    # the three front-view images of the first three site-order variants
+    images_sent_contains: ["965791782800690", "686551782801680", "222491782720317"]
+    sent_contains: ["durian\\.in/product"]
+    # >3 variants exist → customer must be told they can ask for a specific one
+    anywhere_contains: ["colou?r|shade|variant|option"]
+    judge: {min: 3}
+
+- id: single_variant_two_photos
+  script:
+    - {at: "0m", text: "lira pouffe photos please"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 2
+    images_sent_max: 2
+    images_unique: true
+    images_sent_contains: ["lira|Lira"]
+
+- id: three_variant_one_each
+  script:
+    - {at: "0m", text: "vivian recliner — show me the options it comes in"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 3
+    images_sent_max: 3
+    images_unique: true
+    images_sent_contains: ["Three Seater", "Two Seater", "One Seater"]
+
+# ── variant targeting ───────────────────────────────────────────────────────
+
+- id: variant_ask_camel_leads
+  script:
+    - {at: "0m", text: "meagan sofa in camel brown — pics please"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 1
+    images_sent_max: 3
+    images_unique: true
+    # camel brown's FRONT view must be among the sends
+    images_sent_contains: ["256611782800816", "Camel Brown"]
+    # and the listing link must follow the asked variant
+    sent_contains: ["meagan-camel-brown"]
+    judge: {min: 3}
+
+- id: seater_hint_hinglish
+  script:
+    - {at: "0m", text: "vivian recliner 2 seater wala photo bhejo"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 1
+    images_sent_contains: ["Two Seater"]
+    judge: {min: 3}
+
+# ── comparisons ─────────────────────────────────────────────────────────────
+
+- id: comparison_one_front_each
+  script:
+    - {at: "0m", text: "meagan vs fairmont sofa — which one is better?"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 2
+    images_sent_max: 2
+    images_unique: true
+    # each side's FRONT view: meagan (Mushroom Brown) + fairmont (Ash Grey)
+    images_sent_contains: ["965791782800690", "719901757057091"]
+    sent_contains: ["durian\\.in/product/meagan", "durian\\.in/product/fairmont"]
+    judge: {min: 3}
+
+- id: comparison_after_share
+  script:
+    - {at: "0m", text: "show me the meagan sofa"}
+    - {at: "10m", text: "hmm, how does it compare with the fairmont?"}
+  expect:
+    # 3 meagan fronts, then ONE front each in the comparison (meagan's front
+    # may repeat — a comparison warrants re-showing the face)
+    images_sent_min: 5
+    images_sent_max: 5
+    images_sent_contains: ["719901757057091"]
+    sent_contains: ["durian\\.in/product/fairmont"]
+    judge: {min: 3}
+
+# ── re-send boundaries ──────────────────────────────────────────────────────
+
+- id: explicit_reask_resends
+  script:
+    - {at: "0m", text: "meagan sofa pics?"}
+    - {at: "7m", text: "photos nahi aaye, can you send them again?"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 6
+    images_sent_max: 6
+    attrs: {product_images_shared: "*"}
+    judge: {min: 3}
+
+- id: price_ask_no_respam
+  script:
+    - {at: "0m", text: "show me the meagan sofa"}
+    - {at: "6m", text: "nice! what is the price?"}
+  expect:
+    # a price question after photos gets price + link, NOT the photos again
+    images_sent_max: 3
+    images_unique: true
+    sent_contains: ["31,920", "durian\\.in/product/meagan"]
+    attrs: {product_images_shared: "*"}
+    judge: {min: 3}
+
+- id: new_variant_topup
+  script:
+    - {at: "0m", text: "show me the meagan sofa"}
+    - {at: "8m", text: "do you have it in camel brown? dikhao"}
+  expect:
+    # 3 fronts first, then ONLY camel's photos (2) — nothing repeated
+    images_sent_min: 5
+    images_sent_max: 5
+    images_unique: true
+    images_sent_contains: ["256611782800816"]
+    judge: {min: 3}
+
+# ── warranted-everywhere sweep ──────────────────────────────────────────────
+
+- id: post_split_photo_ask
+  prior_conversations:
+    - messages:
+        - {at: "-2h", text: "Shared post", content_attributes: {shared_post_caption: "Esmeralda Marble Dining Set 1+6 — timeless luxury for your dining room", image_type: ig_post}}
+  script:
+    - {at: "0m", text: "can I see more photos of this?"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 1
+    images_sent_contains: ["esmeralda|Esmeralda"]
+    judge: {min: 3}
+
+- id: emi_ask_with_photos
+  script:
+    - {at: "0m", text: "meagan sofa EMI pe milega? photos bhi bhejo"}
+  expect:
+    tools_called: ["get_emi_plans", "share_product_images"]
+    images_sent_min: 3
+    labels: ["emi-enquiry"]
+    sent_contains: ["EMI", "durian\\.in/product"]
+    judge: {min: 3}
+
+- id: no_photos_honest
+  script:
+    - {at: "0m", text: "amanda recliner sofa — can you send photos?"}
+  expect:
+    images_sent_max: 0
+    sent_not_contains: ["photos? (attached|below|sent)", "here are the (photos|images)"]
+    anywhere_contains: ["showroom|store|team"]
+    judge: {min: 3}
+
+# ── surfaces where photos must NOT flow ─────────────────────────────────────
+
+- id: comment_no_images
+  surface: comment
+  script:
+    - {at: "0m", text: "price? and send pics of this sofa"}
+  expect:
+    images_sent_max: 0
+    sent_not_contains: ["₹", "\\d{1,2},\\d{3}"]
+    anywhere_contains: ["dm"]
+    judge: {min: 3}
+
+- id: escalation_no_images
+  script:
+    - {at: "0m", text: "where is my order #4432? send me photos of the delivery status"}
+  expect:
+    images_sent_max: 0
+    anywhere_contains: ["team"]
+    judge: {min: 3}
+
+- id: bare_greeting_no_images
+  script:
+    - {at: "0m", text: "hi"}
+  expect:
+    images_sent_max: 0
+    tools_not_called: ["share_product_images"]

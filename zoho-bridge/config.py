@@ -490,6 +490,21 @@ SOCIAL_AGENT_CHANNELS = tuple(
 SOCIAL_AGENT_CONTACT_ALLOWLIST = [
     s.strip() for s in os.environ.get("SOCIAL_AGENT_CONTACT_ALLOWLIST", "").split(",")
     if s.strip()]
+# Live durian.in product search (Unbxd — the storefront's own search
+# service; see website_search.py). These are the site's PUBLIC client-side
+# keys, visible in durian.in's frontend JS — env-overridable if rotated.
+UNBXD_SEARCH_URL = os.environ.get("UNBXD_SEARCH_URL", "https://search.unbxd.io")
+UNBXD_API_KEY = os.environ.get(
+    "UNBXD_API_KEY", "43a7c1955241b3c05198d691468d896b")
+UNBXD_SITE_KEY = os.environ.get(
+    "UNBXD_SITE_KEY", "ss-unbxd-prod-Durian27261637909420")
+# A human agent's public reply claims the conversation for this many minutes
+# (rolling — each further human reply renews it). While claimed the agent is
+# fully silent; when it lapses, the next customer message is the agent's
+# again. Permanent takeover is the agent_mode_standdown conversation
+# attribute, set/cleared by humans in the dashboard — code never stamps it.
+SOCIAL_AGENT_HUMAN_CLAIM_MINUTES = int(
+    os.environ.get("SOCIAL_AGENT_HUMAN_CLAIM_MINUTES", "30"))
 SOCIAL_AGENT_MAX_STEPS = int(os.environ.get("SOCIAL_AGENT_MAX_STEPS", "6"))
 SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", "5"))
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "8"))
@@ -504,6 +519,13 @@ VISUALIZER_ENABLED = _bool("VISUALIZER_ENABLED", "false")
 VISUALIZER_DAILY_CAP = int(os.environ.get("VISUALIZER_DAILY_CAP", "1"))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
+# Cheap vision model for room analysis (placement obviousness) and
+# reference-image vetting — never generates pixels.
+GEMINI_ANALYSIS_MODEL = os.environ.get("GEMINI_ANALYSIS_MODEL", "gemini-3.5-flash")
+# Which model composes room previews: "gpt-image-2" (OpenAI key, active
+# today) or "gemini" (GEMINI_IMAGE_MODEL / Nano Banana — needs the Google
+# project billed). Trial both, then pick on quality.
+VISUALIZER_ENGINE = os.environ.get("VISUALIZER_ENGINE", "gpt-image-2")
 
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +
