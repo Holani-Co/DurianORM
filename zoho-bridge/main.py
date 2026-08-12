@@ -4780,7 +4780,8 @@ async def _maybe_send_offer(conv: dict, conv_id: int, channel: str,
         if config.OFFER_GREETING_DELAY_SECONDS > 0:
             await asyncio.sleep(config.OFFER_GREETING_DELAY_SECONDS)
         sent = await chatwoot.send_offer_message(
-            conv_id, offer.get("caption") or "", offer["image_url"])
+            conv_id, offer.get("caption") or "", offer["image_url"],
+            link=offer.get("link") or "")
         if sent:
             await chatwoot.merge_custom_attributes(conv_id, {"offer_greeted": True})
             print(f"[offer] shared offer {offer.get('id')} on conv {conv_id}")
