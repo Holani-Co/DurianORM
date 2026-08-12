@@ -766,9 +766,7 @@ def human_replied(messages: list) -> bool:
             continue
         if not (m.get("content") or "").strip() and not m.get("attachments"):
             continue          # empty dashboard artifacts own nothing
-        ca = m.get("content_attributes") or {}
-        if not isinstance(ca, dict):
-            ca = {}
+        ca = profile_mod.msg_attrs(m)
         if ca.get("source") in ("ai_auto_reply",) or ca.get("ai_trace"):
             continue
         if ca.get("type") == "ai_review_suggestion":
@@ -1000,7 +998,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
     lines = []
     for m in all_messages:
         content = (m.get("content") or "").strip()
-        cap = (m.get("content_attributes") or {}).get("shared_post_caption")
+        cap = profile_mod.msg_attrs(m).get("shared_post_caption")
         if cap:      # a shared post IS intent — make it visible to the model
             content = f"[shared a Durian post: {str(cap)[:200]}] {content}".strip()
         if m.get("attachments") and m.get("message_type") in (0, "incoming"):
@@ -1013,7 +1011,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
     transcript = "\n".join(lines[-30:])
     latest = (latest_message or "").strip()
     _latest_cap = next(
-        ((m.get("content_attributes") or {}).get("shared_post_caption")
+        (profile_mod.msg_attrs(m).get("shared_post_caption")
          for m in reversed(all_messages)
          if m.get("message_type") in (0, "incoming")), None)
     if _latest_cap and latest.lower().startswith("shared post"):

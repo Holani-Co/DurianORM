@@ -52,6 +52,9 @@ def test_human_replied():
     assert not sa.human_replied([bot, card])
     assert sa.human_replied([bot, human])
     assert not sa.human_replied([bot, empty_artifact])
+    legacy_str = {"message_type": 1, "content": "Hello!",
+                  "content_attributes": '{"source": "ai_auto_reply"}'}
+    assert not sa.human_replied([bot, legacy_str])
 
 
 def test_fold_decline_ordering():

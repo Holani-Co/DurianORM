@@ -74,6 +74,17 @@ def age_label(iso_or_epoch, ref: datetime | None = None) -> str:
     return f"{days} days ago ({dt.day} {dt:%b})"
 
 
+def msg_attrs(m) -> dict:
+    """content_attributes as a dict, healing legacy double-encoded strings."""
+    ca = (m or {}).get("content_attributes")
+    if isinstance(ca, str):
+        try:
+            ca = json.loads(ca)
+        except ValueError:
+            ca = None
+    return ca if isinstance(ca, dict) else {}
+
+
 def empty_profile() -> dict:
     return {"v": 1, "updated_at": _iso(now()), "consolidated_at": None,
             "events_since_consolidation": 0, "identity": {}, "location": {},
@@ -102,7 +113,7 @@ def events_from_conversation(conv: dict, messages: list,
         text = (m.get("content") or "").strip()
         t = _ts(m.get("created_at"))
         base = {"t": t, "msg": mid, "conv": conv_id, "inbox": inbox}
-        cap = (m.get("content_attributes") or {}).get("shared_post_caption")
+        cap = msg_attrs(m).get("shared_post_caption")
         if cap:
             out.append({**base, "kind": "shared_post", "what": cap[:160]})
         if not text:
