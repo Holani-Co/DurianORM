@@ -764,7 +764,11 @@ def human_replied(messages: list) -> bool:
     for m in messages or []:
         if m.get("message_type") not in (1, "outgoing") or m.get("private"):
             continue
+        if not (m.get("content") or "").strip() and not m.get("attachments"):
+            continue          # empty dashboard artifacts own nothing
         ca = m.get("content_attributes") or {}
+        if not isinstance(ca, dict):
+            ca = {}
         if ca.get("source") in ("ai_auto_reply",) or ca.get("ai_trace"):
             continue
         if ca.get("type") == "ai_review_suggestion":
