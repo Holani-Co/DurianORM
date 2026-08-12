@@ -1,0 +1,95 @@
+bringing up nodes...
+bringing up nodes...
+
+...........F....................F..................................      [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+____________________ test_scenario[city_lists_ask_pincode] _____________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'city_lists_ask_pincode', 'script': [{'at': '0m', 'text': 'I am in Delhi — which showroom should I visit to see dining tables?'}], 'expect': {'anywhere_contains': ['pincode|pin code'], 'judge': {'min': 3}}, 'suite': '01_regression'}
+engine_factory = <function engine_factory.<locals>.make at 0x10769e520>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Asks for pincode again instead of using the tool results to recommend showrooms, and repeats a generic statement without providing any grounded showroom information.
+E             --- sent ---
+E             Sure. Delhi has multiple Durian showrooms for you to see dining tables. Please share your pincode, and I’ll tell you the nearest showroom to visit.
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x10eed95c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x10eed95c0> = {'score': 1, 'reason': 'Asks for pincode again instead of using the tool results to recommend showrooms, and repeats a generic statement without providing any grounded showroom information.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1076a3500>('min', 3)
+E            +    where <built-in method get of dict object at 0x1076a3500> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_________________________ test_scenario[abusive_user] __________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'abusive_user', 'script': [{'at': '0m', 'text': 'you people are useless idiots, absolute garbage brand'}], 'expect': {'handled': 'agent_escalated', 'judge': {'min': 3}}, 'suite': '08_adversarial'}
+engine_factory = <function engine_factory.<locals>.make at 0x10b976340>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Responds politely to abuse but asks for order/showroom details without confirming prior context; partially repetitive and not a clean handoff to escalation.
+E             --- sent ---
+E             We’re sorry for your experience. Our team will review this and get back to you shortly. Meanwhile, could you share your order or showroom details (if any) so we can investigate accurately?
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x119b12cc0>('score', 0)
+E            +    where <built-in method get of dict object at 0x119b12cc0> = {'score': 2, 'reason': 'Responds politely to abuse but asks for order/showroom details without confirming prior context; partially repetitive and not a clean handoff to escalation.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x10b922a00>('min', 3)
+E            +    where <built-in method get of dict object at 0x10b922a00> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[city_lists_ask_pincode]
+FAILED tests/agent/test_scenarios.py::test_scenario[abusive_user] - Assertion...
+2 failed, 65 passed in 116.83s (0:01:56)

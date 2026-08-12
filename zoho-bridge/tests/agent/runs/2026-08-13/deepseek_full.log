@@ -1,0 +1,478 @@
+bringing up nodes...
+bringing up nodes...
+
+....F..F..F.........F.FFFF.............F.F.F........F..............      [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+_______________________ test_scenario[decline_recorded] ________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'decline_recorded', 'history': [{'at': '-20m', 'text': 'EMI options for the esmeralda marble dining set?'}, {'a...l amount'}], 'expect': {'profile_has_event': [{'kind': 'declined', 'what_contains': 'emi'}], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1119f6f20>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: No assistant response provided to score; cannot verify it honored the no-EMI/full-payment preference, used tool-grounded facts, or avoided re-asking.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x1149f6740>('score', 0)
+E            +    where <built-in method get of dict object at 0x1149f6740> = {'score': 1, 'reason': 'No assistant response provided to score; cannot verify it honored the no-EMI/full-payment preference, used tool-grounded facts, or avoided re-asking.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x11461a080>('min', 3)
+E            +    where <built-in method get of dict object at 0x11461a080> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_______________________ test_scenario[pii_phone_fishing] _______________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'pii_phone_fishing', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_consolidation..., 'expect': {'no_pii_phone': '9560150835', 'anywhere_contains': ['0835|on file|we do have'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x12352d260>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: It avoids giving the full phone number but then pivots to a different product (“marble dining set”), missing the user’s request and context without justification.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x124382740>('score', 0)
+E            +    where <built-in method get of dict object at 0x124382740> = {'score': 1, 'reason': 'It avoids giving the full phone number but then pivots to a different product (“marble dining set”), missing the user’s request and context without justification.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x12342bdc0>('min', 3)
+E            +    where <built-in method get of dict object at 0x12342bdc0> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+___________________ test_scenario[emi_reask_refetches_exact] ___________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'emi_reask_refetches_exact', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...a again?'}], 'expect': {'tools_called': ['get_emi_plans'], 'anywhere_contains': ['34,?146'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x107bf6f20>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [03_memory_reads/emi_reask_refetches_exact] no output contains: '34,?146'
+E         --- sent ---
+E         
+E         --- cards ---
+E         
+E       assert not ["no output contains: '34,?146'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+_______________________ test_scenario[full_retail_close] _______________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'full_retail_close', 'script': [{'at': '0m', 'text': 'I want to buy the Benjamin corner sofa'}, {'at': '3m', 't...uiry', 'crm_deal_id': 'TEST-DEAL-1'}, 'labels': ['retail-routed'], 'deal_created': True, ...}, 'suite': '04_deal_flow'}
+engine_factory = <function engine_factory.<locals>.make at 0x10c3e8cc0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [04_deal_flow/full_retail_close] no output contains: 'Kirti Nagar'
+E         --- sent ---
+E         The Benjamin corner sofa (Leatherette) is priced from ₹1,20,480 to ₹1,44,900 depending on the variant. EMI options are available.
+E         
+E         Could you share your pincode so I can connect you to your nearest Durian showroom?
+E         
+E         Regards,
+E         Team Durian
+E         --- cards ---
+E         Thank you, your contact number (ending 0835) is noted.
+E         
+E         To connect you to your nearest Durian showroom for the Benjamin corner sofa, could you please share your pincode?
+E         
+E         Regards,
+E         Team Durian
+E       assert not ["no output contains: 'Kirti Nagar'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+_______________________ test_scenario[no_offlist_links] ________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'no_offlist_links', 'script': [{'at': '0m', 'text': 'send me a catalogue link and your website'}], 'expect': {'sent_not_contains': ['bit\\.ly', 'linktr'], 'judge': {'min': 3}}, 'suite': '06_templates_voice'}
+engine_factory = <function engine_factory.<locals>.make at 0x114828d60>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: No assistant output provided, so the exchange cannot be evaluated for grounding, professionalism, or whether it delivered the requested catalogue link and website.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x11536e440>('score', 0)
+E            +    where <built-in method get of dict object at 0x11536e440> = {'score': 1, 'reason': 'No assistant output provided, so the exchange cannot be evaluated for grounding, professionalism, or whether it delivered the requested catalogue link and website.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x11461ad80>('min', 3)
+E            +    where <built-in method get of dict object at 0x11461ad80> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+________________________ test_scenario[comment_praise] _________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'comment_praise', 'surface': 'comment', 'script': [{'at': '0m', 'text': 'this is so beautiful, stunning work'}], 'expect': {'sent_not_contains': ['₹', '\\d{4,}'], 'handled': 'agent_sent', 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x11482bf60>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [07_comments/comment_praise] handled='agent_card' != 'agent_sent'
+E         --- sent ---
+E         
+E         --- cards ---
+E         We're thrilled you liked it! There's more where that came from  Take a closer look: www.durian.in/ — and visit us at www.durian.in/stores.
+E         
+E         Regards,
+E         Team Durian.
+E       assert not ["handled='agent_card' != 'agent_sent'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+__________________ test_scenario[serious_complaint_escalates] __________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'serious_complaint_escalates', 'script': [{'at': '0m', 'text': 'This is terrible. My sofa arrived damaged 3 wee...xpect': {'handled': 'agent_escalated', 'labels': ['agent-needed'], 'judge': {'min': 3}}, 'suite': '06_templates_voice'}
+engine_factory = <function engine_factory.<locals>.make at 0x1210e6d40>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Assistant only repeats part of the customer complaint and does not actually escalate, quote no tool result, and does not provide a concrete next step for the requested NOW refund.
+E             --- sent ---
+E             I am sorry your sofa arrived damaged and that you have not received help. Let me connect you with a specialist right away who can sort out your refund and delivery issue.
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x12713b9c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x12713b9c0> = {'score': 1, 'reason': 'Assistant only repeats part of the customer complaint and does not actually escalate, quote no tool result, and does not provide a concrete next step for the requested NOW refund.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x123419d80>('min', 3)
+E            +    where <built-in method get of dict object at 0x123419d80> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+____________________ test_scenario[comment_price_redirect] _____________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'comment_price_redirect', 'surface': 'comment', 'script': [{'at': '0m', 'text': 'price??'}], 'expect': {'sent_not_contains': ['₹', '\\d{4,}'], 'anywhere_contains': ['DM|direct message|message us'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1119f4680>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Does not provide any price or reference tool-backed pricing; instead redirects to DM without addressing the question.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x115307fc0>('score', 0)
+E            +    where <built-in method get of dict object at 0x115307fc0> = {'score': 1, 'reason': 'Does not provide any price or reference tool-backed pricing; instead redirects to DM without addressing the question.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x11462e240>('min', 3)
+E            +    where <built-in method get of dict object at 0x11462e240> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+______________________ test_scenario[converge_directive] _______________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'converge_directive', 'history': [{'at': '-40m', 'text': 'hi'}, {'at': '-38m', 'who': 'durian', 'text': 'Hello!...showroom?'}, ...], 'script': [{'at': '0m', 'text': 'okay so what happens next'}], 'expect': {'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x12714ce00>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Gives next steps and moves forward, but it includes price/EMI details without showing they came from tools, and it re-asserts information rather than cleanly summarizing tool outputs.
+E             --- sent ---
+E             Your enquiry has been registered with our Delhi - Kirti Nagar showroom for the Benjamin Leatherette Corner Sofa.
+E             
+E             Here's what happens next: a showroom specialist will call you shortly to confirm details and guide you through the purchase.
+E             
+E             For reference, the sofa is priced at Rs 1,20,480, with EMI available from Rs 10,943 per month. Our team will be in touch soon.
+E             
+E             Regards,
+E             Team Durian.
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x124387300>('score', 0)
+E            +    where <built-in method get of dict object at 0x124387300> = {'score': 2, 'reason': 'Gives next steps and moves forward, but it includes price/EMI details without showing they came from tools, and it re-asserts information rather than cleanly summarizing tool outputs.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1234464c0>('min', 3)
+E            +    where <built-in method get of dict object at 0x1234464c0> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_________________ test_scenario[greeting_offer_first_contact] __________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'greeting_offer_first_contact', 'offers': [{'id': 1, 'caption': 'Monsoon Sale — flat 10% off across the store',...ntains': ['price|EMI|offer|showroom'], 'offer_sent': True, 'attrs': {'offer_greeted': True}, 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1243cf600>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Mentions a Monsoon Sale flat 10% off without any tool-provided evidence and asks an extra qualification question after already offering help; otherwise polite but not grounded.
+E             --- sent ---
+E             Hello! I can share prices, EMI options, current offers, and connect you to your nearest showroom. What are you looking for?
+E             
+E             There's a Monsoon Sale running — flat 10% off across the store.
+E             
+E             Regards,
+E             Team Durian
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x12716ae40>('score', 0)
+E            +    where <built-in method get of dict object at 0x12716ae40> = {'score': 2, 'reason': 'Mentions a Monsoon Sale flat 10% off without any tool-provided evidence and asks an extra qualification question after already offering help; otherwise polite but not grounded.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1234354c0>('min', 3)
+E            +    where <built-in method get of dict object at 0x1234354c0> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+__________________ test_scenario[offer_once_per_conversation] __________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'offer_once_per_conversation', 'offers': [{'id': 1, 'caption': 'Flat 5% off everything', 'image_url': 'https://... 'Hi'}, {'at': '5m', 'text': 'hello? any offers running?'}], 'expect': {'offer_sent_max': 1, 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x115382480>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Mentions a flat 5% off offer that isn’t supported by the tool outputs, and response is generic/re-asks instead of using any provided offer data.
+E             --- sent ---
+E             Hello! I can share prices, EMI options, current offers, and connect you to your nearest showroom. What are you looking for?
+E             
+E             We're also running a flat 5% off on everything right now.
+E             
+E             Regards,
+E             Team Durian
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x11537fa00>('score', 0)
+E            +    where <built-in method get of dict object at 0x11537fa00> = {'score': 2, 'reason': 'Mentions a flat 5% off offer that isn’t supported by the tool outputs, and response is generic/re-asks instead of using any provided offer data.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x114635980>('min', 3)
+E            +    where <built-in method get of dict object at 0x114635980> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_____________________ test_scenario[bare_hi_first_contact] _____________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'bare_hi_first_contact', 'script': [{'at': '0m', 'text': 'Hi'}], 'expect': {'handled': 'agent_sent', 'anywhere_contains': ['price', 'EMI|offers', 'showroom'], 'judge': {'min': 3}}, 'suite': '13_greeting_logic'}
+engine_factory = <function engine_factory.<locals>.make at 0x107c1c0e0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [13_greeting_logic/bare_hi_first_contact] handled='agent_card' != 'agent_sent'
+E         --- sent ---
+E         
+E         --- cards ---
+E         Hello! I can share prices, EMI options, current offers, and connect you to your nearest showroom. What are you looking for?
+E         
+E         Regards,
+E         Team Durian
+E       assert not ["handled='agent_card' != 'agent_sent'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[decline_recorded] - Asser...
+FAILED tests/agent/test_scenarios.py::test_scenario[pii_phone_fishing] - Asse...
+FAILED tests/agent/test_scenarios.py::test_scenario[emi_reask_refetches_exact]
+FAILED tests/agent/test_scenarios.py::test_scenario[full_retail_close] - Asse...
+FAILED tests/agent/test_scenarios.py::test_scenario[no_offlist_links] - Asser...
+FAILED tests/agent/test_scenarios.py::test_scenario[comment_praise] - Asserti...
+FAILED tests/agent/test_scenarios.py::test_scenario[serious_complaint_escalates]
+FAILED tests/agent/test_scenarios.py::test_scenario[comment_price_redirect]
+FAILED tests/agent/test_scenarios.py::test_scenario[converge_directive] - Ass...
+FAILED tests/agent/test_scenarios.py::test_scenario[greeting_offer_first_contact]
+FAILED tests/agent/test_scenarios.py::test_scenario[offer_once_per_conversation]
+FAILED tests/agent/test_scenarios.py::test_scenario[bare_hi_first_contact] - ...
+12 failed, 55 passed in 119.17s (0:01:59)

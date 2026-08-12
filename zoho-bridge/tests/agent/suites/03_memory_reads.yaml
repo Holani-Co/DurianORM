@@ -1,0 +1,81 @@
+- id: returning_customer_reopener
+  profile:
+    v: 1
+    updated_at: "2026-08-08T10:35:00+05:30"
+    events_since_consolidation: 2
+    identity:
+      name: {value: projectvaibhav, t: "2026-07-17T10:00:00+05:30"}
+      phone: {value: "9560150835", t: "2026-07-21T09:11:00+05:30"}
+    location: {city: {value: Delhi, t: "2026-07-21T09:11:00+05:30"}}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-08T10:32:41+05:30", msg: 1, conv: 1, inbox: ig, kind: interest,
+         what: "MARBLE DINING SET 1+6", sku_family: ESMERALDA}
+      - {t: "2026-08-08T10:33:00+05:30", msg: 2, conv: 1, inbox: ig, kind: note,
+         what: "EMI plans quoted for Esmeralda at 204880"}
+  prior_conversations:
+    - messages:
+        - {at: "-4d", text: "EMI on the esmeralda set?"}
+        - {at: "-4d", who: durian, text: "EMI is available from Rs 34,146/month."}
+  script:
+    - {at: "0m", text: "Hey"}
+  expect:
+    sent_not_contains: ["What are you looking for\\?"]
+    anywhere_contains: ["Esmeralda|dining|back"]
+    judge: {min: 3}
+
+- id: comment_then_dm
+  prior_conversations:
+    - comment: true
+      labels: [comment]
+      messages:
+        - {at: "-26d", text: "this is so beautiful"}
+        - {at: "-25d", text: "price"}
+  script:
+    - {at: "0m", text: "Hi, what is the price of the Benjamin corner sofa?"}
+  expect:
+    anywhere_contains: ["1,?20,?480|120480|1.2"]
+    profile_has_event: [{kind: commented, what_contains: beautiful}]
+    judge: {min: 3}
+
+- id: cross_conversation_phone
+  prior_conversations:
+    - messages:
+        - {at: "-5d", text: "I liked the esmeralda set. my number is 9560150835"}
+        - {at: "-5d", who: durian, text: "Thank you, our team will reach out."}
+  script:
+    - {at: "0m", text: "I want to buy the esmeralda marble dining set. pincode 110054"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    deal_created: true
+    sent_not_contains: ["contact number", "phone number\\?"]
+    judge: {min: 3}
+
+- id: emi_reask_refetches_exact
+  profile:
+    v: 1
+    updated_at: "2026-08-08T10:35:00+05:30"
+    events_since_consolidation: 1
+    identity: {name: {value: projectvaibhav, t: "2026-07-17T10:00:00+05:30"}}
+    location: {}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-08T10:32:41+05:30", msg: 1, conv: 1, inbox: ig, kind: interest,
+         what: "MARBLE DINING SET 1+6", sku_family: ESMERALDA}
+  script:
+    - {at: "0m", text: "what were those EMI options for the esmeralda again?"}
+  expect:
+    tools_called: ["get_emi_plans"]
+    anywhere_contains: ["34,?146"]
+    judge: {min: 3}
+
+- id: consolidation_triggers
+  profile_bulk_events: 45
+  script:
+    - {at: "0m", text: "hello, looking for a recliner"}
+  expect:
+    profile_consolidated: true

@@ -1,0 +1,46 @@
+- id: decline_recorded
+  history:
+    - {at: "-20m", text: "EMI options for the esmeralda marble dining set?"}
+    - {at: "-19m", who: durian, text: "EMI is available from Rs 34,146/month for 6 months."}
+  script:
+    - {at: "0m", text: "no EMI for me, I will pay the full amount"}
+  expect:
+    profile_has_event: [{kind: declined, what_contains: emi}]
+    judge: {min: 3}
+
+- id: preference_recorded
+  script:
+    - {at: "0m", text: "I want the benjamin corner sofa. please send photos on WhatsApp only, not here"}
+  expect:
+    profile_has_event: [{kind: preference, what_contains: whatsapp}]
+
+- id: phone_capture_event
+  script:
+    - {at: "0m", text: "I want to buy the lewis corner sofa. my number is 9560150835"}
+  expect:
+    profile_has_event: [{kind: phone, what_contains: "9560150835"}]
+    attrs: {retail_customer_phone: "9560150835"}
+
+- id: interest_family_anchored_only
+  script:
+    - {at: "0m", text: "the esmeralda set looks lovely"}
+    - {at: "2m", text: "thank you so much, very helpful"}
+  expect:
+    profile_has_event: [{kind: interest, what_contains: "MARBLE"}]
+    profile_lacks_event: [{kind: interest, what_contains: "helpful"}]
+
+- id: correction_updates_city
+  profile:
+    v: 1
+    updated_at: "2026-08-01T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {phone: {value: "9560150835", t: "2026-07-21T09:11:00+05:30"}}
+    location: {city: {value: Delhi, t: "2026-07-21T09:11:00+05:30"}}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  script:
+    - {at: "0m", text: "by the way I have shifted to Gurgaon now, update that"}
+  expect:
+    profile_has_event: [{kind: correction, what_contains: gurgaon}]

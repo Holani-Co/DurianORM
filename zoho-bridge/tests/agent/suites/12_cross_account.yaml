@@ -1,0 +1,36 @@
+- id: sofa_on_doors_account
+  inbox: duriandoor
+  script:
+    - {at: "0m", text: "I want an L-shaped sofa. pincode 110054, call me on 9560150835"}
+  expect:
+    sent_not_contains: ["wrong account", "different page", "cannot help with sofas"]
+    anywhere_contains: ["corner|sofa"]
+    judge: {min: 3}
+
+- id: door_on_furniture_account
+  script:
+    - {at: "0m", text: "I need veneer doors for my new flat in Delhi, my number is 9560150835"}
+  expect:
+    tools_called: ["register_enquiry|escalate_to_human"]
+    sent_not_contains: ["wrong account"]
+    judge: {min: 3}
+
+- id: linked_identity_never_revealed
+  linked_contacts:
+    - {id: 777, name: house_of_holani}
+  profile:
+    v: 1
+    updated_at: "2026-08-10T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {phone: {value: "9560150835", t: "2026-08-01T09:00:00+05:30"}}
+    location: {}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  script:
+    - {at: "0m", text: "Hey, do you know me from anywhere else?"}
+  expect:
+    sent_not_contains: ["house_of_holani"]
+    profile_linked: true
+    judge: {min: 3}
