@@ -46,9 +46,12 @@ def test_comment_rules():
 def test_human_replied():
     bot = {"message_type": 1, "content_attributes": {"source": "ai_auto_reply"}}
     card = {"message_type": 1, "private": True, "content_attributes": {"type": "ai_review_suggestion"}}
-    human = {"message_type": 1, "content_attributes": {}}
+    human = {"message_type": 1, "content": "Let me look into this for you",
+             "content_attributes": {}}
+    empty_artifact = {"message_type": 1, "content": "", "content_attributes": {}}
     assert not sa.human_replied([bot, card])
     assert sa.human_replied([bot, human])
+    assert not sa.human_replied([bot, empty_artifact])
 
 
 def test_fold_decline_ordering():
@@ -92,3 +95,62 @@ def test_consolidation_due():
     p = cp.empty_profile()
     p["events_since_consolidation"] = cp.CONSOLIDATE_AFTER_EVENTS
     assert cp.consolidation_due(p)
+
+
+# ── product image selection (front-view rule + variant hints) ───────────────
+import product_images as pi
+
+
+def test_share_set_front_view_default():
+    ph, link = pi.share_set("MEAGAN")
+    vs = pi.variants("MEAGAN", limit=8)
+    assert len(ph) == 3
+    # each photo is that variant's FIRST image — the site's front view
+    fronts = {v["variant"]: v["images"][0] for v in vs}
+    assert all(fronts[cap] == url for cap, url in ph)
+    # site (merchandising) order preserved when no preference stated
+    assert [c for c, _ in ph] == [v["variant"] for v in vs[:3]]
+    assert link == vs[0]["url"]
+
+
+def test_share_set_single_variant_two_photos():
+    ph, _ = pi.share_set("LIRA")
+    vs = pi.variants("LIRA", limit=8)
+    assert len(vs) == 1 and len(ph) == 2
+    assert [u for _, u in ph] == vs[0]["images"][:2]
+
+
+def test_share_set_variant_hint_leads():
+    ph, link = pi.share_set("MEAGAN", prefer="camel brown")
+    vs = pi.variants("MEAGAN", limit=8)
+    cam = next(v for v in vs if "Camel" in v["variant"])
+    assert ph[0][0] == cam["variant"]
+    assert ph[0][1] == cam["images"][0]      # still the front view
+    assert link == cam["url"]                # link follows the asked variant
+
+
+def test_share_set_seater_words_match_digits():
+    assert "Two Seater" in pi.share_set("VIVIAN", prefer="2 seater")[0][0][0]
+    assert "3 Seater" in pi.share_set("MEAGAN", prefer="three seater")[0][0][0]
+
+
+def test_share_set_compare_is_one_front_view():
+    ph, _ = pi.share_set("MEAGAN", compare=True)
+    vs = pi.variants("MEAGAN", limit=8)
+    assert ph == [(vs[0]["variant"], vs[0]["images"][0])]
+
+
+def test_share_set_topup_never_repeats():
+    first = [u for _, u in pi.share_set("MEAGAN")[0]]
+    ph, _ = pi.share_set("MEAGAN", prefer="camel", exclude=first)
+    assert ph and all(u not in first for _, u in ph)
+    assert all("Camel" in c for c, _ in ph)
+
+
+def test_share_set_no_photos_family():
+    assert pi.share_set("AMANDA") == ([], None)
+
+
+def test_share_set_junk_variant_caption_falls_back():
+    ph, _ = pi.share_set("ESMERALDA")
+    assert ph and all(c == "Esmeralda" for c, _ in ph)
