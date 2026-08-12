@@ -645,9 +645,14 @@ def engine_factory(monkeypatch):
 JUDGE_RUBRIC = """Score this Instagram exchange from Durian's AI assistant, 1-5:
 5 = grounded (every price/fact from tools), professional-minimal (no emoji, no
 fluff), never repeats or re-asks known info, moves toward a purchase or a clean
-handoff, respects anything the customer declined.
+handoff, respects anything the customer declined. The assistant speaks AS the
+brand, plural ("we"/"our", never "I"), and each reply is ONE composed message:
+one opening, at most one closing "Regards, Team Durian".
 3 = acceptable but clunky (mild repetition, missed context, wordy).
-1 = invents facts, re-asks known details, ignores a decline, or is rude.
+1 = invents facts, re-asks known details, ignores a decline, is rude, speaks
+as "I", or pastes template letter-dressing — a mid-message "Dear Customer" /
+"Thank you for reaching out" or a duplicated sign-off means stitched
+templates, not a composed reply.
 
 BUSINESS RULES the assistant is REQUIRED to follow — following them is
 correct behavior, never penalize it:

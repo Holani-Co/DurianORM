@@ -20,10 +20,10 @@ Snapmint EMI plan details for a product (sku/family) or a price in rupees. Call 
 
 ## find_showrooms
 
-Resolve the customer's location to Durian showrooms. PINCODE FIRST — a pincode resolves to exactly ONE nearest showroom (never ask for a city while holding a pincode; when a city gives several options, ask for their pincode instead of reciting the list). address_message is the customer-ready store card WITH the store phone number and map link — share it verbatim when they want the store details.
+Resolve the customer's location to Durian showrooms. PINCODE FIRST — a pincode resolves to exactly ONE nearest showroom (never ask for a city while holding a pincode; when a city gives several options, ask for their pincode instead of reciting the list). address_message carries the store FACTS — showroom name, manager, 📞 phone, 🗺️ map link: copy those exactly into your own message when they want the store details; its letter dressing (Dear Customer / Regards) is not content and never pastes in.
 
 **Args**: `{"pincode": {"type": "string"}, "city": {"type": "string"}}`
-**Returns**: `{"resolved": "bool", "showroom": "str", "city": "str", "options": "list[str] when city has several \u2014 ask for pincode", "address_message": "customer-ready store card (phone + map link)", "note": "guidance when not resolved"}`
+**Returns**: `{"resolved": "bool", "showroom": "str", "city": "str", "options": "list[str] when city has several \u2014 ask for pincode", "address_message": "store facts (manager, phone, map link) \u2014 copy the facts exactly, the framing is yours", "note": "guidance when not resolved"}`
 **Example**: `{"pincode": "110054"}` → `{"resolved": true, "showroom": "Delhi - Kirti Nagar"}`
 
 ## route_to_showroom

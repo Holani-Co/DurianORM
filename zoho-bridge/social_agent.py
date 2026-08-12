@@ -241,13 +241,15 @@ async def _sk_get_emi_plans(ctx, sku: str = "", price=None, **_) -> dict:
     "Resolve the customer's location to Durian showrooms. PINCODE FIRST — a "
     "pincode resolves to exactly ONE nearest showroom (never ask for a city "
     "while holding a pincode; when a city gives several options, ask for their "
-    "pincode instead of reciting the list). address_message is the customer-"
-    "ready store card WITH the store phone number and map link — share it "
-    "verbatim when they want the store details.",
+    "pincode instead of reciting the list). address_message carries the store "
+    "FACTS — showroom name, manager, 📞 phone, 🗺️ map link: copy those exactly "
+    "into your own message when they want the store details; its letter "
+    "dressing (Dear Customer / Regards) is not content and never pastes in.",
     {"pincode": {"type": "string"}, "city": {"type": "string"}},
     {"resolved": "bool", "showroom": "str", "city": "str",
      "options": "list[str] when city has several — ask for pincode",
-     "address_message": "customer-ready store card (phone + map link)",
+     "address_message": "store facts (manager, phone, map link) — copy the "
+                        "facts exactly, the framing is yours",
      "note": "guidance when not resolved"},
     ({"pincode": "110054"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
 )
@@ -268,9 +270,11 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
             ctx.get("vertical", "furniture"), pincode=pincode)
         if hit and hit.get("text"):
             out["address_message"] = social_store_templates.plain(hit["text"])
-            out["next"] = ("customer wants the store details → your reply MUST "
-                           "include address_message VERBATIM (manager, phone, "
-                           "map link). If they also want to buy, call "
+            out["next"] = ("customer wants the store details → your reply "
+                           "carries the card's facts EXACTLY (showroom name, "
+                           "manager, 📞 phone, 🗺️ map link) inside your own "
+                           "single message — never its Dear Customer/Regards "
+                           "dressing. If they also want to buy, call "
                            "route_to_showroom first.")
         return out
     if options:
@@ -1102,18 +1106,22 @@ offer the showroom.
 nothing. A pincode alone is a complete location; a city with several \
 showrooms → ask for their pincode (name at most 2 options). Serve every \
 product on every account — the account's vertical only picks the deal route.
-4. COMPOSE: professional and minimal — no emoji, plain text (Instagram \
-renders no markdown), shortest useful answer, one question at a time, figures \
-copied digit-for-digit from skill results. Prices appear EXACTLY as the \
-skills return them — Indian notation like ₹1,09,520, never reformatted or \
-rounded. EVERY product you quote carries its durian.in link from \
-search_products — no exception, comparisons included; the link previews the \
-product. Instagram delivers at most 1000 characters per message — stay \
-under 900: present at most THREE products per reply (pick the best fits for \
-what they asked; if more exist, say they can ask for others), one short \
-line + link each. Add one line "EMI options available" where useful. Light \
-"ji"/"bilkul" warmth only if the customer is informal. Sign \
-off "Regards,\\nTeam Durian" on substantive replies, not one-liners.
+4. COMPOSE — you write ONE message, and you write it AS Durian: the brand \
+speaks in plural — "we can arrange this", "our Kirti Nagar showroom" — \
+never "I/me/my". Everything skills and templates hand you is raw material, \
+not prose to paste: copy the FACTS exactly (prices, phone numbers, links, \
+manager names — digit for digit, Indian notation like ₹1,09,520, never \
+reformatted) and discard the material's FRAMING — its "Dear Customer", its \
+greetings, its sign-offs. However many sources feed one reply, the reply \
+has exactly one opening and exactly one "Regards,\\nTeam Durian", at the \
+very end (skip it on one-liners). Professional and minimal — no emoji, \
+plain text (Instagram renders no markdown), shortest useful answer, one \
+question at a time. EVERY product you quote carries its durian.in link \
+from search_products — no exception, comparisons included. Instagram \
+delivers at most 1000 characters per message — stay under 900: at most \
+THREE products per reply (best fits first; more exist → say they can ask), \
+one short line + link each. Add one line "EMI options available" where \
+useful. Light "ji"/"bilkul" warmth only if the customer is informal.
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
 and it carries TWO equal duties:
    CONFIDENCE — computed, never felt: start 92; −20 per stated fact with no \

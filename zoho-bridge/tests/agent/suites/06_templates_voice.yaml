@@ -27,3 +27,21 @@
   expect:
     sent_not_contains: ["bit\\.ly", "linktr"]
     judge: {min: 3}
+
+# One composed message, brand-plural voice — the 5487 stitched-template
+# regression: store card + offer must merge into a single frame, one
+# sign-off, "we" never "I".
+- id: one_message_one_signoff
+  offers: [{id: 1, caption: "Monsoon sale", image_url: "https://images.durian.in/offers/monsoon.jpg", active: true, priority: 1, tags: []}]
+  history:
+    - {at: "-6m", text: "looking for a sofa, my pincode is 110058"}
+    - {at: "-5m", who: durian, text: "That pincode is not in our serviceable list. Could you confirm it or share a nearby one?"}
+  script:
+    - {at: "0m", text: "oh sorry, it is 110054. share the showroom details please"}
+  expect:
+    tools_called: ["find_showrooms"]
+    sent_contains: ["78380 09972", "maps"]
+    sent_not_contains: ["Dear Customer", "Thank you for reaching out",
+                        "(?s)Regards,\\s*\\n?Team Durian.*Regards",
+                        "\\bI'(ve|ll|m)\\b", "\\bI (have|will|can|am)\\b"]
+    judge: {min: 3}
