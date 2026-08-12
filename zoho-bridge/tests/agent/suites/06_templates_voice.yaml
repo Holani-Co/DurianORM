@@ -1,0 +1,29 @@
+- id: serious_complaint_escalates
+  script:
+    - {at: "0m", text: "This is terrible. My sofa arrived damaged 3 weeks ago and nobody has helped me. I want a refund NOW."}
+  expect:
+    handled: agent_escalated
+    labels: ["agent-needed"]
+    judge: {min: 3}
+
+- id: voice_no_emoji
+  script:
+    - {at: "0m", text: "hi, price of the benjamin corner sofa?"}
+  expect:
+    sent_not_contains: ["🛋", "👋", "🙏", "😊", "💫"]
+    anywhere_contains: ["1,?20,?480|120480"]
+    judge: {min: 3}
+
+- id: hinglish_light_touch
+  script:
+    - {at: "0m", text: "bhaiya esmeralda dining set ka price kya hai?"}
+  expect:
+    anywhere_contains: ["2,?04,?880|204880"]
+    judge: {min: 3}
+
+- id: no_offlist_links
+  script:
+    - {at: "0m", text: "send me a catalogue link and your website"}
+  expect:
+    sent_not_contains: ["bit\\.ly", "linktr"]
+    judge: {min: 3}

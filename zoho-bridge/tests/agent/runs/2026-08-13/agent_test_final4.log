@@ -1,0 +1,309 @@
+bringing up nodes...
+bringing up nodes...
+
+..FF..F..F...................................F..F..................      [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+__________________ test_scenario[returning_customer_reopener] __________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'returning_customer_reopener', 'profile': {'v': 1, 'updated_at': '2026-08-08T10:35:00+05:30', 'events_since_con...', 'who': 'durian', 'text': 'EMI is available from Rs 34,146/month.'}]}], 'script': [{'at': '0m', 'text': 'Hey'}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x113e768e0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Re-asks a product they mentioned earlier without context and provides no grounded info or helpful next step.
+E             --- sent ---
+E             Hello,
+E             
+E             Are you still considering the MARBLE DINING SET 1+6?
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x11422a380>('score', 0)
+E            +    where <built-in method get of dict object at 0x11422a380> = {'score': 1, 'reason': 'Re-asks a product they mentioned earlier without context and provides no grounded info or helpful next step.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x113e21900>('min', 3)
+E            +    where <built-in method get of dict object at 0x113e21900> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_______________________ test_scenario[decline_recorded] ________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'decline_recorded', 'history': [{'at': '-20m', 'text': 'EMI options for the esmeralda marble dining set?'}, {'a...l amount'}], 'expect': {'profile_has_event': [{'kind': 'declined', 'what_contains': 'emi'}], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x11620e8e0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Assistant confirms no EMI but then asks for pincode and showroom connection without grounding and doesn’t clearly confirm/adjust the remaining purchase flow for full-payment intent.
+E             --- sent ---
+E             Understood. When you pay the full amount, you won’t need EMI.
+E             
+E             Please share your pincode, and I’ll connect you with the nearest Durian showroom to proceed.
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x116bd6640>('score', 0)
+E            +    where <built-in method get of dict object at 0x116bd6640> = {'score': 2, 'reason': 'Assistant confirms no EMI but then asks for pincode and showroom connection without grounding and doesn’t clearly confirm/adjust the remaining purchase flow for full-payment intent.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x116202880>('min', 3)
+E            +    where <built-in method get of dict object at 0x116202880> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+___________________ test_scenario[phantom_product_smalltalk] ___________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'phantom_product_smalltalk', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...oom team will assist you shortly.'}], 'script': [{'at': '0m', 'text': "don't you have my phone number already?"}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x104ae1080>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Assistant claims to have a phone number on file ending with 0835 without grounding in tools or prior context.
+E             --- sent ---
+E             Yes ji, we have your phone number on file ending with 0835.
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x107e8f400>('score', 0)
+E            +    where <built-in method get of dict object at 0x107e8f400> = {'score': 1, 'reason': 'Assistant claims to have a phone number on file ending with 0835 without grounding in tools or prior context.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x106d11f00>('min', 3)
+E            +    where <built-in method get of dict object at 0x106d11f00> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+___________________ test_scenario[emi_reask_refetches_exact] ___________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'emi_reask_refetches_exact', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...a again?'}], 'expect': {'tools_called': ['get_emi_plans'], 'anywhere_contains': ['34,?146'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x113e76840>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Assistant provides EMI details but the tools were called with price=0 and no EMI plan results were shown, so it likely invents facts; also asks for a choice despite missing verified plan data.
+E             --- sent ---
+E             Hi,
+E             
+E             Here are the EMI options for the MARBLE DINING SET 1+6 (Esmeralda):
+E             - 6 months: EMI 34146 (Zero cost), total payment 204880
+E             - 9 months: EMI 22764 (Zero cost), total payment 204880
+E             - 12 months: EMI 18609 (Non-zero cost), total payment 223319
+E             
+E             Which tenure would you like to go with?
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x1165193c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x1165193c0> = {'score': 1, 'reason': 'Assistant provides EMI details but the tools were called with price=0 and no EMI plan results were shown, so it likely invents facts; also asks for a choice despite missing verified plan data.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x113e22540>('min', 3)
+E            +    where <built-in method get of dict object at 0x113e22540> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+______________________ test_scenario[crm_memory_persists] ______________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'crm_memory_persists', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_consolidati... '2026-08-12T15:00:00+05:30'}}, ...}, 'crm': {'contact': None}, 'script': [{'at': '0m', 'text': 'Hey, me again'}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x114a49a80>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Re-asks a basic product category after the customer already said “me again,” with no context and not based on any grounded tool facts.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x1165234c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x1165234c0> = {'score': 1, 'reason': 'Re-asks a basic product category after the customer already said “me again,” with no context and not based on any grounded tool facts.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x113e2be80>('min', 3)
+E            +    where <built-in method get of dict object at 0x113e2be80> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+_____________________ test_scenario[sofa_on_doors_account] _____________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'sofa_on_doors_account', 'inbox': 'duriandoor', 'script': [{'at': '0m', 'text': 'I want an L-shaped sofa. pinco...account', 'different page', 'cannot help with sofas'], 'anywhere_contains': ['corner|sofa'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x113e76480>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 2 < 3: Gives model prices and calls/nearest showroom but repeats pincode relevance with “Dear Customer,” uses wrong showroom area (Gurgaon/JMD) without aligning to provided route result, and doesn’t confirm the requested call number or move cleanly toward purchase.
+E             --- sent ---
+E             Thank you for your interest.
+E             
+E             Here are our L-shaped corner sofa options:
+E             1) BENJAMIN CORNER (LEATHERETTE CORNER SOFA): ₹120480 to ₹144900
+E             2) BENJAMIN CORNER-I (LEATHERETTE CORNER SOFA): ₹144900
+E             3) LEWIS CORNER (FABRIC CORNER SOFA): ₹109520 to ₹147200
+E             4) GLORIA CORNER (FABRIC CORNER SOFA): ₹574400
+E             Prices list period: 1.8.2026–31.8.2026.
+E             
+E             We can also check EMI for the exact model you choose.
+E             
+E             As per your pincode 110054, your nearest showroom is:
+E             Dear Customer,
+E             
+E             Thank you for reaching out to us.
+E             
+E             Please find the details of our Gurgaon – Durian Doors store below for your convenience:
+E             
+E             Gurgaon – Durian Doors Store
+E             Store Manager: Mr. Rohit Kanojia
+E             📞 Contact: 7982089080
+E             ️ Google Map:
+E             https://maps.app.goo.gl/u7ovWLQRRe3JvKMX6
+E             
+E             You may visit the store at your convenience or get in touch with the store team directly for any assistance regarding your requirement.
+E             
+E             Thank you for choosing Durian Doors !
+E             
+E             Regards,
+E             Team Durian
+E             
+E             Which one do you prefer (BENJAMIN CORNER, BENJAMIN CORNER-I, LEWIS CORNER, or GLORIA CORNER)?
+E           assert 2 >= 3
+E            +  where 2 = <built-in method get of dict object at 0x116524080>('score', 0)
+E            +    where <built-in method get of dict object at 0x116524080> = {'score': 2, 'reason': 'Gives model prices and calls/nearest showroom but repeats pincode relevance with “Dear Custome...out aligning to provided route result, and doesn’t confirm the requested call number or move cleanly toward purchase.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x113e29a00>('min', 3)
+E            +    where <built-in method get of dict object at 0x113e29a00> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[returning_customer_reopener]
+FAILED tests/agent/test_scenarios.py::test_scenario[decline_recorded] - Asser...
+FAILED tests/agent/test_scenarios.py::test_scenario[phantom_product_smalltalk]
+FAILED tests/agent/test_scenarios.py::test_scenario[emi_reask_refetches_exact]
+FAILED tests/agent/test_scenarios.py::test_scenario[crm_memory_persists] - As...
+FAILED tests/agent/test_scenarios.py::test_scenario[sofa_on_doors_account] - ...
+6 failed, 61 passed in 120.27s (0:02:00)

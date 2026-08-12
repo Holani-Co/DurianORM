@@ -39,6 +39,7 @@ import pincode_resolver
 import social_store_templates
 import product_catalog
 import snapmint
+import social_agent
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -2603,13 +2604,16 @@ def _invalid_pincode_ask(customer_name: str, pincode: str) -> str:
 
 
 def _retail_showroom_ask(name: str, city_data: dict) -> str:
+    # Pincode-first: a pincode resolves the ONE nearest showroom automatically
+    # (the showroom-stage pincode fast-path), so lead with that ask instead of
+    # making the customer study the full list. The list stays as the fallback.
     return (f"Dear {name},\n\nThank you for enquiring about our products! "
-            f"We have the following Durian showrooms in "
-            f"{city_data.get('display', 'your city')}:\n\n"
+            "Could you share your pincode so we can connect you to your "
+            "nearest Durian showroom?\n\nAlternatively, here are our "
+            f"showrooms in {city_data.get('display', 'your city')}:\n\n"
             f"{retail.list_showrooms_text(city_data)}\n\n"
-            "Could you let us know which location is most convenient for you "
-            "(the one nearest to you), so our showroom team can assist you "
-            "further?\n\nRegards,\nTeam Durian")
+            "Just reply with your pincode, or the location that works best "
+            "for you.\n\nRegards,\nTeam Durian")
 
 
 async def _retail_gate_llm(customer_name: str, text: str, *, stage: str,
@@ -3828,6 +3832,14 @@ async def handle_message_created(data: dict) -> dict:
             print(f"[msg] conv {conv_id} is a comment — DM bot replies, skipping pipeline")
             return {"ignored": True, "reason": "comment_bot_handles"}
         full_conv = await chatwoot.get_conversation(conv_id) if conv_id else conv
+        # Agent mode (flagged + allowlisted) owns eligible comments too —
+        # public-surface rules enforced inside (no prices/contacts, short).
+        handled = await social_agent.maybe_handle(
+            full_conv, social_channel, surface="comment",
+            latest_message=data.get("content") or "",
+            latest_msg_id=data.get("id"))
+        if handled is not None:
+            return handled
         return await handle_template_suggest(full_conv, social_channel,
                                              surface="comment",
                                              latest_message=data.get("content") or "",
@@ -3847,6 +3859,22 @@ async def handle_message_created(data: dict) -> dict:
         # ("EMI?", "is this available?") that follows gets swallowed by the
         # already-replied guard. Wait for that question; it's then answered WITH
         # the post's caption context (see the shared-post caption injection).
+        # Agent mode (flagged + allowlisted): the skills loop owns the whole
+        # DM — including replies the legacy pending_* state machines below
+        # would otherwise claim (the agent reads that state from history), and
+        # including bare shared posts (it answers them product-specifically
+        # from the caption, so the legacy wait-for-question rule is skipped).
+        # Eligibility pre-check on the webhook's own conversation snapshot
+        # (carries meta.sender) so non-allowlisted customers never cost the
+        # extra full-conversation fetch.
+        if conv_id and social_agent.eligible(conv, social_channel):
+            _agent_conv = await chatwoot.get_conversation(conv_id)
+            handled = await social_agent.maybe_handle(
+                _agent_conv, social_channel,
+                latest_message=data.get("content") or "",
+                latest_msg_id=data.get("id"))
+            if handled is not None:
+                return handled
         if (data.get("content_attributes") or {}).get("image_type") == "ig_post":
             print(f"[msg] conv {conv_id}: shared post received — awaiting the customer's question")
             return {"ignored": True, "reason": "shared_post_awaiting_question"}
@@ -7550,3 +7578,14 @@ async def spam_digest(
             print(f"[spam-digest] post failed: {e}")
 
     return {"ok": True, "count": len(rows), "posted": posted, "rows": rows}
+
+
+# ── Agent mode wiring ────────────────────────────────────────────────────────
+# Inject the Create-Deal core into social_agent (module-level to avoid a
+# circular import). The agent's auto-deal checklist calls the SAME code path
+# as the panel button; 409/422 ambiguity keeps deferring to the human button.
+async def _agent_deal_creator(conv_id, agent_name="Durian agent mode"):
+    return await _create_crm_deal(conv_id, agent_name=agent_name)
+
+
+social_agent.set_deal_creator(_agent_deal_creator)

@@ -1,0 +1,258 @@
+bringing up nodes...
+bringing up nodes...
+
+..F.....F....F.........F.................FF........................      [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+_______________________ test_scenario[decline_recorded] ________________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'decline_recorded', 'history': [{'at': '-20m', 'text': 'EMI options for the esmeralda marble dining set?'}, {'a...l amount'}], 'expect': {'profile_has_event': [{'kind': 'declined', 'what_contains': 'emi'}], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1114768e0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [02_memory_writes/decline_recorded] profile missing event: {'kind': 'declined', 'what_contains': 'emi'}
+E         --- sent ---
+E         Thank you for confirming, ji. We’ll proceed with the full payment for your Esmeralda marble dining set.
+E         
+E         Which city/showroom would you like to purchase from? Share your pincode, please.
+E         --- cards ---
+E         
+E       assert not ["profile missing event: {'kind': 'declined', 'what_contains': 'emi'}"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+___________________ test_scenario[phantom_product_smalltalk] ___________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'phantom_product_smalltalk', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...oom team will assist you shortly.'}], 'script': [{'at': '0m', 'text': "don't you have my phone number already?"}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1078a6e80>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Assistant claims it has the customer’s phone number on file (not grounded in any tool output) and also switches to “Marble Dining Set 1+6” despite the conversation context being Esmeralda, making it inaccurate/clunky.
+E             --- sent ---
+E             Hi,
+E             
+E             Yes ji— we already have your contact number on file (ending 0835), so our Delhi - Kirti Nagar showroom team can reach out to you for the Esmeralda dining set.
+E             
+E             If you’d like, I can share the showroom details too:
+E             Kirti Nagar Showroom
+E             Store Manager: Mr. Raghvendra
+E             📞 Contact: 78380 09972
+E             ️ Google Map: https://maps.app.goo.gl/viuUEuHPAETCHTiq6
+E             
+E             Would you like 6 months EMI (zero cost) or 9 months EMI (zero cost) for the Marble Dining Set 1+6?
+E             Regards,
+E             Team Durian
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x110d65780>('score', 0)
+E            +    where <built-in method get of dict object at 0x110d65780> = {'score': 1, 'reason': 'Assistant claims it has the customer’s phone number on file (not grounded in any tool output) ...so switches to “Marble Dining Set 1+6” despite the conversation context being Esmeralda, making it inaccurate/clunky.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1094b9380>('min', 3)
+E            +    where <built-in method get of dict object at 0x1094b9380> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+____________________ test_scenario[city_lists_ask_pincode] _____________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'city_lists_ask_pincode', 'script': [{'at': '0m', 'text': 'I am in Delhi — which showroom should I visit to see dining tables?'}], 'expect': {'anywhere_contains': ['pincode|pin code'], 'judge': {'min': 3}}, 'suite': '01_regression'}
+engine_factory = <function engine_factory.<locals>.make at 0x10973d260>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Asks for the pincode despite not using any tool/verified showroom data, requiring extra back-and-forth and missing the chance to provide a direct showroom recommendation.
+E             --- sent ---
+E             Sure ji. Please share your Delhi pincode, and I’ll tell you the nearest Durian showroom to visit for dining tables.
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x112e25940>('score', 0)
+E            +    where <built-in method get of dict object at 0x112e25940> = {'score': 1, 'reason': 'Asks for the pincode despite not using any tool/verified showroom data, requiring extra back-and-forth and missing the chance to provide a direct showroom recommendation.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1094b9c00>('min', 3)
+E            +    where <built-in method get of dict object at 0x1094b9c00> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+____________________ test_scenario[unknown_product_honest] _____________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'unknown_product_honest', 'script': [{'at': '0m', 'text': 'do you sell herman miller office chairs?'}], 'expect': {'sent_not_contains': ['₹\\s?\\d'], 'judge': {'min': 3}}, 'suite': '05_skills_grounding'}
+engine_factory = <function engine_factory.<locals>.make at 0x108c49760>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [05_skills_grounding/unknown_product_honest] sent must not contain: '₹\\s?\\d'
+E         --- sent ---
+E         Hello,
+E         
+E         We do sell office chairs. Currently, we have options like ARISTO HIGH BACK CHAIR (₹13,400–₹14,600) and more office-chair variants in our collection.
+E         
+E         Do you want a high-back executive style or a mid-back office chair?
+E         --- cards ---
+E         
+E       assert not ["sent must not contain: '₹\\\\s?\\\\d'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+_____________________ test_scenario[crm_found_remembered] ______________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'crm_found_remembered', 'crm': {'contact': {'id': 'CRM-77', 'Full_Name': 'Vaibhav Holani'}, 'deals': [{'Deal_Na...ofile_has_event': [{'kind': 'crm_linked', 'what_contains': 'CRM-77'}], 'deal_created': True, 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x11ac09ee0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [11_crm_lookup/crm_found_remembered] expected auto-deal, none created
+E         --- sent ---
+E         Hi,
+E         
+E         The Benjamin Corner Sofa (LEATHERETTE CORNER SOFA) is priced between Rs. 120480 and Rs. 144900 (prices for 1.8.2026–31.8.2026).
+E         
+E         For your location (110054), our nearest showroom is Delhi - Kirti Nagar. Here are the showroom details:
+E         Dear Customer,
+E         
+E         Thank you for reaching out to us.
+E         
+E         Please find the details of our  showrooms below for your convenience:
+E         Kirti Nagar Showroom
+E         Store Manager: Mr. Raghvendra
+E         📞 Contact: 78380 09972
+E         ️ Google Map: https://maps.app.goo.gl/viuUEuHPAETCHTiq6
+E         
+E         You may visit any of the above showrooms at your convenience or get in touch with the respective showroom team directly for any assistance regarding your requirement.
+E         
+E         Thank you for choosing Durian Furniture!
+E         
+E         Regards,
+E         Team Durian
+E         --- cards ---
+E         
+E       assert not ['expected auto-deal, none created']
+
+tests/agent/test_scenarios.py:21: AssertionError
+____________________ test_scenario[interest_matched_offer] _____________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'interest_matched_offer', 'offers': [{'id': 1, 'caption': 'Dining sets 15% off this week', 'image_url': 'https:..., 'expect': {'offer_caption_contains': 'Dining', 'anywhere_contains': ['2,?04,?880|204880'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x112dc79c0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: Gives an incorrect/misaligned price range (21100–204880) instead of using the grounded tool result (₹204880) and needlessly re-asks a detail (price range) while already stating the exact EMI price.
+E             --- sent ---
+E             Hello,
+E             
+E             Esmeralda Marble Dining Set (1+6) is available in the price range of 21100–204880.
+E             
+E             EMI options for ₹204880:
+E             1) 6 months: EMI ₹34146 (Zero cost)
+E             2) 9 months: EMI ₹22764 (Zero cost)
+E             3) 12 months: EMI ₹18609 (Total ₹223319)
+E             
+E             This week, dining sets are 15% off.
+E             
+E             Which price range are you looking at (near 21100 or closer to 204880)?
+E             Regards,
+E             Team Durian
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x112e33d80>('score', 0)
+E            +    where <built-in method get of dict object at 0x112e33d80> = {'score': 1, 'reason': 'Gives an incorrect/misaligned price range (21100–204880) instead of using the grounded tool result (₹204880) and needlessly re-asks a detail (price range) while already stating the exact EMI price.'}.get
+E            +  and   3 = <built-in method get of dict object at 0x1094e5680>('min', 3)
+E            +    where <built-in method get of dict object at 0x1094e5680> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[decline_recorded] - Asser...
+FAILED tests/agent/test_scenarios.py::test_scenario[phantom_product_smalltalk]
+FAILED tests/agent/test_scenarios.py::test_scenario[city_lists_ask_pincode]
+FAILED tests/agent/test_scenarios.py::test_scenario[unknown_product_honest]
+FAILED tests/agent/test_scenarios.py::test_scenario[crm_found_remembered] - A...
+FAILED tests/agent/test_scenarios.py::test_scenario[interest_matched_offer]
+6 failed, 61 passed in 117.02s (0:01:57)

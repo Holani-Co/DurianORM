@@ -1,0 +1,51 @@
+- id: handoff_cap
+  history:
+    - {at: "-50m", text: "hi"}
+    - {at: "-48m", who: durian, text: "Hello! I can share prices, EMI options, current offers, and the nearest showroom. What are you looking for?"}
+    - {at: "-45m", text: "sofas"}
+    - {at: "-43m", who: durian, text: "We have several corner and recliner sofas. Any particular style?"}
+    - {at: "-40m", text: "something in leather"}
+    - {at: "-38m", who: durian, text: "The Benjamin corner sofa in leatherette starts at Rs 1,20,480."}
+    - {at: "-35m", text: "hmm what about fabric ones"}
+    - {at: "-33m", who: durian, text: "The Lewis corner sofa in fabric starts at Rs 1,09,520."}
+    - {at: "-30m", text: "and recliners?"}
+    - {at: "-28m", who: durian, text: "Recliner corner options start around Rs 1,89,000."}
+    - {at: "-25m", text: "what colours do they come in"}
+    - {at: "-23m", who: durian, text: "Multiple finishes are available; the showroom can show you all options."}
+    - {at: "-20m", text: "which one is most popular"}
+    - {at: "-18m", who: durian, text: "The Benjamin corner is our most popular leatherette option."}
+    - {at: "-15m", text: "do you have beds too"}
+    - {at: "-13m", who: durian, text: "Yes, we have a full bed range. The showroom team can walk you through it."}
+    - {at: "-10m", text: "and dining tables?"}
+  script:
+    - {at: "0m", text: "hmm okay and what about wardrobes"}
+  expect:
+    handled: agent_card
+    anywhere_contains: ["team.*(take|reach)|specialist"]
+    attrs: {agent_handoff_notified: true}
+
+- id: human_override_standdown
+  history:
+    - {at: "-30m", text: "I need help with my sofa order"}
+    - {at: "-25m", who: human_agent, text: "Hi, this is Neha from Durian. Let me personally look into this for you."}
+  script:
+    - {at: "0m", text: "thank you Neha, any update?"}
+  expect:
+    handled: human_owns_conversation
+    no_public_send: true
+    attrs: {agent_mode_standdown: true}
+
+- id: converge_directive
+  history:
+    - {at: "-40m", text: "hi"}
+    - {at: "-38m", who: durian, text: "Hello! What are you looking for?"}
+    - {at: "-35m", text: "sofas maybe"}
+    - {at: "-33m", who: durian, text: "We have corner and recliner options. Any preference?"}
+    - {at: "-30m", text: "the benjamin looks nice. my number is 9560150835"}
+    - {at: "-28m", who: durian, text: "Noted. Could you share your pincode for the nearest showroom?"}
+    - {at: "-25m", text: "110054"}
+    - {at: "-23m", who: durian, text: "Your nearest showroom is Delhi - Kirti Nagar."}
+  script:
+    - {at: "0m", text: "okay so what happens next"}
+  expect:
+    judge: {min: 3}

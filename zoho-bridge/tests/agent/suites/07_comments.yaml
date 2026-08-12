@@ -1,0 +1,41 @@
+- id: comment_praise
+  surface: comment
+  script:
+    - {at: "0m", text: "this is so beautiful, stunning work"}
+  expect:
+    sent_not_contains: ["₹", "\\d{4,}"]
+    handled: agent_sent
+    judge: {min: 3}
+
+- id: comment_price_redirect
+  surface: comment
+  script:
+    - {at: "0m", text: "price??"}
+  expect:
+    sent_not_contains: ["₹", "\\d{4,}"]
+    anywhere_contains: ["DM|direct message|message us"]
+    judge: {min: 3}
+
+- id: comment_low_value_skipped
+  surface: comment
+  script:
+    - {at: "0m", text: "🙏"}
+  expect:
+    no_public_send: true
+    handled: low_value_comment
+
+- id: comment_complaint_escalates
+  surface: comment
+  script:
+    - {at: "0m", text: "worst company ever, my order is delayed two months and support ignores me"}
+  expect:
+    handled: agent_escalated
+    sent_not_contains: ["₹"]
+
+- id: comment_product_question
+  surface: comment
+  script:
+    - {at: "0m", text: "does this come in leather?"}
+  expect:
+    sent_not_contains: ["₹", "[6-9]\\d{9}"]
+    judge: {min: 3}

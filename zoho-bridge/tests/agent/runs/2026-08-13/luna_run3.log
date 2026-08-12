@@ -1,0 +1,408 @@
+bringing up nodes...
+bringing up nodes...
+
+FF..FFF..F.F                                                             [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+___________________ test_scenario[phantom_product_smalltalk] ___________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'phantom_product_smalltalk', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...oom team will assist you shortly.'}], 'script': [{'at': '0m', 'text': "don't you have my phone number already?"}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x10b87b560>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: The assistant provided no response, failing to address the customer's question or move the conversation forward.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x10bd217c0>('score', 0)
+E            +    where <built-in method get of dict object at 0x10bd217c0> = {'score': 1, 'reason': "The assistant provided no response, failing to address the customer's question or move the conversation forward."}.get
+E            +  and   3 = <built-in method get of dict object at 0x10b82a700>('min', 3)
+E            +    where <built-in method get of dict object at 0x10b82a700> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 102 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+___________________ test_scenario[emi_reask_refetches_exact] ___________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'emi_reask_refetches_exact', 'profile': {'v': 1, 'updated_at': '2026-08-12T15:00:00+05:30', 'events_since_conso...a again?'}], 'expect': {'tools_called': ['get_emi_plans'], 'anywhere_contains': ['34,?146'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x122f7b560>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [03_memory_reads/emi_reask_refetches_exact] no output contains: '34,?146'; tool not called: get_emi_plans (called: ['search_products', 'share_offer'])
+E         --- sent ---
+E         
+E         --- cards ---
+E         
+E       assert not ["no output contains: '34,?146'", "tool not called: get_emi_plans (called: ['search_products', 'share_offer'])"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 102 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+____________________ test_scenario[unknown_product_honest] _____________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'unknown_product_honest', 'script': [{'at': '0m', 'text': 'do you sell herman miller office chairs?'}], 'expect...ains': ['Herman Miller.{0,30}₹', 'we (do )?(sell|stock) Herman'], 'judge': {'min': 3}}, 'suite': '05_skills_grounding'}
+engine_factory = <function engine_factory.<locals>.make at 0x122f7af20>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+            verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+>           assert verdict.get("score", 0) >= judge.get("min", 3), \
+                f"judge {verdict.get('score')} < {judge.get('min', 3)}: " \
+                f"{verdict.get('reason')}\n--- sent ---\n{sent}"
+E           AssertionError: judge 1 < 3: The assistant provided no response to the customer's inquiry.
+E             --- sent ---
+E             
+E           assert 1 >= 3
+E            +  where 1 = <built-in method get of dict object at 0x124a26a40>('score', 0)
+E            +    where <built-in method get of dict object at 0x124a26a40> = {'score': 1, 'reason': "The assistant provided no response to the customer's inquiry."}.get
+E            +  and   3 = <built-in method get of dict object at 0x122f1e000>('min', 3)
+E            +    where <built-in method get of dict object at 0x122f1e000> = {'min': 3}.get
+
+tests/agent/test_scenarios.py:38: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 102 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+_________________________ test_scenario[abusive_user] __________________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'abusive_user', 'script': [{'at': '0m', 'text': 'you people are useless idiots, absolute garbage brand'}], 'expect': {'handled': 'agent_escalated', 'judge': {'min': 3}}, 'suite': '08_adversarial'}
+engine_factory = <function engine_factory.<locals>.make at 0x10b87a980>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+    
+        exp = scenario.get("expect") or {}
+        judge = exp.get("judge")
+        if judge and not os.environ.get("SKIP_JUDGE"):
+            convo = []
+            for step in scenario.get("script") or []:
+                convo.append(f"Customer: {step.get('text', '')}")
+            if eng.tools_trail:
+                convo.append("--- tools the assistant called (results are ground "
+                             "truth; facts from them are NOT invented) ---")
+                convo.extend(eng.tools_trail)
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
+>           verdict = asyncio.get_event_loop().run_until_complete(
+                judge_transcript("\n".join(convo)))
+
+tests/agent/test_scenarios.py:36: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/agent/conftest.py:455: in judge_transcript
+    r = await _judge_client.chat.completions.create(
+llm_client.py:51: in _create_with_reasoning_pin
+    return await _orig_create(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv/lib/python3.11/site-packages/langfuse/openai.py:1176: in _wrap_async
+    raise ex
+venv/lib/python3.11/site-packages/langfuse/openai.py:1133: in _wrap_async
+    openai_response = await wrapped(**arg_extractor.get_openai_args())
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv/lib/python3.11/site-packages/openai/resources/chat/completions/completions.py:2787: in create
+    return await self._post(
+venv/lib/python3.11/site-packages/openai/_base_client.py:1931: in post
+    return await self.request(cast_to, opts, stream=stream, stream_cls=stream_cls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <openai.AsyncOpenAI object at 0x108144350>
+cast_to = <class 'openai.types.chat.chat_completion.ChatCompletion'>
+options = FinalRequestOptions(method='post', url='/chat/completions', params={}, headers=NOT_GIVEN, max_retries=NOT_GIVEN, timeo...'max_completion_tokens': 120, 'reasoning_effort': 'none', 'response_format': {'type': 'json_object'}}, extra_json=None)
+stream = False
+stream_cls = openai.AsyncStream[openai.types.chat.chat_completion_chunk.ChatCompletionChunk]
+
+    async def request(
+        self,
+        cast_to: Type[ResponseT],
+        options: FinalRequestOptions,
+        *,
+        stream: bool = False,
+        stream_cls: type[_AsyncStreamT] | None = None,
+    ) -> ResponseT | _AsyncStreamT:
+        if self._platform is None:
+            # `get_platform` can make blocking IO calls so we
+            # execute it earlier while we are in an async context
+            self._platform = await asyncify(get_platform)()
+    
+        cast_to = self._maybe_override_cast_to(cast_to, options)
+    
+        # create a copy of the options we were given so that if the
+        # options are mutated later & we then retry, the retries are
+        # given the original options
+        input_options = model_copy(options)
+        if input_options.idempotency_key is None and input_options.method.lower() != "get":
+            # ensure the idempotency key is reused between requests
+            input_options.idempotency_key = self._idempotency_key()
+    
+        response: httpx.Response | None = None
+        max_retries = input_options.get_max_retries(self.max_retries)
+    
+        retries_taken = 0
+        for retries_taken in range(max_retries + 1):
+            options = model_copy(input_options)
+            options = await self._prepare_options(options)
+    
+            remaining_retries = max_retries - retries_taken
+            request = self._build_request(options, retries_taken=retries_taken)
+            await self._prepare_request(request)
+    
+            kwargs: HttpxSendArgs = {}
+            if self.custom_auth is not None:
+                kwargs["auth"] = self.custom_auth
+    
+            if options.follow_redirects is not None:
+                kwargs["follow_redirects"] = options.follow_redirects
+    
+            log.debug("Sending HTTP Request: %s %s", request.method, request.url)
+    
+            response = None
+            try:
+                response = await self._send_request(
+                    request,
+                    stream=stream or self._should_stream_response_body(request=request),
+                    **kwargs,
+                )
+            except httpx.TimeoutException as err:
+                log.debug("Encountered httpx.TimeoutException", exc_info=True)
+    
+                if remaining_retries > 0:
+                    await self._sleep_for_retry(
+                        retries_taken=retries_taken,
+                        max_retries=max_retries,
+                        options=input_options,
+                        response=None,
+                    )
+                    continue
+    
+                log.debug("Raising timeout error")
+                raise APITimeoutError(request=request) from err
+            except OpenAIError as err:
+                # Propagate OpenAIErrors as-is, without retrying or wrapping in APIConnectionError
+                raise err
+            except Exception as err:
+                log.debug("Encountered Exception", exc_info=True)
+    
+                if remaining_retries > 0:
+                    await self._sleep_for_retry(
+                        retries_taken=retries_taken,
+                        max_retries=max_retries,
+                        options=input_options,
+                        response=None,
+                    )
+                    continue
+    
+                log.debug("Raising connection error")
+                raise APIConnectionError(request=request) from err
+    
+            log.debug(
+                'HTTP Response: %s %s "%i %s" %s',
+                request.method,
+                request.url,
+                response.status_code,
+                response.reason_phrase,
+                response.headers,
+            )
+            log.debug("request_id: %s", response.headers.get("x-request-id"))
+    
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as err:  # thrown on 4xx and 5xx status code
+                log.debug("Encountered httpx.HTTPStatusError", exc_info=True)
+    
+                if remaining_retries > 0 and self._should_retry(err.response):
+                    await err.response.aclose()
+                    await self._sleep_for_retry(
+                        retries_taken=retries_taken,
+                        max_retries=max_retries,
+                        options=input_options,
+                        response=response,
+                    )
+                    continue
+    
+                # If the response is streamed then we need to explicitly read the response
+                # to completion before attempting to access the response text.
+                if not err.response.is_closed:
+                    await err.response.aread()
+    
+                log.debug("Re-raising status error")
+>               raise self._make_status_error_from_response(err.response) from None
+E               openai.PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+
+venv/lib/python3.11/site-packages/openai/_base_client.py:1716: PermissionDeniedError
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+__________________ test_scenario[returning_customer_reopener] __________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'returning_customer_reopener', 'profile': {'v': 1, 'updated_at': '2026-08-08T10:35:00+05:30', 'events_since_con...', 'who': 'durian', 'text': 'EMI is available from Rs 34,146/month.'}]}], 'script': [{'at': '0m', 'text': 'Hey'}], ...}
+engine_factory = <function engine_factory.<locals>.make at 0x10747ac00>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [03_memory_reads/returning_customer_reopener] no output contains: 'Esmeralda|dining|back'
+E         --- sent ---
+E         
+E         --- cards ---
+E         
+E       assert not ["no output contains: 'Esmeralda|dining|back'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 103 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+_____________________ test_scenario[crm_found_remembered] ______________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'crm_found_remembered', 'crm': {'contact': {'id': 'CRM-77', 'Full_Name': 'Vaibhav Holani'}, 'deals': [{'Deal_Na...ofile_has_event': [{'kind': 'crm_linked', 'what_contains': 'CRM-77'}], 'deal_created': True, 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1044efa60>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [11_crm_lookup/crm_found_remembered] expected auto-deal, none created; profile missing event: {'kind': 'crm_linked', 'what_contains': 'CRM-77'}
+E         --- sent ---
+E         
+E         --- cards ---
+E         
+E       assert not ['expected auto-deal, none created', "profile missing event: {'kind': 'crm_linked', 'what_contains': 'CRM-77'}"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 102 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+_____________________ test_scenario[sofa_on_doors_account] _____________________
+[gw2] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'sofa_on_doors_account', 'inbox': 'duriandoor', 'script': [{'at': '0m', 'text': 'I want an L-shaped sofa. pinco...account', 'different page', 'cannot help with sofas'], 'anywhere_contains': ['corner|sofa'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1237b7e20>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [12_cross_account/sofa_on_doors_account] no output contains: 'corner|sofa'
+E         --- sent ---
+E         
+E         --- cards ---
+E         
+E       assert not ["no output contains: 'corner|sofa'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[agent] conv 102 failed (PermissionDeniedError: Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}) — flagging for a human
+------------------------------ Captured log call -------------------------------
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+WARNING  langfuse:openai.py:1167 Error code: 403 - {'error': {'message': 'Project `proj_TzmR4hn9cNvMOrDJ8fnjXAFs` does not have access to model `gpt-5.6-luna`', 'type': 'invalid_request_error', 'param': None, 'code': 'model_not_found'}}
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[phantom_product_smalltalk]
+FAILED tests/agent/test_scenarios.py::test_scenario[emi_reask_refetches_exact]
+FAILED tests/agent/test_scenarios.py::test_scenario[unknown_product_honest]
+FAILED tests/agent/test_scenarios.py::test_scenario[abusive_user] - openai.Pe...
+FAILED tests/agent/test_scenarios.py::test_scenario[returning_customer_reopener]
+FAILED tests/agent/test_scenarios.py::test_scenario[crm_found_remembered] - A...
+FAILED tests/agent/test_scenarios.py::test_scenario[sofa_on_doors_account] - ...
+7 failed, 5 passed in 92.94s (0:01:32)

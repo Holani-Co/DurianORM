@@ -33,6 +33,21 @@ def _norm(s) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", str(s or "").lower()).strip()
 
 
+# Customer vocabulary → catalog vocabulary. Durian's sheet says "CORNER SOFA"
+# where customers say "L-shaped"; seat counts are "3STR"; TV units are "T V".
+_SYNONYMS = [
+    (re.compile(r"\bl[\s-]*shaped?\b|\bsectional\b"), "corner"),
+    (re.compile(r"\b(\d)[\s-]*seater\b"), r"\g<1>str"),
+    (re.compile(r"\btv\b"), "t v"),
+]
+
+
+def _apply_synonyms(q: str) -> str:
+    for pat, repl in _SYNONYMS:
+        q = pat.sub(repl, q)
+    return q
+
+
 def price_period() -> str:
     return _load().get("price_period", "")
 
@@ -43,18 +58,29 @@ def get(sku: str) -> dict | None:
     return {"sku": str(sku).strip().upper(), **p} if p else None
 
 
-def search(query: str, limit: int = 6) -> list[dict]:
+def search(query: str, limit: int = 6, require_family: bool = False) -> list[dict]:
     """Products matching a free-text product name, best first. Matches on the SKU
     family (exact / fuzzy) and ranks by description-token overlap. Returns
-    [{sku, name, family, sale_price, mrp, category}, ...]."""
+    [{sku, name, family, sale_price, mrp, category}, ...].
+
+    require_family=True matches ONLY when the query names a SKU family — for
+    callers inferring a product from arbitrary chat text, where the description
+    fallback ("sofa", "stand") would hallucinate a product out of small talk."""
     _load()
-    q = _norm(query)
+    q = _apply_synonyms(_norm(query))
     if not q:
         return []
     qtokens = set(q.split())
     families = list(_by_family)
 
     fam_hits: set[str] = set()
+    toks = q.split()
+    # Two-word families first ("BENJAMIN CORNER" must beat "BENJAMIN") —
+    # adjacent-token bigrams matched exactly against family names.
+    for i in range(len(toks) - 1):
+        bigram = f"{toks[i]} {toks[i + 1]}"
+        if bigram in _by_family:
+            fam_hits.add(bigram)
     for tok in qtokens:
         if len(tok) < 3:
             continue
@@ -69,10 +95,16 @@ def search(query: str, limit: int = 6) -> list[dict]:
             for sku in _by_family[fam]:
                 desc = set(_norm(_data["products"][sku].get("name")).split())
                 scored.append((100 + len(qtokens & desc), sku))
-    else:
-        # no family hit → fall back to description-token match ("recliner", "sofa")
+    elif not require_family:
+        # no family hit → fall back to description-token match ("recliner",
+        # "sofa"). Tokens under 3 chars are noise here — "don't" normalises to
+        # a stray "t" that would otherwise match "T V STAND" — EXCEPT the
+        # synonym-produced "t"/"v" pair, which arrives as adjacent tokens.
+        sig = {t for t in qtokens if len(t) >= 3}
+        if "t" in qtokens and "v" in qtokens:
+            sig |= {"t", "v"}
         for sku, p in _data["products"].items():
-            overlap = len(qtokens & set(_norm(p.get("name")).split()))
+            overlap = len(sig & set(_norm(p.get("name")).split()))
             if overlap:
                 scored.append((overlap, sku))
 
@@ -93,3 +125,25 @@ def resolve(query: str) -> dict | None:
     (several variants) or no match — the caller then shows candidates / asks."""
     hits = search(query, limit=8)
     return hits[0] if len(hits) == 1 else None
+
+
+def search_families(query: str, limit: int = 4) -> list[dict]:
+    """Family-grouped search for presenting DISTINCT products: 40 raw hits
+    aggregated to [{family, name, price_from, price_to, variants, sku}] so ten
+    fabric codes of one sofa collapse into a single option."""
+    groups: dict[str, dict] = {}
+    for h in search(query, limit=40):
+        fam = h.get("family") or h.get("sku")
+        g = groups.setdefault(fam, {"family": fam, "name": h.get("name"),
+                                    "sku": h.get("sku"), "variants": 0,
+                                    "price_from": h.get("sale_price"),
+                                    "price_to": h.get("sale_price"),
+                                    "category": h.get("category")})
+        g["variants"] += 1
+        price = h.get("sale_price")
+        if isinstance(price, (int, float)):
+            if g["price_from"] is None or price < g["price_from"]:
+                g["price_from"] = price
+            if g["price_to"] is None or price > g["price_to"]:
+                g["price_to"] = price
+    return list(groups.values())[:limit]

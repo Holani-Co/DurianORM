@@ -1,0 +1,87 @@
+- id: product_images_on_interest
+  script:
+    - {at: "0m", text: "I really like the meagan sofa, can you show me what it looks like?"}
+  expect:
+    tools_called: ["share_product_images"]
+    images_sent_min: 2
+    sent_contains: ["durian\\.in/product"]
+    judge: {min: 3}
+
+- id: product_link_in_price_ask
+  script:
+    - {at: "0m", text: "what is the price of the benjamin corner sofa?"}
+  expect:
+    anywhere_contains: ["1,?20,?480", "durian\\.in/product"]
+    judge: {min: 3}
+
+- id: images_once_per_product
+  script:
+    - {at: "0m", text: "show me the meagan sofa photos"}
+    - {at: "5m", text: "can you send those meagan pictures again?"}
+  expect:
+    attrs: {product_images_shared: "*"}
+    judge: {min: 3}
+
+- id: post_split_price_ask
+  prior_conversations:
+    - messages:
+        - {at: "-2h", text: "Shared post", content_attributes: {shared_post_caption: "Esmeralda Marble Dining Set 1+6 — timeless luxury for your dining room", image_type: ig_post}}
+  script:
+    - {at: "0m", text: "want to know the price"}
+  expect:
+    anywhere_contains: ["2,?04,?880|Esmeralda"]
+    sent_not_contains: ["which product", "which item"]
+    judge: {min: 3}
+
+- id: visualizer_needs_enquiry
+  config: {VISUALIZER_ENABLED: true}
+  script:
+    - {at: "0m", text: "here is my living room, show me the meagan sofa in it", photo: true}
+  expect:
+    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    anywhere_contains: ["number|details|pincode|city"]
+    judge: {min: 3}
+
+- id: visualizer_success_after_enquiry
+  config: {VISUALIZER_ENABLED: true}
+  profile:
+    v: 1
+    updated_at: "2026-08-12T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {phone: {value: "9560150835", t: "2026-08-12T10:00:00+05:30"}}
+    location: {city: {value: Delhi, t: "2026-08-12T10:00:00+05:30"}}
+    commercial: {showroom: {value: "Delhi - Kirti Nagar", t: "2026-08-12T10:00:00+05:30"}}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  history:
+    - {at: "-1h", text: "I want the meagan sofa. 9560150835, pincode 110054"}
+    - {at: "-59m", who: durian, text: "Thank you, our Delhi - Kirti Nagar showroom team will assist you."}
+  script:
+    - {at: "0m", text: "here is my living room, show the meagan in it please", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    profile_has_event: [{kind: visualized, what_contains: MEAGAN}]
+    images_sent_min: 1
+    anywhere_contains: ["indicative|preview|vary"]
+    judge: {min: 3}
+
+- id: visualizer_daily_cap_redirect
+  config: {VISUALIZER_ENABLED: true}
+  profile:
+    v: 1
+    updated_at: "2026-08-12T10:00:00+05:30"
+    events_since_consolidation: 2
+    identity: {phone: {value: "9560150835", t: "2026-08-12T10:00:00+05:30"}}
+    location: {city: {value: Delhi, t: "2026-08-12T10:00:00+05:30"}}
+    commercial: {showroom: {value: "Delhi - Kirti Nagar", t: "2026-08-12T10:00:00+05:30"}}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-12T11:00:00+05:30", msg: 900, conv: 1, inbox: ig, kind: visualized, what: MEAGAN}
+  script:
+    - {at: "0m", text: "amazing! now show me the benjamin corner in the same room", photo: true}
+  expect:
+    profile_event_count: [{kind: visualized, count: 1}]
+    anywhere_contains: ["team|specialist|sales"]
+    judge: {min: 3}

@@ -1,0 +1,31 @@
+F                                                                        [100%]
+[agent-tests] tokens in=8,136 out=162 ≈ $0.002 this run
+
+=================================== FAILURES ===================================
+_____________________ test_scenario[bare_hi_first_contact] _____________________
+
+scenario = {'id': 'bare_hi_first_contact', 'script': [{'at': '0m', 'text': 'Hi'}], 'expect': {'handled': 'agent_sent', 'anywhere_contains': ['price', 'EMI|offers', 'showroom'], 'judge': {'min': 3}}, 'suite': '13_greeting_logic'}
+engine_factory = <function engine_factory.<locals>.make at 0x1057fb740>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [13_greeting_logic/bare_hi_first_contact] handled='agent_card' != 'agent_sent'
+E         --- sent ---
+E         
+E         --- cards ---
+E         Hello! I can share prices, EMI options, current offers, and connect you to your nearest showroom. What are you looking for?
+E         
+E         Regards,
+E         Team Durian
+E       assert not ["handled='agent_card' != 'agent_sent'"]
+
+tests/agent/test_scenarios.py:21: AssertionError
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[bare_hi_first_contact] - ...
+1 failed, 1 deselected in 2.68s

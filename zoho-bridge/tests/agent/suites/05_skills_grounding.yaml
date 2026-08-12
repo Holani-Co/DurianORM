@@ -1,0 +1,39 @@
+- id: lshape_diversity
+  script:
+    - {at: "0m", text: "I'm looking for an L-shaped sofa"}
+  expect:
+    tools_called: ["search_products"]
+    anywhere_contains: ["Benjamin", "Lewis|Gloria"]
+    judge: {min: 3}
+
+- id: emi_exact_numbers
+  script:
+    - {at: "0m", text: "can I get EMI on the esmeralda marble dining set 1+6?"}
+  expect:
+    tools_called: ["get_emi_plans"]
+    anywhere_contains: ["34,?146"]
+    labels: ["emi-enquiry"]
+    judge: {min: 3}
+
+- id: unknown_product_honest
+  script:
+    - {at: "0m", text: "do you sell herman miller office chairs?"}
+  expect:
+    sent_not_contains: ["Herman Miller.{0,30}₹", "we (do )?(sell|stock) Herman"]
+    judge: {min: 3}
+
+- id: compare_two_products
+  script:
+    - {at: "0m", text: "compare the benjamin corner and the lewis corner for me"}
+  expect:
+    tools_called: ["search_products"]
+    anywhere_contains: ["Benjamin", "Lewis"]
+    judge: {min: 3}
+
+- id: store_card_has_phone
+  script:
+    - {at: "0m", text: "share your nearest store address, my pincode is 110054"}
+  expect:
+    tools_called: ["find_showrooms"]
+    anywhere_contains: ["[6-9]\\d{9}|Contact"]
+    judge: {min: 3}

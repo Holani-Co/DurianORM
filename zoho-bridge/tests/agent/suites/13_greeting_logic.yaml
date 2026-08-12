@@ -1,0 +1,32 @@
+- id: bare_hi_first_contact
+  script:
+    - {at: "0m", text: "Hi"}
+  expect:
+    handled: agent_sent
+    anywhere_contains: ["price", "EMI|offers", "showroom"]
+    judge: {min: 3}
+
+- id: greeting_plus_intent_serves
+  script:
+    - {at: "0m", text: "Hi! what's the price of the lewis corner sofa?"}
+  expect:
+    anywhere_contains: ["1,?09,?520|109520"]
+    sent_not_contains: ["What are you looking for\\?"]
+    judge: {min: 3}
+
+- id: ambiguous_clarify_once
+  script:
+    - {at: "0m", text: "I need help with something I guess"}
+  expect:
+    handled: agent_sent
+    anywhere_contains: ["\\?"]
+    sent_not_contains: ["Full Name"]
+    judge: {min: 3}
+
+- id: shared_post_bare_opener
+  script:
+    - {at: "0m", text: "Shared post", content_attributes: {shared_post_caption: "Esmeralda Marble Dining Set — timeless luxury for your home", image_type: ig_post}}
+  expect:
+    anywhere_contains: ["Esmeralda|dining"]
+    sent_not_contains: ["What are you looking for\\?"]
+    judge: {min: 3}

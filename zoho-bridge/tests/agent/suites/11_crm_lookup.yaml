@@ -1,0 +1,40 @@
+- id: crm_found_remembered
+  crm:
+    contact: {id: "CRM-77", Full_Name: "Vaibhav Holani"}
+    deals:
+      - {Deal_Name: "Sofa purchase 2025", Stage: "Closed Won"}
+  script:
+    - {at: "0m", text: "I want the benjamin corner sofa. my number is 9560150835, pincode 110054"}
+  expect:
+    profile_has_event: [{kind: crm_linked, what_contains: "CRM-77"}]
+    deal_created: true
+    judge: {min: 3}
+
+- id: crm_not_found_silent
+  crm: {contact: null}
+  script:
+    - {at: "0m", text: "I want the lewis corner sofa. 9560150835, pincode 110054"}
+  expect:
+    profile_lacks_event: [{kind: crm_linked, what_contains: "CRM"}]
+    sent_not_contains: ["CRM", "no record of you"]
+    judge: {min: 3}
+
+- id: crm_memory_persists
+  profile:
+    v: 1
+    updated_at: "2026-08-10T10:00:00+05:30"
+    events_since_consolidation: 2
+    identity: {phone: {value: "9560150835", t: "2026-08-01T09:00:00+05:30"}}
+    location: {}
+    commercial: {crm_contact_id: {value: "CRM-77", t: "2026-08-10T10:00:00+05:30"}}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-10T10:00:00+05:30", msg: 1, conv: 1, inbox: ig, kind: note,
+         what: "CRM deal on record: Sofa purchase 2025"}
+  crm: {contact: null}
+  script:
+    - {at: "0m", text: "Hey, me again"}
+  expect:
+    sent_not_contains: ["phone number\\?", "contact number\\?"]
+    judge: {min: 3}

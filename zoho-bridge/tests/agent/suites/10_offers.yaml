@@ -1,0 +1,31 @@
+- id: greeting_offer_first_contact
+  offers:
+    - {id: 1, caption: "Monsoon Sale — flat 10% off across the store", image_url: "https://durian.in/offer1.jpg", active: true, priority: 1, tags: []}
+  script:
+    - {at: "0m", text: "Hi"}
+  expect:
+    anywhere_contains: ["price|EMI|offer|showroom"]
+    offer_sent: true
+    attrs: {offer_greeted: true}
+    judge: {min: 3}
+
+- id: interest_matched_offer
+  offers:
+    - {id: 1, caption: "Dining sets 15% off this week", image_url: "https://durian.in/offer2.jpg", active: true, priority: 2, tags: [dining]}
+    - {id: 2, caption: "Flat 5% off everything", image_url: "https://durian.in/offer3.jpg", active: true, priority: 1, tags: []}
+  script:
+    - {at: "0m", text: "price of the esmeralda marble dining set please"}
+  expect:
+    offer_caption_contains: "Dining"
+    anywhere_contains: ["2,?04,?880|204880"]
+    judge: {min: 3}
+
+- id: offer_once_per_conversation
+  offers:
+    - {id: 1, caption: "Flat 5% off everything", image_url: "https://durian.in/offer3.jpg", active: true, priority: 1, tags: []}
+  script:
+    - {at: "0m", text: "Hi"}
+    - {at: "5m", text: "hello? any offers running?"}
+  expect:
+    offer_sent_max: 1
+    judge: {min: 3}

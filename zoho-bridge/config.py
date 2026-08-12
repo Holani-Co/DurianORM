@@ -472,6 +472,39 @@ COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
 SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
 SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
 
+# ── Agent mode (social_agent.py) — Instagram DMs + comments ────────────────
+# Skills-based loop on gpt-5.6-luna (Responses API, low reasoning). Dark by
+# default; first enablement is per test contact:
+#   SOCIAL_AGENT_ENABLED=true
+#   SOCIAL_AGENT_CONTACT_ALLOWLIST=1589,projectvaibhav   (ids/names; empty = all)
+SOCIAL_AGENT_ENABLED = _bool("SOCIAL_AGENT_ENABLED", "false")
+SOCIAL_AGENT_MODEL = os.environ.get("SOCIAL_AGENT_MODEL", "gpt-5.6-luna")
+# Alternative OpenAI-compatible provider for the agent loop (e.g. Ollama
+# cloud). Empty = OpenAI. The judge/legacy flows stay on OpenAI regardless.
+SOCIAL_AGENT_BASE_URL = os.environ.get("SOCIAL_AGENT_BASE_URL", "")
+SOCIAL_AGENT_API_KEY = os.environ.get("SOCIAL_AGENT_API_KEY", "") or OPENAI_API_KEY
+SOCIAL_AGENT_REASONING = os.environ.get("SOCIAL_AGENT_REASONING", "low")
+SOCIAL_AGENT_CHANNELS = tuple(
+    c.strip() for c in os.environ.get("SOCIAL_AGENT_CHANNELS", "instagram").split(",")
+    if c.strip())
+SOCIAL_AGENT_CONTACT_ALLOWLIST = [
+    s.strip() for s in os.environ.get("SOCIAL_AGENT_CONTACT_ALLOWLIST", "").split(",")
+    if s.strip()]
+SOCIAL_AGENT_MAX_STEPS = int(os.environ.get("SOCIAL_AGENT_MAX_STEPS", "6"))
+SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", "5"))
+SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "8"))
+SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
+SOCIAL_AGENT_HANDOFF_TEAM_ID = int(os.environ.get("SOCIAL_AGENT_HANDOFF_TEAM_ID", "0") or 0)
+
+# ── Room visualizer (visualize_in_room skill) ──────────────────────────────
+# Dark until GEMINI_API_KEY exists. Gated: enquiry registered first, then
+# VISUALIZER_DAILY_CAP previews per customer per day (client-configurable);
+# beyond the cap the customer is routed to the sales team for more mock-ups.
+VISUALIZER_ENABLED = _bool("VISUALIZER_ENABLED", "false")
+VISUALIZER_DAILY_CAP = int(os.environ.get("VISUALIZER_DAILY_CAP", "1"))
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
+
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +
 # caption) right after the greeting. Offers are managed from the ORM Offers tab.

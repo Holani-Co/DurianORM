@@ -1,0 +1,44 @@
+- id: full_retail_close
+  script:
+    - {at: "0m", text: "I want to buy the Benjamin corner sofa"}
+    - {at: "3m", text: "9560150835"}
+    - {at: "5m", text: "110054"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    attrs: {retail_deal_owner.location: "Delhi - Kirti Nagar", phase2_category: product_enquiry, crm_deal_id: TEST-DEAL-1}
+    labels: ["retail-routed"]
+    deal_created: true
+    deal_created_max: 1
+    anywhere_contains: ["Kirti Nagar"]
+    judge: {min: 3}
+
+- id: no_deal_without_phone
+  script:
+    - {at: "0m", text: "I want the esmeralda marble dining set, my pincode is 110054"}
+  expect:
+    tools_called: ["route_to_showroom|find_showrooms"]
+    deal_not_created: true
+    judge: {min: 3}
+
+- id: doors_register_enquiry
+  inbox: duriandoor
+  script:
+    - {at: "0m", text: "I need 5 veneer doors for my flat in Delhi. Call me on 9560150835"}
+  expect:
+    tools_called: ["register_enquiry|escalate_to_human"]
+    judge: {min: 3}
+
+- id: no_double_deal
+  script:
+    - {at: "0m", text: "buy the lewis corner sofa. 9560150835, pincode 110054"}
+    - {at: "10m", text: "also add the matching ottoman please"}
+  expect:
+    deal_created_max: 1
+    judge: {min: 3}
+
+- id: report_contract_source
+  script:
+    - {at: "0m", text: "price of the benjamin corner sofa please"}
+  expect:
+    handled: agent_sent
+    send_attr: {source: ai_auto_reply, via: agent_mode, short_code: agent_reply}
