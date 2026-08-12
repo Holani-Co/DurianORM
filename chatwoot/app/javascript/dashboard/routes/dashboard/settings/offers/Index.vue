@@ -58,6 +58,7 @@ const smallestFreePriority = () => {
 const startAdd = () => {
   editing.value = {
     caption: '',
+    link: '',
     priority: smallestFreePriority(),
     active: true,
     tags: [],
@@ -111,6 +112,7 @@ const save = async () => {
   try {
     const fd = new FormData();
     fd.append('caption', editing.value.caption.trim());
+    fd.append('link', (editing.value.link || '').trim());
     fd.append('priority', editing.value.priority ?? 0);
     fd.append('active', editing.value.active);
     (editing.value.tags || []).forEach(tag => fd.append('tags[]', tag));
@@ -197,6 +199,20 @@ const remove = async o => {
           :placeholder="$t('OFFERS.FORM.CAPTION_PH')"
           class="px-3 py-2 text-sm rounded-lg outline-1 outline outline-n-weak bg-n-solid-1 text-n-slate-12"
         />
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-medium text-n-slate-12">
+          {{ $t('OFFERS.FORM.LINK') }}
+        </label>
+        <input
+          v-model="editing.link"
+          type="url"
+          :placeholder="$t('OFFERS.FORM.LINK_PH')"
+          class="px-3 py-2 text-sm rounded-lg outline-1 outline outline-n-weak bg-n-solid-1 text-n-slate-12"
+        />
+        <span class="text-xs text-n-slate-10">{{
+          $t('OFFERS.FORM.LINK_HINT')
+        }}</span>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div class="flex flex-col gap-1.5">
