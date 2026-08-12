@@ -9,9 +9,10 @@
 #   guardrails (all deterministic, all demote send → review card):
 #     stored-PII mask · re-ask detector · link allowlist · plain-text scrub ·
 #     confidence bar · comment-surface rules (no prices/contacts in public) ·
-#     turn budget (converge → handoff) · human claim window (a human's public
-#     reply silences the agent for SOCIAL_AGENT_HUMAN_CLAIM_MINUTES, renewed
-#     per reply; the manually-set agent_mode_standdown attr is permanent)
+#     turn budget (converge → handoff) · assignee ownership (assigned to a
+#     human → theirs; assigned to DurianAI or unassigned → the agent's, and
+#     it takes the assignment when it auto-sends; agent_mode_standdown attr
+#     is a manual opt-out)
 #
 # Bounded writes only: route_to_showroom / register_enquiry set the same
 # attributes the legacy gates set (the deal flow's contract), share_offer sends
@@ -1004,31 +1005,28 @@ def is_low_value_comment(text: str) -> bool:
     return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == ""
 
 
-def last_human_reply_at(messages: list) -> int | None:
-    """Epoch of the newest PUBLIC reply a human agent sent, or None. A human
-    reply is a turn, not a takeover: it claims the conversation for
-    SOCIAL_AGENT_HUMAN_CLAIM_MINUTES from that moment (each further human
-    reply renews the claim), and the agent resumes once the window lapses.
-    The permanent form is the agent_mode_standdown conversation attribute,
-    set and cleared by humans only — code never stamps it."""
-    latest = None
-    for m in messages or []:
-        if m.get("message_type") not in (1, "outgoing") or m.get("private"):
+def is_bot_agent(user: dict) -> bool:
+    """True when a Chatwoot user is the bridge's own bot login (DurianAI).
+    A conversation assigned to this user (or unassigned) belongs to the
+    agent; assigned to anyone else it belongs to that human — manual human
+    replies alone never transfer ownership."""
+    name = re.sub(r"[^a-z0-9]", "", str(user.get("name") or
+                                        user.get("available_name") or "").lower())
+    return bool(name) and name in config.SOCIAL_AGENT_BOT_AGENT_NAMES
+
+
+def last_unanswered_incoming(messages: list) -> dict | None:
+    """The customer's latest public message when nothing public has gone out
+    after it — what an assignment handback should catch up on."""
+    for m in reversed(messages or []):
+        if m.get("private"):
             continue
-        if not (m.get("content") or "").strip() and not m.get("attachments"):
-            continue          # empty dashboard artifacts own nothing
-        ca = profile_mod.msg_attrs(m)
-        if ca.get("source") in ("ai_auto_reply",) or ca.get("ai_trace"):
-            continue
-        if ca.get("type") == "ai_review_suggestion":
-            continue
-        try:
-            t = int(m.get("created_at") or 0)
-        except (TypeError, ValueError):
-            t = 0
-        if t and (latest is None or t > latest):
-            latest = t
-    return latest
+        mt = m.get("message_type")
+        if mt in (1, "outgoing"):
+            return None
+        if mt in (0, "incoming"):
+            return m
+    return None
 
 
 # ── Prompt ──────────────────────────────────────────────────────────────────
@@ -1110,7 +1108,10 @@ copied digit-for-digit from skill results. Prices appear EXACTLY as the \
 skills return them — Indian notation like ₹1,09,520, never reformatted or \
 rounded. EVERY product you quote carries its durian.in link from \
 search_products — no exception, comparisons included; the link previews the \
-product. Add one line "EMI options available" where useful. Light \
+product. Instagram delivers at most 1000 characters per message — stay \
+under 900: present at most THREE products per reply (pick the best fits for \
+what they asked; if more exist, say they can ask for others), one short \
+line + link each. Add one line "EMI options available" where useful. Light \
 "ji"/"bilkul" warmth only if the customer is informal. Sign \
 off "Regards,\\nTeam Durian" on substantive replies, not one-liners.
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
@@ -1230,17 +1231,18 @@ async def _handle_locked(conv, conv_id, channel, surface,
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
     ca = conv.get("custom_attributes") or {}
     if ca.get("agent_mode_standdown"):
-        # Manual, permanent claim — a human set it on the conversation and
+        # Manual, permanent opt-out — a human set it on the conversation and
         # only a human clears it. Code never stamps this.
         return {"ignored": True, "reason": "human_owns_conversation"}
-    last_human = last_human_reply_at(all_messages)
-    if last_human and (now.timestamp() - last_human
-                       < config.SOCIAL_AGENT_HUMAN_CLAIM_MINUTES * 60):
-        # A human's public reply claims the conversation for a rolling
-        # window (renewed by each further reply) — their turn, not a
-        # takeover. Once it lapses the agent resumes with their replies
-        # in its history.
-        return {"ignored": True, "reason": "human_claim_active"}
+    assignee = (conv.get("meta") or {}).get("assignee") or {}
+    if assignee and not is_bot_agent(assignee):
+        # Ownership IS the assignee, nothing else: assigned to a human →
+        # theirs for as long as they hold it; assigned to DurianAI or
+        # unassigned → the agent looks at every new message, manual human
+        # replies in between included. Humans hand back by assigning the
+        # conversation to DurianAI (or unassigning) — see the
+        # conversation_updated catch-up in main.py.
+        return {"ignored": True, "reason": "assigned_to_human"}
 
     # ── Profile: load or cold-start, ingest this conversation's new events ──
     prof = None
@@ -1511,18 +1513,79 @@ async def _handle_locked(conv, conv_id, channel, surface,
         return {"handled": "agent_card", "confidence": confidence, "hold": hold}
 
     await _send(conv_id, channel, reply, confidence, trace)
+    await _mark_agent_owned(conv, conv_id, channel)
     return {"handled": "agent_sent", "confidence": confidence}
+
+
+async def _mark_agent_owned(conv, conv_id, channel) -> None:
+    """After an auto-send, make dashboard state truthful: the conversation
+    sits with DurianAI (assign when unassigned — never steal from a human)
+    and stale agent-needed flags come off, since the agent just handled it.
+    Best-effort — ownership bookkeeping must never fail a sent reply."""
+    try:
+        if not ((conv.get("meta") or {}).get("assignee") or {}):
+            me = await chatwoot.get_profile()
+            if me.get("id"):
+                await chatwoot.assign_agent(conv_id, me["id"])
+    except Exception:
+        pass
+    for lbl in ("agent-needed", f"agent-needed-{channel}"):
+        try:
+            await chatwoot.remove_label(conv_id, lbl)
+        except Exception:
+            pass
+
+
+# Meta's Send API rejects longer texts outright (error 100: "message sent is
+# over 1000 characters") — and the failure is invisible here: Chatwoot stores
+# the message, Instagram just never delivers it.
+_CHANNEL_CHAR_LIMITS = {"instagram": 1000, "facebook": 2000}
+
+
+def split_for_channel(text: str, channel: str) -> list[str]:
+    """Split a reply into delivery-sized parts for the channel, packing whole
+    paragraphs (a bullet and its link stay together) under the limit with
+    headroom. A single oversized paragraph falls back to a word-boundary cut."""
+    limit = _CHANNEL_CHAR_LIMITS.get(channel, 1000) - 50
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return [text] if text else []
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+    parts, cur = [], ""
+    for b in blocks:
+        while len(b) > limit:
+            if cur:
+                parts.append(cur)
+                cur = ""
+            cut = b.rfind(" ", limit // 2, limit)
+            cut = cut if cut > 0 else limit
+            parts.append(b[:cut].strip())
+            b = b[cut:].strip()
+        joined = f"{cur}\n\n{b}" if cur else b
+        if len(joined) <= limit:
+            cur = joined
+        else:
+            parts.append(cur)
+            cur = b
+    if cur:
+        parts.append(cur)
+    return parts
 
 
 async def _send(conv_id, channel, reply, confidence, trace, note="") -> None:
     sent_trace = review_reply.add_outcome_step(
         list(trace), sent=True,
         detail=note or f"Sent automatically by agent mode — confidence {confidence}%.")
-    await chatwoot.create_message(
-        conv_id, reply, message_type="outgoing",
-        content_attributes={"source": "ai_auto_reply", "via": "agent_mode",
-                            "channel": channel, "confidence": confidence,
-                            "short_code": "agent_reply", "ai_trace": sent_trace})
+    base = {"source": "ai_auto_reply", "via": "agent_mode", "channel": channel,
+            "confidence": confidence, "short_code": "agent_reply"}
+    for i, part in enumerate(split_for_channel(reply, channel)):
+        # Every part carries the bot source marker (the human-claim detector
+        # keys on it); the full trace rides only on the first, continuations
+        # are flagged so reports can collapse them into one logical reply.
+        attrs = dict(base, ai_trace=sent_trace) if i == 0 \
+            else dict(base, continuation=True)
+        await chatwoot.create_message(conv_id, part, message_type="outgoing",
+                                      content_attributes=attrs)
     try:
         await chatwoot.post_private_note(
             conv_id, f"🤖 **Agent mode auto-sent** {channel} reply "

@@ -75,6 +75,7 @@ class FakeChatwoot:
         self.notes: list[str] = []
         self.offer_sends: list[dict] = []
         self.teams: list[int] = []
+        self.assignments: list[dict] = []
         self.deal_calls: list = []
         self.new_conversation(scenario.get("inbox") or "durianfurniture_official",
                               comment=scenario.get("surface") == "comment")
@@ -190,6 +191,16 @@ class FakeChatwoot:
         self.teams.append(team_id)
         return {}
 
+    async def assign_agent(self, conv_id, assignee_id):
+        self.assignments.append({"conv": conv_id, "assignee_id": assignee_id})
+        for c in self.conversations:
+            if c["id"] == conv_id:
+                c["meta"]["assignee"] = {"id": assignee_id, "name": "DurianAI"}
+        return {}
+
+    async def get_profile(self):
+        return {"id": 3, "name": "DurianAI"}
+
 
 def _load_templates():
     path = Path(__file__).resolve().parents[2] / "social_templates.yaml"
@@ -215,7 +226,8 @@ class Engine:
                      "create_message", "post_private_note", "get_contact",
                      "update_contact_attributes", "search_contacts",
                      "list_canned_responses", "get_offers", "send_offer_message",
-                     "send_image_bytes", "assign_team"):
+                     "send_image_bytes", "assign_team", "assign_agent",
+                     "get_profile"):
             monkeypatch.setattr(chatwoot, name, getattr(self.fake, name))
 
         async def fake_emi(price, skuid, **kw):
@@ -398,6 +410,8 @@ class Engine:
                                    comment=scenario.get("surface") == "comment")
         if scenario.get("conv_attrs"):
             self.fake.conv["custom_attributes"].update(scenario["conv_attrs"])
+        if scenario.get("assignee"):
+            self.fake.conv["meta"]["assignee"] = dict(scenario["assignee"])
         if scenario.get("profile"):
             # Deep copy: YAML anchors (&x/*x) make scenarios SHARE the parsed
             # dict, and runs mutate the seeded profile (merge_events) — a
@@ -469,6 +483,13 @@ class Engine:
         def want(cond, msg):
             if not cond:
                 errors.append(msg)
+
+        # Platform-wide: Instagram refuses DMs over 1000 chars (Send API
+        # error 100) — no scenario may pass while producing one.
+        for s in self.fake.public_sends:
+            want(len(s["content"]) <= 1000,
+                 f"public send over Instagram's 1000-char limit "
+                 f"({len(s['content'])} chars)")
 
         for frag in exp.get("sent_contains") or []:
             want(re.search(frag, sent_text, re.I), f"sent missing: {frag!r}")

@@ -43,26 +43,24 @@ def test_comment_rules():
     assert not sa.is_low_value_comment("price please")
 
 
-def test_last_human_reply_at():
-    bot = {"message_type": 1, "created_at": 1000,
-           "content_attributes": {"source": "ai_auto_reply"}}
-    card = {"message_type": 1, "created_at": 2000, "private": True,
-            "content_attributes": {"type": "ai_review_suggestion"}}
-    human = {"message_type": 1, "created_at": 3000,
-             "content": "Let me look into this for you",
-             "content_attributes": {}}
-    later = {"message_type": 1, "created_at": 9000,
-             "content": "Update: the showroom will call you.",
-             "content_attributes": {}}
-    empty_artifact = {"message_type": 1, "created_at": 4000, "content": "",
-                      "content_attributes": {}}
-    legacy_str = {"message_type": 1, "created_at": 5000, "content": "Hello!",
-                  "content_attributes": '{"source": "ai_auto_reply"}'}
-    assert sa.last_human_reply_at([bot, card]) is None
-    assert sa.last_human_reply_at([bot, human]) == 3000
-    assert sa.last_human_reply_at([later, bot, human]) == 9000  # newest wins
-    assert sa.last_human_reply_at([bot, empty_artifact]) is None
-    assert sa.last_human_reply_at([bot, legacy_str]) is None
+def test_is_bot_agent():
+    assert sa.is_bot_agent({"name": "DurianAI"})
+    assert sa.is_bot_agent({"name": "durian ai"})
+    assert sa.is_bot_agent({"available_name": "Durian-AI"})
+    assert not sa.is_bot_agent({"name": "Aditya"})
+    assert not sa.is_bot_agent({"name": ""})
+    assert not sa.is_bot_agent({})
+
+
+def test_last_unanswered_incoming():
+    inc1 = {"id": 1, "message_type": 0, "content": "hi"}
+    out1 = {"id": 2, "message_type": 1, "content": "hello"}
+    inc2 = {"id": 3, "message_type": 0, "content": "price?"}
+    note = {"id": 4, "message_type": 1, "private": True, "content": "card"}
+    assert sa.last_unanswered_incoming([inc1, out1, inc2])["id"] == 3
+    assert sa.last_unanswered_incoming([inc1, out1, inc2, note])["id"] == 3
+    assert sa.last_unanswered_incoming([inc1, out1]) is None
+    assert sa.last_unanswered_incoming([]) is None
 
 
 def test_fold_decline_ordering():
@@ -197,3 +195,48 @@ def test_website_search_normalize():
     assert p["selling_price"] == 447300 and p["mrp"] == 894600
     assert out[1]["selling_price"] == 294400          # falls back to mrp
     assert ws.normalize({}, 4) == []
+
+
+def test_split_for_channel():
+    # The reply Instagram actually refused (error 100, >1000 chars).
+    reply = """Here are the current L-shaped and sectional sofa options:
+
+• Stevens — ₹58,720 (MRP ₹1,46,800), dark blue velvet fabric, right-hand L-shaped sofa
+https://www.durian.in/product/stevens-dark-blue-velvet-fabric-right-hand-l-shaped-sofa
+
+• Meraki — ₹1,17,920 (MRP ₹2,94,800), mushroom brown premium leatherette, 6-seater sectional sofa
+https://www.durian.in/product/meraki-mushroom-brown-premium-leatherette-6-seater-sectional-sofa
+
+• Lewis — ₹1,47,200 (MRP ₹2,94,400), dark oak brown fabric, 7-seater sectional sofa
+https://www.durian.in/product/lewis-dark-oak-brown-fabric-7-seater-sectional-sofa
+
+• Prescott — ₹4,47,300 (MRP ₹8,94,600), sea salt grey fabric, 5-seater sectional sofa
+https://www.durian.in/product/prescott-sea-salt-grey-fabric-5-seater-corner-sofa
+Note: Prescott is an in-store exclusive and can be viewed at a showroom.
+
+EMI options are available. The Monsoon sale is currently available.
+
+Would you prefer fabric or leatherette, and do you need a left-hand or right-hand configuration?
+
+Regards,
+Team Durian"""
+    assert len(reply) > 1000
+    parts = sa.split_for_channel(reply, "instagram")
+    assert len(parts) >= 2
+    assert all(len(p) <= 950 for p in parts)
+    # nothing lost, and every bullet stays in the same part as its link
+    rejoined = "\n\n".join(parts)
+    for name, slug in (("Stevens", "stevens-dark-blue"),
+                       ("Meraki", "meraki-mushroom"),
+                       ("Lewis", "lewis-dark-oak"),
+                       ("Prescott", "prescott-sea-salt")):
+        assert slug in rejoined
+        holder = [p for p in parts if "• " + name in p]
+        assert len(holder) == 1 and slug in holder[0]
+    # passthrough + degenerate cases
+    assert sa.split_for_channel("short reply", "instagram") == ["short reply"]
+    assert sa.split_for_channel("", "instagram") == []
+    monster = ("word " * 400).strip()          # one paragraph, no newlines
+    mparts = sa.split_for_channel(monster, "instagram")
+    assert len(mparts) >= 2 and all(len(p) <= 950 for p in mparts)
+    assert " ".join(mparts).split() == monster.split()

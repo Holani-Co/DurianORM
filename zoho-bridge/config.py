@@ -1,6 +1,7 @@
 # Centralised env loading. Fails fast at startup if anything required is missing.
 
 import os
+import re
 import socket
 from dotenv import load_dotenv
 
@@ -498,13 +499,16 @@ UNBXD_API_KEY = os.environ.get(
     "UNBXD_API_KEY", "43a7c1955241b3c05198d691468d896b")
 UNBXD_SITE_KEY = os.environ.get(
     "UNBXD_SITE_KEY", "ss-unbxd-prod-Durian27261637909420")
-# A human agent's public reply claims the conversation for this many minutes
-# (rolling — each further human reply renews it). While claimed the agent is
-# fully silent; when it lapses, the next customer message is the agent's
-# again. Permanent takeover is the agent_mode_standdown conversation
-# attribute, set/cleared by humans in the dashboard — code never stamps it.
-SOCIAL_AGENT_HUMAN_CLAIM_MINUTES = int(
-    os.environ.get("SOCIAL_AGENT_HUMAN_CLAIM_MINUTES", "30"))
+# Conversation ownership follows the ASSIGNEE: assigned to any human agent →
+# the agent stays out; assigned to one of these bot logins (or unassigned) →
+# the agent handles every new message, manual human replies included. Names
+# are compared case/punctuation-insensitively. The agent_mode_standdown
+# conversation attribute remains a manual opt-out — code never stamps it.
+SOCIAL_AGENT_BOT_AGENT_NAMES = tuple(
+    s for s in (re.sub(r"[^a-z0-9]", "", n.lower()) for n in
+                os.environ.get("SOCIAL_AGENT_BOT_AGENT_NAMES",
+                               "DurianAI").split(","))
+    if s)
 SOCIAL_AGENT_MAX_STEPS = int(os.environ.get("SOCIAL_AGENT_MAX_STEPS", "6"))
 SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", "5"))
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "8"))

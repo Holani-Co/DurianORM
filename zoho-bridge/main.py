@@ -335,10 +335,53 @@ async def handle_status_changed(data: dict) -> dict:
 # Fires from Chatwoot's `conversation_updated` webhook. That event triggers
 # on ANY field change (assignee, labels, attributes, priority...), so we
 # filter aggressively here.
+def _assignee_changed(data: dict) -> bool:
+    """True only when changed_attributes clearly reports an assignee change
+    (both Chatwoot payload shapes). Missing/empty → False: this event fires
+    on every conversation mutation and a handback catch-up costs API calls."""
+    changed = data.get("changed_attributes")
+    if isinstance(changed, dict):
+        return "assignee_id" in changed
+    if isinstance(changed, list):
+        return any(isinstance(c, dict) and "assignee_id" in c for c in changed)
+    return False
+
+
 async def handle_conversation_updated(data: dict) -> dict:
     conv     = data.get("conversation") or data
     conv_id  = conv.get("id") or data.get("id")
     priority = (conv.get("priority") or "").lower()
+
+    # Assignment handback → agent catch-up. A human assigning the
+    # conversation to DurianAI (or unassigning it) hands it to the agent —
+    # if the customer's latest message is still unanswered, handle it NOW
+    # instead of waiting for their next message. maybe_handle's own
+    # assignee/standdown/msgid guards make this idempotent.
+    if conv_id and _assignee_changed(data):
+        try:
+            full_conv = await chatwoot.get_conversation(int(conv_id))
+            meta = full_conv.get("meta") or {}
+            social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(
+                meta.get("channel") or "")
+            assignee = meta.get("assignee") or {}
+            if (social_channel
+                    and social_agent.eligible(full_conv, social_channel)
+                    and (not assignee or social_agent.is_bot_agent(assignee))):
+                msgs = await chatwoot.get_conversation_messages_raw(int(conv_id))
+                pending = social_agent.last_unanswered_incoming(msgs)
+                if pending:
+                    surface = "comment" if "comment" in (
+                        full_conv.get("labels") or []) else ""
+                    handled = await social_agent.maybe_handle(
+                        full_conv, social_channel, surface=surface,
+                        latest_message=pending.get("content") or "",
+                        latest_msg_id=pending.get("id"))
+                    if handled is not None:
+                        print(f"[agent] handback catch-up on conv {conv_id}: "
+                              f"{handled}")
+                        return {"handled": "agent_handback", "result": handled}
+        except Exception as e:
+            print(f"[agent] handback catch-up failed for conv {conv_id}: {e}")
 
     if priority not in config.PRIORITY_ESCALATION_LEVELS:
         return {"ignored": True, "reason": f"priority_not_critical({priority!r})"}

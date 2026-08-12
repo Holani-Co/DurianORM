@@ -35,6 +35,38 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
         return r.json()
 
 
+async def assign_agent(conversation_id: int, assignee_id: int) -> dict:
+    """Assign a user to a conversation (agent mode takes ownership with the
+    DurianAI login after an auto-send). Idempotent — Chatwoot overwrites."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/assignments"),
+            headers=_headers(),
+            json={"assignee_id": assignee_id},
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(f"Chatwoot assign_agent failed [{r.status_code}]: {r.text}")
+        return r.json()
+
+
+_profile_cache: dict | None = None
+
+
+async def get_profile() -> dict:
+    """The API token's own Chatwoot user (the DurianAI bot login) — cached
+    for the process lifetime; {} on failure."""
+    global _profile_cache
+    if _profile_cache is None:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(f"{config.CHATWOOT_BASE_URL}/api/v1/profile",
+                                     headers=_headers())
+                _profile_cache = r.json() if r.status_code < 300 else {}
+        except Exception:
+            return {}
+    return _profile_cache
+
+
 async def ensure_label(title: str, color: str = "#1f93ff",
                        show_on_sidebar: bool = True) -> None:
     """Create a Label record for `title` if one doesn't exist yet.
