@@ -13,6 +13,7 @@
 #  active     :boolean          default(TRUE), not null
 #  caption    :string           not null
 #  expires_at :datetime
+#  link       :string
 #  priority   :integer          default(0), not null
 #  tags       :jsonb            not null
 #  created_at :datetime         not null

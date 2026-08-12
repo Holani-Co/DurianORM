@@ -29,20 +29,31 @@ class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
   end
 
   # POST /offers/:id/send_to_conversation  { conversation_id }
-  # Agent manually pushes this offer's image + caption to the customer. Builds an
-  # outgoing message with the offer image attached (reusing the stored blob) so
-  # Chatwoot delivers it on the conversation's channel.
+  # Agent manually pushes this offer's image + caption to the customer. The image
+  # and the caption go out as SEPARATE messages: a single Instagram message
+  # carrying both is delivered as two sends but stores only one source_id, so the
+  # attachment's echo isn't deduped and shows twice in the agent view. The
+  # caption message also carries the offer link (if set) so the customer can tap
+  # through.
   def send_to_conversation
     conversation = Current.account.conversations.find_by!(display_id: params[:conversation_id])
     return render json: { error: 'Offer has no image' }, status: :unprocessable_entity unless @offer.image.attached?
 
-    message = conversation.messages.build(
+    image = conversation.messages.build(
       account_id: Current.account.id, inbox_id: conversation.inbox_id,
-      message_type: :outgoing, content: @offer.caption, sender: Current.user
+      message_type: :outgoing, sender: Current.user
     )
-    message.attachments.build(account_id: Current.account.id, file_type: :image)
-            .file.attach(@offer.image.blob)
-    message.save!
+    image.attachments.build(account_id: Current.account.id, file_type: :image)
+         .file.attach(@offer.image.blob)
+    image.save!
+
+    caption = [@offer.caption, @offer.link].compact_blank.join("\n")
+    if caption.present?
+      conversation.messages.create!(
+        account_id: Current.account.id, inbox_id: conversation.inbox_id,
+        message_type: :outgoing, content: caption, sender: Current.user
+      )
+    end
     render json: { success: true }
   end
 
@@ -53,7 +64,7 @@ class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
   end
 
   def offer_params
-    params.permit(:caption, :priority, :active, :expires_at, tags: [])
+    params.permit(:caption, :priority, :active, :expires_at, :link, tags: [])
   end
 
   def check_admin

@@ -218,10 +218,14 @@ async def get_offers() -> list[dict]:
 
 
 async def send_offer_message(conversation_id: int, caption: str,
-                             image_url: str) -> dict | None:
-    """Send an outgoing image message (offer graphic + caption). Downloads the
-    Chatwoot-hosted image and re-uploads it as an attachment so Chatwoot delivers
-    it on the channel (Instagram/Facebook). Best-effort; None on failure."""
+                             image_url: str, link: str = "") -> dict | None:
+    """Send an offer as TWO outgoing messages — the image, then the caption — so
+    it delivers cleanly on Instagram/Facebook. A single message carrying both an
+    attachment and text is delivered by Meta as two sends (two message ids), but
+    Chatwoot stores only one source_id, so the attachment's echo isn't deduped
+    and shows as a phantom duplicate image in the agent view. Splitting keeps
+    each message to a single id. `link`, when set, is appended to the caption so
+    the customer can tap through to the offer page. Best-effort; None on failure."""
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             img = await client.get(image_url, headers=_headers())
@@ -230,12 +234,17 @@ async def send_offer_message(conversation_id: int, caption: str,
                 return None
             ctype = img.headers.get("content-type", "image/jpeg")
             files = {"attachments[]": ("offer", img.content, ctype)}
-            data = {"content": caption or "", "message_type": "outgoing", "private": "false"}
+            data = {"message_type": "outgoing", "private": "false"}
             r = await client.post(_conv_url(conversation_id, "/messages"),
                                   headers=_headers(), data=data, files=files)
             if r.status_code >= 300:
-                print(f"[chatwoot] send_offer_message failed [{r.status_code}]: {r.text[:200]}")
+                print(f"[chatwoot] send_offer_message (image) failed [{r.status_code}]: {r.text[:200]}")
                 return None
+            text = "\n".join(t for t in ((caption or "").strip(), (link or "").strip()) if t)
+            if text:
+                await client.post(
+                    _conv_url(conversation_id, "/messages"), headers=_headers(),
+                    json={"content": text, "message_type": "outgoing", "private": False})
             return r.json()
     except Exception as e:
         print(f"[chatwoot] send_offer_message error: {e}")
