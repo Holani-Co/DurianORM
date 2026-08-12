@@ -525,7 +525,7 @@ async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
 async def get_contact(contact_id: int) -> dict:
     """The full contact record — custom_attributes carries `durian_profile`."""
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(_acct_url(f"contacts/{contact_id}"), headers=_headers())
+        r = await client.get(_acct_url(f"/contacts/{contact_id}"), headers=_headers())
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot get contact failed [{r.status_code}]: {r.text[:200]}")
         return (r.json() or {}).get("payload") or {}
@@ -535,7 +535,7 @@ async def update_contact_attributes(contact_id: int, custom_attributes: dict) ->
     """Write contact custom_attributes keys (Chatwoot merges top-level keys on
     PUT contacts/:id when only custom_attributes is sent)."""
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.put(_acct_url(f"contacts/{contact_id}"),
+        r = await client.put(_acct_url(f"/contacts/{contact_id}"),
                              headers=_headers(),
                              json={"custom_attributes": custom_attributes})
         if r.status_code >= 300:
@@ -547,9 +547,14 @@ async def search_contacts(query: str) -> list[dict]:
     """Contact search (name / email / phone / identifier) — used by profile
     soft-linking to find other identities carrying the same phone/email."""
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(_acct_url("contacts/search"),
+        r = await client.get(_acct_url("/contacts/search"),
                              headers=_headers(), params={"q": query})
         if r.status_code >= 300:
             print(f"[chatwoot] contact search failed [{r.status_code}]")
             return []
-        return ((r.json() or {}).get("payload")) or []
+        payload = (r.json() or {}).get("payload")
+        # The fork's search is an omnisearch: payload is a dict of result
+        # groups; plain contact-search forks return the list directly.
+        if isinstance(payload, dict):
+            payload = payload.get("contacts")
+        return [c for c in (payload or []) if isinstance(c, dict)]

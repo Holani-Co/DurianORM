@@ -386,44 +386,94 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
 @_skill(
     "share_product_images",
     "Send the customer photos of a product family they are interested in — "
-    "one photo per variant (up to 3 variants; a single-variant product gets "
-    "two photos). USE ONCE per product per conversation, whenever a customer "
-    "shows real interest in a specific product. After calling, include the "
-    "returned listing link in your text reply so they can tap through.",
+    "every photo is that variant's FRONT view. Default: one photo per "
+    "variant (up to 3 variants, site order; a single-variant product gets "
+    "two photos). Customer named a colour/size → pass it as `variant` so "
+    "that photo leads. Comparing two products → call once per product with "
+    "compare=true (exactly one front view each). Photos go once per product "
+    "per conversation; a later call for the same family delivers only a "
+    "variant not yet pictured (pass `variant`) — unless resend=true, which "
+    "you set ONLY when the customer explicitly asks to see the photos "
+    "again. DMs only: in a public comment thread this refuses — invite "
+    "them to DM. After calling, include the returned listing link in your "
+    "text reply so they can tap through.",
     {"family": {"type": "string",
-                "description": "catalog family, e.g. BENJAMIN CORNER-I"}},
+                "description": "catalog family, e.g. BENJAMIN CORNER-I"},
+     "variant": {"type": "string",
+                 "description": "colour/size words the customer used, e.g. "
+                                "'camel brown' or '3 seater'"},
+     "compare": {"type": "boolean",
+                 "description": "true when comparing products — exactly one "
+                                "front-view photo of this family"},
+     "resend": {"type": "boolean",
+                "description": "true ONLY when the customer explicitly asked "
+                               "to see already-sent photos again"}},
     {"sent": "int — photos delivered", "link": "listing URL for your reply",
      "variants": "list of variant names sent", "note": "str"},
-    ({"family": "MEAGAN"},
-     {"sent": 3, "link": "https://www.durian.in/product/meagan-…",
-      "variants": ["Mushroom Brown 2 Seater", "Grey 3 Seater"]}),
+    ({"family": "MEAGAN", "variant": "camel brown"},
+     {"sent": 1, "link": "https://www.durian.in/product/meagan-camel-brown-…",
+      "variants": ["Camel Brown Premium Leatherette 2 Seater Sofa"]}),
 )
-async def _sk_share_product_images(ctx, family: str = "", **_) -> dict:
+async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
+                                   compare: bool = False, resend: bool = False,
+                                   **_) -> dict:
     conv, conv_id = ctx["conv"], ctx["conv_id"]
+    if (ctx.get("surface") or "") == "comment":
+        return {"sent": 0, "note": "public comment thread — photos cannot be "
+                                   "attached here; invite them to DM for "
+                                   "photos and details"}
     fam = (family or "").strip().upper()
     if not fam:
         return {"sent": 0, "note": "need the product family"}
-    shared = (conv.get("custom_attributes") or {}).get("product_images_shared") or []
-    if fam in shared:
+    ca = conv.get("custom_attributes") or {}
+    shared = ca.get("product_images_shared") or []
+    sent_urls = ca.get("product_images_sent") or []
+    prefer = (variant or "").strip() or None
+    if compare:
+        photos, link_url = product_images.share_set(fam, prefer=prefer,
+                                                    compare=True)
+    elif fam not in shared or resend:
+        photos, link_url = product_images.share_set(fam, prefer=prefer)
+    elif prefer:            # family already pictured → top-up, never repeat
+        photos, link_url = product_images.share_set(fam, prefer=prefer,
+                                                    exclude=sent_urls)
+        if not photos:
+            return {"sent": 0, "link": product_images.link(fam),
+                    "note": "that variant's photos already went out here — "
+                            "reference them and give the link"}
+    else:
         return {"sent": 0, "link": product_images.link(fam),
-                "note": "already shared this product's photos here — just "
-                        "reference them and give the link"}
-    photos, link_url = product_images.share_set(fam)
+                "note": "already shared this product's photos here — "
+                        "reference them and give the link; set resend=true "
+                        "ONLY if the customer explicitly asked to see them "
+                        "again"}
     if not photos:
         return {"sent": 0, "note": "no photos on file for this product — "
                                    "offer the showroom instead, never describe "
                                    "unseen images"}
-    sent = 0
+    sent, delivered = 0, []
     for caption, img_url in photos:
         ok = await chatwoot.send_offer_message(conv_id, caption, img_url)
         if ok:
             sent += 1
+            delivered.append(img_url)
+    note = ""
     if sent:
+        new_shared = shared if fam in shared else shared + [fam]
+        new_urls = sent_urls + [u for u in delivered if u not in sent_urls]
         await chatwoot.merge_custom_attributes(
-            conv_id, {"product_images_shared": shared + [fam]})
-        conv.setdefault("custom_attributes", {})["product_images_shared"] = shared + [fam]
+            conv_id, {"product_images_shared": new_shared,
+                      "product_images_sent": new_urls})
+        conv.setdefault("custom_attributes", {}).update(
+            {"product_images_shared": new_shared,
+             "product_images_sent": new_urls})
+        total = len(product_images.variants(fam, limit=8))
+        if not compare and not prefer and total > len(photos):
+            note = (f"only {len(photos)} of {total} variants pictured — tell "
+                    "the customer they can ask for any specific colour or "
+                    "size's photos")
     return {"sent": sent, "link": link_url,
-            "variants": [c for c, _ in photos][:sent]}
+            "variants": [c for c, _ in photos][:sent], "note": note}
 
 
 @_skill(
@@ -821,7 +871,12 @@ considering the …?").
 - When discussing price, check share_offer once and mention EMI availability \
 (fetched, per step 2).
 - When a customer is interested in a SPECIFIC product: call \
-share_product_images once for that family (their photos arrive as images). \
+share_product_images for that family (their photos arrive as images; the \
+skill sends front views and blocks repeats itself). They named a \
+colour/size → pass it as `variant`. Comparing two products → one call per \
+product with compare=true, then contrast briefly with both links. When the \
+skill's note says more variants exist, tell them they can ask for any \
+specific colour's photos. \
 Whenever you name a specific product's price, ALWAYS include its listing \
 `link` (from search_products / share_product_images) in your text so they \
 can tap through — a price without its link is incomplete.
@@ -869,6 +924,8 @@ async def maybe_handle(conv: dict, channel: str, surface: str = "",
             return await _handle_locked(conv, conv_id, channel, surface,
                                         latest_message, latest_msg_id)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"[agent] conv {conv_id} failed ({type(e).__name__}: {e}) — "
                   "flagging for a human")
             for lbl in ("agent-needed", f"agent-needed-{channel}"):

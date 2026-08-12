@@ -363,6 +363,8 @@ async def soft_link(profile: dict, contact_id: int) -> None:
         print(f"[profile] soft-link search failed: {e}")
         return
     for c in found or []:
+        if not isinstance(c, dict):
+            continue
         cid = c.get("id")
         if not cid or int(cid) == int(contact_id):
             continue
