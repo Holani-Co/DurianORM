@@ -42,3 +42,17 @@
   expect:
     handled: agent_sent
     send_attr: {source: ai_auto_reply, via: agent_mode, short_code: agent_reply}
+
+# Truthful enquiry claims: routed without a created deal (no phone yet) must
+# NEVER be announced as a registered enquiry — it is "with our team".
+- id: no_deal_no_registered_claim
+  history:
+    - {at: "-5m", text: "I want to buy the benjamin corner sofa"}
+    - {at: "-4m", who: durian, text: "Bilkul. Could you share your pincode so we can connect you to the nearest showroom?"}
+  script:
+    - {at: "0m", text: "110054"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    deal_not_created: true
+    sent_not_contains: ["(?i)enquiry (is |has been |was )?(registered|created)"]
+    judge: {min: 3}

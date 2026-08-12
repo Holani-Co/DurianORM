@@ -5717,6 +5717,13 @@ async def handle_template_suggest(conv: dict, channel: str,
     conv_id = conv.get("id")
     if not conv_id:
         return {"ignored": True, "reason": "no_conversation_id"}
+    # Agent-mode conversations are owned end-to-end by the skills agent. The
+    # message path already prefers the agent, but this handler ALSO fires
+    # from side entries — reopen handoffs (handle_status_changed) most
+    # importantly — which used to auto-send legacy templates ("thank you for
+    # sharing your details") into conversations the agent was mid-flow on.
+    if social_agent.eligible(conv, channel):
+        return {"ignored": True, "reason": "agent_mode_owns_conversation"}
     lock = await _conversation_draft_lock(conv_id)
     try:
         async with lock:

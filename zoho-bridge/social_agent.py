@@ -301,8 +301,16 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
 async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
                                 showroom: str = "", **_) -> dict:
     conv, conv_id = ctx["conv"], ctx["conv_id"]
-    if (conv.get("custom_attributes") or {}).get("retail_deal_owner"):
-        return {"routed": True, "note": "already routed — reassure, do not re-route"}
+    ca = conv.get("custom_attributes") or {}
+    if ca.get("retail_deal_owner"):
+        if ca.get("crm_deal_id"):
+            return {"routed": True, "deal_created": True,
+                    "note": "already routed and the enquiry IS registered — "
+                            "reassure, do not re-route"}
+        return {"routed": True, "deal_created": False,
+                "note": "already routed; enquiry completion sits with our "
+                        "team — say the team will assist, NEVER say the "
+                        "enquiry is registered/created"}
     room, ckey, cdata, options = _resolve_showroom(pincode, city, showroom, "furniture")
     if not room:
         return {"routed": False, "options": options,
@@ -329,8 +337,18 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     except Exception:
         pass
     deal_created = await _maybe_auto_deal(ctx)
-    return {"routed": True, "showroom": owner["location"],
-            "city": owner["city"], "deal_created": deal_created}
+    out = {"routed": True, "showroom": owner["location"],
+           "city": owner["city"], "deal_created": deal_created}
+    # What actually happened decides what the customer may be told — an
+    # unregistered enquiry is never announced as registered.
+    out["next"] = (
+        f"the enquiry IS registered with {owner['location']} — you may tell "
+        "the customer the showroom team will contact them"
+        if deal_created else
+        "routed, but NO enquiry is registered yet (our team completes it) — "
+        "NEVER say the enquiry is registered/created; say it has been passed "
+        "to our team, who will take care of it")
+    return out
 
 
 @_skill(
@@ -361,7 +379,10 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
         await chatwoot.add_label(conv_id, "deal-ready")
     except Exception:
         pass
-    return {"registered": True, "category": cat}
+    return {"registered": True, "category": cat,
+            "next": "details are captured for our team, who will raise the "
+                    "enquiry and reach out — say that; do NOT say the enquiry "
+                    "is already created"}
 
 
 @_skill(
@@ -528,7 +549,9 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
     "need_placement → ask exactly the ONE question in the note, then call "
     "again with their answer (never more than these two questions in total); "
     "daily_cap → tell them our sales team will prepare more mock-ups and "
-    "escalate_to_human. Every preview is indicative — say so.",
+    "escalate_to_human. Some products have only fabric-swatch photos on "
+    "file — then the skill declines and you offer the showroom instead. "
+    "Every preview is indicative — say so.",
     {"family": {"type": "string"},
      "variant": {"type": "string",
                  "description": "colour/size the customer wants visualized, "
@@ -590,9 +613,19 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
         return {"sent": False, "denied": "need_variant",
                 "note": "ask ONE short question — which one do they want to "
                         f"see ({opts}) — then call again with `variant`"}
-    photos, _ = product_images.share_set(fam, prefer=prefer or None,
-                                         compare=True)
-    ref_name, ref_url = photos[0] if photos else (fam, all_vars[0]["images"][0])
+    ref = await _pick_reference(fam, prefer or None)
+    if not ref:
+        return {"sent": False, "denied": "unavailable",
+                "note": "no reference photo for this product — previews need "
+                        "one; offer the showroom"}
+    if not ref.get("usable", True):
+        return {"sent": False, "denied": "unavailable",
+                "note": "only fabric swatches on file for this product — a "
+                        "room preview needs a real product photo; offer the "
+                        "showroom instead, never describe an unseen preview"}
+    ref_name, ref_url = ref["name"], ref["url"]
+    swatch_url = "" if ref.get("matches_colour", True) else \
+        (ref.get("swatch") or "")
     pl = (placement or "").strip()
     # "in my room" is where the PREVIEW happens, not a placement — models
     # harvest it from the request; treat vacuous phrases as no placement.
@@ -617,7 +650,8 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
             return {"sent": False, "denied": "need_placement",
                     "note": f"ask ONE short question — {q} — then call again "
                             "with `placement`"}
-    img = await _generate_room_preview(room_photo, ref_url, ref_name, pl)
+    img = await _generate_room_preview(room_photo, ref_url, ref_name, pl,
+                                       swatch_url=swatch_url)
     if not img:
         return {"sent": False, "denied": "unavailable",
                 "note": "preview generation failed — apologise briefly and "
@@ -791,19 +825,81 @@ async def _compose_preview(room: tuple[bytes, str], prod: tuple[bytes, str],
         return None
 
 
+async def _pick_reference(fam: str, prefer: str | None) -> dict:
+    """Best composite reference for a family/variant. Pools the sitemap
+    gallery with the storefront's own listing images (some families' sitemap
+    galleries are pure fabric SWATCHES — Veronica), vision-vets for a
+    full-product shot, and flags when its colour doesn't match the asked
+    variant so the caller adds the variant's swatch as a colour reference.
+    Vet failure fails CLOSED ({}) — never composite an unvetted swatch into
+    a customer's room. Tests monkeypatch this."""
+    vs = product_images.variants(fam, limit=8)
+    if not vs:
+        return {}
+    if prefer:
+        toks = [t for t in re.split(r"[^a-z0-9]+", prefer.lower()) if t]
+        vs = sorted(vs, key=lambda v: -product_images._match_score(
+            v.get("variant", ""), toks))
+    v = vs[0]
+    vname = v.get("variant") or fam
+    pool = list(v.get("images", [])[:2])
+    for q in (f"{fam} {vname}".strip(), fam):
+        try:
+            site = await website_search.search(q, rows=4)
+            pool += [s["image"] for s in site if s.get("image")][:4]
+        except Exception:
+            pass
+    pool = list(dict.fromkeys(pool))[:7]
+    if not pool:
+        return {}
+    swatch = (v.get("images") or [""])[0]
+    if not config.GEMINI_API_KEY:      # dev without a key: unvetted fallback
+        return {"url": pool[0], "name": vname, "usable": True,
+                "matches_colour": True, "swatch": swatch}
+    try:
+        parts = [await _fetch_image_part(u) for u in pool]
+        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL, parts + [
+            {"text": f"These {len(parts)} images are candidate reference "
+                     f"photos for compositing this product into a room "
+                     f"photo: {vname}. Which ONE best shows the FULL product "
+                     "(a fabric swatch or close-up texture is NOT usable) at "
+                     "a clean front or three-quarter angle, no occlusions or "
+                     "overlaid text? Also judge whether that photo's "
+                     "upholstery colour matches the target variant "
+                     f"({vname}). Reply STRICT JSON: "
+                     '{"best_index": <0-based int>, "usable": <true/false — '
+                     'false only if NONE shows the full product>, '
+                     '"matches_colour": <true/false>}'}], timeout=45)
+        text = re.sub(r"^```(?:json)?|```$", "", _gemini_text(body).strip(),
+                      flags=re.M).strip()
+        out = json.loads(text)
+        idx = out.get("best_index")
+        idx = idx if isinstance(idx, int) and 0 <= idx < len(pool) else 0
+        return {"url": pool[idx], "name": vname,
+                "usable": bool(out.get("usable", True)),
+                "matches_colour": bool(out.get("matches_colour", True)),
+                "swatch": swatch}
+    except Exception as e:
+        print(f"[agent] reference vet failed: {type(e).__name__}: {e}")
+        return {}
+
+
 async def _generate_room_preview(room_image_url: str, product_image_url: str,
-                                 product_name: str,
-                                 placement: str = "") -> bytes | None:
-    """Fetch both images and compose on the configured engine. Returns raw
-    image bytes; None on any failure (the skill reports unavailable).
-    Tests monkeypatch this."""
+                                 product_name: str, placement: str = "",
+                                 swatch_url: str = "") -> bytes | None:
+    """Fetch the images and compose on the configured engine. `swatch_url`
+    rides along as a colour reference when the product shot's colour differs
+    from the chosen variant. Returns raw image bytes; None on any failure
+    (the skill reports unavailable). Tests monkeypatch this."""
     try:
         room = await _fetch_bytes(room_image_url)
         prod = await _fetch_bytes(product_image_url)
+        swatch = await _fetch_bytes(swatch_url) if swatch_url else None
     except Exception as e:
         print(f"[agent] preview fetch failed: {type(e).__name__}: {e}")
         return None
-    return await _compose_preview(room, prod, product_name, placement)
+    return await _compose_preview(room, prod, product_name, placement,
+                                  swatch=swatch)
 
 
 @_skill(

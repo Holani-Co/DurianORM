@@ -254,9 +254,32 @@ class Engine:
         monkeypatch.setattr(zoho_crm, "search_contact_by_phone", fake_crm_search)
         monkeypatch.setattr(zoho_crm, "get_contact_deals", fake_crm_deals)
 
-        async def fake_preview(room_url, product_url, name, placement=""):
+        self.preview_calls = []
+
+        async def fake_preview(room_url, product_url, name, placement="",
+                               swatch_url="", **_):
+            self.preview_calls.append({"product": name, "placement": placement,
+                                       "swatch_url": swatch_url})
             return b"fake-preview-bytes"
         monkeypatch.setattr(social_agent, "_generate_room_preview", fake_preview)
+
+        # Reference vetting → deterministic: the variant's front image, vetted
+        # usable + colour-matching unless the scenario's `reference_vet:` dict
+        # overrides (usable: false = swatch-only family).
+        _vet = scenario.get("reference_vet")
+
+        async def fake_pick_reference(fam, prefer):
+            ph, _ = product_images.share_set(fam, prefer=prefer or None,
+                                             compare=True)
+            if not ph:
+                return {}
+            name, url = ph[0]
+            base = {"url": url, "name": name, "usable": True,
+                    "matches_colour": True, "swatch": url}
+            base.update(_vet or {})
+            return base
+        monkeypatch.setattr(social_agent, "_pick_reference",
+                            fake_pick_reference)
 
         # Room analysis (placement obviousness) → the scenario's
         # `room_analysis:` dict verbatim; absent → {} → the skill treats the
@@ -594,6 +617,12 @@ class Engine:
             urls = [o.get("image_url") for o in self.fake.offer_sends
                     if o.get("image_url")]
             want(len(urls) == len(set(urls)), "duplicate image URL sent")
+        if exp.get("preview_swatch_used") is not None:
+            used = any(c.get("swatch_url") for c in
+                       getattr(self, "preview_calls", []))
+            want(used == bool(exp["preview_swatch_used"]),
+                 f"preview swatch used={used}, expected "
+                 f"{bool(exp['preview_swatch_used'])}")
         return errors, sent_text, card_text
 
 
