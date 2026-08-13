@@ -532,6 +532,16 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
             "note": "; ".join(note_bits)}
 
 
+def _viz_allowed(conv: dict) -> bool:
+    allow = config.VISUALIZER_CONTACT_ALLOWLIST
+    if not allow:
+        return True
+    sender = (conv.get("meta") or {}).get("sender") or {}
+    return str(sender.get("id") or "") in allow or \
+        str(sender.get("name") or "").strip().lower() in \
+        [a.lower() for a in allow]
+
+
 @_skill(
     "visualize_in_room",
     "Generate a preview of a Durian product placed in the customer's OWN room "
@@ -568,16 +578,6 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
     ({"family": "VERONICA", "variant": "canary yellow",
       "placement": "replace the current sofa"}, {"sent": True}),
 )
-def _viz_allowed(conv: dict) -> bool:
-    allow = config.VISUALIZER_CONTACT_ALLOWLIST
-    if not allow:
-        return True
-    sender = (conv.get("meta") or {}).get("sender") or {}
-    return str(sender.get("id") or "") in allow or \
-        str(sender.get("name") or "").strip().lower() in \
-        [a.lower() for a in allow]
-
-
 async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
                                 placement: str = "", **_) -> dict:
     conv = ctx["conv"]

@@ -257,3 +257,12 @@ def test_viz_allowlist():
         assert not sa._viz_allowed(conv)
     finally:
         cfg.VISUALIZER_CONTACT_ALLOWLIST = old
+
+
+def test_skill_registry_handlers():
+    # A helper def slipped between @_skill(...) and its function once and
+    # got registered as the handler (prod TypeError on visualize_in_room).
+    # Every handler must be a _sk_* function.
+    for name, s in sa.SKILLS.items():
+        assert s["handler"].__name__.startswith("_sk_"), \
+            f"{name} registered to {s['handler'].__name__}"
