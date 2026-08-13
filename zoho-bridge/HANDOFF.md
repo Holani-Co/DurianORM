@@ -442,3 +442,20 @@ Done this session (all still UNCOMMITTED, on top of everything above):
   gpt-image-2; flip via env after he compares the trial page.
 - Before dark-launch: run the FULL board once more (last full run 115/116
   predates this port), then §7.4 commit/deploy steps still apply.
+
+### §10.4 — DEPLOYED (2026-08-13 ~04:55 IST)
+
+- Discovery at deploy time: prod already runs agent mode for ALL Instagram
+  contacts (SOCIAL_AGENT_ENABLED=true, allowlist EMPTY) — the parallel
+  session's launch; its fix commits came from live traffic. Do NOT narrow
+  that allowlist casually.
+- Therefore the visualizer got its own gate: VISUALIZER_CONTACT_ALLOWLIST
+  (config + `_viz_allowed` on the skill AND the pass-free offer line).
+  Prod .env: VISUALIZER_ENABLED=true, allowlist `1589,projectvaibhav`,
+  GEMINI_API_KEY set, engine default gpt-image-2, cap 1/day.
+- Shipped as 7a1b0db0f (allowlist) + badb7e420 (suite 17, trial harness,
+  rooms, artifacts, HANDOFF). Server pulled to badb7e420; config+imports
+  verified on-box BEFORE systemctl restart; uvicorn clean on :8420.
+- Watch live: `tail -f /var/log/zoho-bridge.log` on the server; agent
+  traces in conversation ai_trace (decode double-encoded — see
+  prod-observability memory).
