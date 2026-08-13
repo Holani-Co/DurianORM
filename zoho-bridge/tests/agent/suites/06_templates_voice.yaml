@@ -15,10 +15,13 @@
     judge: {min: 3}
 
 - id: hinglish_light_touch
+  # Hinglish INPUT is understood; the reply stays English-only (client
+  # decision 2026-08-13 — no "ji"/"bilkul" mirroring).
   script:
     - {at: "0m", text: "bhaiya esmeralda dining set ka price kya hai?"}
   expect:
     anywhere_contains: ["2,?04,?880|204880"]
+    sent_not_contains: ["bilkul", "\\bji\\b", "bhaiya", "dhanyavaad"]
     judge: {min: 3}
 
 - id: no_offlist_links

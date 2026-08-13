@@ -561,6 +561,8 @@ def _viz_allowed(conv: dict) -> bool:
     "daily_cap → tell them our sales team will prepare more mock-ups and "
     "escalate_to_human. Some products have only fabric-swatch photos on "
     "file — then the skill declines and you offer the showroom instead. "
+    "When generation starts, the skill itself tells the customer it will "
+    "take about 2 minutes — never repeat that promise in your reply. "
     "Every preview is indicative — say so.",
     {"family": {"type": "string"},
      "variant": {"type": "string",
@@ -661,6 +663,19 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
             return {"sent": False, "denied": "need_placement",
                     "note": f"ask ONE short question — {q} — then call again "
                             "with `placement`"}
+    # Generation takes a minute or two — tell the customer NOW so the wait
+    # reads as work, not silence. (The model must not repeat this promise.)
+    try:
+        await chatwoot.create_message(
+            conv_id,
+            f"We are preparing a preview of the {ref_name} in your space — "
+            "it will be with you in about 2 minutes.",
+            message_type="outgoing",
+            content_attributes={"source": "ai_auto_reply",
+                                "via": "agent_mode",
+                                "short_code": "viz_ack"})
+    except Exception:
+        pass
     img = await _generate_room_preview(room_photo, ref_url, ref_name, pl,
                                        swatch_url=swatch_url)
     if not img:
@@ -1228,7 +1243,10 @@ from search_products — no exception, comparisons included. Instagram \
 delivers at most 1000 characters per message — stay under 900: at most \
 THREE products per reply (best fits first; more exist → say they can ask), \
 one short line + link each. Add one line "EMI options available" where \
-useful. Light "ji"/"bilkul" warmth only if the customer is informal.
+useful. Reply in ENGLISH ONLY: understand Hindi/Hinglish input fully, but \
+never use Hindi words ("ji", "bilkul", "bhaiya", "dhanyavaad") in your \
+replies — even when a template or the customer uses them, your reply stays \
+in warm, simple English.
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
 and it carries TWO equal duties:
    CONFIDENCE — computed, never felt: start 92; −20 per stated fact with no \

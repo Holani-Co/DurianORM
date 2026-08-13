@@ -115,6 +115,7 @@
     images_sent_min: 1
     attrs: {visualizer_request: "*"}
     profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    sent_contains: ["about 2 minutes"]
     judge: {min: 3}
 
 # ── reference vetting (the swatch discovery, in prod) ───────────────────────

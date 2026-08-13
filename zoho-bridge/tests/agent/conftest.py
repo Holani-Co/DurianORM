@@ -714,6 +714,11 @@ correct behavior, never penalize it:
 - When the photo tool reports NO photos on file for a product, the correct
   reply says photos are unavailable and pivots (showroom visit / listing
   link). Penalize invented image descriptions — never the honest pivot.
+- Replies are ENGLISH ONLY by design: Hindi/Hinglish input is understood,
+  but the assistant never uses Hindi words ("ji", "bilkul") in replies.
+  Never penalize an English reply to a Hinglish message. Before a room
+  preview generates, an automatic "about 2 minutes" wait note goes out —
+  that is designed, not filler.
 Return STRICT JSON: {"score": n, "reason": "one line"}"""
 
 
