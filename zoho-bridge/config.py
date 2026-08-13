@@ -530,6 +530,13 @@ GEMINI_ANALYSIS_MODEL = os.environ.get("GEMINI_ANALYSIS_MODEL", "gemini-3.5-flas
 # today) or "gemini" (GEMINI_IMAGE_MODEL / Nano Banana — needs the Google
 # project billed). Trial both, then pick on quality.
 VISUALIZER_ENGINE = os.environ.get("VISUALIZER_ENGINE", "gpt-image-2")
+# Dark-launch scope for room previews: contact ids/names that may use (and
+# be offered) the visualizer while agent mode itself is broadly live.
+# Empty = every agent-mode contact.
+VISUALIZER_CONTACT_ALLOWLIST = [
+    s.strip() for s in
+    os.environ.get("VISUALIZER_CONTACT_ALLOWLIST", "").split(",")
+    if s.strip()]
 
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +

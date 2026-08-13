@@ -568,13 +568,24 @@ async def _sk_share_product_images(ctx, family: str = "", variant: str = "",
     ({"family": "VERONICA", "variant": "canary yellow",
       "placement": "replace the current sofa"}, {"sent": True}),
 )
+def _viz_allowed(conv: dict) -> bool:
+    allow = config.VISUALIZER_CONTACT_ALLOWLIST
+    if not allow:
+        return True
+    sender = (conv.get("meta") or {}).get("sender") or {}
+    return str(sender.get("id") or "") in allow or \
+        str(sender.get("name") or "").strip().lower() in \
+        [a.lower() for a in allow]
+
+
 async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
                                 placement: str = "", **_) -> dict:
-    if not config.VISUALIZER_ENABLED:
+    conv = ctx["conv"]
+    if not config.VISUALIZER_ENABLED or not _viz_allowed(conv):
         return {"sent": False, "denied": "unavailable",
                 "note": "room previews are not live yet — do not mention the "
                         "capability, offer the showroom visit instead"}
-    conv, conv_id, prof = ctx["conv"], ctx["conv_id"], ctx["profile"]
+    conv_id, prof = ctx["conv_id"], ctx["profile"]
     ca = conv.get("custom_attributes") or {}
     phone = ((prof.get("identity") or {}).get("phone") or {}).get("value")
     routed = ca.get("retail_deal_owner") or ca.get("deal_customer_details") or \
@@ -1412,7 +1423,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
                             templates, n_customer)
     viz_pass = ""
-    if config.VISUALIZER_ENABLED and surface != "comment":
+    if config.VISUALIZER_ENABLED and surface != "comment" \
+            and _viz_allowed(conv):
         _today = profile_mod.now().date().isoformat()
         _used = sum(1 for e in prof.get("events") or []
                     if e.get("kind") == "visualized"

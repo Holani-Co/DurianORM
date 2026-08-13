@@ -240,3 +240,20 @@ Team Durian"""
     mparts = sa.split_for_channel(monster, "instagram")
     assert len(mparts) >= 2 and all(len(p) <= 950 for p in mparts)
     assert " ".join(mparts).split() == monster.split()
+
+
+def test_viz_allowlist():
+    import config as cfg
+    conv = {"meta": {"sender": {"id": 1589, "name": "projectvaibhav"}}}
+    old = cfg.VISUALIZER_CONTACT_ALLOWLIST
+    try:
+        cfg.VISUALIZER_CONTACT_ALLOWLIST = []
+        assert sa._viz_allowed(conv)
+        cfg.VISUALIZER_CONTACT_ALLOWLIST = ["1589"]
+        assert sa._viz_allowed(conv)
+        cfg.VISUALIZER_CONTACT_ALLOWLIST = ["ProjectVaibhav"]
+        assert sa._viz_allowed(conv)
+        cfg.VISUALIZER_CONTACT_ALLOWLIST = ["2353"]
+        assert not sa._viz_allowed(conv)
+    finally:
+        cfg.VISUALIZER_CONTACT_ALLOWLIST = old
