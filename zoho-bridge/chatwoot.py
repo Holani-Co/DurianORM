@@ -275,8 +275,13 @@ async def send_offer_message(conversation_id: int, caption: str,
             ctype = img.headers.get("content-type", "image/jpeg")
             files = {"attachments[]": ("offer", img.content, ctype)}
             data = {"message_type": "outgoing", "private": "false"}
+            # Token header ONLY: _headers() forces Content-Type
+            # application/json, which overrides httpx's multipart boundary —
+            # Rails then JSON-parses the multipart body and 400s empty.
             r = await client.post(_conv_url(conversation_id, "/messages"),
-                                  headers=_headers(), data=data, files=files)
+                                  headers={"api_access_token":
+                                           config.CHATWOOT_API_TOKEN},
+                                  data=data, files=files)
             if r.status_code >= 300:
                 print(f"[chatwoot] send_offer_message (image) failed [{r.status_code}]: {r.text[:200]}")
                 return None
@@ -301,8 +306,12 @@ async def send_image_bytes(conversation_id: int, caption: str,
         async with httpx.AsyncClient(timeout=30) as client:
             files = {"attachments[]": ("preview.png", content, ctype)}
             data = {"message_type": "outgoing", "private": "false"}
+            # Token header ONLY — see send_offer_message: a JSON Content-Type
+            # on a multipart POST makes Rails 400 empty.
             r = await client.post(_conv_url(conversation_id, "/messages"),
-                                  headers=_headers(), data=data, files=files)
+                                  headers={"api_access_token":
+                                           config.CHATWOOT_API_TOKEN},
+                                  data=data, files=files)
             if r.status_code >= 300:
                 print(f"[chatwoot] send_image_bytes failed "
                       f"[{r.status_code}]: {r.text[:200]}")
