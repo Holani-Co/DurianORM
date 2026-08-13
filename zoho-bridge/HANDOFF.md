@@ -422,3 +422,23 @@ Done this session (all still UNCOMMITTED, on top of everything above):
   ~one flash vet call inside the skill, cap 1/day bounds cost.
 - Full board after all visualizer changes: **115/116** (decline_recorded
   flake only). review.html now carries 169 transcripts incl. suite 17.
+
+### §10.3 — Vet + swatch ported into the prod skill ("do it")
+
+- `visualize_in_room` now calls `_pick_reference(fam, prefer)` instead of
+  taking share_set's front image raw: pool = sitemap variant gallery +
+  Unbxd storefront images (variant + bare-family queries, ≤7), one flash
+  vet call picks the best FULL-product shot and judges colour match.
+  Swatch-only family → honest `unavailable` denial ("only fabric swatches
+  on file"), showroom offer — never composites a swatch. Colour mismatch →
+  the variant's swatch rides into `_generate_room_preview(...,
+  swatch_url=)` as the third reference image. Vet failure fails CLOSED.
+- Harness: `_pick_reference` faked deterministically; `reference_vet:`
+  scenario key overrides (usable/matches_colour); `preview_calls` recorded;
+  new expect `preview_swatch_used`. Suite 17 grew to 10 scenarios
+  (`viz_swatch_family_honest`, `viz_colour_swatch_composite`) — 13/13
+  viz scenarios pass judge-off, 10/10 suite-17 with terra judge.
+- Engine verdict from Vaibhav: NOT yet given — `VISUALIZER_ENGINE` stays
+  gpt-image-2; flip via env after he compares the trial page.
+- Before dark-launch: run the FULL board once more (last full run 115/116
+  predates this port), then §7.4 commit/deploy steps still apply.

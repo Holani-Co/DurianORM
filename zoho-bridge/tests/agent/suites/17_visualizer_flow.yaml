@@ -1,0 +1,147 @@
+# Suite 17 — visualizer flow: eager offer on a free pass, the two-question
+# ambiguity protocol (variant, then placement), the placement-obviousness
+# rule (exactly one same-type piece in the room = replace it, no question),
+# and detail capture. Generation + room vision are faked in conftest;
+# `room_analysis:` seeds the room verdict per scenario.
+
+- id: viz_eager_offer_free_pass
+  config: {VISUALIZER_ENABLED: true}
+  script:
+    - {at: "0m", text: "what is the price of the meagan sofa?"}
+  expect:
+    anywhere_contains: ["photo|picture"]
+    judge: {min: 3}
+
+- id: viz_no_offer_when_cap_used
+  config: {VISUALIZER_ENABLED: true}
+  profile:
+    v: 1
+    updated_at: "2026-08-12T11:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {}
+    location: {}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-12T11:00:00+05:30", msg: 900, conv: 1, inbox: ig, kind: visualized, what: "MEAGAN — Slate Grey — replace sofa"}
+  script:
+    - {at: "0m", text: "what is the price of the fairmont sofa?"}
+  expect:
+    sent_not_contains: ["visuali", "preview"]
+    judge: {min: 3}
+
+- id: viz_variant_question_first
+  config: {VISUALIZER_ENABLED: true}
+  profile: &enquiry_done
+    v: 1
+    updated_at: "2026-08-12T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {phone: {value: "9560150835", t: "2026-08-12T10:00:00+05:30"}}
+    location: {city: {value: Delhi, t: "2026-08-12T10:00:00+05:30"}}
+    commercial: {showroom: {value: "Delhi - Kirti Nagar", t: "2026-08-12T10:00:00+05:30"}}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  script:
+    - {at: "0m", text: "here is my living room — show me the veronica sofa in it", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    images_sent_max: 0
+    anywhere_contains: ["Canary|Sepia|Beige|Ice"]
+    judge: {min: 3}
+
+- id: viz_variant_then_generate
+  config: {VISUALIZER_ENABLED: true}
+  room_analysis: {same_type_count: 1, same_type_item: "yellow armchair"}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "here is my living room — show me the veronica sofa in it", photo: true}
+    - {at: "3m", text: "canary yellow please"}
+  expect:
+    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    images_sent_min: 1
+    anywhere_contains: ["indicative|vary|preview"]
+    judge: {min: 3}
+
+- id: viz_placement_obvious_replace
+  config: {VISUALIZER_ENABLED: true}
+  room_analysis: {same_type_count: 1, same_type_item: "grey fabric sofa"}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "show the slate grey meagan sofa in my room", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    images_sent_min: 1
+    profile_has_event: [{kind: visualized, what_contains: "replace"}]
+    judge: {min: 3}
+
+- id: viz_placement_question_on_ambiguity
+  config: {VISUALIZER_ENABLED: true}
+  room_analysis: {same_type_count: 0, question: "should it go along the window wall or facing the TV unit?"}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "show the slate grey meagan sofa in my room", photo: true}
+    - {at: "2m", text: "facing the TV"}
+  expect:
+    profile_has_event: [{kind: visualized, what_contains: "MEAGAN"}]
+    profile_event_count: [{kind: visualized, count: 1}]
+    images_sent_min: 1
+    anywhere_contains: ["window|TV|where"]
+    judge: {min: 3}
+
+- id: viz_two_questions_max
+  config: {VISUALIZER_ENABLED: true}
+  room_analysis: {same_type_count: 2, question: "replace the sofa on the left, the one on the right, or somewhere else?"}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "here is my room — show me the veronica in it", photo: true}
+    - {at: "2m", text: "ice grey"}
+    - {at: "4m", text: "replace the left one"}
+  expect:
+    profile_has_event: [{kind: visualized, what_contains: "Ice Grey"}]
+    profile_event_count: [{kind: visualized, count: 1}]
+    images_sent_min: 1
+    judge: {min: 3}
+
+- id: viz_details_in_one_message
+  config: {VISUALIZER_ENABLED: true}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "canary yellow veronica in my room please — replace my old sofa with it", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    images_sent_min: 1
+    attrs: {visualizer_request: "*"}
+    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    judge: {min: 3}
+
+# ── reference vetting (the swatch discovery, in prod) ───────────────────────
+
+- id: viz_swatch_family_honest
+  config: {VISUALIZER_ENABLED: true}
+  reference_vet: {usable: false}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "show the canary yellow veronica sofa in my room, replace my sofa", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    images_sent_max: 0
+    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    anywhere_contains: ["showroom|store|visit"]
+    judge: {min: 3}
+
+- id: viz_colour_swatch_composite
+  config: {VISUALIZER_ENABLED: true}
+  reference_vet: {matches_colour: false}
+  room_analysis: {same_type_count: 1, same_type_item: "yellow armchair"}
+  profile: *enquiry_done
+  script:
+    - {at: "0m", text: "show the canary yellow veronica sofa in my room", photo: true}
+  expect:
+    tools_called: ["visualize_in_room"]
+    images_sent_min: 1
+    preview_swatch_used: true
+    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    judge: {min: 3}
