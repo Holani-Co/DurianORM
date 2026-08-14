@@ -356,7 +356,7 @@ class Engine:
             for t in [((p.get("family") or "").lower().split() or [""])[0]]
             if t and t not in _GENERIC}
 
-        async def fake_site_search(query, rows=4):
+        def _site_rows(query, rows):
             q = (query or "").lower()
             if site_override is not None:
                 return [dict(p) for p in site_override][:rows]
@@ -391,6 +391,31 @@ class Engine:
             # family the photo/EMI suites use resolves consistently with the
             # sitemap + price fixtures.
             return _catalog_mirror(q, rows)
+
+        async def fake_site_search(query, rows=4, sort="", min_price=None,
+                                   max_price=None):
+            # Honor the price axis the way live Unbxd does (sort + range
+            # filter server-side), so price-axis scenarios assert real
+            # behavior, not fake-specific behavior.
+            # 0 = unset, matching website_search._params (schema-filling
+            # models send min_price=0/max_price=0 on every call).
+            axis = bool(sort) or bool(min_price) or bool(max_price)
+            out = _site_rows(query, 40 if axis else rows)
+
+            def _p(r):
+                try:
+                    return float(r.get("selling_price") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+            if min_price:
+                out = [r for r in out if _p(r) >= float(min_price)]
+            if max_price:
+                out = [r for r in out if _p(r) <= float(max_price)]
+            if sort == "price_desc":
+                out = sorted(out, key=_p, reverse=True)
+            elif sort == "price_asc":
+                out = sorted(out, key=_p)
+            return out[:rows]
         monkeypatch.setattr(website_search, "search", fake_site_search)
 
         async def fake_deal_creator(conv_id, agent_name=""):
@@ -551,6 +576,12 @@ class Engine:
                  f"tool not called: {spec} (called: {self.tools_called})")
         for spec in exp.get("tools_not_called") or []:
             want(spec not in self.tools_called, f"tool must not be called: {spec}")
+        for frag in exp.get("tool_call_matches") or []:
+            # regex over the recorded call strings, e.g.
+            # search_products\(.*price_desc — asserts HOW a tool was called
+            want(any(re.search(frag, t, re.I) for t in self.tools_trail),
+                 f"no tool call matches: {frag!r} "
+                 f"(trail: {self.tools_trail})")
         if exp.get("no_pii_phone"):
             digits = re.sub(r"\D", "", str(exp["no_pii_phone"]))[-10:]
             flat = re.sub(r"\D", "", sent_text)

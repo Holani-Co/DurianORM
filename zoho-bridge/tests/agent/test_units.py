@@ -366,3 +366,48 @@ def test_deal_vertical_label_fallback():
          "phase2_category": "product_enquiry"}) == "deal-doors"
     assert main._deal_vertical_label({"phase2_category": "unknown"}) is None
     assert main._deal_vertical_label({}) is None
+
+
+def test_website_search_params():
+    import website_search as ws
+    # neutral: no sort, no filter
+    p = ws._params("centre table", 6)
+    assert p["q"] == "centre table" and "sort" not in p and "filter" not in p
+    assert p["rows"] >= 16
+    # price axis
+    assert ws._params("centre table", 6, "price_desc")["sort"] == "sellingPrice desc"
+    assert ws._params("centre table", 6, "price_asc")["sort"] == "sellingPrice asc"
+    assert "sort" not in ws._params("centre table", 6, "premium")   # bad value
+    assert ws._params("t", 4, "", 30000, 50000)["filter"] == \
+        "sellingPrice:[30000 TO 50000]"
+    assert ws._params("t", 4, "", None, 45000)["filter"] == \
+        "sellingPrice:[* TO 45000]"
+    assert ws._params("t", 4, "", 30000, None)["filter"] == \
+        "sellingPrice:[30000 TO *]"
+    # 0 = unset (schema-filling models send min_price=0/max_price=0 always;
+    # a real ₹0 cap would filter out the whole catalog)
+    assert "filter" not in ws._params("t", 4, "", 0, 0)
+
+
+def test_search_products_passes_price_axis(monkeypatch):
+    import asyncio
+    import website_search as ws
+    calls = []
+
+    async def fake(query, rows=4, sort="", min_price=None, max_price=None):
+        calls.append({"query": query, "rows": rows, "sort": sort,
+                      "min_price": min_price, "max_price": max_price})
+        return [{"title": "Marissa", "category": "Coffee & Center Tables",
+                 "selling_price": 65430, "mrp": 145400,
+                 "url": "https://www.durian.in/product/marissa"}]
+    monkeypatch.setattr(ws, "search", fake)
+    handler = sa.SKILLS["search_products"]["handler"]
+    out = asyncio.run(handler({}, query="centre table", sort="price_desc",
+                              min_price=30000, max_price=50000))
+    assert calls[0]["sort"] == "price_desc"
+    assert calls[0]["min_price"] == 30000 and calls[0]["max_price"] == 50000
+    assert out["products"][0]["price"] == "₹65,430"
+    assert out["products"][0]["mrp"] == "₹1,45,400"
+    # invalid sort value never reaches the search layer
+    asyncio.run(handler({}, query="centre table", sort="cheapest"))
+    assert calls[1]["sort"] == ""

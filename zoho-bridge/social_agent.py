@@ -152,28 +152,50 @@ def _skill(name, description, params, returns, example):
     "Look up Durian products on the LIVE durian.in storefront — the website's "
     "own search, so results are current sellable products at live prices "
     "(handles customer vocabulary: 'L-shaped' finds sectional sofas). USE WHEN "
-    "a customer names or describes a product. Quote a product WITH its link — "
-    "the link previews the product and its page carries every photo, so do "
-    "not send photos separately unless the customer asks or you are "
-    "comparing. EMI exists on everything: a one-line 'EMI options available' "
-    "needs no fetch, but any EMI figure requires get_emi_plans first. Empty "
-    "products[] = not found: rephrase and retry ONCE, then say so honestly, "
-    "never invent.",
-    {"query": {"type": "string", "description": "product words from the customer"}},
+    "a customer names or describes a product. QUERY = the customer's product "
+    "NOUNS ONLY ('centre table', 'fabric sofa') — never adjectives or prices: "
+    "'premium', 'luxury', 'better', 'around ₹40,000' are NOISE to the keyword "
+    "engine and pull in wrong-category rows. Quality and budget are the PRICE "
+    "AXIS instead: better/premium/upmarket → same noun query + "
+    "sort='price_desc'; cheaper/budget → 'price_asc'; a stated budget → "
+    "min_price/max_price around it (₹40,000 → 30000–50000). Default order "
+    "ranks CHEAP first, so never call a product range 'our best' without a "
+    "price_desc look. Each row carries its category — rows OUTSIDE the asked "
+    "category are misses, not suggestions (never offer a nesting table for a "
+    "centre-table ask): re-query once with different nouns, then say honestly "
+    "what the range is. Quote a product WITH its link — the link previews the "
+    "product and its page carries every photo, so do not send photos "
+    "separately unless the customer asks or you are comparing. EMI exists on "
+    "everything: a one-line 'EMI options available' needs no fetch, but any "
+    "EMI figure requires get_emi_plans first. Empty products[] = not found: "
+    "rephrase and retry ONCE, then say so honestly, never invent.",
+    {"query": {"type": "string",
+               "description": "the customer's product nouns — no adjectives, "
+                              "no prices"},
+     "sort": {"type": "string", "enum": ["", "price_desc", "price_asc"],
+              "description": "price_desc for better/premium asks, price_asc "
+                             "for budget asks; \"\" (default order) for a "
+                             "first neutral look"},
+     "min_price": {"type": "number", "description": "rupees, with max_price "
+                                                    "brackets a stated budget"},
+     "max_price": {"type": "number", "description": "rupees cap"}},
     {"products": "list of {title, category, price, mrp?, link, note?} — "
                  "prices pre-formatted in Indian notation, quote them "
                  "verbatim; mrp present only when the price is a discount "
                  "off it",
      "note": "str — set when there is something to relay honestly"},
-    ({"query": "l shaped sofa"},
-     {"products": [{"title": "Prescott", "category": "Sectional Sofas",
-                    "price": "₹4,47,300", "mrp": "₹8,94,600",
-                    "link": "https://www.durian.in/product/prescott-sea-salt-"
-                            "grey-fabric-5-seater-corner-sofa"}]}),
+    ({"query": "centre table", "sort": "price_desc"},
+     {"products": [{"title": "Marissa", "category": "Coffee & Center Tables",
+                    "price": "₹65,430", "mrp": "₹1,45,400",
+                    "link": "https://www.durian.in/product/marissa-brown-"
+                            "veneer-solid-wood-coffee-&-center-table"}]}),
 )
-async def _sk_search_products(ctx, query: str = "", **_) -> dict:
+async def _sk_search_products(ctx, query: str = "", sort: str = "",
+                              min_price=None, max_price=None, **_) -> dict:
     try:
-        found = await website_search.search(query or "", rows=4)
+        found = await website_search.search(
+            query or "", rows=6, sort=sort if sort in ("price_desc", "price_asc")
+            else "", min_price=min_price, max_price=max_price)
     except Exception as e:
         return {"products": [], "note": f"live search unavailable "
                 f"({type(e).__name__}) — retry once; still failing → tell "

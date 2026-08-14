@@ -57,13 +57,38 @@ def normalize(body: dict, rows: int) -> list[dict]:
     return out
 
 
-async def search(query: str, rows: int = 4) -> list[dict]:
+_SORTS = {"price_desc": "sellingPrice desc", "price_asc": "sellingPrice asc"}
+
+
+def _params(query: str, rows: int, sort: str = "",
+            min_price=None, max_price=None) -> dict:
+    """Unbxd request params. The price axis exists because keyword relevance
+    ranks cheap/popular first: 'premium centre table' returns the same budget
+    rows plus off-category noise, while `sort=sellingPrice desc` on the plain
+    noun query surfaces the ₹50k+ tier the customer actually asked for
+    (conv 5569). Sort and range filter are Unbxd-native, verified live."""
+    p = {"q": query, "rows": max(rows * 4, 16), "fields": _FIELDS}
+    if sort in _SORTS:
+        p["sort"] = _SORTS[sort]
+    # 0 means UNSET, not "free": schema-filling models send min_price=0,
+    # max_price=0 for every call, and a real ₹0 cap would filter out the
+    # whole catalog.
+    lo = min_price if min_price else None
+    hi = max_price if max_price else None
+    if lo is not None or hi is not None:
+        p["filter"] = (f"sellingPrice:[{int(lo) if lo is not None else '*'} "
+                       f"TO {int(hi) if hi is not None else '*'}]")
+    return p
+
+
+async def search(query: str, rows: int = 4, sort: str = "",
+                 min_price=None, max_price=None) -> list[dict]:
     """Top live products for a customer query. Raises on network/API failure —
     the skill layer turns that into an honest 'search unavailable'."""
     url = (f"{config.UNBXD_SEARCH_URL}/{config.UNBXD_API_KEY}/"
            f"{config.UNBXD_SITE_KEY}/search")
     async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get(url, params={
-            "q": query, "rows": max(rows * 4, 16), "fields": _FIELDS})
+        r = await client.get(url, params=_params(query, rows, sort,
+                                                 min_price, max_price))
         r.raise_for_status()
         return normalize(r.json(), rows)

@@ -65,3 +65,31 @@
     # "X vs Y" form hard-asserts them in 15_image_coverage.
     tools_not_called: ["get_emi_plans"]
     judge: {min: 3}
+
+# Price axis (replays conv 5569): "better stuff" is a price_desc re-search on
+# the SAME nouns, never adjective-stuffed queries; a stated budget becomes a
+# min/max bracket; off-category rows (nesting tables) are never offered for a
+# centre-table ask.
+- id: better_stuff_is_price_desc_not_adjectives
+  history:
+    - {at: "-5m", text: "Center table please"}
+    - {at: "-4m", who: durian, text: "Here are a few centre tables: Cameron — ₹12,600 https://www.durian.in/product/cameron. Would you like more options?"}
+  script:
+    - {at: "0m", text: "I need better stuff."}
+  expect:
+    tools_called: ["search_products"]
+    tool_call_matches: ["search_products\\(.*price_desc"]
+    sent_not_contains: ["nesting"]
+    judge: {min: 3}
+
+- id: budget_becomes_price_bracket
+  history:
+    - {at: "-5m", text: "Center table please"}
+    - {at: "-4m", who: durian, text: "Here are a few centre tables: Cameron — ₹12,600 https://www.durian.in/product/cameron. Would you like more options?"}
+  script:
+    - {at: "0m", text: "Somewhere in the range of 40000/-"}
+  expect:
+    tools_called: ["search_products"]
+    tool_call_matches: ["search_products\\(.*(min_price|max_price)"]
+    sent_not_contains: ["nesting"]
+    judge: {min: 3}
