@@ -266,3 +266,103 @@ def test_skill_registry_handlers():
     for name, s in sa.SKILLS.items():
         assert s["handler"].__name__.startswith("_sk_"), \
             f"{name} registered to {s['handler'].__name__}"
+
+
+class _DealFakeChatwoot:
+    """Just the three calls _maybe_auto_deal's deferral path makes."""
+
+    def __init__(self):
+        self.labels, self.notes, self.merged = [], [], []
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merged.append(attrs)
+
+    async def add_label(self, conv_id, label):
+        self.labels.append(label)
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+
+def _deal_ctx():
+    return {"conv_id": 1,
+            "conv": {"custom_attributes": {
+                "retail_deal_owner": {"owner_id": "9", "location": "Kanpur"}}},
+            "profile": {"identity": {"phone": {"value": "9560150835"}}}}
+
+
+def test_auto_deal_success_stamps_local(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _DealFakeChatwoot())
+
+    async def creator(conv_id, agent_name=""):
+        return {"deal_id": "777", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    ctx = _deal_ctx()
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is True
+    # local view stays truthful for later same-turn checks
+    assert ctx["conv"]["custom_attributes"]["crm_deal_id"] == "777"
+
+
+def test_auto_deal_deferral_surfaces_once(monkeypatch):
+    # 409/422 used to be a print-and-vanish: no label, no note — the enquiry
+    # never appeared in the "Deal Decision Needed" sidebar view (deal-ready).
+    import asyncio
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+
+    class Ambiguous(Exception):
+        status_code = 409
+        detail = {"code": "buyer_type_unclear",
+                  "message": "Government or private buyer? Pick in the panel."}
+
+    async def creator(conv_id, agent_name=""):
+        raise Ambiguous()
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    ctx = _deal_ctx()
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False
+    assert fake.labels == ["deal-ready"]
+    assert len(fake.notes) == 1
+    assert "NOT auto-created" in fake.notes[0]
+    assert "Government or private buyer" in fake.notes[0]
+    assert ctx["conv"]["custom_attributes"]["auto_deal_deferred"]
+    assert any("auto_deal_deferred" in m for m in fake.merged)
+    # second failure: the attr is the once-guard — no duplicate label/note
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False
+    assert fake.labels == ["deal-ready"] and len(fake.notes) == 1
+
+
+def test_auto_deal_needs_phone_and_owner(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _DealFakeChatwoot())
+    called = []
+
+    async def creator(conv_id, agent_name=""):
+        called.append(conv_id)
+        return {"deal_id": "1"}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    ctx = _deal_ctx()
+    ctx["profile"] = {}                       # no phone
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False
+    ctx = _deal_ctx()
+    ctx["conv"]["custom_attributes"] = {}     # not routed
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False
+    ctx = _deal_ctx()
+    ctx["conv"]["custom_attributes"]["crm_deal_id"] = "5"   # already done
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False
+    assert not called
+
+
+def test_deal_vertical_label_fallback():
+    # email flow writes email_category_v2; agent/social writes phase2_category.
+    import main
+    assert main._deal_vertical_label(
+        {"email_category_v2": {"category": "project_bulk_order"}}) == "deal-bulk"
+    assert main._deal_vertical_label(
+        {"phase2_category": "product_enquiry"}) == "deal-product"
+    assert main._deal_vertical_label(
+        {"email_category_v2": {"category": "doors_veneer_plywood"},
+         "phase2_category": "product_enquiry"}) == "deal-doors"
+    assert main._deal_vertical_label({"phase2_category": "unknown"}) is None
+    assert main._deal_vertical_label({}) is None

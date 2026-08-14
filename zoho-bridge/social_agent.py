@@ -1067,15 +1067,41 @@ async def _maybe_auto_deal(ctx) -> bool:
     if not (config.SOCIAL_AGENT_AUTO_DEAL and _deal_creator):
         return False
     conv, prof = ctx["conv"], ctx["profile"]
-    ca = conv.get("custom_attributes") or {}
+    ca = conv.setdefault("custom_attributes", {})
     phone = ((prof.get("identity") or {}).get("phone") or {}).get("value")
     if ca.get("crm_deal_id") or not (phone and ca.get("retail_deal_owner")):
         return False
     try:
         result = await _deal_creator(ctx["conv_id"], agent_name="Durian agent mode")
-        return bool((result or {}).get("created") or (result or {}).get("deal_id"))
+        deal_id = (result or {}).get("deal_id")
+        if deal_id:     # keep the local view truthful for later same-turn checks
+            ca["crm_deal_id"] = str(deal_id)
+        return bool((result or {}).get("created") or deal_id)
     except Exception as e:      # 409/422 → the human button handles it
+        # ... but only if a human ever SEES the conversation. Silence here was
+        # a black hole: the customer was told "our team will take care of it"
+        # while the conversation sat in no queue with no marker. Label it
+        # deal-ready (the "Deal Decision Needed" sidebar view filters on that)
+        # and say why in a private note — once (the attr is the once-guard,
+        # and it also stops the pre-turn retry from re-raising every turn).
         print(f"[agent] auto-deal deferred for conv {ctx['conv_id']}: {e}")
+        detail = getattr(e, "detail", None)
+        reason = (str(detail.get("message") or detail.get("code"))
+                  if isinstance(detail, dict) else str(detail or e))
+        if not ca.get("auto_deal_deferred"):
+            ca["auto_deal_deferred"] = reason[:300]
+            try:
+                await chatwoot.merge_custom_attributes(
+                    ctx["conv_id"], {"auto_deal_deferred": reason[:300]})
+                await chatwoot.add_label(ctx["conv_id"], "deal-ready")
+                await chatwoot.post_private_note(
+                    ctx["conv_id"],
+                    "⚠️ **Enquiry qualified but the deal was NOT auto-created** "
+                    f"— {reason}\n\nUse **Create Deal** in the Zoho CRM panel "
+                    "to complete it.")
+            except Exception as e2:
+                print(f"[agent] deal-ready surfacing failed for conv "
+                      f"{ctx['conv_id']}: {e2}")
         return False
 
 
@@ -1400,6 +1426,17 @@ async def _handle_locked(conv, conv_id, channel, surface,
                 conv_id, {"retail_customer_phone": phone_val})
         except Exception:
             pass
+
+    # Deterministic enquiry completion: routed on an earlier turn but the deal
+    # never fired (route_to_showroom is the only other caller, and it refuses
+    # re-routing — so a phone that arrived AFTER routing left the enquiry
+    # dropped forever). Code retries here every turn until the deal exists or
+    # the create defers to a human (auto_deal_deferred stops the retry; the
+    # deferral path labels deal-ready + notes why).
+    if phone_val and ca.get("retail_deal_owner") and not ca.get("crm_deal_id") \
+            and not ca.get("auto_deal_deferred"):
+        await _maybe_auto_deal({"conv": conv, "conv_id": conv_id,
+                                "profile": prof})
 
     # ── Context ─────────────────────────────────────────────────────────────
     incoming_texts = [(m.get("content") or "") for m in all_messages

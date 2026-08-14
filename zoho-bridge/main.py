@@ -2449,6 +2449,16 @@ _DEAL_VERTICAL_LABEL = {
     "franchise_dealership":    "deal-franchise",
 }
 
+
+def _deal_vertical_label(custom: dict) -> str | None:
+    """Per-vertical deal label for a conversation's custom_attributes. The
+    email flow writes email_category_v2; the social/agent flow writes the
+    plain phase2_category string — without the fallback, agent-mode deals got
+    the bare deal-created tag and never appeared in per-vertical views."""
+    cat_key = ((custom or {}).get("email_category_v2") or {}).get("category") \
+        or (custom or {}).get("phase2_category") or ""
+    return _DEAL_VERTICAL_LABEL.get(cat_key)
+
 # Fallback ask when the LLM draft is unavailable (keeps the flow moving).
 _DEAL_DETAILS_FALLBACK_ASK = """Dear {customer_name},
 
@@ -7485,9 +7495,8 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     # plus a per-vertical label for what kind of deal it was. Permanent markers
     # (kept even after the deal auto-resolves the conversation).
     try:
-        cat_key = (custom.get("email_category_v2") or {}).get("category") or ""
         deal_labels = [DEAL_CREATED_LABEL]
-        vlabel = _DEAL_VERTICAL_LABEL.get(cat_key)
+        vlabel = _deal_vertical_label(custom)
         if vlabel:
             deal_labels.append(vlabel)
         for lbl in deal_labels:
