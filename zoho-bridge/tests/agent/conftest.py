@@ -176,9 +176,9 @@ class FakeChatwoot:
     async def get_offers(self):
         return list(self.sc.get("offers") or [])
 
-    async def send_offer_message(self, conv_id, caption, image_url):
+    async def send_offer_message(self, conv_id, caption, image_url, link=""):
         self.offer_sends.append({"conv": conv_id, "caption": caption,
-                                 "image_url": image_url})
+                                 "image_url": image_url, "link": link})
         return {"id": 1}
 
     async def send_image_bytes(self, conv_id, caption, content,
@@ -602,6 +602,11 @@ class Engine:
                      (o.get("caption") or "").lower()
                      for o in self.fake.offer_sends),
                  f"no offer send matching {exp['offer_caption_contains']!r}")
+        if exp.get("offer_link_contains"):
+            want(any(exp["offer_link_contains"].lower() in
+                     (o.get("link") or "").lower()
+                     for o in self.fake.offer_sends),
+                 f"no offer send carried link {exp['offer_link_contains']!r}")
         if exp.get("profile_linked"):
             _p = self.fake.contact_attrs.get(customer_profile.PROFILE_KEY) or {}
             want(_p.get("linked_contacts"), "profile has no linked_contacts")
