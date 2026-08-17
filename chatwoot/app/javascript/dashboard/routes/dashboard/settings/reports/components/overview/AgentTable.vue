@@ -53,6 +53,7 @@ const tableData = computed(() =>
     .map(agent => {
       const metric = getAgentMetrics(agent.id);
       return {
+        id: agent.id,
         agent: agent.available_name || agent.name,
         email: agent.email,
         thumbnail: agent.thumbnail,
