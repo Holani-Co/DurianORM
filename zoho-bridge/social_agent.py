@@ -447,7 +447,8 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
         return {"sent": False, "matched": matched,
                 "note": "already shared one offer here — mention, don't resend"}
     sent = await chatwoot.send_offer_message(conv_id, pick.get("caption") or "",
-                                             pick["image_url"])
+                                             pick["image_url"],
+                                             link=pick.get("link") or "")
     if sent:
         await chatwoot.merge_custom_attributes(conv_id, {"offer_greeted": True})
         conv.setdefault("custom_attributes", {})["offer_greeted"] = True

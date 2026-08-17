@@ -9,6 +9,15 @@
     attrs: {offer_greeted: true}
     judge: {min: 3}
 
+- id: greeting_offer_carries_link
+  offers:
+    - {id: 1, caption: "Monsoon Sale — flat 10% off across the store", image_url: "https://durian.in/offer1.jpg", link: "https://durian.in/offers/monsoon", active: true, priority: 1, tags: []}
+  script:
+    - {at: "0m", text: "Hi"}
+  expect:
+    offer_sent: true
+    offer_link_contains: "durian.in/offers/monsoon"
+
 - id: interest_matched_offer
   offers:
     - {id: 1, caption: "Dining sets 15% off this week", image_url: "https://durian.in/offer2.jpg", active: true, priority: 2, tags: [dining]}
