@@ -1030,12 +1030,41 @@ useEmitter('fetch_conversation_stats', () => {
   store.dispatch('conversationStats/get', conversationFilters.value);
 });
 
+// Deep-link from the Overview report's agent table: `?assignee_id=<id>` opens
+// this list filtered to that agent's assigned conversations. Assignee has no
+// dedicated route (unlike labels/teams), so we honor it here on mount — same
+// dispatch pair the advanced filter uses (setConversationFilters + onApplyFilter).
+function applyAssigneeFilterFromQuery() {
+  const assigneeId = route.query.assignee_id;
+  if (!assigneeId || props.foldersId) return false;
+  const payload = [
+    {
+      attributeKey: 'assignee_id',
+      attributeModel: 'standard',
+      filterOperator: 'equal_to',
+      values: [
+        { id: Number(assigneeId), name: route.query.assignee_name || '' },
+      ],
+      queryOperator: 'and',
+      customAttributeType: '',
+    },
+  ];
+  store.dispatch(
+    'setConversationFilters',
+    useSnakeCase(JSON.parse(JSON.stringify(payload)))
+  );
+  onApplyFilter(payload);
+  return true;
+}
+
 onMounted(() => {
   store.dispatch('setChatListFilters', conversationFilters.value);
   setFiltersFromUISettings();
   store.dispatch('setChatStatusFilter', activeStatus.value);
   store.dispatch('setChatSortFilter', activeSortBy.value);
-  resetAndFetchData();
+  if (!applyAssigneeFilterFromQuery()) {
+    resetAndFetchData();
+  }
   if (hasActiveFolders.value) {
     store.dispatch('campaigns/get');
   }

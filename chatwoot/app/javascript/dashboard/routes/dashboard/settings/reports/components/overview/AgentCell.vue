@@ -1,23 +1,41 @@
 <script setup>
+import { useRouter } from 'vue-router';
 import BaseCell from 'dashboard/components/table/BaseCell.vue';
 import Avatar from 'next/avatar/Avatar.vue';
 import { useMapGetter } from 'dashboard/composables/store';
 
-defineProps({
+const props = defineProps({
   row: {
     type: Object,
     required: true,
   },
 });
 
+const router = useRouter();
 const isRTL = useMapGetter('accounts/isRTL');
+const accountId = useMapGetter('getCurrentAccountId');
+
+// Deep-link to the conversation dashboard filtered to this agent's assigned
+// conversations. ChatList reads the assignee_id query param on mount and
+// applies the filter (assignee filters have no dedicated route like labels do).
+const openAgentConversations = () => {
+  const { id, agent } = props.row.original;
+  if (!id) return;
+  router.push({
+    name: 'home',
+    params: { accountId: accountId.value },
+    query: { assignee_id: id, assignee_name: agent },
+  });
+};
 </script>
 
 <template>
   <BaseCell>
-    <div
-      class="items-center flex text-left"
+    <button
+      type="button"
+      class="items-center flex text-left w-full rounded-md p-1 -m-1 hover:bg-n-alpha-1"
       :class="{ 'flex-row-reverse': isRTL }"
+      @click="openAgentConversations"
     >
       <Avatar
         :src="row.original.thumbnail"
@@ -37,6 +55,6 @@ const isRTL = useMapGetter('accounts/isRTL');
           {{ row.original.email }}
         </span>
       </div>
-    </div>
+    </button>
   </BaseCell>
 </template>
