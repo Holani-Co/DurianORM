@@ -337,14 +337,31 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     if not room:
         return {"routed": False, "options": options,
                 "note": "ambiguous — need a pincode or an explicit showroom choice"}
+    # No contact number anywhere → do NOT route, confirm, or create yet. A deal
+    # can't be keyed without a phone (IG carries no email), and the customer must
+    # never be told the enquiry is passed/registered without one. Ask first;
+    # once they share it, this skill is called again and proceeds normally.
+    phone = _known_phone(ctx)
+    if not phone:
+        return {"routed": False, "need_phone": True,
+                "showroom": room.get("location") or "",
+                "note": "Purchase intent + showroom are clear, but we have NO "
+                        "contact number for this customer. ASK for their phone "
+                        "number now — do NOT say the enquiry is registered or "
+                        "passed. Call route_to_showroom again once they share it."}
     owner = {"owner_id": str(room.get("owner_id") or ""),
              "owner_name": room.get("owner_name") or "",
              "crm_email": room.get("crm_email") or "",
              "location": room.get("location") or "",
              "city": cdata.get("display", ckey)}
+    # Persist the phone onto the conversation too, so the deal core and the
+    # manual Create Deal button (which don't read the profile) can key a contact.
     await chatwoot.merge_custom_attributes(conv_id, {
-        "retail_deal_owner": owner, "phase2_category": "product_enquiry"})
-    conv.setdefault("custom_attributes", {})["retail_deal_owner"] = owner
+        "retail_deal_owner": owner, "phase2_category": "product_enquiry",
+        "retail_customer_phone": phone})
+    _cca = conv.setdefault("custom_attributes", {})
+    _cca["retail_deal_owner"] = owner
+    _cca["retail_customer_phone"] = phone
     for fn, lbl in ((chatwoot.remove_label, "retail-details-needed"),
                     (chatwoot.add_label, "retail-routed")):
         try:
@@ -388,7 +405,7 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
 async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                                city: str = "", **_) -> dict:
     conv_id = ctx["conv_id"]
-    phone = phone or ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
+    phone = phone or _known_phone(ctx)
     if not (phone and city):
         return {"registered": False, "note": "need phone AND city first"}
     cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
@@ -1084,6 +1101,34 @@ def _resolve_showroom(pincode, city, showroom, vertical):
     return None, "", {}, []
 
 
+_PHONE_RE = re.compile(r"\b[6-9]\d{9}\b")
+
+
+def _known_phone(ctx) -> str:
+    """A contact number for this customer from ANY attribute we already hold —
+    the profile identity, the retail / deal-details captures, the Chatwoot
+    contact record, or a number the customer typed in this thread. Returns ''
+    only when we genuinely have nothing, which is when the deal flow must stop
+    and ask for it instead of routing/confirming."""
+    conv = ctx.get("conv") or {}
+    ca = conv.get("custom_attributes") or {}
+    prof = ctx.get("profile") or {}
+    for cand in (
+        ((prof.get("identity") or {}).get("phone") or {}).get("value"),
+        ca.get("retail_customer_phone"),
+        (ca.get("deal_customer_details") or {}).get("phone"),
+        ((conv.get("meta") or {}).get("sender") or {}).get("phone_number"),
+    ):
+        if cand and str(cand).strip():
+            return str(cand).strip()
+    for m in reversed(ctx.get("all_messages") or []):
+        if m.get("message_type") in (0, "incoming"):
+            found = _PHONE_RE.search(m.get("content") or "")
+            if found:
+                return found.group(0)
+    return ""
+
+
 async def _maybe_auto_deal(ctx) -> bool:
     """Deal-readiness checklist → auto-create via the same core as the button.
     Code decides; ambiguity keeps its human fallback (409/422 → button)."""
@@ -1091,7 +1136,7 @@ async def _maybe_auto_deal(ctx) -> bool:
         return False
     conv, prof = ctx["conv"], ctx["profile"]
     ca = conv.setdefault("custom_attributes", {})
-    phone = ((prof.get("identity") or {}).get("phone") or {}).get("value")
+    phone = _known_phone(ctx)
     if ca.get("crm_deal_id") or not (phone and ca.get("retail_deal_owner")):
         return False
     try:
@@ -1276,7 +1321,10 @@ offer the showroom.
 (furniture) or register_enquiry (doors/FHC). find_showrooms alone registers \
 nothing. A pincode alone is a complete location; a city with several \
 showrooms → ask for their pincode (name at most 2 options). Serve every \
-product on every account — the account's vertical only picks the deal route.
+product on every account — the account's vertical only picks the deal route. \
+A CONTACT NUMBER is required to register an enquiry — if a routing skill \
+returns need_phone, ask the customer for their phone number and do NOT say \
+the enquiry is passed/registered until they share it.
 4. COMPOSE — you write ONE message, and you write it AS Durian: the brand \
 speaks in plural — "we can arrange this", "our Kirti Nagar showroom" — \
 never "I/me/my". Everything skills and templates hand you is raw material, \
@@ -1443,23 +1491,28 @@ async def _handle_locked(conv, conv_id, channel, surface,
                                  zoho_crm.search_contact_by_phone,
                                  zoho_crm.get_contact_deals)
     phone_val = ((prof.get("identity") or {}).get("phone") or {}).get("value")
-    if phone_val and not ca.get("retail_customer_phone"):
+    # A number from ANY source we hold (profile, prior captures, or one the
+    # customer just typed) — mirror it onto the conversation so the deal core
+    # and the manual Create Deal button (neither reads the profile) can use it.
+    _retry_ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
+                  "all_messages": all_messages}
+    known_phone = _known_phone(_retry_ctx)
+    if known_phone and not ca.get("retail_customer_phone"):
         try:
             await chatwoot.merge_custom_attributes(
-                conv_id, {"retail_customer_phone": phone_val})
+                conv_id, {"retail_customer_phone": known_phone})
+            ca["retail_customer_phone"] = known_phone
         except Exception:
             pass
 
     # Deterministic enquiry completion: routed on an earlier turn but the deal
-    # never fired (route_to_showroom is the only other caller, and it refuses
-    # re-routing — so a phone that arrived AFTER routing left the enquiry
-    # dropped forever). Code retries here every turn until the deal exists or
-    # the create defers to a human (auto_deal_deferred stops the retry; the
-    # deferral path labels deal-ready + notes why).
-    if phone_val and ca.get("retail_deal_owner") and not ca.get("crm_deal_id") \
+    # never fired (route_to_showroom refuses re-routing — so a phone that arrived
+    # AFTER routing left the enquiry dropped forever). Code retries here every
+    # turn until the deal exists or the create defers to a human
+    # (auto_deal_deferred stops the retry; the deferral path labels deal-ready).
+    if known_phone and ca.get("retail_deal_owner") and not ca.get("crm_deal_id") \
             and not ca.get("auto_deal_deferred"):
-        await _maybe_auto_deal({"conv": conv, "conv_id": conv_id,
-                                "profile": prof})
+        await _maybe_auto_deal(_retry_ctx)
 
     # ── Context ─────────────────────────────────────────────────────────────
     incoming_texts = [(m.get("content") or "") for m in all_messages

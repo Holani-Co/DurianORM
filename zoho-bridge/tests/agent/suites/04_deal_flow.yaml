@@ -56,3 +56,29 @@
     deal_not_created: true
     sent_not_contains: ["(?i)enquiry (is |has been |was )?(registered|created)"]
     judge: {min: 3}
+
+# Phone-first (Durian, Aug 2026): a furniture purchase with a resolvable
+# showroom but NO contact number anywhere must ASK for the phone before
+# routing/registering — never route or claim the enquiry is passed.
+- id: retail_no_phone_asks_first
+  script:
+    - {at: "0m", text: "I want to buy the benjamin corner sofa. My pincode is 110054"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    deal_not_created: true
+    sent_contains: ["(?i)(phone|number|contact)"]
+    sent_not_contains: ["(?i)enquiry (is |has been |was )?(registered|created|passed)"]
+    judge: {min: 3}
+
+# Once the number is shared, the same enquiry routes and the deal is created,
+# and the phone is mirrored onto the conversation for the Create Deal button.
+- id: retail_creates_after_phone_shared
+  script:
+    - {at: "0m", text: "I want to buy the benjamin corner sofa. My pincode is 110054"}
+    - {at: "2m", text: "sure, my number is 9560150835"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    attrs: {retail_customer_phone: "9560150835"}
+    deal_created: true
+    deal_created_max: 1
+    judge: {min: 3}
