@@ -1589,6 +1589,32 @@ def _append_executive_email(ack_body: str, forward_to: str) -> str:
             f"directly at {addr}.")
 
 
+def _build_forward_ack(customer_name: str, rule: dict) -> str:
+    """The customer acknowledgment for a FORWARDED email, built dynamically from
+    the resolved routing rule — department = its `display_name`, direct contact =
+    the team we forward to (`forward_to`, its To address). Because `rule` comes
+    from the live rules (YAML ⊕ the UI override), this covers any category the
+    client adds via the Routing Config screen with NO per-category template.
+    Whenever an ack is sent we always share that To email; suppressing the ack
+    for a category is a separate decision handled by its `acknowledge_customer`
+    toggle (which stops this from running at all)."""
+    dept = (rule.get("display_name") or "concerned").strip()
+    email = ((rule.get("forward_to") or "").split(",")[0]).strip()
+    if email:
+        shared = (f"Your request has been shared with our {dept} Team. For "
+                  f"quicker resolution, kindly connect with them directly at "
+                  f"{email}, and they will assist you further.")
+    else:
+        shared = (f"Your request has been shared with our {dept} Team. A "
+                  "representative will reach out to you shortly to assist you "
+                  "further.")
+    return (f"Dear {customer_name},\n\n"
+            "Thank you for reaching out to us.\n\n"
+            f"{shared}\n\n"
+            "We appreciate your patience and look forward to assisting you.\n\n"
+            "Best regards,\nTeam Durian")
+
+
 def _append_ticket_reference(ack_body: str, ticket_number: str) -> str:
     """Append the Zoho ticket number as a footer on the customer complaint
     acknowledgment so they have a reference for any future correspondence.
@@ -3309,15 +3335,25 @@ async def _phase2_execute_actions(conv_id: int,
         audit.append(
             "ℹ️ Acknowledgment skipped — retail routing gate owns the customer reply."
         )
-    elif template and sender_email:
-        ack_body = (template.get("body") or "").format(
-            customer_name    = name,
-            original_subject = original_subject or "",
-        )
-        # Share the handling team's direct email with the customer when the
-        # resolved rule/vertical is flagged share_executive_email (client col G).
-        if rule and rule.get("share_executive_email") and rule.get("forward_to"):
-            ack_body = _append_executive_email(ack_body, rule["forward_to"])
+    elif sender_email and (
+            (action == "forward" and rule and (rule.get("forward_to") or rule.get("display_name")))
+            or template):
+        # FORWARD categories get a DYNAMIC acknowledgment built from the resolved
+        # rule (department = display_name, direct contact = forward_to). This
+        # covers any category the client adds via the Routing Config UI with no
+        # per-category template. Non-forward (in-channel) categories keep their
+        # static template.
+        if action == "forward" and rule and (rule.get("forward_to") or rule.get("display_name")):
+            ack_body = _build_forward_ack(name, rule)
+        else:
+            ack_body = (template.get("body") or "").format(
+                customer_name    = name,
+                original_subject = original_subject or "",
+            )
+            # Share the handling team's direct email when the rule/vertical is
+            # flagged share_executive_email (client col G).
+            if rule and rule.get("share_executive_email") and rule.get("forward_to"):
+                ack_body = _append_executive_email(ack_body, rule["forward_to"])
         if cat_key == "complaint":
             # Defer: the ticket doesn't exist yet. Sent after ticket creation
             # so we can append the reference number for the customer.
