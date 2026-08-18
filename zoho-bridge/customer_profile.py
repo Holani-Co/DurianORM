@@ -356,7 +356,10 @@ async def prior_transcript(contact_id: int, current_conv_id=None,
         return ""
     ref = now()
     blocks = []
-    for c in (convs or []):
+    # Oldest first, so a later correction reads as superseding an earlier
+    # value; Chatwoot lists newest first.
+    ordered = sorted((convs or []), key=lambda c: (c.get("created_at") or c.get("id") or 0))
+    for c in ordered:
         cid = c.get("id")
         if not cid or cid == current_conv_id:
             continue
@@ -381,10 +384,9 @@ async def prior_transcript(contact_id: int, current_conv_id=None,
         if lines:
             blocks.append(("Earlier public comments" if is_comment
                            else "Earlier conversation") + ":\n" + "\n".join(lines))
-        if len(blocks) >= max_conversations:
-            break
+    blocks = blocks[-max_conversations:]          # keep the newest N, in order
     out = "\n".join(blocks)
-    return out[:max_chars]
+    return out[-max_chars:] if len(out) > max_chars else out
 
 
 # ── Soft-linking + CRM lookup ───────────────────────────────────────────────

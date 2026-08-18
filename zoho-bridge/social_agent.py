@@ -2039,8 +2039,13 @@ async def judge_history_for_profile(contact_name: str, transcript: str,
         "with your reason. `routed` / `deal_created` ONLY when Durian's own "
         "line in the transcript confirms it (a showroom named as theirs, an "
         "enquiry confirmed registered) — a customer asking for a callback is "
-        "not routing. Prefer fewer, certain entries: at most 6 learns, merge "
-        "near-duplicates (one interest per product, not per mention).")
+        "not routing. `set` every durable fact the customer gave as their own "
+        "(phone, pincode, city, chosen showroom) — these are never rationed; "
+        "for learns prefer fewer, certain entries and merge near-duplicates "
+        "(one interest per product, not per mention). Automated messages — "
+        "form-fill notifications, directory/PR/collab pitches, 'I filled out "
+        "your form' — are not the customer speaking: a note at most, and NEVER "
+        "a phone/city set from their boilerplate.")
     user = (f"CUSTOMER: {contact_name}\n\nTHEIR CONVERSATIONS (oldest first):\n"
             f"{transcript}\n\nSubmit profile_updates via record_profile.")
     _kw = {}

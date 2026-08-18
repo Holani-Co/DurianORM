@@ -65,7 +65,11 @@ async def rebuild_one(cid: int) -> tuple[dict, dict] | None:
         return None
     contact = await chatwoot.get_contact(cid)
     name = (contact or {}).get("name") or f"contact {cid}"
-    transcript = await cp.prior_transcript(cid, None, max_conversations=8, max_chars=6000)
+    # The WHOLE history — this is a one-off; a fact given in the customer's
+    # first conversation must not fall outside a window. (The live cold-start
+    # path keeps its small budget; the agent sees the rest as it happens.)
+    transcript = await cp.prior_transcript(cid, None, max_conversations=200,
+                                           max_chars=60000)
     new = carry_over(prof)
     if transcript.strip():
         updates = await social_agent.judge_history_for_profile(name, transcript, None, "")
