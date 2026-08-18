@@ -23,8 +23,8 @@
     commercial: {}
     linked_contacts: []
     consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
-    events:
-      - {t: "2026-08-12T11:00:00+05:30", msg: 900, conv: 1, inbox: ig, kind: visualized, what: "MEAGAN — Slate Grey — replace sofa"}
+    events: []
+    ops: {visualized_at: ["2026-08-12T11:00:00+05:30"]}
   script:
     - {at: "0m", text: "what is the price of the fairmont sofa?"}
   expect:
@@ -47,7 +47,7 @@
     - {at: "0m", text: "here is my living room — show me the veronica sofa in it", photo: true}
   expect:
     tools_called: ["visualize_in_room"]
-    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    viz_used: 0
     images_sent_max: 0
     anywhere_contains: ["Canary|Sepia|Beige|Ice"]
     judge: {min: 3}
@@ -60,7 +60,7 @@
     - {at: "0m", text: "here is my living room — show me the veronica sofa in it", photo: true}
     - {at: "3m", text: "canary yellow please"}
   expect:
-    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    viz_used_min: 1
     images_sent_min: 1
     anywhere_contains: ["indicative|vary|preview"]
     judge: {min: 3}
@@ -74,7 +74,7 @@
   expect:
     tools_called: ["visualize_in_room"]
     images_sent_min: 1
-    profile_has_event: [{kind: visualized, what_contains: "replace"}]
+    viz_used_min: 1
     judge: {min: 3}
 
 - id: viz_placement_question_on_ambiguity
@@ -85,8 +85,8 @@
     - {at: "0m", text: "show the slate grey meagan sofa in my room", photo: true}
     - {at: "2m", text: "facing the TV"}
   expect:
-    profile_has_event: [{kind: visualized, what_contains: "MEAGAN"}]
-    profile_event_count: [{kind: visualized, count: 1}]
+    viz_used_min: 1
+    viz_used: 1
     images_sent_min: 1
     anywhere_contains: ["window|TV|where"]
     judge: {min: 3}
@@ -100,8 +100,8 @@
     - {at: "2m", text: "ice grey"}
     - {at: "4m", text: "replace the left one"}
   expect:
-    profile_has_event: [{kind: visualized, what_contains: "Ice Grey"}]
-    profile_event_count: [{kind: visualized, count: 1}]
+    viz_used_min: 1
+    viz_used: 1
     images_sent_min: 1
     judge: {min: 3}
 
@@ -114,7 +114,7 @@
     tools_called: ["visualize_in_room"]
     images_sent_min: 1
     attrs: {visualizer_request: "*"}
-    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    viz_used_min: 1
     sent_contains: ["about 2 minutes"]
     judge: {min: 3}
 
@@ -129,7 +129,7 @@
   expect:
     tools_called: ["visualize_in_room"]
     images_sent_max: 0
-    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    viz_used: 0
     anywhere_contains: ["showroom|store|visit"]
     judge: {min: 3}
 
@@ -144,5 +144,5 @@
     tools_called: ["visualize_in_room"]
     images_sent_min: 1
     preview_swatch_used: true
-    profile_has_event: [{kind: visualized, what_contains: "Canary"}]
+    viz_used_min: 1
     judge: {min: 3}

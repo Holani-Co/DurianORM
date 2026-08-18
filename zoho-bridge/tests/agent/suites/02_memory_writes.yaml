@@ -18,15 +18,15 @@
   script:
     - {at: "0m", text: "I want to buy the lewis corner sofa. my number is 9560150835"}
   expect:
-    profile_has_event: [{kind: phone, what_contains: "9560150835"}]
+    profile_field: {identity.phone: "9560150835"}
     attrs: {retail_customer_phone: "9560150835"}
 
-- id: interest_family_anchored_only
+- id: interest_is_expressed_not_scanned
   script:
     - {at: "0m", text: "the esmeralda set looks lovely"}
     - {at: "2m", text: "thank you so much, very helpful"}
   expect:
-    profile_has_event: [{kind: interest, what_contains: "MARBLE"}]
+    profile_has_event: [{kind: interest, what_contains: "esmeralda"}]
     profile_lacks_event: [{kind: interest, what_contains: "helpful"}]
 
 - id: correction_updates_city

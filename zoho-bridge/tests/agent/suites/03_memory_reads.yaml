@@ -37,7 +37,6 @@
     - {at: "0m", text: "Hi, what is the price of the Benjamin corner sofa?"}
   expect:
     anywhere_contains: ["1,?20,?480|120480|1.2"]
-    profile_has_event: [{kind: commented, what_contains: beautiful}]
     judge: {min: 3}
 
 - id: cross_conversation_phone

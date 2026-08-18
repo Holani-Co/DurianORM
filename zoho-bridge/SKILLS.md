@@ -28,9 +28,9 @@ Resolve the customer's location to Durian showrooms. PINCODE FIRST — a pincode
 
 ## route_to_showroom
 
-Register a FURNITURE purchase enquiry with a showroom (bounded write — sets the deal owner your team's Create Deal uses; may auto-create the CRM deal when the checklist passes). USE ONCE when purchase intent is clear and location is unambiguous (a pincode, or city + explicit choice). Refuses ambiguity and re-routing.
+Register a FURNITURE purchase enquiry with a showroom (bounded write — sets the deal owner your team's Create Deal uses; may auto-create the CRM deal when the checklist passes). USE ONCE when purchase intent is clear and location is unambiguous (a pincode, or city + explicit choice). Pass `phone` when the customer has given THEIR OWN contact number (this turn or earlier in the profile) — the enquiry is registered against it and the deal can auto-create; someone else's number is never passed. Refuses ambiguity and re-routing.
 
-**Args**: `{"pincode": {"type": "string"}, "city": {"type": "string"}, "showroom": {"type": "string"}}`
+**Args**: `{"pincode": {"type": "string"}, "city": {"type": "string"}, "showroom": {"type": "string"}, "phone": {"type": "string", "description": "the customer's own contact number, if given"}}`
 **Returns**: `{"routed": "bool", "showroom": "str", "deal_created": "bool", "options": "list[str] when ambiguous", "note": "str"}`
 **Example**: `{"pincode": "110054"}` → `{"routed": true, "showroom": "Delhi - Kirti Nagar", "deal_created": true}`
 
@@ -68,17 +68,17 @@ Generate a preview of a Durian product placed in the customer's OWN room photo. 
 
 ## escalate_to_human
 
-Hand the conversation to a human (flags + assignment). USE for: order status / delivery / warranty, dealer or franchise, bulk / B2B / project, collabs, price negotiation, complaints beyond a first apology, abuse, or anything your tools cannot ground. If intent is UNCLEAR, ask ONE clarifying question first, THEN escalate with what you learned.
+Hand the conversation to a human (flags + assignment). USE for: order status / delivery / warranty, dealer or franchise, bulk / B2B / project, collabs, price negotiation, complaints beyond a first apology, abuse, or anything your tools cannot ground. If intent is UNCLEAR, ask ONE clarifying question first, THEN escalate with what you learned. This ends your turn — so it carries the same profile duty as finish: pass `profile_updates` recording what this contact IS (learn note: 'dealer enquiry for Lucknow', 'complaint: broken leg on delivered sofa', 'collab pitch') plus any real fact given — never a product interest for a pitch or complaint.
 
-**Args**: `{"reason": {"type": "string"}, "customer_message": {"type": "string", "description": "one short courteous line to send the customer before handoff (optional)"}}`
+**Args**: `{"reason": {"type": "string"}, "customer_message": {"type": "string", "description": "one short courteous line to send the customer before handoff (optional)"}, "profile_updates": {"type": "array", "description": "same shape as finish.profile_updates", "items": {"type": "object"}}}`
 **Returns**: `{"escalated": "bool"}`
-**Example**: `{"reason": "franchise enquiry for Pune"}` → `{"escalated": true}`
+**Example**: `{"reason": "franchise enquiry for Pune", "profile_updates": [{"op": "learn", "kind": "note", "what": "franchise enquiry for Pune", "quote": "franchise in pune", "note": ""}]}` → `{"escalated": true}`
 
 ## finish
 
-End your turn. Compute confidence, never feel it: start 92; −20 per stated fact without a tool fetch this turn; −15 for a skipped/failed required action; −25 if intent is unclear. No subtraction → confidence 92, action send (intros and clarifying questions included — carding a clean reply is an error). Any subtraction → action card. `learned` is MANDATORY whenever the customer declined something, corrected a fact, stated a preference/budget/objection, or we promised follow-up THIS turn — each with the customer's exact words as `quote`. Empty `learned` after a decline/correction is an error. Example: [{"kind":"preference","what":"photos on WhatsApp","quote":"send photos on whatsapp only"},{"kind":"correction","field":"city","what":"Gurgaon","quote":"i have shifted to gurgaon"}]
+End your turn. Compute confidence, never feel it: start 92; −20 per stated fact without a tool fetch this turn; −15 for a skipped/failed required action; −25 if intent is unclear. No subtraction → confidence 92, action send (intros and clarifying questions included — carding a clean reply is an error). Any subtraction → action card. `profile_updates` is the ONLY way the customer's profile ever changes — nothing is recorded unless you decide it here. Two verbs: set (a current fact about THIS customer: identity.phone, location.pincode, location.city, commercial.showroom) and learn (a dated event: interest, declined, preference, correction, budget, objection, promise, routed, deal_created, note). Every item carries `quote` — the customer's exact words, or the exact tool result text for routed/deal_created — and `note`, your one-line reason (a value given for someone else, an order number, an old address is NOT set — note it or skip it). Updates whose quote is not in this turn are rejected. Empty profile_updates on a turn where the customer stated a fact, declined something, gave a detail or a product interest is as wrong as a fabricated price. Example: [{"op":"set","field":"location.pincode","value":"110054","quote":"my pincode is 110054","note":"their own delivery pincode; supersedes 110058 (typo)"},{"op":"learn","kind":"preference","what":"photos on WhatsApp","quote":"send photos on whatsapp only","note":""}]
 
-**Args**: `action, reply, confidence, reasoning, learned[]`
+**Args**: `action, reply, confidence, reasoning, profile_updates[]`
 
 ## Customer profile schema
 

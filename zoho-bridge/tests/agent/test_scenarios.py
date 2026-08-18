@@ -80,14 +80,27 @@ def test_scenario(scenario, engine_factory):
                    else "Assistant")
             convo.append(f"[earlier in this conversation] {who}: "
                          f"{h.get('text', '')}")
-        for step in scenario.get("script") or []:
-            convo.append(f"Customer: {step.get('text', '')}")
-        if eng.tools_trail:
-            convo.append("--- tools the assistant called (results are ground "
-                         "truth; facts from them are NOT invented) ---")
-            convo.extend(eng.tools_trail)
-        convo.append("--- assistant output ---")
-        convo.append(sent or cards)
+        # Interleave: each customer message, the tools that turn called, then
+        # the reply(ies) it got — as separate turns. Dumping every reply as
+        # one blob after all the customer lines made a 3-turn exchange read
+        # as ONE stitched message with duplicate sign-offs and repeated asks.
+        convo.append("--- the exchange, turn by turn (tool results are ground "
+                     "truth; facts from them are NOT invented) ---")
+        for i, t in enumerate(eng.timeline or [], 1):
+            convo.append(f"[turn {i}] Customer: {t.get('text', '')}"
+                         + (f" (shared post: {t['caption']})" if t.get("caption") else ""))
+            for tl in t.get("tools") or []:
+                convo.append(f"[turn {i}]   tool: {tl}")
+            outs = [o for o in (t.get("outputs") or [])
+                    if o.get("type") in ("sent", "card")]
+            if not outs:
+                convo.append(f"[turn {i}] Assistant: (no reply — handled: {t.get('handled')})")
+            for o in outs:
+                tag = "Assistant" if o["type"] == "sent" else "Assistant (draft held for a human)"
+                convo.append(f"[turn {i}] {tag}: {o.get('text', '')}")
+        if not eng.timeline:
+            convo.append("--- assistant output ---")
+            convo.append(sent or cards)
         verdict = asyncio.get_event_loop().run_until_complete(
             judge_transcript("\n".join(convo)))
         assert verdict.get("score", 0) >= judge.get("min", 3), \

@@ -628,8 +628,27 @@ class Engine:
                     and str(ev.get("what_contains", "")).lower()
                     in str(e.get("what", "")).lower()]
             want(not hits, f"profile must NOT contain event: {ev}")
+        # profile_field: {identity.phone: "9560150835"} — a `set` fact
+        # landed with this value; profile_field_absent: [location.pincode]
+        # — nothing was set there. Paths are section.field.
+        def _pf(path):
+            sec, _, fld = path.partition(".")
+            return ((prof.get(sec) or {}).get(fld) or {}).get("value")
+        for path, value in (exp.get("profile_field") or {}).items():
+            got = _pf(path)
+            want(str(got or "") == str(value),
+                 f"profile field {path}={got!r} != {value!r}")
+        for path in exp.get("profile_field_absent") or []:
+            got = _pf(path)
+            want(not got, f"profile field must be unset: {path}={got!r}")
         if exp.get("profile_consolidated"):
             want(prof.get("consolidated_at"), "profile was not consolidated")
+        if exp.get("viz_used_min") is not None:
+            _n = len((prof.get("ops") or {}).get("visualized_at") or [])
+            want(_n >= exp["viz_used_min"], f"visualizer uses {_n} < {exp['viz_used_min']}")
+        if exp.get("viz_used") is not None:
+            _n = len((prof.get("ops") or {}).get("visualized_at") or [])
+            want(_n == exp["viz_used"], f"visualizer uses {_n} != {exp['viz_used']}")
         for spec in exp.get("profile_event_count") or []:
             n = sum(1 for e in prof.get("events") or []
                     if e.get("kind") == spec.get("kind"))
@@ -715,12 +734,20 @@ brand, plural ("we"/"our", never "I"), and each reply is ONE composed message:
 one opening, at most one closing "Regards, Team Durian".
 3 = acceptable but clunky (mild repetition, missed context, wordy).
 1 = invents facts, re-asks known details, ignores a decline, is rude, speaks
-as "I", or pastes template letter-dressing — a mid-message "Dear Customer" /
-"Thank you for reaching out" or a duplicated sign-off means stitched
-templates, not a composed reply.
+as "I", or pastes template letter-dressing. The tell for stitching is a
+SECOND salutation or sign-off inside one message (e.g. "Dear Customer" or a
+"Regards, Team Durian" appearing mid-message, then another at the end). A
+single opening courtesy ("Thank you." / "Thank you for sharing your number.")
+followed by substance and ONE closing sign-off is a normally composed reply.
+Judge each reply on its own turn: asking for a detail BEFORE the customer
+gives it is correct; only asking again AFTER it was given is a re-ask.
 
 BUSINESS RULES the assistant is REQUIRED to follow — following them is
 correct behavior, never penalize it:
+- The store card's 📞 (phone) and 🗺️ (map) glyphs are the APPROVED format for
+  showroom details — they are not "emoji" and are never a fault.
+- Read turn ORDER carefully: asking for a pincode BEFORE the customer gives
+  it is correct; only asking again AFTER it was given is a re-ask.
 - Public comments never carry prices or contact details; price questions are
   redirected to DM.
 - Room previews (seeing furniture in the customer's own photo) REQUIRE a

@@ -306,23 +306,63 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
     return {"resolved": False, "note": "no Durian showroom for that location"}
 
 
+_PHONE_DIGITS = re.compile(r"(?:\+?91[\s-]?)?([6-9]\d{9})")
+
+
+async def _record_enquiry_phone(ctx, phone: str) -> str:
+    """The agent passed the customer's own number to a write skill: stamp it
+    as the conversation's enquiry phone (retail_customer_phone — the deal
+    flow's contract) so auto-deal can key on it THIS turn. Only digits that
+    the customer actually typed this thread are accepted — a hallucinated
+    number never becomes an enquiry."""
+    m = _PHONE_DIGITS.search(str(phone or ""))
+    if not m:
+        return ""
+    digits = m.group(1)
+    typed = any(digits in re.sub(r"\D", "", t or "") for t in ctx.get("incoming_all") or [])
+    held = digits in re.sub(r"\D", "", str(
+        ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""))
+    if not (typed or held):
+        return ""
+    conv, conv_id = ctx["conv"], ctx["conv_id"]
+    ca = conv.setdefault("custom_attributes", {})
+    if ca.get("retail_customer_phone") != digits:
+        ca["retail_customer_phone"] = digits
+        try:
+            await chatwoot.merge_custom_attributes(conv_id, {"retail_customer_phone": digits})
+        except Exception:
+            pass
+    return digits
+
+
+
 @_skill(
     "route_to_showroom",
     "Register a FURNITURE purchase enquiry with a showroom (bounded write — "
     "sets the deal owner your team's Create Deal uses; may auto-create the CRM "
     "deal when the checklist passes). USE ONCE when purchase intent is clear "
     "and location is unambiguous (a pincode, or city + explicit choice). "
+    "Pass `phone` when the customer has given THEIR OWN contact number (this "
+    "turn or earlier in the profile) — the enquiry is registered against it "
+    "and the deal can auto-create; someone else's number is never passed. "
     "Refuses ambiguity and re-routing.",
     {"pincode": {"type": "string"}, "city": {"type": "string"},
-     "showroom": {"type": "string"}},
+     "showroom": {"type": "string"},
+     "phone": {"type": "string",
+               "description": "the customer's own contact number, if given"}},
     {"routed": "bool", "showroom": "str", "deal_created": "bool",
      "options": "list[str] when ambiguous", "note": "str"},
     ({"pincode": "110054"},
      {"routed": True, "showroom": "Delhi - Kirti Nagar", "deal_created": True}),
 )
 async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
-                                showroom: str = "", **_) -> dict:
+                                showroom: str = "", phone: str = "", **_) -> dict:
     conv, conv_id = ctx["conv"], ctx["conv_id"]
+    # The enquiry phone: what the agent passes now, else what the agent set
+    # in the profile on an earlier turn (its own judgment, just older) —
+    # never a regex over the thread.
+    phone = phone or ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
+    await _record_enquiry_phone(ctx, phone)
     ca = conv.get("custom_attributes") or {}
     if ca.get("retail_deal_owner"):
         if ca.get("crm_deal_id"):
@@ -337,11 +377,14 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     if not room:
         return {"routed": False, "options": options,
                 "note": "ambiguous — need a pincode or an explicit showroom choice"}
-    # No contact number anywhere → do NOT route, confirm, or create yet. A deal
-    # can't be keyed without a phone (IG carries no email), and the customer must
-    # never be told the enquiry is passed/registered without one. Ask first;
-    # once they share it, this skill is called again and proceeds normally.
-    phone = _known_phone(ctx)
+    # No contact number from the AGENT (the `phone` argument it passed, or a
+    # profile phone it set on an earlier turn) → do NOT route, confirm, or
+    # create yet. A deal can't be keyed without a phone (IG carries no email),
+    # and the customer must never be told the enquiry is passed/registered
+    # without one. Ask first; once they share it, this skill is called again
+    # with phone= and proceeds. Nothing here scans the thread for digits.
+    phone = phone or ca.get("retail_customer_phone") or \
+        ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
     if not phone:
         return {"routed": False, "need_phone": True,
                 "showroom": room.get("location") or "",
@@ -405,9 +448,10 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
 async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                                city: str = "", **_) -> dict:
     conv_id = ctx["conv_id"]
-    phone = phone or _known_phone(ctx)
+    phone = await _record_enquiry_phone(ctx, phone) or \
+        ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
     if not (phone and city):
-        return {"registered": False, "note": "need phone AND city first"}
+        return {"registered": False, "note": "need the customer's OWN phone AND city first"}
     cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
         category, "doors_veneer_plywood")
     await chatwoot.merge_custom_attributes(conv_id, {
@@ -582,6 +626,22 @@ def _viz_allowed(conv: dict) -> bool:
         [a.lower() for a in allow]
 
 
+def _viz_used_today(prof: dict) -> int:
+    """Visualizer previews used today — OPERATIONAL state (a rate-limit
+    counter), kept in profile["ops"], never rendered to the agent and never
+    written by profile_updates."""
+    today = profile_mod.now().date().isoformat()
+    return sum(1 for t in (prof.get("ops") or {}).get("visualized_at") or []
+               if str(t).startswith(today))
+
+
+def _viz_mark_used(prof: dict) -> None:
+    ops = prof.setdefault("ops", {})
+    ops.setdefault("visualized_at", []).append(profile_mod._iso(profile_mod.now()))
+    ops["visualized_at"] = ops["visualized_at"][-30:]
+
+
+
 @_skill(
     "visualize_in_room",
     "Generate a preview of a Durian product placed in the customer's OWN room "
@@ -636,11 +696,7 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
         return {"sent": False, "denied": "need_enquiry",
                 "note": "collect their details and register the enquiry first "
                         "(route_to_showroom), then previews unlock"}
-    today = profile_mod.now().date().isoformat()
-    used_today = sum(1 for e in prof.get("events") or []
-                     if e.get("kind") == "visualized"
-                     and str(e.get("t", "")).startswith(today))
-    if used_today >= config.VISUALIZER_DAILY_CAP:
+    if _viz_used_today(prof) >= config.VISUALIZER_DAILY_CAP:
         return {"sent": False, "denied": "daily_cap",
                 "note": "daily preview limit reached — tell them our sales "
                         "team will prepare more mock-ups of their space and "
@@ -731,10 +787,7 @@ async def _sk_visualize_in_room(ctx, family: str = "", variant: str = "",
                         "offer the showroom team"}
     await chatwoot.merge_custom_attributes(conv_id, {"visualizer_request": {
         "family": fam, "variant": ref_name, "placement": pl}})
-    profile_mod.merge_events(prof, [{
-        "t": profile_mod._iso(profile_mod.now()), "msg": None, "conv": conv_id,
-        "inbox": "", "kind": "visualized",
-        "what": f"{fam} — {ref_name} — {pl}"}])
+    _viz_mark_used(prof)
     return {"sent": True,
             "note": "remind them it is indicative; the showroom team can "
                     "refine it further"}
@@ -974,16 +1027,30 @@ async def _generate_room_preview(room_image_url: str, product_image_url: str,
     "status / delivery / warranty, dealer or franchise, bulk / B2B / project, "
     "collabs, price negotiation, complaints beyond a first apology, abuse, or "
     "anything your tools cannot ground. If intent is UNCLEAR, ask ONE "
-    "clarifying question first, THEN escalate with what you learned.",
+    "clarifying question first, THEN escalate with what you learned. This "
+    "ends your turn — so it carries the same profile duty as finish: pass "
+    "`profile_updates` recording what this contact IS (learn note: 'dealer "
+    "enquiry for Lucknow', 'complaint: broken leg on delivered sofa', "
+    "'collab pitch') plus any real fact given — never a product interest "
+    "for a pitch or complaint.",
     {"reason": {"type": "string"},
      "customer_message": {"type": "string",
                           "description": "one short courteous line to send the "
-                                         "customer before handoff (optional)"}},
+                                         "customer before handoff (optional)"},
+     "profile_updates": {"type": "array",
+                         "description": "same shape as finish.profile_updates",
+                         "items": {"type": "object"}}},
     {"escalated": "bool"},
-    ({"reason": "franchise enquiry for Pune"}, {"escalated": True}),
+    ({"reason": "franchise enquiry for Pune",
+      "profile_updates": [{"op": "learn", "kind": "note",
+                           "what": "franchise enquiry for Pune",
+                           "quote": "franchise in pune", "note": ""}]},
+     {"escalated": True}),
 )
-async def _sk_escalate(ctx, reason: str = "", customer_message: str = "", **_) -> dict:
-    ctx["escalate"] = {"reason": reason, "customer_message": customer_message}
+async def _sk_escalate(ctx, reason: str = "", customer_message: str = "",
+                       profile_updates=None, **_) -> dict:
+    ctx["escalate"] = {"reason": reason, "customer_message": customer_message,
+                       "profile_updates": list(profile_updates or [])}
     return {"escalated": True}
 
 
@@ -995,27 +1062,43 @@ _FINISH_TOOL = {
                    "is unclear. No subtraction → confidence 92, action send "
                    "(intros and clarifying questions included — carding a "
                    "clean reply is an error). Any subtraction → action card. "
-                   "`learned` is MANDATORY whenever the customer "
-                   "declined something, corrected a fact, stated a preference/"
-                   "budget/objection, or we promised follow-up THIS turn — "
-                   "each with the customer's exact words as `quote`. Empty "
-                   "`learned` after a decline/correction is an error. Example: "
-                   '[{"kind":"preference","what":"photos on WhatsApp","quote":'
-                   '"send photos on whatsapp only"},{"kind":"correction",'
-                   '"field":"city","what":"Gurgaon","quote":"i have shifted '
-                   'to gurgaon"}]',
+                   "`profile_updates` is the ONLY way the customer's profile "
+                   "ever changes — nothing is recorded unless you decide it "
+                   "here. Two verbs: set (a current fact about THIS customer: "
+                   "identity.phone, location.pincode, location.city, "
+                   "commercial.showroom) and learn (a dated event: interest, "
+                   "declined, preference, correction, budget, objection, "
+                   "promise, routed, deal_created, note). Every item carries "
+                   "`quote` — the customer's exact words, or the exact tool "
+                   "result text for routed/deal_created — and `note`, your "
+                   "one-line reason (a value given for someone else, an order "
+                   "number, an old address is NOT set — note it or skip it). "
+                   "Updates whose quote is not in this turn are rejected. "
+                   "Empty profile_updates on a turn where the customer stated "
+                   "a fact, declined something, gave a detail or a product "
+                   "interest is as wrong as a fabricated price. Example: "
+                   '[{"op":"set","field":"location.pincode","value":"110054",'
+                   '"quote":"my pincode is 110054","note":"their own delivery '
+                   'pincode; supersedes 110058 (typo)"},{"op":"learn","kind":'
+                   '"preference","what":"photos on WhatsApp","quote":"send '
+                   'photos on whatsapp only","note":""}]',
     "parameters": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["send", "card"]},
         "reply": {"type": "string"},
         "confidence": {"type": "integer"},
         "reasoning": {"type": "string"},
-        "learned": {"type": "array", "items": {"type": "object", "properties": {
+        "profile_updates": {"type": "array", "items": {"type": "object", "properties": {
+            "op": {"type": "string", "enum": ["set", "learn"]},
+            "field": {"type": "string",
+                      "enum": list(profile_mod.SET_FIELDS)},
+            "value": {"type": "string"},
             "kind": {"type": "string",
-                     "enum": ["declined", "preference", "correction", "budget",
-                              "objection", "promise", "note"]},
-            "what": {"type": "string"}, "quote": {"type": "string"},
-            "field": {"type": "string"}}, "required": ["kind", "what", "quote"]}},
-    }, "required": ["action", "reply", "confidence", "reasoning"]},
+                     "enum": list(profile_mod.LEARN_KINDS)},
+            "what": {"type": "string"},
+            "quote": {"type": "string"},
+            "note": {"type": "string"}}, "required": ["op", "quote"]}},
+    }, "required": ["action", "reply", "confidence", "reasoning",
+                    "profile_updates"]},
 }
 
 
@@ -1045,7 +1128,7 @@ def generate_skills_md() -> str:
                   f"**Example**: `{json.dumps(s['example'][0])}` → "
                   f"`{json.dumps(s['example'][1])}`", ""]
     lines += ["## finish", "", _FINISH_TOOL["description"], "",
-              "**Args**: `action, reply, confidence, reasoning, learned[]`", "",
+              "**Args**: `action, reply, confidence, reasoning, profile_updates[]`", "",
               "## Customer profile schema", "",
               "See `customer_profile.py` — event log (`t`, `msg`, `conv`, "
               "`inbox`, `kind`, `what`, `quote?`) + folded identity/location/"
@@ -1101,34 +1184,6 @@ def _resolve_showroom(pincode, city, showroom, vertical):
     return None, "", {}, []
 
 
-_PHONE_RE = re.compile(r"\b[6-9]\d{9}\b")
-
-
-def _known_phone(ctx) -> str:
-    """A contact number for this customer from ANY attribute we already hold —
-    the profile identity, the retail / deal-details captures, the Chatwoot
-    contact record, or a number the customer typed in this thread. Returns ''
-    only when we genuinely have nothing, which is when the deal flow must stop
-    and ask for it instead of routing/confirming."""
-    conv = ctx.get("conv") or {}
-    ca = conv.get("custom_attributes") or {}
-    prof = ctx.get("profile") or {}
-    for cand in (
-        ((prof.get("identity") or {}).get("phone") or {}).get("value"),
-        ca.get("retail_customer_phone"),
-        (ca.get("deal_customer_details") or {}).get("phone"),
-        ((conv.get("meta") or {}).get("sender") or {}).get("phone_number"),
-    ):
-        if cand and str(cand).strip():
-            return str(cand).strip()
-    for m in reversed(ctx.get("all_messages") or []):
-        if m.get("message_type") in (0, "incoming"):
-            found = _PHONE_RE.search(m.get("content") or "")
-            if found:
-                return found.group(0)
-    return ""
-
-
 async def _maybe_auto_deal(ctx) -> bool:
     """Deal-readiness checklist → auto-create via the same core as the button.
     Code decides; ambiguity keeps its human fallback (409/422 → button)."""
@@ -1136,7 +1191,8 @@ async def _maybe_auto_deal(ctx) -> bool:
         return False
     conv, prof = ctx["conv"], ctx["profile"]
     ca = conv.setdefault("custom_attributes", {})
-    phone = _known_phone(ctx)
+    phone = ca.get("retail_customer_phone") or \
+        ((prof.get("identity") or {}).get("phone") or {}).get("value")
     if ca.get("crm_deal_id") or not (phone and ca.get("retail_deal_owner")):
         return False
     try:
@@ -1351,11 +1407,24 @@ step-2 fetch; −15 for a skipped/failed step-3 action; −25 if intent is \
 unclear. Nothing subtracted → confidence IS 92, action IS "send" (the \
 capability intro, one clarifying question, and a fully-fetched answer are \
 exactly this case; carding them is an error). Anything subtracted → "card".
-   MEMORY — re-read the customer's message before submitting: any decline \
-("no EMI"), preference ("WhatsApp only"), correction ("moved to Gurgaon"), \
-budget, objection or promise you made goes in learned[] with their exact \
-words. Submitting empty learned[] when one of these occurred is as wrong as \
-a fabricated price.
+   MEMORY — you are the ONLY writer of this customer's profile; nothing is \
+recorded unless you put it in profile_updates. Re-read the message and \
+judge each candidate: (a) THEIRS or a mention? A phone/pincode is `set` \
+only when given as their own, for this purchase — someone else's number, \
+an order number, an amount, an old address is a `note` or nothing. (b) NEW \
+or restated? A new value supersedes (set + learn correction with quote); a \
+restated one is simply set again — never duplicated. (c) CUSTOMER intent \
+or not? A collab pitch, dealer ask or complaint records what it IS (note) \
+and NEVER a product interest; interest means the customer asked about, \
+showed or chose a product — not a word that resembles a catalog name. \
+Declines ("no EMI"), preferences ("WhatsApp only"), budgets, objections, \
+promises you made, and routing/deal outcomes (quote the tool result) all go \
+in — each with the exact quote and a one-line note of your reason. When the \
+profile block says this is the FIRST time we hold a profile and shows \
+earlier conversations, those count as this turn's evidence too: a phone or \
+pincode the customer gave as their own back then goes in NOW (set it, quote \
+their words) — do not leave it to a later turn. Empty profile_updates on a \
+turn where any of this occurred is as wrong as a fabricated price.
 
 CONVERSATION POLICY:
 - Greeting: intent → serve it, no preamble. First contact, no intent, empty \
@@ -1478,25 +1547,26 @@ async def _handle_locked(conv, conv_id, channel, surface,
     prof = None
     if contact_id:
         prof = await profile_mod.load(contact_id)
+    prior_block = ""
     if prof is None:
-        prof = await profile_mod.cold_start(contact_id) if contact_id \
-            else profile_mod.empty_profile()
-    if contact_name and contact_name != "there":
-        prof.setdefault("identity", {}).setdefault(
-            "name", {"value": contact_name, "t": profile_mod._iso(now)})
-    merge_added = profile_mod.merge_events(
-        prof, profile_mod.events_from_conversation(conv, all_messages))
+        # First-ever sight of this contact: the profile starts EMPTY and their
+        # earlier conversations are handed to the agent as a transcript — it
+        # decides on this turn what is worth keeping. Nothing is pre-filled.
+        prof = profile_mod.empty_profile()
+        if contact_id:
+            prior_block = await profile_mod.prior_transcript(contact_id, conv_id)
     await profile_mod.soft_link(prof, contact_id or 0)
     await profile_mod.crm_lookup(prof, conv_id, inbox_name,
                                  zoho_crm.search_contact_by_phone,
                                  zoho_crm.get_contact_deals)
     phone_val = ((prof.get("identity") or {}).get("phone") or {}).get("value")
-    # A number from ANY source we hold (profile, prior captures, or one the
-    # customer just typed) — mirror it onto the conversation so the deal core
-    # and the manual Create Deal button (neither reads the profile) can use it.
+    # The phone the AGENT set in the profile on an earlier turn — mirror it
+    # onto the conversation so the deal core and the manual Create Deal button
+    # (neither reads the profile) can key a contact. Agent-sourced only; no
+    # scan of the thread.
     _retry_ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
                   "all_messages": all_messages}
-    known_phone = _known_phone(_retry_ctx)
+    known_phone = phone_val or ca.get("retail_customer_phone") or ""
     if known_phone and not ca.get("retail_customer_phone"):
         try:
             await chatwoot.merge_custom_attributes(
@@ -1550,17 +1620,25 @@ async def _handle_locked(conv, conv_id, channel, surface,
     # the moment the cap is crossed, marked in attrs so it happens once).
     over_budget = n_customer > config.SOCIAL_AGENT_HANDOFF_AFTER
     profile_block = profile_mod.render(prof, contact_name, inbox_name)
+    if prior_block:
+        profile_block += ("\n\nFIRST TIME WE HOLD A PROFILE FOR THIS CONTACT — "
+                          "their earlier conversations follow. Judge them as you "
+                          "would this turn's message and record the durable "
+                          "facts in profile_updates NOW: a phone or pincode they "
+                          "gave as their own is theirs — days or weeks old makes "
+                          "no difference (set identity.phone / location.pincode, "
+                          "quote their words, note when they gave it — and never "
+                          "ask for it again); a product they asked about is an "
+                          "interest; a "
+                          "decline is a decline. A value given for someone else "
+                          "or in an unrelated context is not theirs:\n" + prior_block)
     templates = await _templates_block(channel, surface)
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
                             templates, n_customer)
     viz_pass = ""
     if config.VISUALIZER_ENABLED and surface != "comment" \
             and _viz_allowed(conv):
-        _today = profile_mod.now().date().isoformat()
-        _used = sum(1 for e in prof.get("events") or []
-                    if e.get("kind") == "visualized"
-                    and str(e.get("t", "")).startswith(_today))
-        if _used < config.VISUALIZER_DAILY_CAP:
+        if _viz_used_today(prof) < config.VISUALIZER_DAILY_CAP:
             viz_pass = ("\n\n── VISUALIZER PASS FREE TODAY ──\n"
                         "A room preview is available for this customer.")
     user = (f"── CONVERSATION (IST timestamps) ──\n{transcript}{viz_pass}\n\n"
@@ -1568,7 +1646,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
            "vertical": vertical, "surface": surface, "escalate": None,
-           "all_messages": all_messages}
+           "all_messages": all_messages, "incoming_all": incoming_texts}
     trace = [{"type": "policy", "source": "system", "visibility": "internal",
               "label": "Flow",
               "detail": f"Agent mode ({surface or 'dm'}) on {channel} — "
@@ -1576,6 +1654,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     finish = None
     _repaired = False
+    tool_results: list[dict] = []     # this turn's evidence for the profile gate
     input_items = [{"role": "system", "content": system},
                    {"role": "user", "content": user}]
     for _step in range(config.SOCIAL_AGENT_MAX_STEPS):
@@ -1592,7 +1671,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         if not calls:
             # Protocol repair: the model answered in prose instead of calling
             # finish() (some models drift this way). Give it ONE forced-finish
-            # round-trip so its own reply, confidence and learned[] survive —
+            # round-trip so its own reply, confidence and profile_updates survive —
             # only if that also fails does the text fall through as a card.
             text = (getattr(r, "output_text", "") or "").strip()
             if text and not _repaired:
@@ -1602,7 +1681,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
                     "role": "system",
                     "content": "Protocol: end the turn by calling finish() — "
                                "put that reply in it, compute confidence "
-                               "mechanically, and include learned[]."})
+                               "mechanically, and include profile_updates."})
                 continue
             finish = {"action": "card", "reply": text, "confidence": 0,
                       "reasoning": "model ended without finish()"}
@@ -1630,7 +1709,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
                                      "sees your photos but no words. Call "
                                      "finish again with the accompanying "
                                      "reply text (include the listing link "
-                                     "per policy), confidence and learned[]."
+                                     "per policy), confidence and profile_updates."
                         })})
                     break
                 finish = args
@@ -1648,6 +1727,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
                           "visibility": "internal", "label": call.name,
                           "input": json.dumps(args, ensure_ascii=False)[:200],
                           "detail": json.dumps(result, ensure_ascii=False)[:400]})
+            tool_results.append({"name": call.name, "result": result})
             input_items.append({"type": "function_call", "name": call.name,
                                 "arguments": call.arguments,
                                 "call_id": call.call_id})
@@ -1682,9 +1762,47 @@ async def _handle_locked(conv, conv_id, channel, surface,
             print(f"[agent] forced finish failed for conv {conv_id}: {e}")
 
     # ── Learnings (quote-gated) + profile save ──────────────────────────────
-    if finish and finish.get("learned"):
-        profile_mod.merge_events(prof, profile_mod.verify_learned(
-            finish["learned"], incoming_texts, conv_id, inbox_name))
+    proposed = list((finish or {}).get("profile_updates") or []) + \
+        list((ctx["escalate"] or {}).get("profile_updates") or [])
+    if config.SOCIAL_AGENT_DEBUG_PROFILE:
+        print(f"[profile-debug] conv {conv_id} profile_updates="
+              f"{json.dumps(proposed, ensure_ascii=False)[:600]}")
+    if proposed:
+        # Evidence = this turn's customer messages (+ the prior-conversation
+        # transcript on a cold start, which is customer text too) + tool results.
+        verified = profile_mod.verify_updates(
+            proposed, incoming_texts + ([prior_block] if prior_block else []),
+            tool_results, conv_id, inbox_name)
+        profile_mod.apply_updates(prof, verified)
+        trace.append({"type": "decision", "source": "model",
+                      "visibility": "internal", "label": "Profile updates",
+                      "detail": json.dumps(
+                          [{k: v for k, v in u.items()
+                            if k in ("op", "field", "value", "kind", "what", "note")}
+                           for u in verified], ensure_ascii=False)[:400]})
+        new_phone = ((prof.get("identity") or {}).get("phone") or {}).get("value")
+        if new_phone and new_phone != phone_val:
+            # The deal flow's conversation attr follows an agent-set phone.
+            try:
+                await chatwoot.merge_custom_attributes(
+                    conv_id, {"retail_customer_phone": new_phone})
+            except Exception:
+                pass
+            phone_val = new_phone
+            await profile_mod.crm_lookup(prof, conv_id, inbox_name,
+                                         zoho_crm.search_contact_by_phone,
+                                         zoho_crm.get_contact_deals)
+            # Same-turn completion: the agent set the phone in finish, AFTER
+            # route_to_showroom ran (cold start / phone from history) — the
+            # enquiry is routed but no deal fired. Complete it now with the
+            # phone the agent just decided is theirs; the pre-turn twin above
+            # covers phones that arrive on later turns.
+            ca_now = conv.get("custom_attributes") or {}
+            if ca_now.get("retail_deal_owner") and not ca_now.get("crm_deal_id") \
+                    and not ca_now.get("auto_deal_deferred"):
+                ca_now.setdefault("retail_customer_phone", new_phone)
+                await _maybe_auto_deal({"conv": conv, "conv_id": conv_id,
+                                        "profile": prof})
     if contact_id:
         if profile_mod.consolidation_due(prof):
             await profile_mod.consolidate(prof, _consolidate_llm)

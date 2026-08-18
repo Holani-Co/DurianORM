@@ -504,6 +504,7 @@ UNBXD_SITE_KEY = os.environ.get(
 # the agent handles every new message, manual human replies included. Names
 # are compared case/punctuation-insensitively. The agent_mode_standdown
 # conversation attribute remains a manual opt-out — code never stamps it.
+SOCIAL_AGENT_DEBUG_PROFILE = _bool("SOCIAL_AGENT_DEBUG_PROFILE", "false")
 SOCIAL_AGENT_BOT_AGENT_NAMES = tuple(
     s for s in (re.sub(r"[^a-z0-9]", "", n.lower()) for n in
                 os.environ.get("SOCIAL_AGENT_BOT_AGENT_NAMES",

@@ -1,0 +1,245 @@
+# Profile writes are agent-decided — nothing enters the profile
+# deterministically. Every scenario here probes one judgment the agent must
+# make (theirs or a mention? new or restated? customer intent or a pitch?)
+# and the evidence gate behind it (a set/learn needs the customer's words or
+# a tool result from THIS turn). Suite is red until the profile_updates
+# contract lands; that is by design.
+
+# ── The MetaMile regression: catalog-lookalike words are not interest ──────
+- id: pitch_writes_no_product_interest
+  contact: {id: 2555, name: "Aadi Garg"}
+  script:
+    - {at: "0m", text: "Hey Durian Furniture team, We run MetaMile. Over the last 5 years we've built strong face value in Europe and handle multi-category procurement for high-paying buyers. European demand for Indian furniture is outstripping our supply network. Looking to connect with reliable Indian exporters."}
+  expect:
+    handled: agent_escalated
+    profile_lacks_event: [{kind: interest, what_contains: sofa},
+                          {kind: interest, what_contains: europa},
+                          {kind: interest, what_contains: leather}]
+    profile_field_absent: [identity.phone, location.pincode]
+
+- id: pitch_then_greeting_no_phantom_interest     # the 5625 replay
+  contact: {id: 2555, name: "Aadi Garg"}
+  prior_conversations:
+    - messages:
+        - {at: "-1d", text: "Hey Durian Furniture team, We run MetaMile. European demand for Indian furniture is outstripping our supply network. Looking to connect with reliable Indian exporters."}
+        - {at: "-1d", who: durian, text: "Thank you for reaching out, Aadi. We'll connect you with the relevant team."}
+  script:
+    - {at: "0m", text: "Hi"}
+  expect:
+    sent_not_contains: ["(?i)sofa", "(?i)leather", "(?i)still considering"]
+    profile_lacks_event: [{kind: interest, what_contains: sofa}]
+
+- id: lookalike_word_is_not_interest
+  script:
+    - {at: "0m", text: "hi, do you deliver to Alaska? my cousin lives there"}
+  expect:
+    profile_lacks_event: [{kind: interest, what_contains: alaska}]
+    profile_field_absent: [location.pincode]
+
+# ── Interest is the customer's expressed interest ─────────────────────────
+- id: expressed_interest_is_learned
+  script:
+    - {at: "0m", text: "the esmeralda marble dining set looks lovely, what does it cost?"}
+    - {at: "2m", text: "thank you so much, very helpful"}
+  expect:
+    profile_has_event: [{kind: interest, what_contains: esmeralda}]
+    profile_lacks_event: [{kind: interest, what_contains: helpful}]
+
+- id: interest_from_shared_post_is_judged
+  script:
+    - {at: "0m", text: "", content_attributes: {shared_post_caption: "The Benjamin corner sofa in camel leatherette — new arrival", image_type: ig_post}}
+    - {at: "1m", text: "how much is this one?"}
+  expect:
+    profile_has_event: [{kind: interest, what_contains: benjamin}]
+
+# ── Pincode: theirs, for this purpose — or just mentioned ─────────────────
+- id: own_pincode_is_set
+  script:
+    - {at: "0m", text: "I want to buy the lewis corner sofa. my pincode is 110054"}
+  expect:
+    profile_field: {location.pincode: "110054"}
+    tools_called: ["find_showrooms|route_to_showroom"]
+
+- id: someone_elses_pincode_not_set
+  script:
+    - {at: "0m", text: "I want to gift a recliner to my sister, she lives at pincode 400001. I am in Delhi 110054 myself, which showroom should I visit?"}
+  expect:
+    profile_field: {location.pincode: "110054"}
+    profile_field_absent: []
+    sent_not_contains: ["(?i)mumbai.*your nearest"]
+    judge: {min: 3}
+
+- id: stray_six_digits_not_a_pincode
+  script:
+    - {at: "0m", text: "my order number is 758331, when will it be delivered?"}
+  expect:
+    profile_field_absent: [location.pincode]
+
+- id: amount_not_a_pincode
+  script:
+    - {at: "0m", text: "my budget is around 125000 for a sofa set, what do you have?"}
+  expect:
+    profile_field_absent: [location.pincode]
+    profile_has_event: [{kind: budget, what_contains: "sofa"}]
+
+- id: corrected_pincode_supersedes
+  profile:
+    v: 2
+    updated_at: "2026-08-10T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {}
+    location: {pincode: {value: "110058", t: "2026-08-10T10:00:00+05:30"}}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events:
+      - {t: "2026-08-10T10:00:00+05:30", msg: 1, conv: 1, inbox: ig, kind: interest,
+         what: "Lewis corner sofa", quote: "lewis corner sofa"}
+  script:
+    - {at: "0m", text: "sorry that pincode was a typo, it is 110054 not 110058"}
+  expect:
+    profile_field: {location.pincode: "110054"}
+    profile_has_event: [{kind: correction, what_contains: "110054"}]
+
+- id: restated_pincode_no_duplicate
+  profile:
+    v: 2
+    updated_at: "2026-08-10T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {}
+    location: {pincode: {value: "110054", t: "2026-08-10T10:00:00+05:30"}}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  script:
+    - {at: "0m", text: "yes still 110054, which showroom is nearest?"}
+  expect:
+    profile_field: {location.pincode: "110054"}
+    profile_event_count: [{kind: correction, count: 0}]
+
+# ── Phone: theirs — or someone else's ─────────────────────────────────────
+- id: own_phone_is_set
+  script:
+    - {at: "0m", text: "I want to buy the lewis corner sofa. my number is 9560150835, pincode 110054"}
+  expect:
+    profile_field: {identity.phone: "9560150835"}
+    attrs: {retail_customer_phone: "9560150835"}
+    deal_created: true
+
+- id: someone_elses_phone_not_set
+  script:
+    - {at: "0m", text: "please call my husband on 9876543210 for the sofa order, I am just enquiring"}
+  expect:
+    profile_field_absent: [identity.phone]
+    profile_has_event: [{kind: note, what_contains: "husband"}]
+    judge: {min: 3}
+
+- id: phone_typed_twice_one_entry
+  script:
+    - {at: "0m", text: "9560150835 is my number"}
+    - {at: "1m", text: "9560150835 — that is the number, did you get it?"}
+  expect:
+    profile_field: {identity.phone: "9560150835"}
+    profile_event_count: [{kind: correction, count: 0}]
+
+- id: changed_phone_supersedes
+  profile:
+    v: 2
+    updated_at: "2026-08-10T10:00:00+05:30"
+    events_since_consolidation: 1
+    identity: {phone: {value: "9560150835", t: "2026-08-01T09:00:00+05:30"}}
+    location: {pincode: {value: "110054", t: "2026-08-01T09:00:00+05:30"}}
+    commercial: {}
+    linked_contacts: []
+    consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
+    events: []
+  script:
+    - {at: "0m", text: "please use 9811111111 from now on, the old number is closed"}
+  expect:
+    profile_field: {identity.phone: "9811111111"}
+    profile_has_event: [{kind: correction, what_contains: "9811111111"}]
+
+# ── Routing and deals: learned from tool evidence, never invented ──────────
+- id: routed_learned_with_tool_evidence
+  script:
+    - {at: "0m", text: "I want to buy the lewis corner sofa. 9560150835, pincode 110054"}
+  expect:
+    tools_called: ["route_to_showroom"]
+    profile_field: {commercial.showroom: "Delhi - Kirti Nagar"}
+    profile_has_event: [{kind: routed, what_contains: "Kirti Nagar"}]
+
+- id: showroom_not_set_without_routing
+  script:
+    - {at: "0m", text: "which showrooms do you have in Delhi?"}
+  expect:
+    tools_not_called: ["route_to_showroom"]
+    profile_field_absent: [commercial.showroom]
+
+# ── Non-customer intent writes what it IS, never a product ────────────────
+- id: dealer_enquiry_is_a_note
+  script:
+    - {at: "0m", text: "we want to become a Durian dealer for the Lucknow region, who do we speak to?"}
+  expect:
+    handled: agent_escalated
+    profile_lacks_event: [{kind: interest, what_contains: sofa}]
+    profile_has_event: [{kind: note, what_contains: dealer}]
+
+- id: complaint_is_not_interest
+  script:
+    - {at: "0m", text: "the benjamin sofa you delivered last month has a broken leg, this is unacceptable"}
+  expect:
+    handled: agent_escalated
+    profile_lacks_event: [{kind: interest, what_contains: benjamin}]
+    profile_has_event: [{kind: note, what_contains: broken}]
+
+# ── Declines and preferences still land (contract continuity) ─────────────
+- id: decline_still_recorded
+  history:
+    - {at: "-20m", text: "EMI options for the esmeralda marble dining set?"}
+    - {at: "-19m", who: durian, text: "EMI is available from Rs 34,146/month for 6 months."}
+  script:
+    - {at: "0m", text: "no EMI for me, I will pay the full amount"}
+  expect:
+    profile_has_event: [{kind: declined, what_contains: emi}]
+
+- id: preference_still_recorded
+  script:
+    - {at: "0m", text: "I want the benjamin corner sofa. please send photos on WhatsApp only, not here"}
+  expect:
+    profile_has_event: [{kind: preference, what_contains: whatsapp}]
+
+# ── The evidence gate: fabricated updates are rejected ────────────────────
+- id: unverified_update_rejected
+  # No pincode anywhere in this turn: any set of location.pincode is invention.
+  script:
+    - {at: "0m", text: "hi, what sofas do you have?"}
+  expect:
+    profile_field_absent: [location.pincode, identity.phone]
+
+# ── Cold start: prior conversations are transcript, judged on turn one ────
+- id: cold_start_judges_prior_history
+  prior_conversations:
+    - messages:
+        - {at: "-5d", text: "I liked the esmeralda set. my number is 9560150835"}
+        - {at: "-5d", who: durian, text: "Thank you, our team will reach out."}
+    - messages:
+        - {at: "-3d", text: "also, my brother is looking at 400001 for a recliner, can he visit a store there?"}
+        - {at: "-3d", who: durian, text: "Yes, our Mumbai showroom can help him."}
+  script:
+    - {at: "0m", text: "hi again, ready to buy the esmeralda. pincode 110054"}
+  expect:
+    profile_field: {identity.phone: "9560150835", location.pincode: "110054"}
+    profile_has_event: [{kind: interest, what_contains: esmeralda}]
+    sent_not_contains: ["phone number\\?", "contact number\\?"]
+    judge: {min: 3}
+
+- id: cold_start_history_pincode_not_theirs
+  prior_conversations:
+    - messages:
+        - {at: "-3d", text: "my brother is looking at 400001 for a recliner, can he visit a store there?"}
+        - {at: "-3d", who: durian, text: "Yes, our Mumbai showroom can help him."}
+  script:
+    - {at: "0m", text: "hi, what recliners do you have?"}
+  expect:
+    profile_field_absent: [location.pincode]

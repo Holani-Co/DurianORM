@@ -6,7 +6,7 @@
   script:
     - {at: "0m", text: "I want the benjamin corner sofa. my number is 9560150835, pincode 110054"}
   expect:
-    profile_has_event: [{kind: crm_linked, what_contains: "CRM-77"}]
+    profile_field: {commercial.crm_contact_id: "CRM-77"}
     deal_created: true
     judge: {min: 3}
 
@@ -15,7 +15,7 @@
   script:
     - {at: "0m", text: "I want the lewis corner sofa. 9560150835, pincode 110054"}
   expect:
-    profile_lacks_event: [{kind: crm_linked, what_contains: "CRM"}]
+    profile_field_absent: [commercial.crm_contact_id]
     sent_not_contains: ["CRM", "no record of you"]
     judge: {min: 3}
 

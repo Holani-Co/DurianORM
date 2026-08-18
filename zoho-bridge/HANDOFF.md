@@ -459,3 +459,75 @@ Done this session (all still UNCOMMITTED, on top of everything above):
 - Watch live: `tail -f /var/log/zoho-bridge.log` on the server; agent
   traces in conversation ai_trace (decode double-encoded — see
   prod-observability memory).
+
+## 11 · Addendum — the profile is agent-decided (2026-08-15)
+
+**Incident that forced it:** conv 5576 (a MetaMile collab pitch containing
+"European") → the code-side scanner fuzzy-matched `product_catalog.search`
+to family **EUROPA** → wrote `interest: 2STR LEATHER SOFA` to the contact's
+profile → next day (conv 5625) the agent greeted "Hi" with "still
+considering a 2-seater leather sofa?". Vaibhav's rule, verbatim: everything
+in every message matters, but it cannot be extracted deterministically —
+**the agent decides what the profile should have.**
+
+### What changed
+- `customer_profile.py`: **lane 1 is gone** — no `events_from_conversation`
+  (regex phone/pincode, catalog scan, raw comment/caption capture,
+  routed/deal state copy), no cold-start extraction, no CRM event writes,
+  no contact-name write. `merge_events` no longer promotes anything into
+  identity/location/commercial.
+- The contract: `finish.profile_updates[]` **and**
+  `escalate_to_human.profile_updates[]` (escalation ends the turn without
+  finish, so it carries the same duty). Items: `set {field, value, quote,
+  note}` with `SET_FIELDS` = identity.phone / location.pincode /
+  location.city / commercial.showroom; `learn {kind, what, quote, note}`
+  with `LEARN_KINDS` = interest, declined, preference, correction, budget,
+  objection, promise, routed, deal_created, note.
+- The evidence gate `verify_updates(updates, incoming_texts, tool_results,…)`:
+  quote must appear in this turn's customer messages, the cold-start prior
+  transcript, or a tool result. `op` always wins over schema-filler junk
+  (Luna fills every property — a `learn` arrives with `field:"identity.phone",
+  value:""`; ignore it).
+- `apply_updates`: a `set` that CHANGES an existing value derives a
+  `correction` event; a `commercial.showroom` set derives `routed`. Derived
+  from the agent's decision, not extracted.
+- Cold start: `prior_transcript(contact_id, current_conv_id, max=3)` renders
+  earlier conversations (comments included) as a dated transcript; the
+  agent judges them on turn one (prompt block + the MEMORY step both say
+  history counts as this turn's evidence).
+- Write skills take `phone` explicitly: `route_to_showroom(phone=)` /
+  `register_enquiry(phone=)` → `_record_enquiry_phone` stamps
+  `retail_customer_phone` (deal-flow contract) ONLY if the customer typed
+  those digits this thread or the agent already set that phone in the
+  profile. Auto-deal keys on that. Two completion twins: pre-turn (phone
+  arrived on a later turn than routing) and post-finish (agent set the phone
+  in finish AFTER route ran — cold start).
+- Visualizer daily cap → `profile["ops"]["visualized_at"]` (operational
+  state; never rendered, never agent-writable). Harness: `viz_used`,
+  `viz_used_min`; seeds via `ops:` in profile.
+- Debug: `SOCIAL_AGENT_DEBUG_PROFILE=1` prints the model's raw
+  `profile_updates` per turn — the fastest way to tell "model didn't emit"
+  from "gate rejected" (`[profile] rejected …` lines).
+
+### Tests
+- New suite `18_profile_judgment.yaml` (24): pitch/lookalike → no interest;
+  own vs someone-else's pincode/phone; stray 6-digits/amounts; corrected vs
+  restated values; routed only with tool evidence; dealer/complaint → note;
+  decline/preference continuity; unverified update rejected; cold-start
+  judgment (keep the phone, reject the brother's pincode).
+- Harness expects: `profile_field: {identity.phone: "…"}`,
+  `profile_field_absent: [location.pincode]`.
+- Judge transcript is now INTERLEAVED per turn (test_scenarios.py) — the
+  old "all customer lines, then one blob of replies" made every multi-turn
+  exchange read as one stitched message with duplicate sign-offs; Terra
+  scored those 1. Rubric also now names 📞/🗺️ as approved glyphs and
+  defines the stitching tell as a SECOND salutation/sign-off.
+- Units: `test_verify_updates_*`, `test_apply_updates_sets_and_learns`,
+  `test_no_deterministic_profile_writers` (asserts the scanner is gone).
+
+### Prod data
+`migrate_profiles_agent_lane.py` (preview by default, `--apply` to write;
+contact ids on stdin from psql). Dry-run on the 2026-08-15 snapshot: 55
+profiles → 17 quote-bearing events kept, 138 code-lane events dropped, 46
+profiles emptied (rebuilt by the agent from their transcript on next
+contact), all 9 regex-derived phones dropped. Aadi Garg (2555) → empty.

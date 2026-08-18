@@ -89,17 +89,6 @@ def test_merge_idempotent():
     assert len(p["events"]) == 1
 
 
-def test_verify_learned_quote_gate():
-    ok = cp.verify_learned(
-        [{"kind": "declined", "what": "EMI", "quote": "no EMI, full payment"}],
-        ["I said no EMI, full payment please"], 1, "ig")
-    assert len(ok) == 1
-    bad = cp.verify_learned(
-        [{"kind": "declined", "what": "EMI", "quote": "I hate EMI forever"}],
-        ["actually EMI sounds nice"], 1, "ig")
-    assert bad == []
-
-
 def test_consolidation_due():
     p = cp.empty_profile()
     p["events_since_consolidation"] = cp.CONSOLIDATE_AFTER_EVENTS
@@ -411,3 +400,91 @@ def test_search_products_passes_price_axis(monkeypatch):
     # invalid sort value never reaches the search layer
     asyncio.run(handler({}, query="centre table", sort="cheapest"))
     assert calls[1]["sort"] == ""
+
+
+# ── Profile-updates contract: the evidence gate ─────────────────────────────
+# Red until customer_profile.verify_updates lands (agent-decided profile).
+
+def _upd(kind=None, field=None, what="", value="", quote="", note=""):
+    d = {"quote": quote, "note": note}
+    if kind:
+        d.update(op="learn", kind=kind, what=what)
+    else:
+        d.update(op="set", field=field, value=value)
+    return d
+
+
+def test_verify_updates_quote_gate():
+    msgs = ["I want the lewis sofa, my pincode is 110054"]
+    tools = []
+    ok = cp.verify_updates([
+        _upd(field="location.pincode", value="110054", quote="my pincode is 110054"),
+        _upd(kind="interest", what="Lewis corner sofa", quote="I want the lewis sofa"),
+    ], msgs, tools, conv_id=1, inbox="ig")
+    assert {u["op"] for u in ok} == {"set", "learn"}
+    # fabricated: quote not in the turn's messages → rejected
+    bad = cp.verify_updates([
+        _upd(field="identity.phone", value="9560150835", quote="my number is 9560150835"),
+    ], msgs, tools, conv_id=1, inbox="ig")
+    assert bad == []
+
+
+def test_verify_updates_tool_evidence():
+    # A routed learning is verifiable against this turn's tool results even
+    # though the customer never typed the showroom name.
+    tools = [{"name": "route_to_showroom",
+              "result": {"routed": True, "showroom": "Delhi - Kirti Nagar"}}]
+    ok = cp.verify_updates([
+        _upd(kind="routed", what="Delhi - Kirti Nagar", quote="Delhi - Kirti Nagar"),
+        _upd(field="commercial.showroom", value="Delhi - Kirti Nagar",
+             quote="Delhi - Kirti Nagar"),
+    ], ["pincode 110054 please"], tools, conv_id=1, inbox="ig")
+    assert len(ok) == 2
+    # no such tool result → the same items are invention
+    assert cp.verify_updates([
+        _upd(kind="routed", what="Delhi - Kirti Nagar", quote="Delhi - Kirti Nagar"),
+    ], ["pincode 110054 please"], [], conv_id=1, inbox="ig") == []
+
+
+def test_verify_updates_closed_lists():
+    msgs = ["set my colour to green, my pincode is 110054"]
+    out = cp.verify_updates([
+        _upd(field="identity.email", value="x@y.z", quote="my pincode is 110054"),   # not a settable field
+        _upd(kind="favourite_colour", what="green", quote="my colour to green"),     # not a learn kind
+        _upd(field="location.pincode", value="110054", quote="my pincode is 110054"),
+    ], msgs, [], conv_id=1, inbox="ig")
+    assert [u["op"] for u in out] == ["set"]
+
+
+def test_apply_updates_sets_and_learns():
+    p = cp.empty_profile()
+    cp.apply_updates(p, [
+        {"op": "set", "field": "identity.phone", "value": "9560150835",
+         "quote": "my number is 9560150835", "note": "gave it as their own",
+         "t": "2026-08-12T10:00:00+05:30", "conv": 1, "inbox": "ig"},
+        {"op": "learn", "kind": "interest", "what": "Lewis corner sofa",
+         "quote": "the lewis sofa", "note": "", "t": "2026-08-12T10:00:00+05:30",
+         "conv": 1, "inbox": "ig"},
+    ])
+    assert p["identity"]["phone"]["value"] == "9560150835"
+    assert p["identity"]["phone"]["note"] == "gave it as their own"
+    assert [e["kind"] for e in p["events"]] == ["interest"]
+    # a later set supersedes; the profile keeps the current value only
+    cp.apply_updates(p, [
+        {"op": "set", "field": "identity.phone", "value": "9811111111",
+         "quote": "use 9811111111", "note": "old number closed",
+         "t": "2026-08-13T10:00:00+05:30", "conv": 2, "inbox": "ig"}])
+    assert p["identity"]["phone"]["value"] == "9811111111"
+    # idempotent: the same update twice (webhook re-fire) learns once
+    cp.apply_updates(p, [
+        {"op": "learn", "kind": "interest", "what": "Lewis corner sofa",
+         "quote": "the lewis sofa", "note": "", "t": "2026-08-12T10:00:00+05:30",
+         "conv": 1, "inbox": "ig"}])
+    assert sum(1 for e in p["events"] if e["kind"] == "interest") == 1
+
+
+def test_no_deterministic_profile_writers():
+    # The code lane is gone: no message scanner, no state copier.
+    assert not hasattr(cp, "events_from_conversation")
+    prof = cp.empty_profile()
+    assert prof.get("identity") == {} and prof.get("location") == {}

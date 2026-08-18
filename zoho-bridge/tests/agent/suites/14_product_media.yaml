@@ -38,7 +38,7 @@
   script:
     - {at: "0m", text: "here is my living room, show me the meagan sofa in it", photo: true}
   expect:
-    profile_lacks_event: [{kind: visualized, what_contains: ""}]
+    viz_used: 0
     anywhere_contains: ["number|details|pincode|city"]
     judge: {min: 3}
 
@@ -62,7 +62,7 @@
     - {at: "0m", text: "here is my living room, show the slate grey meagan in it please", photo: true}
   expect:
     tools_called: ["visualize_in_room"]
-    profile_has_event: [{kind: visualized, what_contains: MEAGAN}]
+    viz_used_min: 1
     images_sent_min: 1
     anywhere_contains: ["indicative|preview|vary"]
     judge: {min: 3}
@@ -78,11 +78,11 @@
     commercial: {showroom: {value: "Delhi - Kirti Nagar", t: "2026-08-12T10:00:00+05:30"}}
     linked_contacts: []
     consolidated: {stable_facts: [], episodes: [], transitions: [], stats: {}}
-    events:
-      - {t: "2026-08-12T11:00:00+05:30", msg: 900, conv: 1, inbox: ig, kind: visualized, what: MEAGAN}
+    events: []
+    ops: {visualized_at: ["2026-08-12T11:00:00+05:30"]}
   script:
     - {at: "0m", text: "amazing! now show me the benjamin corner in the same room", photo: true}
   expect:
-    profile_event_count: [{kind: visualized, count: 1}]
+    viz_used: 1
     anywhere_contains: ["team|specialist|sales"]
     judge: {min: 3}

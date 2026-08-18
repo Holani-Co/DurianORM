@@ -1,0 +1,207 @@
+bringing up nodes...
+bringing up nodes...
+
+..............R..R..................................................RF.. [ 43%]
+...........R.F.......R.F................................................ [ 86%]
+.....................                                                    [100%]
+[agent-tests] tokens in=0 out=0 ≈ $0.000 this run
+
+=================================== FAILURES ===================================
+_____________________ test_scenario[post_split_price_ask] ______________________
+[gw0] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'post_split_price_ask', 'prior_conversations': [{'messages': [{'at': '-2h', 'text': 'Shared post', 'content_att...e_contains': ['2,?04,?880|Esmeralda'], 'sent_not_contains': ['which product', 'which item'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x1079a67a0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        dump = os.environ.get("DUMP_TRANSCRIPTS")
+        if dump:
+            import json as _json
+            import re as _re
+            import config as _config
+            prof = scenario.get("profile") or {}
+            ident, loc = prof.get("identity") or {}, prof.get("location") or {}
+            summary = ", ".join(x for x in [
+                ("phone …" + _re.sub(r"\D", "", (ident.get("phone") or {}).get("value", ""))[-4:])
+                if ident.get("phone") else "",
+                (loc.get("city") or {}).get("value", ""),
+                (loc.get("pincode") or {}).get("value", ""),
+                f"{len(prof.get('events') or [])} events" if prof.get("events") else "",
+                f"{scenario['profile_bulk_events']} bulk events"
+                if scenario.get("profile_bulk_events") else ""] if x)
+            context = {
+                "profile_set": bool(prof or scenario.get("profile_bulk_events")),
+                "profile_summary": summary,
+                "history": scenario.get("history") or [],
+                "prior_conversations": [
+                    {"comment": bool(p.get("comment")), "messages": p.get("messages") or []}
+                    for p in scenario.get("prior_conversations") or []],
+                "offers": [o.get("caption") for o in scenario.get("offers") or []],
+                "crm_fixture": bool((scenario.get("crm") or {}).get("contact")),
+                "linked": len(scenario.get("linked_contacts") or [])}
+            with open(dump, "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "suite": scenario["suite"], "id": scenario["id"],
+                    "model": _config.SOCIAL_AGENT_MODEL,
+                    "surface": scenario.get("surface") or "dm",
+                    "passed": not errors, "errors": errors, "context": context,
+                    "steps": getattr(eng, "timeline", [])}, ensure_ascii=False) + "\n")
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [14_product_media/post_split_price_ask] sent must not contain: 'which product'; no output contains: '2,?04,?880|Esmeralda'
+E         --- sent ---
+E         Which product would you like the price for? Please share the product name or resend the post.
+E         --- cards ---
+E         
+E       assert not ["sent must not contain: 'which product'", "no output contains: '2,?04,?880|Esmeralda'"]
+
+tests/agent/test_scenarios.py:53: AssertionError
+_____________________ test_scenario[post_split_photo_ask] ______________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'post_split_photo_ask', 'prior_conversations': [{'messages': [{'at': '-2h', 'text': 'Shared post', 'content_att...are_product_images'], 'images_sent_min': 1, 'images_sent_contains': ['esmeralda|Esmeralda'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x111ae2ac0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        dump = os.environ.get("DUMP_TRANSCRIPTS")
+        if dump:
+            import json as _json
+            import re as _re
+            import config as _config
+            prof = scenario.get("profile") or {}
+            ident, loc = prof.get("identity") or {}, prof.get("location") or {}
+            summary = ", ".join(x for x in [
+                ("phone …" + _re.sub(r"\D", "", (ident.get("phone") or {}).get("value", ""))[-4:])
+                if ident.get("phone") else "",
+                (loc.get("city") or {}).get("value", ""),
+                (loc.get("pincode") or {}).get("value", ""),
+                f"{len(prof.get('events') or [])} events" if prof.get("events") else "",
+                f"{scenario['profile_bulk_events']} bulk events"
+                if scenario.get("profile_bulk_events") else ""] if x)
+            context = {
+                "profile_set": bool(prof or scenario.get("profile_bulk_events")),
+                "profile_summary": summary,
+                "history": scenario.get("history") or [],
+                "prior_conversations": [
+                    {"comment": bool(p.get("comment")), "messages": p.get("messages") or []}
+                    for p in scenario.get("prior_conversations") or []],
+                "offers": [o.get("caption") for o in scenario.get("offers") or []],
+                "crm_fixture": bool((scenario.get("crm") or {}).get("contact")),
+                "linked": len(scenario.get("linked_contacts") or [])}
+            with open(dump, "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "suite": scenario["suite"], "id": scenario["id"],
+                    "model": _config.SOCIAL_AGENT_MODEL,
+                    "surface": scenario.get("surface") or "dm",
+                    "passed": not errors, "errors": errors, "context": context,
+                    "steps": getattr(eng, "timeline", [])}, ensure_ascii=False) + "\n")
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [15_image_coverage/post_split_photo_ask] tool not called: share_product_images (called: []); images sent 0 < 1; no image send matches: 'esmeralda|Esmeralda' (sent: [])
+E         --- sent ---
+E         
+E         --- cards ---
+E         Of course. Which product from the shared post would you like to see more photos of?
+E       assert not ['tool not called: share_product_images (called: [])', 'images sent 0 < 1', "no image send matches: 'esmeralda|Esmeralda' (sent: [])"]
+
+tests/agent/test_scenarios.py:53: AssertionError
+_______________________ test_scenario[comment_no_images] _______________________
+[gw1] darwin -- Python 3.11.14 /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/bin/python
+
+scenario = {'id': 'comment_no_images', 'surface': 'comment', 'script': [{'at': '0m', 'text': 'price? and send pics of this sofa'}...es_sent_max': 0, 'sent_not_contains': ['₹', '\\d{1,2},\\d{3}'], 'anywhere_contains': ['dm'], 'judge': {'min': 3}}, ...}
+engine_factory = <function engine_factory.<locals>.make at 0x112cec5e0>
+
+    @pytest.mark.parametrize("scenario", SCENARIOS,
+                             ids=[s["id"] for s in SCENARIOS])
+    def test_scenario(scenario, engine_factory):
+        eng = engine_factory(scenario)
+        asyncio.get_event_loop().run_until_complete(eng.run())
+        errors, sent, cards = eng.check()
+        dump = os.environ.get("DUMP_TRANSCRIPTS")
+        if dump:
+            import json as _json
+            import re as _re
+            import config as _config
+            prof = scenario.get("profile") or {}
+            ident, loc = prof.get("identity") or {}, prof.get("location") or {}
+            summary = ", ".join(x for x in [
+                ("phone …" + _re.sub(r"\D", "", (ident.get("phone") or {}).get("value", ""))[-4:])
+                if ident.get("phone") else "",
+                (loc.get("city") or {}).get("value", ""),
+                (loc.get("pincode") or {}).get("value", ""),
+                f"{len(prof.get('events') or [])} events" if prof.get("events") else "",
+                f"{scenario['profile_bulk_events']} bulk events"
+                if scenario.get("profile_bulk_events") else ""] if x)
+            context = {
+                "profile_set": bool(prof or scenario.get("profile_bulk_events")),
+                "profile_summary": summary,
+                "history": scenario.get("history") or [],
+                "prior_conversations": [
+                    {"comment": bool(p.get("comment")), "messages": p.get("messages") or []}
+                    for p in scenario.get("prior_conversations") or []],
+                "offers": [o.get("caption") for o in scenario.get("offers") or []],
+                "crm_fixture": bool((scenario.get("crm") or {}).get("contact")),
+                "linked": len(scenario.get("linked_contacts") or [])}
+            with open(dump, "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "suite": scenario["suite"], "id": scenario["id"],
+                    "model": _config.SOCIAL_AGENT_MODEL,
+                    "surface": scenario.get("surface") or "dm",
+                    "passed": not errors, "errors": errors, "context": context,
+                    "steps": getattr(eng, "timeline", [])}, ensure_ascii=False) + "\n")
+>       assert not errors, f"[{scenario['suite']}/{scenario['id']}] " + \
+            "; ".join(errors) + f"\n--- sent ---\n{sent}\n--- cards ---\n{cards}"
+E       AssertionError: [15_image_coverage/comment_no_images] no output contains: 'dm'
+E         --- sent ---
+E         Please share the product name, screenshot, or link of the sofa you mean. We’ll then send its price and photos.
+E         --- cards ---
+E         
+E       assert not ["no output contains: 'dm'"]
+
+tests/agent/test_scenarios.py:53: AssertionError
+=============================== warnings summary ===============================
+tests/agent/test_units.py::test_deal_vertical_label_fallback
+  /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/main.py:69: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+tests/agent/test_units.py::test_deal_vertical_label_fallback
+tests/agent/test_units.py::test_deal_vertical_label_fallback
+  /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/venv/lib/python3.11/site-packages/fastapi/applications.py:4495: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+tests/agent/test_units.py::test_deal_vertical_label_fallback
+  /Users/vaibhavholani/development/business/durian_projects/DurianORM/zoho-bridge/main.py:75: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agent/test_scenarios.py::test_scenario[post_split_price_ask] - A...
+FAILED tests/agent/test_scenarios.py::test_scenario[post_split_photo_ask] - A...
+FAILED tests/agent/test_scenarios.py::test_scenario[comment_no_images] - Asse...
+3 failed, 157 passed, 4 warnings, 5 rerun in 526.73s (0:08:46)
+exit=1

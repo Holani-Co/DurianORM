@@ -7,13 +7,16 @@
 # (custom_attributes.durian_profile) so it follows the person across
 # conversations and is visible/editable in the Chatwoot sidebar.
 #
-# Learning lanes:
-#   lane 1 (code, every turn)  — regex/lookup facts: phone, pincode, catalog
-#       family products, shared-post captions, comments, routing/deal attrs.
-#   lane 2 (model, same call)  — judgment events (declined / preference /
-#       correction / promise) proposed in finish.learned and accepted ONLY if
-#       their `quote` appears in this turn's customer messages. The model can
-#       never dream a fact into someone's permanent record.
+# ONE writer: the agent. Nothing enters the profile deterministically — no
+# regex, no catalog scan, no state copying. At the end of every turn the
+# agent submits finish.profile_updates: `set` (a current fact — phone,
+# pincode, city, showroom) or `learn` (a dated event — interest, declined,
+# preference, correction, budget, objection, promise, routed, deal_created,
+# note), each with the customer's quote and the agent's reason. Code then
+# runs the EVIDENCE GATE: the quote must appear in this turn's customer
+# messages or in a tool result the agent actually received — the model can
+# never dream a fact into someone's permanent record — and applies what
+# passes idempotently (webhook re-fires cannot double-learn).
 #
 # Size: the rendered block is budgeted (~500 tokens); events compact into
 # `consolidated` via a write-triggered pass (maybe_consolidate) — no cron,
@@ -24,7 +27,6 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import chatwoot
-import product_catalog
 
 IST = timezone(timedelta(hours=5, minutes=30))
 PROFILE_KEY = "durian_profile"
@@ -93,86 +95,114 @@ def empty_profile() -> dict:
                              "transitions": [], "stats": {}}}
 
 
-# ── Lane 1: deterministic event extraction ──────────────────────────────────
+# ── The contract: profile_updates → evidence gate → apply ─────────────────
 
-def events_from_conversation(conv: dict, messages: list,
-                             after_msg_id: int | None = None) -> list[dict]:
-    """Code-derived events from one conversation's messages (newer than
-    after_msg_id when given). Product detection is family-anchored only."""
-    conv_id = conv.get("id")
-    inbox = ((conv.get("meta") or {}).get("channel") or "") or \
-        (conv.get("inbox") or {}).get("name") or ""
-    is_comment = "comment" in " ".join(conv.get("labels") or [])
-    out: list[dict] = []
-    for m in messages or []:
-        mid = m.get("id")
-        if after_msg_id is not None and (mid or 0) <= after_msg_id:
-            continue
-        if m.get("message_type") not in (0, "incoming"):
-            continue
-        text = (m.get("content") or "").strip()
-        t = _ts(m.get("created_at"))
-        base = {"t": t, "msg": mid, "conv": conv_id, "inbox": inbox}
-        cap = msg_attrs(m).get("shared_post_caption")
-        if cap:
-            out.append({**base, "kind": "shared_post", "what": cap[:160]})
-        if not text:
-            continue
-        if is_comment:
-            out.append({**base, "kind": "commented", "what": text[:160]})
-            continue
-        pm = _PHONE_RE.search(text)
-        if pm:
-            out.append({**base, "kind": "phone", "what": pm.group(0)})
-        pinm = _PIN_RE.search(text)
-        if pinm and not pm:  # a phone contains 6-digit runs; phone wins
-            out.append({**base, "kind": "pincode", "what": pinm.group(0)})
-        hit = product_catalog.search(text, limit=1, require_family=True)
-        if hit:
-            out.append({**base, "kind": "interest",
-                        "what": hit[0].get("name") or hit[0].get("sku"),
-                        "sku_family": hit[0].get("family")})
-    # Conversation-level facts the gates/deal flow wrote.
-    ca = conv.get("custom_attributes") or {}
-    conv_t = _ts(conv.get("last_activity_at") or conv.get("created_at"))
-    owner = ca.get("retail_deal_owner") or {}
-    if owner.get("location"):
-        out.append({"t": conv_t, "msg": None, "conv": conv_id, "inbox": inbox,
-                    "kind": "routed", "what": owner.get("location"),
-                    "city": owner.get("city")})
-    if ca.get("crm_deal_id"):
-        out.append({"t": conv_t, "msg": None, "conv": conv_id, "inbox": inbox,
-                    "kind": "deal_created", "what": str(ca["crm_deal_id"])})
-    return out
+LEARN_KINDS = ("interest", "declined", "preference", "correction", "budget",
+               "objection", "promise", "routed", "deal_created", "note")
+SET_FIELDS = ("identity.phone", "location.pincode", "location.city",
+              "commercial.showroom")
 
 
-# ── Lane 2: quote-verified model learnings ──────────────────────────────────
-
-_LEARN_KINDS = {"declined", "preference", "correction", "budget", "objection",
-                "promise", "note"}
+def _norm(text) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 
 
-def verify_learned(learned: list, incoming_texts: list[str],
-                   conv_id, inbox: str) -> list[dict]:
-    """Accept a model-proposed learning only when its quote actually appears in
-    this turn's customer messages (normalised substring)."""
-    haystack = re.sub(r"\s+", " ", " ".join(incoming_texts or [])).lower()
+def _tool_haystack(tool_results: list) -> str:
+    """Everything the agent received from tools this turn, flattened — a
+    learn/set about a routing or deal is verifiable against it."""
+    parts = []
+    for r in tool_results or []:
+        try:
+            parts.append(json.dumps(r.get("result") if isinstance(r, dict)
+                                    else r, ensure_ascii=False))
+        except (TypeError, ValueError):
+            parts.append(str(r))
+    return _norm(" ".join(parts))
+
+
+def verify_updates(updates: list, incoming_texts: list[str],
+                   tool_results: list, conv_id, inbox: str) -> list[dict]:
+    """The evidence gate. Accept an update only when it is well-formed (a
+    closed list of set fields / learn kinds) AND its quote appears in this
+    turn's customer messages or tool results. Rejections are logged, never
+    stored. Returns stamped, apply-ready updates."""
+    msg_hay = _norm(" ".join(incoming_texts or []))
+    tool_hay = _tool_haystack(tool_results)
+    stamp = _iso(now())
     out = []
-    for item in learned or []:
-        kind = str(item.get("kind") or "").strip().lower()
-        quote = re.sub(r"\s+", " ", str(item.get("quote") or "")).strip().lower()
-        what = str(item.get("what") or item.get("new") or "").strip()
-        if kind not in _LEARN_KINDS or not what:
+    for item in updates or []:
+        if not isinstance(item, dict):
             continue
-        if not quote or quote[:80] not in haystack:
-            print(f"[profile] rejected unverified learning: {kind}/{what[:40]}")
+        op = str(item.get("op") or "").strip().lower()
+        if op not in ("set", "learn"):
+            # tolerate a missing op only when the item is unambiguous
+            op = "set" if (item.get("field") and not item.get("kind")) else "learn"
+        quote = _norm(item.get("quote"))[:160]
+        note = str(item.get("note") or "").strip()[:200]
+        if op == "set":
+            field = str(item.get("field") or "").strip().lower()
+            value = str(item.get("value") or "").strip()
+            if field not in SET_FIELDS or not value:
+                print(f"[profile] rejected set {field!r}: not a settable field / empty")
+                continue
+            what_for_log = f"{field}={value}"
+        else:
+            kind = str(item.get("kind") or "").strip().lower()
+            value = str(item.get("what") or "").strip()
+            if kind not in LEARN_KINDS or not value:
+                print(f"[profile] rejected learn {kind!r}: not a learn kind / empty")
+                continue
+            what_for_log = f"{kind}/{value[:40]}"
+        probe = quote[:80]
+        if not probe or (probe not in msg_hay and probe not in tool_hay):
+            print(f"[profile] rejected unverified update: {what_for_log} "
+                  f"(quote {quote[:50]!r} not in this turn)")
             continue
-        ev = {"t": _iso(now()), "msg": None, "conv": conv_id, "inbox": inbox,
-              "kind": kind, "what": what[:160], "quote": quote[:160]}
-        if item.get("field"):
-            ev["field"] = str(item["field"])[:40]
+        ev = {"op": op, "t": stamp, "conv": conv_id, "inbox": inbox,
+              "quote": quote, "note": note}
+        if op == "set":
+            ev.update(field=field, value=value[:160])
+        else:
+            ev.update(kind=kind, what=value[:160])
         out.append(ev)
     return out
+
+
+def apply_updates(profile: dict, updates: list[dict]) -> int:
+    """Write verified updates. `set` replaces the current fact (value, when,
+    why, quote); `learn` appends a dated event via merge_events (idempotent
+    on time+kind+what, so a re-fired webhook cannot double-learn). Returns
+    the number of changes made."""
+    changed = 0
+    for u in updates or []:
+        if u.get("op") == "set":
+            sec, _, fld = str(u.get("field") or "").partition(".")
+            cur = (profile.get(sec) or {}).get(fld) or {}
+            entry = {"value": u.get("value"), "t": u.get("t"),
+                     "conv": u.get("conv"), "quote": u.get("quote") or "",
+                     "note": u.get("note") or ""}
+            profile.setdefault(sec, {})[fld] = entry
+            if cur.get("value") != entry["value"]:
+                changed += 1
+                derived = None
+                if cur.get("value"):
+                    derived = {"kind": "correction", "field": fld,
+                               "what": f"{fld}: {cur.get('value')} → {entry['value']}"}
+                elif u.get("field") == "commercial.showroom":
+                    derived = {"kind": "routed", "what": entry["value"]}
+                if derived:
+                    merge_events(profile, [{
+                        "t": u.get("t"), "msg": None, "conv": u.get("conv"),
+                        "inbox": u.get("inbox"), "quote": u.get("quote") or "",
+                        "note": u.get("note") or "", **derived}])
+            profile["updated_at"] = _iso(now())
+        else:
+            changed += merge_events(profile, [{
+                "t": u.get("t"), "msg": None, "conv": u.get("conv"),
+                "inbox": u.get("inbox"), "kind": u.get("kind"),
+                "what": u.get("what"), "quote": u.get("quote") or "",
+                "note": u.get("note") or ""}])
+    return changed
 
 
 # ── Merge + fold ────────────────────────────────────────────────────────────
@@ -192,24 +222,6 @@ def merge_events(profile: dict, new_events: list[dict]) -> int:
         profile.setdefault("events", []).append(ev)
         seen.add(_key(ev))
         added += 1
-        kind, what = ev.get("kind"), ev.get("what")
-        src = {"t": ev["t"], "conv": ev.get("conv")}
-        if kind == "phone":
-            profile.setdefault("identity", {})["phone"] = {"value": what, **src}
-        elif kind == "pincode":
-            profile.setdefault("location", {})["pincode"] = {"value": what, **src}
-        elif kind == "routed":
-            profile.setdefault("commercial", {})["showroom"] = {"value": what, **src}
-            if ev.get("city"):
-                profile.setdefault("location", {})["city"] = {"value": ev["city"], **src}
-        elif kind == "deal_created":
-            profile.setdefault("commercial", {}).setdefault("deals", [])
-            if what not in [d.get("id") for d in profile["commercial"]["deals"]]:
-                profile["commercial"]["deals"].append({"id": what, **src})
-        elif kind == "crm_linked":
-            profile.setdefault("commercial", {})["crm_contact_id"] = {"value": what, **src}
-        elif kind == "correction" and ev.get("field") in ("city", "pincode"):
-            profile.setdefault("location", {})[ev["field"]] = {"value": what, **src}
     if added:
         profile["events"].sort(key=lambda e: (e.get("t") or "", e.get("msg") or 0))
         profile["events_since_consolidation"] = \
@@ -266,7 +278,8 @@ def render(profile: dict, contact_name: str, inbox: str = "") -> str:
                      f"(given {age_label((ident['phone'] or {}).get('t'), ref)})")
     for label, d in (("City", loc.get("city")), ("Pincode", loc.get("pincode"))):
         if d and d.get("value"):
-            lines.append(f"- {label}: {d['value']} ({age_label(d.get('t'), ref)})")
+            why = f" — {d['note']}" if d.get("note") else ""
+            lines.append(f"- {label}: {d['value']} ({age_label(d.get('t'), ref)}){why}")
     f = fold(profile)
     if f["interests"]:
         parts = [f"{e.get('what')} ({age_label(e.get('t'), ref)})"
@@ -283,7 +296,9 @@ def render(profile: dict, contact_name: str, inbox: str = "") -> str:
     if com.get("deals"):
         lines.append(f"- CRM deal exists ({age_label(com['deals'][-1].get('t'), ref)})")
     if com.get("crm_contact_id", {}).get("value"):
-        lines.append("- Known CRM customer (purchase history on record)")
+        seen = com.get("crm_deals_seen") or []
+        tail = f": {'; '.join(seen[:3])}" if seen else ""
+        lines.append(f"- Known CRM customer (purchase history on record{tail})")
     if f["comments"]:
         parts = [f"\"{e.get('what', '')[:60]}\" ({age_label(e.get('t'), ref)})"
                  for e in f["comments"]]
@@ -328,34 +343,48 @@ async def save(contact_id: int, profile: dict) -> bool:
         return False
 
 
-async def cold_start(contact_id: int, current_conv_id=None,
-                     max_conversations: int = 8) -> dict:
-    """First-ever sight of this contact: scan their conversation history once
-    (comments included) and build the initial profile."""
-    profile = empty_profile()
+async def prior_transcript(contact_id: int, current_conv_id=None,
+                           max_conversations: int = 3,
+                           max_chars: int = 2400) -> str:
+    """First-ever sight of a contact: their earlier conversations, rendered
+    as a dated transcript for the AGENT to read on its first turn — it
+    decides what (if anything) is worth keeping. Nothing is written here."""
     try:
         convs = await chatwoot.get_contact_conversations(int(contact_id))
     except Exception as e:
-        print(f"[profile] cold start listing failed: {e}")
-        return profile
-    for c in (convs or [])[:max_conversations]:
+        print(f"[profile] prior transcript listing failed: {e}")
+        return ""
+    ref = now()
+    blocks = []
+    for c in (convs or []):
         cid = c.get("id")
-        if not cid:
+        if not cid or cid == current_conv_id:
             continue
         try:
             msgs = await chatwoot.get_conversation_messages_raw(cid)
         except Exception:
             continue
-        merge_events(profile, events_from_conversation(c, msgs))
-    ident_name = None
-    for c in (convs or []):
-        ident_name = ((c.get("meta") or {}).get("sender") or {}).get("name")
-        if ident_name:
+        lines = []
+        is_comment = "comment" in " ".join(c.get("labels") or [])
+        for m in msgs or []:
+            if m.get("private"):
+                continue
+            text = (m.get("content") or "").strip()
+            cap = msg_attrs(m).get("shared_post_caption")
+            if cap and not text:
+                text = f"[shared a post: {cap[:120]}]"
+            if not text:
+                continue
+            who = "customer" if m.get("message_type") in (0, "incoming") else "durian"
+            lines.append(f"  {who} ({age_label(m.get('created_at') or 0, ref)}): "
+                         f"{text[:240]}")
+        if lines:
+            blocks.append(("Earlier public comments" if is_comment
+                           else "Earlier conversation") + ":\n" + "\n".join(lines))
+        if len(blocks) >= max_conversations:
             break
-    if ident_name:
-        profile.setdefault("identity", {})["name"] = {"value": ident_name,
-                                                      "t": _iso(now())}
-    return profile
+    out = "\n".join(blocks)
+    return out[:max_chars]
 
 
 # ── Soft-linking + CRM lookup ───────────────────────────────────────────────
@@ -404,18 +433,14 @@ async def crm_lookup(profile: dict, conv_id, inbox: str,
         return
     if not contact or not contact.get("id"):
         return
-    merge_events(profile, [{"t": _iso(now()), "msg": None, "conv": conv_id,
-                            "inbox": inbox, "kind": "crm_linked",
-                            "what": str(contact["id"])}])
+    com["crm_contact_id"] = {"value": str(contact["id"]), "t": _iso(now()),
+                             "conv": conv_id, "note": "matched by phone in Zoho CRM"}
     try:
         deals = await get_deals(str(contact["id"]))
     except Exception:
         deals = []
-    for d in (deals or [])[:3]:
-        merge_events(profile, [{
-            "t": _iso(now()), "msg": None, "conv": conv_id, "inbox": inbox,
-            "kind": "note",
-            "what": f"CRM deal on record: {str(d.get('Deal_Name') or d.get('name') or d.get('id'))[:80]}"}])
+    com["crm_deals_seen"] = [str(d.get("Deal_Name") or d.get("name") or d.get("id"))[:80]
+                             for d in (deals or [])[:3]]
 
 
 # ── Consolidation ───────────────────────────────────────────────────────────
