@@ -130,6 +130,8 @@ Rails.application.routes.draw do
           resources :offers, only: [:index, :create, :update, :destroy] do
             post :send_to_conversation, on: :member
           end
+          # Durian — saved (unsent) email drafts for the compose flow ("Drafts" folder).
+          resources :mail_drafts, only: [:index, :create, :update, :destroy]
           resources :automation_rules, only: [:index, :create, :show, :update, :destroy] do
             post :clone
           end

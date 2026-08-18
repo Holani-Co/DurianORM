@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_12_120000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_18_120000) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -943,6 +943,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_12_120000) do
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
     t.index ["account_id"], name: "index_macros_on_account_id"
+  end
+
+  create_table "mail_drafts", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "inbox_id"
+    t.bigint "user_id"
+    t.jsonb "to_emails", default: [], null: false
+    t.jsonb "cc_emails", default: [], null: false
+    t.jsonb "bcc_emails", default: [], null: false
+    t.string "subject"
+    t.text "content"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_mail_drafts_on_account_id"
+    t.index ["inbox_id"], name: "index_mail_drafts_on_inbox_id"
+    t.index ["user_id"], name: "index_mail_drafts_on_user_id"
   end
 
   create_table "mentions", force: :cascade do |t|
