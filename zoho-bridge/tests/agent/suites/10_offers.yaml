@@ -38,3 +38,32 @@
   expect:
     offer_sent_max: 1
     judge: {min: 3}
+
+# Category-matched offer (Durian, Aug 2026): a customer who asked about a sofa
+# and then asks for offers gets the SOFA offer, not the generic one.
+- id: offer_matched_to_interest
+  offers:
+    - {id: 1, caption: "Flat 5% off everything", image_url: "https://durian.in/o1.jpg", active: true, priority: 2, tags: []}
+    - {id: 2, caption: "All sofas 15% off this week", image_url: "https://durian.in/o2.jpg", active: true, priority: 1, tags: ["All Sofas"]}
+  script:
+    - {at: "0m", text: "price of the benjamin corner sofa"}
+    - {at: "3m", text: "any offers on it?"}
+  expect:
+    offer_sent: true
+    offer_caption_contains: "sofas"
+    judge: {min: 3}
+
+# A past decline must NOT produce a "no offers" reply when the customer is
+# explicitly asking — the live offer is still surfaced (fallback).
+- id: offer_after_decline_still_shown
+  profile:
+    events:
+      - {kind: declined, what: "all sofas"}
+  offers:
+    - {id: 1, caption: "All sofas 15% off this week", image_url: "https://durian.in/o.jpg", active: true, priority: 1, tags: ["All Sofas"]}
+  script:
+    - {at: "0m", text: "do you have any good offers in store?"}
+  expect:
+    offer_sent: true
+    sent_not_contains: ["(?i)(no|don'?t have).{0,20}offer"]
+    judge: {min: 3}
