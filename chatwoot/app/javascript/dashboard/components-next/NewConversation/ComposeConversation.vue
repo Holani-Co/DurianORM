@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, computed, onMounted, watch } from 'vue';
+import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useI18n } from 'vue-i18n';
 import { useUISettings } from 'dashboard/composables/useUISettings';
@@ -45,6 +45,9 @@ const targetInbox = ref(null);
 const isCreatingContact = ref(false);
 const isFetchingInboxes = ref(false);
 const isSearching = ref(false);
+// Set when the composer was opened by resuming a saved draft, so Save updates
+// that draft (not a new one) and a successful Send removes it from Drafts.
+const editingDraftId = ref(null);
 
 const formState = reactive({
   message: '',
@@ -165,7 +168,57 @@ const closeCompose = () => {
 const discardCompose = () => {
   clearFormState();
   formState.message = '';
+  editingDraftId.value = null;
   closeCompose();
+};
+
+const splitEmails = str =>
+  (str || '')
+    .split(',')
+    .map(email => email.trim())
+    .filter(Boolean);
+
+// Save the current compose form as a shared draft (create, or update the one
+// being resumed). Team-shared; appears in the left-nav "Drafts" folder.
+const saveDraft = async () => {
+  const params = {
+    inbox_id: targetInbox.value?.id || null,
+    subject: formState.subject || '',
+    content: formState.message || '',
+    to_emails: splitEmails(formState.toEmails),
+    cc_emails: splitEmails(formState.ccEmails),
+    bcc_emails: splitEmails(formState.bccEmails),
+  };
+  try {
+    if (editingDraftId.value) {
+      await store.dispatch('mailDrafts/update', {
+        id: editingDraftId.value,
+        ...params,
+      });
+    } else {
+      const created = await store.dispatch('mailDrafts/create', params);
+      editingDraftId.value = created.id;
+    }
+    useAlert(t('COMPOSE_NEW_CONVERSATION.FORM.DRAFT_SAVED'));
+    discardCompose();
+  } catch {
+    useAlert(t('COMPOSE_NEW_CONVERSATION.FORM.DRAFT_SAVE_ERROR'));
+  }
+};
+
+// Resume a draft from the Drafts folder: prefill the form and open the composer.
+// The inbox/recipient are re-confirmed in the form (compose is contact-driven).
+const loadDraft = draft => {
+  if (!draft) return;
+  editingDraftId.value = draft.id;
+  Object.assign(formState, {
+    message: draft.content || '',
+    subject: draft.subject || '',
+    toEmails: (draft.to_emails || []).join(', '),
+    ccEmails: (draft.cc_emails || []).join(', '),
+    bccEmails: (draft.bcc_emails || []).join(', '),
+  });
+  popoverRef.value?.show?.();
 };
 
 const createConversation = async ({ payload, isFromWhatsApp }) => {
@@ -174,6 +227,21 @@ const createConversation = async ({ payload, isFromWhatsApp }) => {
       params: payload,
       isFromWhatsApp,
     });
+    // Tag composed conversations `sent` so the left-nav "Sent" folder can list
+    // them (label filtering is native; there's no "created via compose" filter).
+    try {
+      await window.axios.post(
+        `/api/v1/accounts/${data.account_id}/conversations/${data.id}/labels`,
+        { labels: ['sent'] }
+      );
+    } catch {
+      /* best-effort — the conversation is already created */
+    }
+    // Resuming a draft? It's been sent now, so drop it from the Drafts folder.
+    if (editingDraftId.value) {
+      store.dispatch('mailDrafts/delete', editingDraftId.value).catch(() => {});
+      editingDraftId.value = null;
+    }
     const action = {
       type: 'link',
       to: `/app/accounts/${data.account_id}/conversations/${data.id}`,
@@ -228,7 +296,12 @@ watch(
   { immediate: true, deep: true }
 );
 
-onMounted(() => resetContacts());
+onMounted(() => {
+  resetContacts();
+  emitter.on('COMPOSE_LOAD_DRAFT', loadDraft);
+});
+
+onUnmounted(() => emitter.off('COMPOSE_LOAD_DRAFT', loadDraft));
 </script>
 
 <template>
@@ -264,6 +337,7 @@ onMounted(() => resetContacts());
         @update-target-inbox="handleTargetInbox"
         @clear-selected-contact="clearSelectedContact"
         @create-conversation="createConversation"
+        @save-draft="saveDraft"
         @discard="discardCompose"
       />
     </template>

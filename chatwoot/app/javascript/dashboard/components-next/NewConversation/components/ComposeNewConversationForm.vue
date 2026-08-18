@@ -48,6 +48,7 @@ const emit = defineEmits([
   'searchContacts',
   'resetContactSearch',
   'discard',
+  'saveDraft',
   'updateSelectedContact',
   'updateTargetInbox',
   'clearSelectedContact',
@@ -463,6 +464,7 @@ useKeyboardEvents({
       @remove-signature="handleRemoveSignature"
       @attach-file="handleAttachFile"
       @discard="$emit('discard')"
+      @save-draft="$emit('saveDraft')"
       @send-message="handleSendMessage"
       @send-whatsapp-message="handleSendWhatsappMessage"
       @send-twilio-message="handleSendTwilioMessage"

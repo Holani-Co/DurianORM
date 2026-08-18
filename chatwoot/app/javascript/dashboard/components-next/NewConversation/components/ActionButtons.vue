@@ -33,6 +33,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'discard',
+  'saveDraft',
   'sendMessage',
   'sendWhatsappMessage',
   'sendTwilioMessage',
@@ -261,6 +262,15 @@ useEventListener(document, 'paste', onPaste);
         size="sm"
         class="!text-xs font-medium"
         @click="emit('discard')"
+      />
+      <Button
+        v-if="isEmailOrWebWidgetInbox && isRegularMessageMode"
+        :label="t('COMPOSE_NEW_CONVERSATION.FORM.ACTION_BUTTONS.SAVE_DRAFT')"
+        variant="faded"
+        color="slate"
+        size="sm"
+        class="!text-xs font-medium"
+        @click="emit('saveDraft')"
       />
       <Button
         v-if="isRegularMessageMode"

@@ -328,6 +328,28 @@ const menuItems = computed(() => {
                 label: 'needs-review',
               }),
             },
+            // Compose flow: emails sent via "Compose" carry the `sent` label;
+            // Drafts are saved-but-unsent composes (their own store + view).
+            {
+              name: 'email-sent',
+              label: 'Sent',
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: '#6b7280' },
+              }),
+              to: accountScopedRoute('label_conversations', {
+                label: 'sent',
+              }),
+            },
+            {
+              name: 'email-drafts',
+              label: 'Drafts',
+              icon: h('span', {
+                class: 'size-[8px] rounded-sm',
+                style: { backgroundColor: '#9333ea' },
+              }),
+              to: accountScopedRoute('mail_drafts'),
+            },
           ],
         },
         {

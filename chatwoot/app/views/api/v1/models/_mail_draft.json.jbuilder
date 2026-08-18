@@ -1,0 +1,10 @@
+json.id mail_draft.id
+json.inbox_id mail_draft.inbox_id
+json.to_emails mail_draft.to_emails
+json.cc_emails mail_draft.cc_emails
+json.bcc_emails mail_draft.bcc_emails
+json.subject mail_draft.subject
+json.content mail_draft.content
+json.updated_at mail_draft.updated_at
+json.created_at mail_draft.created_at
+json.saved_by mail_draft.user&.name
