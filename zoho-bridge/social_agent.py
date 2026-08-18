@@ -468,6 +468,50 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                     "is already created"}
 
 
+# Words that carry no category signal in an offer tag or a product name.
+_OFFER_STOP = {"all", "the", "and", "set", "sale", "off", "flat", "durian",
+               "product", "products", "on", "in", "for", "your", "our"}
+
+
+def _offer_interest_keywords(ctx, product_context: str) -> set:
+    """Category keywords for what this customer wants — the current message's
+    product_context plus the families they asked about earlier (profile
+    memory), each resolved to a catalog category. Used to pick the right
+    category-level offer (a sofa interest → the 'All Sofas' offer)."""
+    terms = [product_context or ""]
+    for ev in (ctx.get("profile") or {}).get("events") or []:
+        if ev.get("kind") in ("interest", "shared_post"):
+            terms.append(ev.get("sku_family") or ev.get("what") or "")
+    kw = set()
+    for term in terms:
+        term = (term or "").strip()
+        if not term:
+            continue
+        try:
+            hit = product_catalog.search(term, limit=1)
+        except Exception:
+            hit = []
+        cat = (hit[0].get("category") if hit else "") or ""
+        for w in re.findall(r"[a-z]+", f"{term} {cat}".lower()):
+            if len(w) >= 3 and w not in _OFFER_STOP:
+                kw.add(w)
+    return kw
+
+
+def _offer_matches_interest(offer: dict, kw: set) -> bool:
+    """True when any offer tag shares a category word with the customer's
+    interest — substring either way so 'sofa' matches the 'All Sofas' tag."""
+    if not kw:
+        return False
+    for t in (offer.get("tags") or []):
+        for tw in re.findall(r"[a-z]+", str(t).lower()):
+            if tw in _OFFER_STOP:
+                continue
+            if any(k in tw or tw in k for k in kw):
+                return True
+    return False
+
+
 @_skill(
     "share_offer",
     "Check current offers and, when one fits, SEND it (image + caption) — at "
@@ -491,22 +535,32 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
                 if o.get("active") and o.get("image_url") and _offer_fresh(o)]
     except Exception as e:
         return {"sent": False, "matched": [], "note": f"offers unavailable: {e}"}
-    declined = " ".join(str(e.get("what") or "").lower()
-                        for e in (ctx["profile"].get("events") or [])
-                        if e.get("kind") == "declined")
-    interest = (product_context or "").lower()
-    def tags(o):
-        return [str(t).strip().lower() for t in (o.get("tags") or []) if str(t).strip()]
-    live = [o for o in live if not any(t and t in declined for t in tags(o))]
     if not live:
         return {"sent": False, "matched": [], "note": "no live offers"}
-    tagged = [o for o in live if interest and any(t in interest for t in tags(o))]
-    flat = [o for o in live if not tags(o)]
-    pick = (tagged or flat or live)[0]
-    matched = [o.get("caption") or "" for o in (tagged or flat)[:2]]
+
+    # A past decline DEPRIORITISES a matching offer but must never produce a
+    # "no offers" reply while a live offer exists — fall back to all live.
+    declined = " ".join(str(e.get("what") or "").lower()
+                        for e in (ctx.get("profile") or {}).get("events") or []
+                        if e.get("kind") == "declined")
+    def declined_match(o):
+        return any(t and str(t).lower() in declined for t in (o.get("tags") or []))
+    base = [o for o in live if not declined_match(o)] or live  # never empty
+
+    # Category-match to what the customer wants: the current message's product
+    # context PLUS the families they asked about earlier (profile memory), each
+    # resolved to a catalog category. Falls back to the current top-priority
+    # offer (get_offers is priority-ordered) when nothing matches.
+    kw = _offer_interest_keywords(ctx, product_context)
+    matched_offers = [o for o in base if _offer_matches_interest(o, kw)]
+    pool = matched_offers or base
+    pick = pool[0]
+    matched = [o.get("caption") or "" for o in pool[:2]]
+    note = ("matches the product the customer was looking at — connect the offer "
+            "to their interest" if matched_offers else "our current store offer")
     if (conv.get("custom_attributes") or {}).get("offer_greeted"):
         return {"sent": False, "matched": matched,
-                "note": "already shared one offer here — mention, don't resend"}
+                "note": "already shared one offer here — mention it, don't resend"}
     sent = await chatwoot.send_offer_message(conv_id, pick.get("caption") or "",
                                              pick["image_url"],
                                              link=pick.get("link") or "")
@@ -514,7 +568,7 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
         await chatwoot.merge_custom_attributes(conv_id, {"offer_greeted": True})
         conv.setdefault("custom_attributes", {})["offer_greeted"] = True
     return {"sent": bool(sent), "offer_caption": pick.get("caption") or "",
-            "matched": matched}
+            "matched": matched, "product_matched": bool(matched_offers), "note": note}
 
 
 @_skill(
