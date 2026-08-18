@@ -1592,14 +1592,15 @@ def _append_executive_email(ack_body: str, forward_to: str) -> str:
 def _build_forward_ack(customer_name: str, rule: dict) -> str:
     """The customer acknowledgment for a FORWARDED email, built dynamically from
     the resolved routing rule — department = its `display_name`, direct contact =
-    its `forward_to`. Because `rule` comes from the live rules (YAML ⊕ the UI
-    override), this covers any category the client adds via the Routing Config
-    screen with NO per-category template to maintain. The direct-contact line is
-    dropped only when the rule explicitly sets `share_executive_email: false`
-    (a sensitive internal desk the client doesn't want exposed to customers)."""
+    the team we forward to (`forward_to`, its To address). Because `rule` comes
+    from the live rules (YAML ⊕ the UI override), this covers any category the
+    client adds via the Routing Config screen with NO per-category template.
+    Whenever an ack is sent we always share that To email; suppressing the ack
+    for a category is a separate decision handled by its `acknowledge_customer`
+    toggle (which stops this from running at all)."""
     dept = (rule.get("display_name") or "concerned").strip()
     email = ((rule.get("forward_to") or "").split(",")[0]).strip()
-    if email and rule.get("share_executive_email") is not False:
+    if email:
         shared = (f"Your request has been shared with our {dept} Team. For "
                   f"quicker resolution, kindly connect with them directly at "
                   f"{email}, and they will assist you further.")
