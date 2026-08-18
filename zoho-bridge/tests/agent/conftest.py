@@ -92,14 +92,17 @@ class FakeChatwoot:
         return self.conv
 
     def add_message(self, text, when: datetime, incoming=True, conv=None,
-                    content_attributes=None, photo=False):
+                    content_attributes=None, photo=False, reel=False):
         conv = conv or self.conv
         self.msg_id += 1
         m = {"id": self.msg_id, "content": text,
              "message_type": 0 if incoming else 1,
              "created_at": int(when.timestamp()), "private": False,
              "content_attributes": content_attributes or {}}
-        if photo:
+        if reel:
+            m["attachments"] = [{"data_url": "https://fake.local/reel.mp4",
+                                 "file_type": "ig_reel"}]
+        elif photo:
             m["attachments"] = [{"data_url": "https://fake.local/room.jpg",
                                  "file_type": "image"}]
         conv["messages"].append(m)
@@ -494,7 +497,8 @@ class Engine:
                 self.fake.new_conversation(step.get("inbox"))
             msg = self.fake.add_message(step.get("text", ""), self.now,
                                         content_attributes=step.get("content_attributes"),
-                                        photo=step.get("photo", False))
+                                        photo=step.get("photo", False),
+                                        reel=step.get("reel", False))
             s0, c0 = len(self.fake.public_sends), len(self.fake.cards)
             o0, t0 = len(self.fake.offer_sends), len(getattr(self, "tools_trail", []))
             res = await social_agent.maybe_handle(

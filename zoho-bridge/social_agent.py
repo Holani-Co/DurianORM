@@ -1412,8 +1412,11 @@ timestamps — use them naturally; never treat an old enquiry as new.
 {profile_block}
 
 EVERY TURN, IN THIS ORDER:
-1. READ the profile and the message. A shared post is intent. Never ask for \
-anything the profile already holds (stored numbers → last 4 digits only).
+1. READ the profile and the message. A shared post is intent. A reel / video / \
+story you CANNOT view (flagged in the transcript) → ask the customer to share a \
+SCREENSHOT of the product so we can identify and route it; never guess the \
+product from an unviewable share. Never ask for anything the profile already \
+holds (stored numbers → last 4 digits only).
 2. FETCH: list the fact classes your reply will contain and call each one's \
 owning skill —
    product / price → search_products · EMI figures — only when the customer \
@@ -1536,6 +1539,30 @@ def eligible(conv: dict, channel: str) -> bool:
         str(sender.get("name") or "").strip().lower() in [a.lower() for a in allow]
 
 
+# Reels / videos / stories a customer shares in a DM are media the agent CANNOT
+# see — unlike a shared Durian POST, which carries a caption we do read. When one
+# arrives with no caption we ask for a SCREENSHOT of the product instead of
+# guessing what's in it.
+_UNVIEWABLE_MEDIA = {"video", "ig_reel", "ig_story", "story_mention", "share"}
+
+
+def _is_unviewable_media(m: dict) -> bool:
+    """True when an incoming message carries a reel / video / story share the
+    agent can't view (and no shared-post caption to read instead)."""
+    if profile_mod.msg_attrs(m).get("shared_post_caption"):
+        return False
+    for a in (m.get("attachments") or []):
+        if str(a.get("file_type") or "").lower() in _UNVIEWABLE_MEDIA:
+            return True
+    it = str(profile_mod.msg_attrs(m).get("image_type") or "").lower()
+    return "story" in it or "reel" in it
+
+
+_ASK_FOR_SCREENSHOT = ("[customer shared a reel/video we cannot view — ASK them "
+                       "to share a screenshot of the product so we can identify "
+                       "and route it; do NOT guess the product]")
+
+
 async def maybe_handle(conv: dict, channel: str, surface: str = "",
                        latest_message: str = "", latest_msg_id=None) -> dict | None:
     if not eligible(conv, channel):
@@ -1647,8 +1674,10 @@ async def _handle_locked(conv, conv_id, channel, surface,
         cap = profile_mod.msg_attrs(m).get("shared_post_caption")
         if cap:      # a shared post IS intent — make it visible to the model
             content = f"[shared a Durian post: {str(cap)[:200]}] {content}".strip()
-        if m.get("attachments") and m.get("message_type") in (0, "incoming"):
-            content = f"[customer sent a photo] {content}".strip()
+        elif m.get("attachments") and m.get("message_type") in (0, "incoming"):
+            marker = (_ASK_FOR_SCREENSHOT if _is_unviewable_media(m)
+                      else "[customer sent a photo]")
+            content = f"{marker} {content}".strip()
         if not content or m.get("private"):
             continue
         who = "Customer" if m.get("message_type") in (0, "incoming") else "Durian"
@@ -1656,12 +1685,14 @@ async def _handle_locked(conv, conv_id, channel, surface,
         lines.append(f"[{stamp}] {who}: {content}")
     transcript = "\n".join(lines[-30:])
     latest = (latest_message or "").strip()
-    _latest_cap = next(
-        (profile_mod.msg_attrs(m).get("shared_post_caption")
-         for m in reversed(all_messages)
-         if m.get("message_type") in (0, "incoming")), None)
+    _latest_msg = next((m for m in reversed(all_messages)
+                        if m.get("message_type") in (0, "incoming")), None)
+    _latest_cap = profile_mod.msg_attrs(_latest_msg or {}).get("shared_post_caption")
     if _latest_cap and latest.lower().startswith("shared post"):
         latest = f"[shared a Durian post: {str(_latest_cap)[:200]}]"
+    elif (_latest_msg and _is_unviewable_media(_latest_msg)
+            and (not latest or latest.lower().startswith(("shared", "sent", "reel")))):
+        latest = _ASK_FOR_SCREENSHOT
     if latest and latest not in "\n".join(incoming_texts):
         transcript += f"\n[today {now:%H:%M}] Customer: {latest}"
         incoming_texts.append(latest)
