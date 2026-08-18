@@ -509,22 +509,49 @@ async def get_conversation(conversation_id: int) -> dict:
         return r.json() or {}
 
 
-async def get_conversation_messages_raw(conversation_id: int) -> list[dict]:
+async def get_conversation_messages_raw(conversation_id: int,
+                                        max_pages: int = 10) -> list[dict]:
     """Like get_conversation_messages but RETAINS private notes — needed by
     the template-suggestion dedup check (the card is a private note, so the
     filtered helper hides it from the dedup logic). Oldest-first. Returns []
-    on any failure."""
+    on any failure.
+
+    Chatwoot pages this endpoint at 20 messages (newest page first) — the
+    old single fetch silently dropped everything older than the last 20, so
+    a phone given early in a long conversation was invisible to the agent.
+    Walks back with `?before=<oldest id>` until the conversation start (or
+    max_pages, a runaway guard: 200 messages)."""
     try:
+        out: list[dict] = []
+        before = None
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(_conv_url(conversation_id, "/messages"),
-                                  headers=_headers())
-            if r.status_code >= 300:
-                return []
-            body = r.json() or {}
-            payload = body.get("payload")
-            if payload is None:
-                payload = (body.get("data") or {}).get("payload") or []
-            return payload or []
+            for _ in range(max_pages):
+                params = {"before": before} if before else None
+                r = await client.get(_conv_url(conversation_id, "/messages"),
+                                     headers=_headers(), params=params)
+                if r.status_code >= 300:
+                    break
+                body = r.json() or {}
+                payload = body.get("payload")
+                if payload is None:
+                    payload = (body.get("data") or {}).get("payload") or []
+                page = payload or []
+                if not page:
+                    break
+                out = page + out
+                if len(page) < 20:
+                    break
+                oldest = min(int(m.get("id") or 0) for m in page)
+                if not oldest or oldest == before:
+                    break
+                before = oldest
+        seen, dedup = set(), []
+        for m in out:                       # pages can overlap on the boundary
+            if m.get("id") in seen:
+                continue
+            seen.add(m.get("id"))
+            dedup.append(m)
+        return sorted(dedup, key=lambda m: int(m.get("id") or 0))
     except Exception as e:  # noqa: BLE001
         print(f"[chatwoot] get messages (raw) error for conv {conversation_id}: {e}")
         return []
