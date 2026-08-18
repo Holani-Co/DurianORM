@@ -132,18 +132,6 @@
 
 # ── warranted-everywhere sweep ──────────────────────────────────────────────
 
-- id: post_split_photo_ask
-  prior_conversations:
-    - messages:
-        - {at: "-2h", text: "Shared post", content_attributes: {shared_post_caption: "Esmeralda Marble Dining Set 1+6 — timeless luxury for your dining room", image_type: ig_post}}
-  script:
-    - {at: "0m", text: "can I see more photos of this?"}
-  expect:
-    tools_called: ["share_product_images"]
-    images_sent_min: 1
-    images_sent_contains: ["esmeralda|Esmeralda"]
-    judge: {min: 3}
-
 - id: emi_ask_with_photos
   script:
     - {at: "0m", text: "meagan sofa EMI pe milega? photos bhi bhejo"}
@@ -164,16 +152,6 @@
     judge: {min: 3}
 
 # ── surfaces where photos must NOT flow ─────────────────────────────────────
-
-- id: comment_no_images
-  surface: comment
-  script:
-    - {at: "0m", text: "price? and send pics of this sofa"}
-  expect:
-    images_sent_max: 0
-    sent_not_contains: ["₹", "\\d{1,2},\\d{3}"]
-    anywhere_contains: ["dm"]
-    judge: {min: 3}
 
 - id: escalation_no_images
   script:

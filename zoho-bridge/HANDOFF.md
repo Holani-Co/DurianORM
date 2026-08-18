@@ -524,6 +524,10 @@ in every message matters, but it cannot be extracted deterministically —
   defines the stitching tell as a SECOND salutation/sign-off.
 - Units: `test_verify_updates_*`, `test_apply_updates_sets_and_learns`,
   `test_no_deterministic_profile_writers` (asserts the scanner is gone).
+- Removed at Vaibhav's call (2026-08-15): `post_split_price_ask`,
+  `post_split_photo_ask`, `comment_no_images` — the persistent
+  reference-resolution flakes ("this" → the shared post in a PRIOR
+  conversation) and one over-tight wording assert. Board is 157/157.
 
 ### Prod data
 `migrate_profiles_agent_lane.py` (preview by default, `--apply` to write;

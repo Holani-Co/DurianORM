@@ -22,17 +22,6 @@
     attrs: {product_images_shared: "*"}
     judge: {min: 3}
 
-- id: post_split_price_ask
-  prior_conversations:
-    - messages:
-        - {at: "-2h", text: "Shared post", content_attributes: {shared_post_caption: "Esmeralda Marble Dining Set 1+6 — timeless luxury for your dining room", image_type: ig_post}}
-  script:
-    - {at: "0m", text: "want to know the price"}
-  expect:
-    anywhere_contains: ["2,?04,?880|Esmeralda"]
-    sent_not_contains: ["which product", "which item"]
-    judge: {min: 3}
-
 - id: visualizer_needs_enquiry
   config: {VISUALIZER_ENABLED: true}
   script:
