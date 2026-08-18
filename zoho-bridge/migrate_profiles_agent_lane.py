@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
-# One-off: rebuild every customer profile from its AGENT-LANE events only.
+# One-off: REBUILD every customer profile through the agent's own judgment.
 #
 # Before the agent-decided profile (see customer_profile.py header), a code
-# lane wrote regex phones/pincodes, catalog-lookalike "interest" events,
-# raw comments, conversation-state copies and CRM notes straight into
-# profiles — the MetaMile "2-seater leather sofa" incident came from there.
-# Those entries carry no customer quote; agent-lane entries always do.
+# lane wrote regex phones/pincodes, catalog-lookalike "interest" events, raw
+# comments, conversation-state copies and CRM notes straight into profiles.
+# The 2026-08-15 audit of the 55 prod profiles found 12 phantom interests
+# ("will you get back to me" → TWILL bean bag; "very helpful" → AVERY
+# recliner; a MetaMile pitch → EUROPA sofa), 7 suspect pincodes (bare
+# six-digit strings fired one after another), a pincode stored as the string
+# "Pincode 110054", 43 raw comment captures and 15 CRM notes.
 #
-# This keeps: quote-bearing events, linked_contacts, consolidated history,
-# the visualizer counter (moved to ops), and identity/location facts ONLY
-# where a same-valued quote-bearing event backs them. Everything else is
-# dropped; the contact's earlier conversations are re-judged by the agent on
-# their next message (cold start → prior transcript).
+# Fix: for each contact, render their whole conversation history as a
+# transcript and let the AGENT decide what the profile should hold
+# (social_agent.judge_history_for_profile — the same profile_updates
+# contract and evidence gate the live turn uses). Correct facts survive with
+# a quote and a reason; ghosts cannot pass the gate. Kept verbatim: existing
+# quote-bearing (agent-lane) events, linked_contacts, consolidated history,
+# the visualizer counter (moved to ops).
 #
-#   ./venv/bin/python migrate_profiles_agent_lane.py            # preview
-#   ./venv/bin/python migrate_profiles_agent_lane.py --apply    # write
+#   ./venv/bin/python migrate_profiles_agent_lane.py < ids.txt            # preview
+#   ./venv/bin/python migrate_profiles_agent_lane.py --apply < ids.txt    # write
+# ids.txt: one Chatwoot contact id per line (prod: from psql, see HANDOFF §11).
 
 import asyncio
 import json
@@ -22,69 +28,68 @@ import sys
 
 import chatwoot
 import customer_profile as cp
+import social_agent
 
 APPLY = "--apply" in sys.argv
 
 
-def rebuild(prof: dict) -> tuple[dict, dict]:
+def carry_over(prof: dict) -> dict:
+    """Everything that was already agent-decided or is operational state."""
     new = cp.empty_profile()
-    stats = {"kept": 0, "dropped": 0}
-    kept_events = []
-    viz_at = []
-    for e in prof.get("events") or []:
-        if e.get("kind") == "visualized":
-            viz_at.append(e.get("t"))
-            continue
-        if e.get("quote"):
-            kept_events.append(e)
-            stats["kept"] += 1
-        else:
-            stats["dropped"] += 1
-    new["events"] = sorted(kept_events, key=lambda e: (e.get("t") or "", e.get("msg") or 0))
-    new["events_since_consolidation"] = len(kept_events)
+    kept = [e for e in (prof.get("events") or []) if e.get("quote")]
+    viz = [e.get("t") for e in (prof.get("events") or []) if e.get("kind") == "visualized"]
+    new["events"] = sorted(kept, key=lambda e: (e.get("t") or "", e.get("msg") or 0))
+    new["events_since_consolidation"] = len(kept)
     new["linked_contacts"] = list(prof.get("linked_contacts") or [])
     new["consolidated"] = prof.get("consolidated") or new["consolidated"]
     new["consolidated_at"] = prof.get("consolidated_at")
-    if viz_at:
-        new["ops"] = {"visualized_at": viz_at[-30:]}
-    # identity/location facts survive only with a quote-bearing correction
-    # of the same value behind them (the agent said so); regex-derived ones go.
-    quoted_values = {str(e.get("what") or "").lower() for e in kept_events}
-    for sec in ("identity", "location", "commercial"):
-        for fld, entry in (prof.get(sec) or {}).items():
-            if not isinstance(entry, dict):
-                continue
-            val = str(entry.get("value") or "").lower()
-            if val and any(val in q for q in quoted_values):
-                new.setdefault(sec, {})[fld] = entry
-    return new, stats
+    if viz:
+        new["ops"] = {"visualized_at": viz[-30:]}
+    return new
+
+
+def _fmt(prof: dict) -> str:
+    ident, loc, com = prof.get("identity") or {}, prof.get("location") or {}, prof.get("commercial") or {}
+    facts = []
+    for label, d in (("phone", ident.get("phone")), ("pincode", loc.get("pincode")),
+                     ("city", loc.get("city")), ("showroom", com.get("showroom"))):
+        if d and d.get("value"):
+            facts.append(f"{label}={d['value']}")
+    evs = [f"{e.get('kind')}:{str(e.get('what') or '')[:28]}" for e in prof.get("events") or []]
+    return f"[{', '.join(facts) or 'no facts'}] events={evs}"
+
+
+async def rebuild_one(cid: int) -> tuple[dict, dict] | None:
+    prof = await cp.load(cid)
+    if not prof:
+        return None
+    contact = await chatwoot.get_contact(cid)
+    name = (contact or {}).get("name") or f"contact {cid}"
+    transcript = await cp.prior_transcript(cid, None, max_conversations=8, max_chars=6000)
+    new = carry_over(prof)
+    if transcript.strip():
+        updates = await social_agent.judge_history_for_profile(name, transcript, None, "")
+        cp.apply_updates(new, updates)
+    return prof, new
 
 
 async def main() -> None:
-    contacts = await chatwoot.search_contacts_with_attribute(cp.PROFILE_KEY) \
-        if hasattr(chatwoot, "search_contacts_with_attribute") else None
-    if contacts is None:
-        # fall back to ids on stdin (one per line) — the prod run pipes them
-        # from psql, which is simpler than paging the contacts API.
-        ids = [int(x) for x in sys.stdin.read().split() if x.strip().isdigit()]
-    else:
-        ids = [c["id"] for c in contacts]
-    total = {"contacts": 0, "kept": 0, "dropped": 0, "emptied": 0}
+    ids = [int(x) for x in sys.stdin.read().split() if x.strip().isdigit()]
+    tot = {"contacts": 0, "before_events": 0, "after_events": 0, "empty_after": 0}
     for cid in ids:
-        prof = await cp.load(cid)
-        if not prof:
+        res = await rebuild_one(cid)
+        if not res:
             continue
-        new, st = rebuild(prof)
-        total["contacts"] += 1
-        total["kept"] += st["kept"]
-        total["dropped"] += st["dropped"]
-        if not new["events"]:
-            total["emptied"] += 1
-        print(f"contact {cid}: keep {st['kept']} drop {st['dropped']}"
-              f"{' → empty (rebuilt on next message)' if not new['events'] else ''}")
+        old, new = res
+        tot["contacts"] += 1
+        tot["before_events"] += len(old.get("events") or [])
+        tot["after_events"] += len(new.get("events") or [])
+        if not new.get("events") and not (new.get("identity") or new.get("location")):
+            tot["empty_after"] += 1
+        print(f"contact {cid}\n   before {_fmt(old)}\n   after  {_fmt(new)}")
         if APPLY:
             await cp.save(cid, new)
-    print(json.dumps(total), "(APPLIED)" if APPLY else "(preview — pass --apply to write)")
+    print(json.dumps(tot), "(APPLIED)" if APPLY else "(preview — pass --apply to write)")
 
 
 if __name__ == "__main__":

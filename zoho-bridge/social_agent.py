@@ -2003,3 +2003,63 @@ async def _consolidate_llm(old_events: list, existing: dict) -> dict | None:
     except Exception as e:
         print(f"[agent] consolidation LLM failed: {e}")
         return None
+
+
+# ── Offline profile judgment (rebuild / audit) ──────────────────────────────
+
+async def judge_history_for_profile(contact_name: str, transcript: str,
+                                    conv_id=None, inbox: str = "") -> list[dict]:
+    """The agent's profile duty, run offline over a contact's full history —
+    the same contract, the same gate: ONE call that reads the transcript and
+    returns verified profile_updates. Used by migrate_profiles_agent_lane.py
+    to rebuild profiles that a deterministic lane once wrote; nothing here
+    replies to anyone. Returns [] on any failure (a profile is left empty and
+    rebuilt on the customer's next message)."""
+    tool = {"type": "function", "name": "record_profile",
+            "description": "Submit the profile_updates for this customer.",
+            "parameters": {
+                "type": "object", "properties": {
+                    "profile_updates": _FINISH_TOOL["parameters"]["properties"]["profile_updates"]},
+                "required": ["profile_updates"]}}
+    system = (
+        "You are Durian's front-of-house agent reviewing a customer's past "
+        "Instagram conversations to decide what their durable profile should "
+        "hold. You are the ONLY writer of this profile; nothing is recorded "
+        "unless you put it in profile_updates. Judge every candidate: (a) THEIRS "
+        "or a mention? A phone/pincode is `set` only when given as their own, "
+        "for a purchase — someone else's number, an order number, an amount, a "
+        "bare six-digit string with no context is a note or nothing. (b) NEW or "
+        "restated? Keep the current value; a later correction supersedes. "
+        "(c) CUSTOMER intent or not? A collab pitch, dealer ask, spam, or "
+        "complaint records what it IS (learn note) and NEVER a product interest; "
+        "interest means the customer asked about, showed or chose a product by "
+        "name — not a word that resembles a catalog name. Declines, preferences, "
+        "budgets, objections all go in. Every item carries `quote` — the "
+        "customer's exact words from the transcript — and a one-line `note` "
+        "with your reason. `routed` / `deal_created` ONLY when Durian's own "
+        "line in the transcript confirms it (a showroom named as theirs, an "
+        "enquiry confirmed registered) — a customer asking for a callback is "
+        "not routing. Prefer fewer, certain entries: at most 6 learns, merge "
+        "near-duplicates (one interest per product, not per mention).")
+    user = (f"CUSTOMER: {contact_name}\n\nTHEIR CONVERSATIONS (oldest first):\n"
+            f"{transcript}\n\nSubmit profile_updates via record_profile.")
+    _kw = {}
+    if not config.SOCIAL_AGENT_BASE_URL:
+        _kw["reasoning"] = {"effort": config.SOCIAL_AGENT_REASONING}
+    try:
+        r = await _responses_with_retry(
+            model=config.SOCIAL_AGENT_MODEL, tools=[tool], tool_choice="required",
+            input=[{"role": "system", "content": system},
+                   {"role": "user", "content": user}],
+            max_output_tokens=2500, **_kw)
+    except Exception as e:
+        print(f"[profile-rebuild] LLM failed for {contact_name}: {e}")
+        return []
+    proposed = []
+    for item in getattr(r, "output", []) or []:
+        if getattr(item, "type", "") == "function_call" and item.name == "record_profile":
+            try:
+                proposed = (json.loads(item.arguments) or {}).get("profile_updates") or []
+            except ValueError:
+                proposed = []
+    return profile_mod.verify_updates(proposed, [transcript], [], conv_id, inbox)
