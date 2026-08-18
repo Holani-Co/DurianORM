@@ -187,7 +187,9 @@
       "CANCEL": "Cancel",
       "SUCCESS_MESSAGE": "Message sent!",
       "GO_TO_CONVERSATION": "View",
-      "ERROR_MESSAGE": "Couldn't send! try again"
+      "ERROR_MESSAGE": "Couldn't send! try again",
+      "DRAFT_SAVED": "Draft saved",
+      "DRAFT_SAVE_ERROR": "Couldn't save the draft, please try again"
     }
   },
   "CONTACTS_PAGE": {
@@ -657,6 +659,7 @@
       },
       "ACTION_BUTTONS": {
         "DISCARD": "Discard",
+        "SAVE_DRAFT": "Save as draft",
         "SEND": "Send ({keyCode})"
       }
     }

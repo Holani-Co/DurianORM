@@ -2,6 +2,7 @@
 import { frontendURL } from '../../../helper/URLHelper';
 import store from '../../../store';
 import ConversationView from './ConversationView.vue';
+import MailDraftsView from '../maildrafts/MailDraftsView.vue';
 
 const CONVERSATION_PERMISSIONS = [
   'administrator',
@@ -54,6 +55,14 @@ export default {
       props: () => {
         return { inboxId: 0 };
       },
+    },
+    {
+      path: frontendURL('accounts/:accountId/mail_drafts'),
+      name: 'mail_drafts',
+      meta: {
+        permissions: CONVERSATION_PERMISSIONS,
+      },
+      component: MailDraftsView,
     },
     {
       path: frontendURL('accounts/:accountId/conversations/:conversation_id'),

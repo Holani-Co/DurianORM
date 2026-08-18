@@ -1,0 +1,14 @@
+{
+  "MAIL_DRAFTS": {
+    "HEADER": "Drafts",
+    "LOADING": "Loading drafts…",
+    "EMPTY": "No saved drafts yet. Compose an email and choose \"Save as draft\" to keep it here.",
+    "NO_SUBJECT": "(no subject)",
+    "NO_RECIPIENT": "(no recipient)",
+    "TO": "To:",
+    "EDIT": "Edit",
+    "DELETE": "Delete",
+    "DELETED": "Draft deleted",
+    "DELETE_ERROR": "Couldn't delete the draft, please try again"
+  }
+}
