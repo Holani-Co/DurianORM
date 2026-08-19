@@ -66,6 +66,14 @@ Generate a preview of a Durian product placed in the customer's OWN room photo. 
 **Returns**: `{"sent": "bool", "denied": "one of need_enquiry|need_photo|need_variant|need_placement|daily_cap|unavailable", "note": "what to do next"}`
 **Example**: `{"family": "VERONICA", "variant": "canary yellow", "placement": "replace the current sofa"}` → `{"sent": true}`
 
+## look_at_photo
+
+Actually VIEW a photo/screenshot the customer sent (flagged '[customer sent a photo]') — a vision pass returning the product CATEGORY plus a short description. USE right after a customer sends an image of a product (e.g. the screenshot you asked for when they shared a reel), BEFORE you answer, so you never reply blind. SAFE BY RULE: describe at the category/style level and offer our comparable range — call search_products with the suggested_query it returns and quote THOSE live products. Claim a specific Durian product, or a price for the pictured item, ONLY if visible_brand_text clearly names one of ours. If it returns looked=false / escalate=true (vision unavailable) OR is_product=false, do NOT guess or describe the image — ask ONE clarifying question or hand off with escalate_to_human, so the customer never gets a wrong reply.
+
+**Args**: `{}`
+**Returns**: `{"looked": "bool \u2014 false when the image could not be viewed (then escalate)", "is_product": "bool \u2014 a recognisable furniture / home product", "category": "str \u2014 e.g. sofa, bed, dining, wardrobe (empty if unsure)", "description": "str \u2014 short: material, colour, style", "visible_brand_text": "str \u2014 brand/model text legibly printed in the image", "suggested_query": "str \u2014 product nouns to pass to search_products", "escalate": "bool \u2014 true \u2192 hand to a human, never guess", "note": "str \u2014 how to use this safely"}`
+**Example**: `{}` → `{"looked": true, "is_product": true, "category": "sofa", "description": "grey L-shaped fabric sofa", "suggested_query": "l-shaped fabric sofa", "note": "offer our comparable sofas via search_products; do not name a specific model"}`
+
 ## escalate_to_human
 
 Hand the conversation to a human (flags + assignment). USE for: order status / delivery / warranty, dealer or franchise, bulk / B2B / project, collabs, price negotiation, complaints beyond a first apology, abuse, or anything your tools cannot ground. If intent is UNCLEAR, ask ONE clarifying question first, THEN escalate with what you learned. This ends your turn — so it carries the same profile duty as finish: pass `profile_updates` recording what this contact IS (learn note: 'dealer enquiry for Lucknow', 'complaint: broken leg on delivered sofa', 'collab pitch') plus any real fact given — never a product interest for a pitch or complaint.

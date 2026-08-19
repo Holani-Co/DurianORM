@@ -75,3 +75,21 @@
     viz_used: 1
     anywhere_contains: ["team|specialist|sales"]
     judge: {min: 3}
+
+# Reel share (Durian, Aug 2026): a customer sends a REEL we can't view — the
+# agent must ask for a SCREENSHOT of the product, not guess or search blindly.
+- id: reel_asks_for_screenshot
+  script:
+    - {at: "0m", text: "", reel: true}
+  expect:
+    sent_contains: ["(?i)screenshot"]
+    tools_not_called: ["route_to_showroom", "register_enquiry"]
+    judge: {min: 3}
+
+# A reel WITH a vague question still can't be interpreted → still ask for a screenshot.
+- id: reel_with_question_asks_for_screenshot
+  script:
+    - {at: "0m", text: "do you have this one?", reel: true}
+  expect:
+    sent_contains: ["(?i)screenshot"]
+    judge: {min: 3}

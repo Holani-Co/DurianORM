@@ -1075,6 +1075,106 @@ async def _generate_room_preview(room_image_url: str, product_image_url: str,
                                   swatch=swatch)
 
 
+def _latest_photo_url(ctx) -> str | None:
+    """The most recent incoming photo/screenshot we CAN view (not a reel /
+    video / story). Returns its data_url (a fetchable URL) or None."""
+    for m in reversed(ctx.get("all_messages") or []):
+        if m.get("message_type") not in (0, "incoming"):
+            continue
+        atts = m.get("attachments") or []
+        if not atts or _is_unviewable_media(m):
+            continue
+        url = (atts[0] or {}).get("data_url")
+        if url:
+            return url
+    return None
+
+
+@_skill(
+    "look_at_photo",
+    "Actually VIEW a photo/screenshot the customer sent (flagged '[customer "
+    "sent a photo]') — a vision pass returning the product CATEGORY plus a "
+    "short description. USE right after a customer sends an image of a product "
+    "(e.g. the screenshot you asked for when they shared a reel), BEFORE you "
+    "answer, so you never reply blind. SAFE BY RULE: describe at the "
+    "category/style level and offer our comparable range — call search_products "
+    "with the suggested_query it returns and quote THOSE live products. Claim a "
+    "specific Durian product, or a price for the pictured item, ONLY if "
+    "visible_brand_text clearly names one of ours. If it returns looked=false / "
+    "escalate=true (vision unavailable) OR is_product=false, do NOT guess or "
+    "describe the image — ask ONE clarifying question or hand off with "
+    "escalate_to_human, so the customer never gets a wrong reply.",
+    {},
+    {"looked": "bool — false when the image could not be viewed (then escalate)",
+     "is_product": "bool — a recognisable furniture / home product",
+     "category": "str — e.g. sofa, bed, dining, wardrobe (empty if unsure)",
+     "description": "str — short: material, colour, style",
+     "visible_brand_text": "str — brand/model text legibly printed in the image",
+     "suggested_query": "str — product nouns to pass to search_products",
+     "escalate": "bool — true → hand to a human, never guess",
+     "note": "str — how to use this safely"},
+    ({}, {"looked": True, "is_product": True, "category": "sofa",
+          "description": "grey L-shaped fabric sofa",
+          "suggested_query": "l-shaped fabric sofa",
+          "note": "offer our comparable sofas via search_products; do not name "
+                  "a specific model"}),
+)
+async def _sk_look_at_photo(ctx, **_) -> dict:
+    # Fail-safe payload: any inability to view the image → hand to a human,
+    # never guess (client guardrail — a wrong reply is worse than a handoff).
+    _escalate = {"looked": False, "escalate": True,
+                 "note": "could not view the image — do NOT guess or describe "
+                         "it; hand to a human with escalate_to_human so the "
+                         "customer never gets a wrong reply"}
+    if not config.PRODUCT_VISION_ENABLED or not config.GEMINI_API_KEY:
+        return _escalate
+    url = _latest_photo_url(ctx)
+    if not url:
+        return {"looked": False,
+                "note": "no viewable photo found — ask the customer to share a "
+                        "clear screenshot of the product they mean"}
+    try:
+        part = await _fetch_image_part(url)
+        prompt = (
+            "A customer of Durian (a premium furniture & home-furnishing brand) "
+            "sent this image while asking about a product. Look at it and reply "
+            "STRICT JSON only, no prose: "
+            '{"is_product": <true ONLY if it clearly shows a furniture / home '
+            'product>, "category": "<one of: sofa, bed, mattress, dining, chair, '
+            'table, wardrobe, recliner, tv unit, decor — or \\"\\" if unsure>", '
+            '"description": "<short: material, colour, style you can actually '
+            'see; no guessing>", "visible_brand_text": "<any brand or model '
+            'name legibly printed IN the image, else empty>", "suggested_query": '
+            '"<the product nouns to search our catalogue, e.g. \\"l-shaped '
+            'fabric sofa\\"; empty if not a product>"}')
+        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL,
+                                      [part, {"text": prompt}], timeout=30)
+        text = re.sub(r"^```(?:json)?|```$", "", _gemini_text(body).strip(),
+                      flags=re.M).strip()
+        out = json.loads(text)
+        if not isinstance(out, dict):
+            return _escalate
+    except Exception as e:
+        print(f"[agent] look_at_photo failed: {type(e).__name__}: {e}")
+        return _escalate
+    if not out.get("is_product"):
+        return {"looked": True, "is_product": False, "category": "",
+                "description": str(out.get("description") or "")[:200],
+                "note": "not a clear product — ask ONE clarifying question about "
+                        "what they want, or escalate_to_human; do NOT guess"}
+    return {"looked": True, "is_product": True,
+            "category": str(out.get("category") or "").strip(),
+            "description": str(out.get("description") or "").strip()[:200],
+            "visible_brand_text": str(out.get("visible_brand_text") or "").strip(),
+            "suggested_query": str(out.get("suggested_query")
+                                   or out.get("category") or "").strip(),
+            "note": ("offer our COMPARABLE range: call search_products with "
+                     "suggested_query and quote those live products. Describe "
+                     "the photo at the category/style level only; name a "
+                     "specific Durian product or a price for the pictured item "
+                     "ONLY if visible_brand_text clearly names one of ours.")}
+
+
 @_skill(
     "escalate_to_human",
     "Hand the conversation to a human (flags + assignment). USE for: order "
@@ -1159,6 +1259,10 @@ _FINISH_TOOL = {
 def tools_for_responses() -> list[dict]:
     out = []
     for name, s in SKILLS.items():
+        # look_at_photo is dark-launched: keep it out of the agent's toolset
+        # entirely until enabled, so "off" is a true no-op (no stray handoffs).
+        if name == "look_at_photo" and not config.PRODUCT_VISION_ENABLED:
+            continue
         out.append({"type": "function", "name": name,
                     "description": s["description"] +
                     f"\nRETURNS: {json.dumps(s['returns'])}" +
@@ -1395,6 +1499,15 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "short sentences. NEVER state prices, phone numbers, or personal "
         "details. Invite them to DM for prices/details. Praise gets a brief "
         "thank-you." if surface == "comment" else "")
+    photo_rule = (
+        " A photo/screenshot the customer DID send (flagged '[customer sent a "
+        "photo]') → call look_at_photo to actually SEE it before answering; "
+        "act on its category / suggested_query via search_products and stay at "
+        "the category level — never name a specific product or quote a price "
+        "for the pictured item unless it returns visible_brand_text naming "
+        "ours. If it returns looked=false / escalate or is_product=false, hand "
+        "off with escalate_to_human — never guess an image you could not view."
+        if config.PRODUCT_VISION_ENABLED else "")
     return f"""You are Durian's front-of-house agent on Instagram ({inbox} — \
 the {vertical} account). Durian sells premium furniture, doors and modular \
 interiors. Your job: help customers buy, faster — fewest, clearest messages.
@@ -1412,8 +1525,11 @@ timestamps — use them naturally; never treat an old enquiry as new.
 {profile_block}
 
 EVERY TURN, IN THIS ORDER:
-1. READ the profile and the message. A shared post is intent. Never ask for \
-anything the profile already holds (stored numbers → last 4 digits only).
+1. READ the profile and the message. A shared post is intent. A reel / video / \
+story you CANNOT view (flagged in the transcript) → ask the customer to share a \
+SCREENSHOT of the product so we can identify and route it; never guess the \
+product from an unviewable share.{photo_rule} Never ask for anything the profile \
+already holds (stored numbers → last 4 digits only).
 2. FETCH: list the fact classes your reply will contain and call each one's \
 owning skill —
    product / price → search_products · EMI figures — only when the customer \
@@ -1536,6 +1652,35 @@ def eligible(conv: dict, channel: str) -> bool:
         str(sender.get("name") or "").strip().lower() in [a.lower() for a in allow]
 
 
+# Reels / videos / stories a customer shares in a DM are media the agent CANNOT
+# see — unlike a shared Durian POST, which carries a caption we do read. When one
+# arrives with no caption we ask for a SCREENSHOT of the product instead of
+# guessing what's in it.
+_UNVIEWABLE_MEDIA = {"video", "ig_reel", "ig_story", "story_mention", "share"}
+
+
+def _is_unviewable_media(m: dict) -> bool:
+    """True when an incoming message carries a reel / video / story share the
+    agent can't view (and no shared-post caption to read instead)."""
+    if profile_mod.msg_attrs(m).get("shared_post_caption"):
+        return False
+    for a in (m.get("attachments") or []):
+        if str(a.get("file_type") or "").lower() in _UNVIEWABLE_MEDIA:
+            return True
+    it = str(profile_mod.msg_attrs(m).get("image_type") or "").lower()
+    return "story" in it or "reel" in it
+
+
+_ASK_FOR_SCREENSHOT = ("[customer shared a reel/video we cannot view — ASK them "
+                       "to share a screenshot of the product so we can identify "
+                       "and route it; do NOT guess the product]")
+
+# A viewable photo the customer sent. With vision on, tell the agent to look at
+# it (look_at_photo) rather than reply blind; off, it stays a plain marker.
+_PHOTO_LOOK = ("[customer sent a photo — call look_at_photo to view it before "
+               "answering; do NOT guess its contents]")
+
+
 async def maybe_handle(conv: dict, channel: str, surface: str = "",
                        latest_message: str = "", latest_msg_id=None) -> dict | None:
     if not eligible(conv, channel):
@@ -1647,8 +1792,14 @@ async def _handle_locked(conv, conv_id, channel, surface,
         cap = profile_mod.msg_attrs(m).get("shared_post_caption")
         if cap:      # a shared post IS intent — make it visible to the model
             content = f"[shared a Durian post: {str(cap)[:200]}] {content}".strip()
-        if m.get("attachments") and m.get("message_type") in (0, "incoming"):
-            content = f"[customer sent a photo] {content}".strip()
+        elif m.get("attachments") and m.get("message_type") in (0, "incoming"):
+            if _is_unviewable_media(m):
+                marker = _ASK_FOR_SCREENSHOT
+            elif config.PRODUCT_VISION_ENABLED:
+                marker = _PHOTO_LOOK
+            else:
+                marker = "[customer sent a photo]"
+            content = f"{marker} {content}".strip()
         if not content or m.get("private"):
             continue
         who = "Customer" if m.get("message_type") in (0, "incoming") else "Durian"
@@ -1656,12 +1807,14 @@ async def _handle_locked(conv, conv_id, channel, surface,
         lines.append(f"[{stamp}] {who}: {content}")
     transcript = "\n".join(lines[-30:])
     latest = (latest_message or "").strip()
-    _latest_cap = next(
-        (profile_mod.msg_attrs(m).get("shared_post_caption")
-         for m in reversed(all_messages)
-         if m.get("message_type") in (0, "incoming")), None)
+    _latest_msg = next((m for m in reversed(all_messages)
+                        if m.get("message_type") in (0, "incoming")), None)
+    _latest_cap = profile_mod.msg_attrs(_latest_msg or {}).get("shared_post_caption")
     if _latest_cap and latest.lower().startswith("shared post"):
         latest = f"[shared a Durian post: {str(_latest_cap)[:200]}]"
+    elif (_latest_msg and _is_unviewable_media(_latest_msg)
+            and (not latest or latest.lower().startswith(("shared", "sent", "reel")))):
+        latest = _ASK_FOR_SCREENSHOT
     if latest and latest not in "\n".join(incoming_texts):
         transcript += f"\n[today {now:%H:%M}] Customer: {latest}"
         incoming_texts.append(latest)
