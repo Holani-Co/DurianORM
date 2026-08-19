@@ -539,6 +539,18 @@ VISUALIZER_CONTACT_ALLOWLIST = [
     os.environ.get("VISUALIZER_CONTACT_ALLOWLIST", "").split(",")
     if s.strip()]
 
+# ── Product-photo vision (look_at_photo skill) ─────────────────────────────
+# When a customer sends a photo/screenshot of a product (e.g. after we ask for
+# one because they shared an unviewable reel), the agent can call look_at_photo
+# to actually SEE it — a cheap Gemini vision pass returns the product category +
+# a description the agent turns into a search_products query. SAFE by design:
+# it describes at the CATEGORY level and never claims a specific SKU/price for
+# the photographed item unless the image literally shows our branding. Fail
+# safe: any vision error (no key, timeout, unparseable) → the skill tells the
+# agent to hand off to a human, never to guess. Reuses GEMINI_API_KEY /
+# GEMINI_ANALYSIS_MODEL (already live for the visualizer). Dark-launched OFF.
+PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
+
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +
 # caption) right after the greeting. Offers are managed from the ORM Offers tab.
