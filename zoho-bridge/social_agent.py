@@ -1259,6 +1259,10 @@ _FINISH_TOOL = {
 def tools_for_responses() -> list[dict]:
     out = []
     for name, s in SKILLS.items():
+        # look_at_photo is dark-launched: keep it out of the agent's toolset
+        # entirely until enabled, so "off" is a true no-op (no stray handoffs).
+        if name == "look_at_photo" and not config.PRODUCT_VISION_ENABLED:
+            continue
         out.append({"type": "function", "name": name,
                     "description": s["description"] +
                     f"\nRETURNS: {json.dumps(s['returns'])}" +
