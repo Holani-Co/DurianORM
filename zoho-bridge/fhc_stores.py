@@ -96,7 +96,12 @@ import math as _math          # noqa: E402
 import pathlib as _pathlib    # noqa: E402
 
 COVERAGE_KM = 150.0
-_GEO = _json.loads((_pathlib.Path(__file__).parent / "data" / "pincode_geo.json").read_text())
+try:
+    _GEO = _json.loads(
+        (_pathlib.Path(__file__).parent / "data" / "pincode_geo.json").read_text())
+except Exception as _e:  # never let a missing/bad geo file crash bridge startup
+    print(f"[fhc] pincode_geo load failed ({_e}); nearest-store matching disabled")
+    _GEO = {}
 
 
 def _coords(pincode):
