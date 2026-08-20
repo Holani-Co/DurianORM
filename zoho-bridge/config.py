@@ -551,6 +551,14 @@ VISUALIZER_CONTACT_ALLOWLIST = [
 # GEMINI_ANALYSIS_MODEL (already live for the visualizer). Dark-launched OFF.
 PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
 
+# ── WhatsApp FHC flow (whatsapp_fhc.py) ────────────────────────────────────
+# Deterministic button-menu bot for the Full Home Customisation WhatsApp inbox:
+# greet → [Product enquiry | Store address | Other help] → collect details →
+# create the Home Studio deal (nearest of the 7 FHC studios) / send a store card
+# / hand to a human. Dark-launched OFF; turn on once the deal owner-routing is
+# verified against the CRM. Separate from the IG/FB LLM agent.
+WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
+
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +
 # caption) right after the greeting. Offers are managed from the ORM Offers tab.

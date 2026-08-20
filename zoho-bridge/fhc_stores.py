@@ -67,7 +67,7 @@ FHC_STORES = [
         "location": "Mumbai - Goregaon",
         "owner_id": "3608871000000804001",
         "city": "Mumbai",
-        "pincode": "400062",
+        "pincode": "400063",   # Goregaon (400062 not in pincode_geo; 400063 is)
         "manager": "Ms. Janhavi Khapre",
         "contact": "8693046731",
         "map": "https://www.google.com/maps?q=place_id:ChIJ_-exKUy35zsR4VTFPhDf3w8",
@@ -86,6 +86,47 @@ FHC_STORES = [
 ]
 
 _BY_LOCATION = {s["location"]: s for s in FHC_STORES}
+
+# ── Closest-pincode matching ────────────────────────────────────────────────
+# Customer pincode → lat/lon (data/pincode_geo.json) → nearest of the 7 studios
+# by great-circle distance. Beyond COVERAGE_KM the customer is treated as
+# "outside our studio network" → routed to Customer Support, not a studio.
+import json as _json          # noqa: E402
+import math as _math          # noqa: E402
+import pathlib as _pathlib    # noqa: E402
+
+COVERAGE_KM = 150.0
+_GEO = _json.loads((_pathlib.Path(__file__).parent / "data" / "pincode_geo.json").read_text())
+
+
+def _coords(pincode):
+    v = _GEO.get(str(pincode or "").strip())
+    return (v[0], v[1]) if v else None
+
+
+for _s in FHC_STORES:                       # precompute each studio's coords once
+    _s["_coords"] = _coords(_s["pincode"])
+
+
+def _haversine(a, b) -> float:
+    (lat1, lon1), (lat2, lon2) = a, b
+    p1, p2 = _math.radians(lat1), _math.radians(lat2)
+    dp, dl = _math.radians(lat2 - lat1), _math.radians(lon2 - lon1)
+    h = _math.sin(dp / 2) ** 2 + _math.cos(p1) * _math.cos(p2) * _math.sin(dl / 2) ** 2
+    return 2 * 6371.0 * _math.asin(_math.sqrt(h))
+
+
+def nearest_store(pincode) -> tuple[dict | None, float | None]:
+    """(store, distance_km) for the nearest of the 7 studios, or (None, None)
+    when the pincode is unknown. Caller compares distance to COVERAGE_KM."""
+    c = _coords(pincode)
+    if not c:
+        return None, None
+    cands = [s for s in FHC_STORES if s.get("_coords")]
+    if not cands:
+        return None, None
+    best = min(cands, key=lambda s: _haversine(c, s["_coords"]))
+    return best, _haversine(c, best["_coords"])
 
 
 def by_location(location: str) -> dict | None:
