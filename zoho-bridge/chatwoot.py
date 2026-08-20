@@ -234,6 +234,29 @@ async def create_message(conversation_id: int, content: str,
         return r.json()
 
 
+async def send_interactive_buttons(conversation_id: int, content: str,
+                                   buttons: list[dict]) -> dict:
+    """Send a WhatsApp interactive message — reply buttons (≤3 items) or a list
+    (>3). Chatwoot's whatsapp_cloud service renders content_type 'input_select'
+    as native WhatsApp buttons/list, and the customer's tap comes back as an
+    incoming message carrying the chosen item's value/title.
+    buttons = [{"title": <shown, ≤20 chars>, "value": <id we match on>}, ...].
+    """
+    payload = {
+        "content": content,
+        "message_type": "outgoing",
+        "content_type": "input_select",
+        "content_attributes": {"items": buttons},
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"), headers=_headers(), json=payload)
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot interactive send failed [{r.status_code}]: {r.text}")
+        return r.json()
+
+
 async def get_offers() -> list[dict]:
     """All promotional offers (the admin manages them; the bot filters to the
     live ones). Best-effort — [] on any failure so a greeting never breaks."""

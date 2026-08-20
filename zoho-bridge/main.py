@@ -40,6 +40,7 @@ import social_store_templates
 import product_catalog
 import snapmint
 import social_agent
+import whatsapp_fhc
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -3907,6 +3908,20 @@ async def handle_message_created(data: dict) -> dict:
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
+
+    # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
+    # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card
+    # / handoff). It owns the conversation while the flow runs, unless a human
+    # has taken it over. Dark-launched behind WHATSAPP_FHC_FLOW_ENABLED; when
+    # off, whatsapp_fhc.handle returns None and we fall through as before.
+    if social_channel == "whatsapp" and config.WHATSAPP_FHC_FLOW_ENABLED and conv_id:
+        full_conv = await chatwoot.get_conversation(conv_id)
+        assignee = (full_conv.get("meta") or {}).get("assignee") or {}
+        if not assignee or social_agent.is_bot_agent(assignee):
+            handled = await whatsapp_fhc.handle(
+                full_conv, conv_id, data.get("content") or "", data.get("id"))
+            if handled is not None:
+                return handled
 
     # Comment conversations: when the comment auto-reply bot is ON it owns
     # them (comment-specific prompt in Chatwoot's DmBot). When it's OFF —
