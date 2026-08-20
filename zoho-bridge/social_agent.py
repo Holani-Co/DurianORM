@@ -1256,12 +1256,17 @@ _FINISH_TOOL = {
 }
 
 
-def tools_for_responses() -> list[dict]:
+def tools_for_responses(surface: str = "") -> list[dict]:
     out = []
     for name, s in SKILLS.items():
         # look_at_photo is dark-launched: keep it out of the agent's toolset
         # entirely until enabled, so "off" is a true no-op (no stray handoffs).
         if name == "look_at_photo" and not config.PRODUCT_VISION_ENABLED:
+            continue
+        # A public comment is a thank-you or a DM-invite — never a deal. Expose
+        # only the human handoff so the agent can't reach for routing/price
+        # fetches (which is what carded comments as 'unclear intent').
+        if surface == "comment" and name != "escalate_to_human":
             continue
         out.append({"type": "function", "name": name,
                     "description": s["description"] +
@@ -1487,8 +1492,57 @@ async def _templates_block(channel: str, surface: str) -> str:
         return "(none)"
 
 
+def _comment_prompt(inbox: str, vertical: str, now: datetime,
+                    profile_block: str, templates: str,
+                    post_caption: str = "") -> str:
+    """A public COMMENT is not a deal conversation — it gets its own lean
+    playbook (thank / redirect-to-DM / escalate), NOT the deal steps. The deal
+    prompt made the agent card comments as 'unclear intent'; this replaces it."""
+    post = (f"\nTHE POST: this comment is on a Durian post about — "
+            f"{post_caption[:300]}\n" if post_caption else "")
+    return f"""You are Durian's front-of-house voice replying PUBLICLY to a \
+comment under a Durian post on {inbox} (the {vertical} account). Durian sells \
+premium furniture, doors and modular interiors. Reply AS Durian — plural \
+"we"/"our", never "I".
+{post}
+{profile_block}
+
+This is a PUBLIC comment thread. Write ONE short reply (at most 2 sentences), \
+warm and professional. NEVER put a price, phone number, address, stock figure \
+or link in a public comment — those details move to DM.
+
+Read the comment and do EXACTLY ONE of these:
+- PRAISE / appreciation / love (including emoji-love) -> a brief, genuine \
+thank-you. finish(action=send).
+- A QUESTION about a product (price, availability, "how much", colour, size, \
+material, "is this in stock") -> name the product from THE POST above if you \
+can, and warmly invite them to DM us so our team can share the details and \
+connect them to their nearest store. No price, no number. finish(action=send).
+- A COMPLAINT, an order / delivery / warranty problem, abuse, a legal threat, \
+or anything you cannot answer safely in public -> escalate_to_human (a \
+teammate replies). Do not attempt a public answer.
+
+CONFIDENCE — comments only: a clean thank-you or a DM-invite is a CONFIDENT \
+send. finish with action=send and confidence 95. The deal-flow confidence math \
+(fetch every fact, -25 for unclear intent) does NOT apply to a public comment: \
+naming the product from THE POST is allowed, and a comment's intent is always \
+one of the three above — never "unclear" in a way that should hold back a \
+thank-you or a DM-invite. Reach for escalate_to_human ONLY for complaints / \
+abuse / handoff cases, never for an ordinary praise or product comment.
+
+CURRENT TIME: {now:%A %d %b %Y, %H:%M} IST.
+
+VOICE REFERENCE — Durian's own public-comment replies (match this tone; adapt \
+to the comment, never paste the framing):
+{templates}"""
+
+
 def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
-                   profile_block: str, templates: str, n_customer_msgs: int) -> str:
+                   profile_block: str, templates: str, n_customer_msgs: int,
+                   post_caption: str = "") -> str:
+    if surface == "comment":
+        return _comment_prompt(inbox, vertical, now, profile_block, templates,
+                               post_caption)
     converge = ""
     if n_customer_msgs >= config.SOCIAL_AGENT_CONVERGE_AFTER:
         converge = ("\nCONVERGE NOW: this conversation is running long. Complete "
@@ -1840,8 +1894,14 @@ async def _handle_locked(conv, conv_id, channel, surface,
                           "decline is a decline. A value given for someone else "
                           "or in an unrelated context is not theirs:\n" + prior_block)
     templates = await _templates_block(channel, surface)
+    # On a comment, the post's caption is the product context (Chatwoot stores
+    # it on the conversation) — feed it so the agent can name the product.
+    post_caption = ""
+    if surface == "comment":
+        post_caption = ((conv.get("additional_attributes") or {})
+                        .get("caption") or "").strip()
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
-                            templates, n_customer)
+                            templates, n_customer, post_caption)
     viz_pass = ""
     if config.VISUALIZER_ENABLED and surface != "comment" \
             and _viz_allowed(conv):
@@ -1869,7 +1929,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # reasoning from this same budget — too tight and the turn ends with
         # thoughts but no reply.
         _kw = dict(model=config.SOCIAL_AGENT_MODEL, input=input_items,
-                   tools=tools_for_responses(), max_output_tokens=4000)
+                   tools=tools_for_responses(surface), max_output_tokens=4000)
         if not config.SOCIAL_AGENT_BASE_URL:   # OpenAI-only knob
             _kw["reasoning"] = {"effort": config.SOCIAL_AGENT_REASONING}
         r = await _responses_with_retry(**_kw)
