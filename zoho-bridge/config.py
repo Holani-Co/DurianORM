@@ -558,6 +558,10 @@ PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
 # / hand to a human. Dark-launched OFF; turn on once the deal owner-routing is
 # verified against the CRM. Separate from the IG/FB LLM agent.
 WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
+# The same FHC flow on the Chatwoot website widget (FHC section of durian.in) —
+# the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
+# Separate flag so website and WhatsApp roll out independently. Dark-launched.
+WEBSITE_FHC_FLOW_ENABLED = _bool("WEBSITE_FHC_FLOW_ENABLED", "false")
 
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +

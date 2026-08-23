@@ -124,11 +124,11 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
 
 async def handle(conv: dict, conv_id: int, latest_message: str = "",
                  latest_msg_id=None) -> dict | None:
-    """Advance the FHC WhatsApp flow one step. Returns a handled/ignored dict,
-    or None when the flow is disabled (caller falls through)."""
-    if not config.WHATSAPP_FHC_FLOW_ENABLED:
-        return None
-
+    """Advance the FHC flow one step. Shared by the WhatsApp and website-widget
+    dispatch hooks — each gates on its own enable flag BEFORE calling, so this
+    just runs the flow. Returns a handled/ignored dict. The wa_fhc conversation
+    attribute holds state on both channels (the widget renders input_select the
+    same way WhatsApp does, so the same buttons + state machine work as-is)."""
     ca = conv.get("custom_attributes") or {}
     st = dict(ca.get("wa_fhc") or {})
     if latest_msg_id is not None and st.get("last_msg") == latest_msg_id:
