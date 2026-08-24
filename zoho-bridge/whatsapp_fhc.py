@@ -14,12 +14,14 @@
 # conversation isn't owned by a human.
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import chatwoot
 import config
 import fhc_stores
 import pincode_resolver
+
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 _GREETING = (
     "Hello Sir/Ma'am 👋 Thank you for your interest in *Durian Full Home "
@@ -66,6 +68,107 @@ def _first_name(full: str) -> str:
     return (full or "").strip().split()[0] if (full or "").strip() else "there"
 
 
+def _sender_phone(conv: dict) -> str:
+    """The contact's own number, normalized to a 10-digit Indian mobile. On
+    WhatsApp this is the number they're messaging from (so we can skip asking);
+    on the website widget it's usually blank (so we ask)."""
+    raw = ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+    return _extract_phone(raw)
+
+
+_CONFIRM_PHONE = [{"title": "Yes, use this", "value": "phone_yes"},
+                  {"title": "Use another", "value": "phone_no"}]
+
+# What the customer wants to customise. >3 items → the widget/WhatsApp render
+# this as a tappable LIST. Maps to a CRM field once the client gives its API
+# name; until then it rides in the deal Description + a private note.
+_INTEREST = [{"title": "Kitchen", "value": "kitchen"},
+             {"title": "Wardrobe", "value": "wardrobe"},
+             {"title": "Full Home", "value": "full_home"},
+             {"title": "TV Unit", "value": "tv_unit"},
+             {"title": "Other storage", "value": "other_storage"}]
+_INTEREST_LABEL = {"kitchen": "Kitchen", "wardrobe": "Wardrobe",
+                   "full_home": "Full Home", "tv_unit": "TV Unit",
+                   "other_storage": "Other storage"}
+
+
+def _match_interest(text: str) -> str:
+    t = (text or "").strip().lower()
+    for key, kws in (("full_home", ("full home", "full_home", "whole home", "entire home")),
+                     ("kitchen", ("kitchen",)),
+                     ("wardrobe", ("wardrobe", "closet", "almirah")),
+                     ("tv_unit", ("tv", "entertainment")),
+                     ("other_storage", ("other", "storage"))):
+        if any(k in t for k in kws):
+            return key
+    return "unspecified"
+
+
+# ── Booking (studio visit) ──────────────────────────────────────────────────
+_BOOK_OFFER = [{"title": "Book a visit slot", "value": "book"},
+               {"title": "No, thanks", "value": "no_book"}]
+_DATE_OPTS = [{"title": "Today", "value": "today"},
+              {"title": "Tomorrow", "value": "tomorrow"},
+              {"title": "Pick a date", "value": "pick"}]
+_TIME_SLOTS = [{"title": "Morning", "value": "morning"},
+               {"title": "Afternoon", "value": "afternoon"},
+               {"title": "Evening", "value": "evening"}]
+_PEOPLE = [{"title": "Just me", "value": "1"},
+           {"title": "2 people", "value": "2"},
+           {"title": "3 or more", "value": "3+"}]
+_CONFIRM_BOOK = [{"title": "Yes, book it", "value": "book_yes"},
+                 {"title": "Cancel", "value": "book_no"}]
+_SLOT_LABEL = {"morning": "Morning (11 AM)", "afternoon": "Afternoon (2 PM)",
+               "evening": "Evening (5 PM)"}
+
+
+def _match_slot(text: str) -> str:
+    t = (text or "").lower()
+    if "afternoon" in t:
+        return "afternoon"
+    if "evening" in t:
+        return "evening"
+    return "morning"
+
+
+def _match_people(text: str) -> str:
+    t = (text or "").lower()
+    if "3" in t or "more" in t or "group" in t:
+        return "3+"
+    if "2" in t or "two" in t:
+        return "2"
+    return "1"
+
+
+def _parse_date(text: str):
+    """A future date from 'today' / 'tomorrow' / DD-MM-YYYY, or None."""
+    t = (text or "").strip().lower()
+    today = datetime.now(_IST).date()
+    if "today" in t:
+        return today
+    if "tomorrow" in t:
+        return today + timedelta(days=1)
+    m = re.search(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})", t)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        y += 2000 if y < 100 else 0
+        try:
+            got = date(y, mo, d)
+            if got >= today:
+                return got
+        except ValueError:
+            pass
+    return None
+
+
+def _slot_datetimes(day: date, slot: str):
+    """(start_iso, end_iso, start_dt) for a 1-hour visit at the slot's hour."""
+    hour = config.FHC_SLOT_HOURS.get(slot, 11)
+    start = datetime(day.year, day.month, day.day, hour, 0, tzinfo=_IST)
+    end = start + timedelta(hours=1)
+    return start.isoformat(), end.isoformat(), start
+
+
 async def _flag_agent(conv_id: int, reason: str, *, support: bool = False) -> None:
     """Hand the conversation to a human. `support=True` also labels it for the
     Customer Support queue (product enquiry outside the studio network)."""
@@ -88,8 +191,23 @@ async def _flag_agent(conv_id: int, reason: str, *, support: bool = False) -> No
             pass
 
 
+async def _add_interest_note(deal_id: str, interest_label: str) -> None:
+    """Attach the 'what they're customising' answer to the Zoho deal as a note
+    (the Home Studio layout has no dedicated field for it — client asked for a
+    note). Best-effort; never blocks the deal."""
+    if not (deal_id and interest_label):
+        return
+    try:
+        import zoho_crm
+        await zoho_crm.create_note(
+            "Deals", str(deal_id), "Customisation interest",
+            f"Customer is looking to customise: {interest_label} (via FHC bot).")
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] interest note failed for deal {deal_id}: {e}")
+
+
 async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
-                           store: dict) -> bool:
+                           store: dict, interest: str = "") -> bool:
     """Record the resolved studio + create the FHC (Home Studio) deal via the
     shared _create_crm_deal (which handles the CRM's mandatory custom fields).
     Never blocks the customer: on any failure the conversation is flagged so a
@@ -100,25 +218,106 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
     the CRM before this branch is switched on — the precise studio + owner_id we
     resolved is written to attributes + a private note either way.
     """
+    interest_label = _INTEREST_LABEL.get(interest, "")
     try:
         await chatwoot.merge_custom_attributes(conv_id, {
             "deal_customer_details": {"phone": phone, "city": store["city"],
-                                      "pincode": pincode, "captured_at": _now_iso()},
+                                      "pincode": pincode, "interest": interest,
+                                      "captured_at": _now_iso()},
             "phase2_category": "full_home_customization",
             "fhc_studio": store["location"],
+            "fhc_interest": interest,
             "retail_customer_phone": phone,
         })
         await chatwoot.post_private_note(
             conv_id,
-            f"🧾 WhatsApp FHC enquiry — {name} · {phone} · pincode {pincode}\n"
-            f"Nearest studio: {store['location']} (CRM owner {store['owner_id']}).")
+            f"🧾 WhatsApp FHC enquiry — {name} · {phone} · pincode {pincode}"
+            + (f"\nLooking to customise: {interest_label}" if interest_label else "")
+            + f"\nNearest studio: {store['location']} (CRM owner {store['owner_id']}).")
         import main  # lazy import — avoids a circular import at module load
-        await main._create_crm_deal(conv_id, agent_name="WhatsApp FHC bot",
-                                    sector="full_home_customization", phone=phone)
+        result = await main._create_crm_deal(
+            conv_id, agent_name="WhatsApp FHC bot",
+            sector="full_home_customization", phone=phone)
+        await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] deal auto-create deferred to human for conv {conv_id}: {e}")
         await _flag_agent(conv_id, f"WhatsApp FHC deal auto-create failed ({e})")
+        return False
+
+
+async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str,
+                               interest: str = "") -> bool:
+    """Out-of-coverage FHC lead → create the deal assigned to Customer Support
+    (config.FHC_SUPPORT_OWNER_ID), so no lead is invisible to the CRM. No-op
+    (returns False) when that owner isn't configured — the caller keeps the
+    Chatwoot handoff. Never blocks the customer."""
+    if not config.FHC_SUPPORT_OWNER_ID:
+        return False
+    interest_label = _INTEREST_LABEL.get(interest, "")
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "deal_customer_details": {"phone": phone, "pincode": pincode,
+                                      "interest": interest, "captured_at": _now_iso()},
+            "phase2_category": "full_home_customization",
+            "fhc_interest": interest,
+            "fhc_out_of_coverage": True,
+            "retail_customer_phone": phone,
+        })
+        await chatwoot.post_private_note(
+            conv_id,
+            f"🧾 WhatsApp FHC enquiry (OUTSIDE studio network) — {name} · {phone} "
+            f"· pincode {pincode}"
+            + (f"\nLooking to customise: {interest_label}" if interest_label else "")
+            + "\nRouted to Customer Support in the CRM.")
+        import main  # lazy import — avoids a circular import at module load
+        result = await main._create_crm_deal(
+            conv_id, agent_name="WhatsApp FHC bot",
+            sector="full_home_customization", phone=phone,
+            owner_id_override=config.FHC_SUPPORT_OWNER_ID,
+            owner_label="Customer Support")
+        await _add_interest_note((result or {}).get("deal_id"), interest_label)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] support deal create failed for conv {conv_id}: {e}")
+        return False
+
+
+async def _create_booking(conv_id: int, st: dict) -> bool:
+    """Create the Zoho Meeting (Events) for a studio visit, hosted by the studio
+    owner. Best-effort; flags a human on failure. Returns True on success."""
+    store = fhc_stores.by_location(st.get("book_store") or "")
+    if not store or not st.get("book_date"):
+        return False
+    try:
+        day = date.fromisoformat(st["book_date"])
+        slot = st.get("book_slot") or "morning"
+        start_iso, end_iso, start_dt = _slot_datetimes(day, slot)
+        name = st.get("name") or "Customer"
+        phone = st.get("phone") or ""
+        people = st.get("book_people") or ""
+        interest_label = _INTEREST_LABEL.get(st.get("interest") or "", "")
+        desc = (f"Studio visit booked via FHC bot.\nCustomer: {name} · {phone}\n"
+                f"People: {people}"
+                + (f"\nInterest: {interest_label}" if interest_label else ""))
+        await chatwoot.post_private_note(
+            conv_id,
+            f"🗓️ Studio visit booked — {name} · {phone} · "
+            f"{start_dt:%a %d %b, %I:%M %p} · {store['card_name']} · {people} ppl "
+            f"(owner {store['owner_id']}).")
+        import zoho_crm
+        await zoho_crm.create_event(
+            f"Studio Visit — {name} — {store['card_name']}",
+            start_iso, end_iso,
+            owner_id=store["owner_id"], host_id=store["owner_id"],
+            location=f"Durian FHC — {store['card_name']}", description=desc)
+        await chatwoot.merge_custom_attributes(conv_id, {"fhc_booking": {
+            "store": store["location"], "date": st["book_date"], "slot": slot,
+            "people": people, "at": _now_iso()}})
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] booking create failed for conv {conv_id}: {e}")
+        await _flag_agent(conv_id, f"WhatsApp FHC booking create failed ({e})")
         return False
 
 
@@ -183,9 +382,44 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
-        await _say(f"Thank you, {_first_name(text)}! 📞 Please share your *phone number*.")
-        await _save(step="p_phone", name=text[:80])
+        await chatwoot.send_interactive_buttons(
+            conv_id,
+            f"Thank you, {_first_name(text)}! What would you like to customise? 🏠",
+            _INTEREST)
+        await _save(step="p_interest", name=text[:80])
         return {"handled": "wa_fhc_p_name"}
+
+    if step == "p_interest":
+        interest = _match_interest(text)
+        known = _sender_phone(conv)
+        if known:
+            # We already have their number (WhatsApp) — confirm instead of asking.
+            await chatwoot.send_interactive_buttons(
+                conv_id,
+                f"Got it! Can we reach you on this same number ending "
+                f"{known[-4:]}? 📞",
+                _CONFIRM_PHONE)
+            await _save(step="p_phone_confirm", interest=interest, known_phone=known)
+        else:
+            await _say("Got it! 📞 Please share your *phone number*.")
+            await _save(step="p_phone", interest=interest)
+        return {"handled": "wa_fhc_p_interest"}
+
+    if step == "p_phone_confirm":
+        t = text.strip().lower()
+        if any(k in t for k in ("yes", "phone_yes", "use this", "same", "correct")):
+            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
+                       "your nearest studio.")
+            await _save(step="p_pin", phone=st.get("known_phone"))
+        elif any(k in t for k in ("no", "phone_no", "another", "different", "other")):
+            await _say("No problem — please share the *phone number* you'd like us to "
+                       "use. 📞")
+            await _save(step="p_phone")
+        else:
+            await chatwoot.send_interactive_buttons(
+                conv_id, "Just to confirm — which number should we use? 📞",
+                _CONFIRM_PHONE)
+        return {"handled": "wa_fhc_p_phone_confirm"}
 
     if step == "p_phone":
         phone = _extract_phone(text)
@@ -207,13 +441,16 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
             await _create_fhc_deal(conv_id, st.get("name") or "", st.get("phone") or "",
-                                   pin, store)
+                                   pin, store, interest=st.get("interest") or "")
             await _say(f"Thank you, {_first_name(name)}! ✅ Your enquiry has been "
                        f"registered with our *{store['card_name']}* studio. Our team "
                        f"will reach out to you shortly.\n\nThank you for choosing Durian ✨")
             await _save(step="done", pincode=pin, store=store["location"])
             return {"handled": "wa_fhc_deal"}
-        # Outside the studio network → Customer Support.
+        # Outside the studio network → create a Customer Support deal (if the
+        # support owner is configured) AND hand off in Chatwoot.
+        await _create_support_deal(conv_id, st.get("name") or "",
+                                   st.get("phone") or "", pin, st.get("interest") or "")
         await _flag_agent(conv_id,
                           f"WhatsApp FHC: product enquiry outside studio network (pincode {pin})",
                           support=True)
@@ -232,13 +469,136 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
             await _say(fhc_stores.store_card(store))
-        else:
-            await _flag_agent(conv_id,
-                              f"WhatsApp FHC: store request outside studio network (pincode {pin})")
-            await _say("We don't have a Full Home Customisation studio near you yet 😔 "
-                       "Our team will reach out to help you further 🙏")
+            if config.FHC_BOOKING_ENABLED:
+                await chatwoot.send_interactive_buttons(
+                    conv_id, "Would you like to book a visit to this studio? 🗓️",
+                    _BOOK_OFFER)
+                await _save(step="s_after_card", pincode=pin,
+                            book_store=store["location"])
+                return {"handled": "wa_fhc_store_offer_book"}
+            await _save(step="done", pincode=pin)
+            return {"handled": "wa_fhc_store"}
+        await _flag_agent(conv_id,
+                          f"WhatsApp FHC: store request outside studio network (pincode {pin})")
+        await _say("We don't have a Full Home Customisation studio near you yet 😔 "
+                   "Our team will reach out to help you further 🙏")
         await _save(step="done", pincode=pin)
         return {"handled": "wa_fhc_store"}
+
+    # ── Studio-visit booking (offered after the store card) ─────────────────
+    if step == "s_after_card":
+        if any(k in text.lower() for k in ("book", "yes", "slot", "sure")):
+            if st.get("name"):
+                await chatwoot.send_interactive_buttons(
+                    conv_id, "Great! Which day works for you? 🗓️", _DATE_OPTS)
+                await _save(step="b_date")
+            else:
+                await _say("Great! May I have your *name*? 🙂")
+                await _save(step="b_name")
+        else:
+            await _say("No problem! Thank you for choosing Durian ✨")
+            await _save(step="done")
+        return {"handled": "wa_fhc_book_offer"}
+
+    if step == "b_name":
+        known = _sender_phone(conv)
+        if known:
+            await chatwoot.send_interactive_buttons(
+                conv_id, f"Thanks, {_first_name(text)}! Can we reach you on this "
+                f"same number ending {known[-4:]}? 📞", _CONFIRM_PHONE)
+            await _save(step="b_phone_confirm", name=text[:80], known_phone=known)
+        else:
+            await _say(f"Thanks, {_first_name(text)}! 📞 Please share your "
+                       f"*phone number*.")
+            await _save(step="b_phone", name=text[:80])
+        return {"handled": "wa_fhc_book_name"}
+
+    if step == "b_phone_confirm":
+        t = text.strip().lower()
+        if any(k in t for k in ("yes", "phone_yes", "use this", "same", "correct")):
+            await chatwoot.send_interactive_buttons(
+                conv_id, "Which day works for you? 🗓️", _DATE_OPTS)
+            await _save(step="b_date", phone=st.get("known_phone"))
+        elif any(k in t for k in ("no", "phone_no", "another", "different", "other")):
+            await _say("Sure — please share the *phone number* to use. 📞")
+            await _save(step="b_phone")
+        else:
+            await chatwoot.send_interactive_buttons(
+                conv_id, "Which number should we use? 📞", _CONFIRM_PHONE)
+        return {"handled": "wa_fhc_book_phone_confirm"}
+
+    if step == "b_phone":
+        phone = _extract_phone(text)
+        if not phone:
+            await _say("Please share a valid 10-digit *phone number*. 📞")
+            return {"handled": "wa_fhc_book_phone_retry"}
+        await chatwoot.send_interactive_buttons(
+            conv_id, "Which day works for you? 🗓️", _DATE_OPTS)
+        await _save(step="b_date", phone=phone)
+        return {"handled": "wa_fhc_book_phone"}
+
+    if step == "b_date":
+        if any(k in text.lower() for k in ("pick", "another", "choose")):
+            await _say("Please type your preferred date as *DD/MM/YYYY* 🗓️")
+            await _save(step="b_date_input")
+            return {"handled": "wa_fhc_book_date_pick"}
+        day = _parse_date(text)
+        if not day:
+            await chatwoot.send_interactive_buttons(
+                conv_id, "Please choose a day 🗓️", _DATE_OPTS)
+            return {"handled": "wa_fhc_book_date_retry"}
+        await chatwoot.send_interactive_buttons(
+            conv_id, "What time suits you? ⏰", _TIME_SLOTS)
+        await _save(step="b_time", book_date=day.isoformat())
+        return {"handled": "wa_fhc_book_date"}
+
+    if step == "b_date_input":
+        day = _parse_date(text)
+        if not day:
+            await _say("Hmm, please share a valid *future* date as DD/MM/YYYY 🗓️")
+            return {"handled": "wa_fhc_book_date_input_retry"}
+        await chatwoot.send_interactive_buttons(
+            conv_id, "What time suits you? ⏰", _TIME_SLOTS)
+        await _save(step="b_time", book_date=day.isoformat())
+        return {"handled": "wa_fhc_book_date_input"}
+
+    if step == "b_time":
+        slot = _match_slot(text)
+        await chatwoot.send_interactive_buttons(
+            conv_id, "How many people will visit? 👥", _PEOPLE)
+        await _save(step="b_people", book_slot=slot)
+        return {"handled": "wa_fhc_book_time"}
+
+    if step == "b_people":
+        people = _match_people(text)
+        store = fhc_stores.by_location(st.get("book_store") or "")
+        try:
+            when = f"{date.fromisoformat(st.get('book_date')):%a %d %b}"
+        except Exception:  # noqa: BLE001
+            when = st.get("book_date") or ""
+        recap = (f"Please confirm your studio visit:\n\n"
+                 f"📍 {store['card_name'] if store else st.get('book_store')}\n"
+                 f"🗓️ {when} · {_SLOT_LABEL.get(st.get('book_slot'), '')}\n"
+                 f"👥 {people}\n\nShall I book it?")
+        await chatwoot.send_interactive_buttons(conv_id, recap, _CONFIRM_BOOK)
+        await _save(step="b_confirm", book_people=people)
+        return {"handled": "wa_fhc_book_people"}
+
+    if step == "b_confirm":
+        t = text.strip().lower()
+        if any(k in t for k in ("yes", "book_yes", "book it", "confirm", "sure")):
+            ok = await _create_booking(conv_id, st)
+            await _say("✅ Your studio visit is booked! Our team will confirm the "
+                       "details with you shortly.\n\nThank you for choosing Durian ✨"
+                       if ok else
+                       "Thank you! Our team will reach out to confirm your visit "
+                       "shortly 🙏")
+            await _save(step="done")
+        else:
+            await _say("No problem — reach out anytime to book. Thank you for "
+                       "choosing Durian ✨")
+            await _save(step="done")
+        return {"handled": "wa_fhc_book_confirm"}
 
     # ── Other help → capture the ask, hand to a human ───────────────────────
     if step == "other":

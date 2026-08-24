@@ -562,6 +562,17 @@ WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.
 WEBSITE_FHC_FLOW_ENABLED = _bool("WEBSITE_FHC_FLOW_ENABLED", "false")
+# Zoho CRM owner (user id) for FHC enquiries that fall OUTSIDE the 7-studio
+# network — the deal is created and assigned to Customer Support instead of
+# being dropped. Empty → out-of-coverage stays a Chatwoot-only handoff (no
+# CRM deal). Client's Customer Support user: 352472000003347003.
+FHC_SUPPORT_OWNER_ID = os.environ.get("FHC_SUPPORT_OWNER_ID", "")
+# Studio-visit booking in the FHC flow: after showing a studio, offer to book a
+# visit → creates a Zoho Meeting (Events) hosted by the studio owner. Writes to
+# the CRM, so dark-launched separately. Morning/Afternoon/Evening map to these
+# 24h start hours (valid 30-min slots in the client's picker); each visit is 1h.
+FHC_BOOKING_ENABLED = _bool("FHC_BOOKING_ENABLED", "false")
+FHC_SLOT_HOURS = {"morning": 11, "afternoon": 14, "evening": 17}
 
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +

@@ -337,6 +337,39 @@ async def create_deal(contact_id: str, deal_name: str,
     return entry.get("details") or {}
 
 
+async def create_event(title: str, start_dt: str, end_dt: str, *,
+                       owner_id: str = "", host_id: str = "", location: str = "",
+                       description: str = "", what_id: str = "",
+                       who_id: str = "") -> dict:
+    """Create a Meeting in the Events module — a studio-visit appointment.
+    start_dt/end_dt are ISO 8601 with offset (e.g. '2026-08-25T11:00:00+05:30').
+    owner_id assigns the record; host_id is the meeting Host; what_id links it to
+    a Deal (Related To); who_id links a Contact. All standard Events fields."""
+    record = {
+        "Event_Title":    (title or "Meeting")[:255],
+        "Start_DateTime": start_dt,
+        "End_DateTime":   end_dt,
+    }
+    if owner_id:
+        record["Owner"] = {"id": str(owner_id)}
+    if host_id:
+        record["Host"] = {"id": str(host_id)}
+    if location:
+        record["Location"] = location[:255]
+    if description:
+        record["Description"] = description[:NOTE_CONTENT_MAX]
+    if what_id:
+        record["What_Id"] = {"id": str(what_id)}
+        record["$se_module"] = "Deals"
+    if who_id:
+        record["Who_Id"] = {"id": str(who_id)}
+    resp = await _crm_request("POST", "/Events", json_body={"data": [record]})
+    entry = (resp.get("data") or [{}])[0]
+    if entry.get("code") != "SUCCESS":
+        raise RuntimeError(f"Zoho CRM create_event failed: {entry}")
+    return entry.get("details") or {}
+
+
 async def get_contact_deals(contact_id: str, limit: int = 5) -> list:
     """Recent Deals linked to a Contact, newest first. Used to WARN an agent
     that this customer may already have a deal before they create another.
