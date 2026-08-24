@@ -562,6 +562,11 @@ WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.
 WEBSITE_FHC_FLOW_ENABLED = _bool("WEBSITE_FHC_FLOW_ENABLED", "false")
+# Zoho CRM owner (user id) for FHC enquiries that fall OUTSIDE the 7-studio
+# network — the deal is created and assigned to Customer Support instead of
+# being dropped. Empty → out-of-coverage stays a Chatwoot-only handoff (no
+# CRM deal). Client's Customer Support user: 352472000003347003.
+FHC_SUPPORT_OWNER_ID = os.environ.get("FHC_SUPPORT_OWNER_ID", "")
 
 # ── Offers on greeting ─────────────────────────────────────────────────────
 # When a customer greets, share the client-managed top-priority offer (image +

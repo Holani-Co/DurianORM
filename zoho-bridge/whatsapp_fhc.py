@@ -66,6 +66,42 @@ def _first_name(full: str) -> str:
     return (full or "").strip().split()[0] if (full or "").strip() else "there"
 
 
+def _sender_phone(conv: dict) -> str:
+    """The contact's own number, normalized to a 10-digit Indian mobile. On
+    WhatsApp this is the number they're messaging from (so we can skip asking);
+    on the website widget it's usually blank (so we ask)."""
+    raw = ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
+    return _extract_phone(raw)
+
+
+_CONFIRM_PHONE = [{"title": "Yes, use this", "value": "phone_yes"},
+                  {"title": "Use another", "value": "phone_no"}]
+
+# What the customer wants to customise. >3 items → the widget/WhatsApp render
+# this as a tappable LIST. Maps to a CRM field once the client gives its API
+# name; until then it rides in the deal Description + a private note.
+_INTEREST = [{"title": "Kitchen", "value": "kitchen"},
+             {"title": "Wardrobe", "value": "wardrobe"},
+             {"title": "Full Home", "value": "full_home"},
+             {"title": "TV Unit", "value": "tv_unit"},
+             {"title": "Other storage", "value": "other_storage"}]
+_INTEREST_LABEL = {"kitchen": "Kitchen", "wardrobe": "Wardrobe",
+                   "full_home": "Full Home", "tv_unit": "TV Unit",
+                   "other_storage": "Other storage"}
+
+
+def _match_interest(text: str) -> str:
+    t = (text or "").strip().lower()
+    for key, kws in (("full_home", ("full home", "full_home", "whole home", "entire home")),
+                     ("kitchen", ("kitchen",)),
+                     ("wardrobe", ("wardrobe", "closet", "almirah")),
+                     ("tv_unit", ("tv", "entertainment")),
+                     ("other_storage", ("other", "storage"))):
+        if any(k in t for k in kws):
+            return key
+    return "unspecified"
+
+
 async def _flag_agent(conv_id: int, reason: str, *, support: bool = False) -> None:
     """Hand the conversation to a human. `support=True` also labels it for the
     Customer Support queue (product enquiry outside the studio network)."""
@@ -89,7 +125,7 @@ async def _flag_agent(conv_id: int, reason: str, *, support: bool = False) -> No
 
 
 async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
-                           store: dict) -> bool:
+                           store: dict, interest: str = "") -> bool:
     """Record the resolved studio + create the FHC (Home Studio) deal via the
     shared _create_crm_deal (which handles the CRM's mandatory custom fields).
     Never blocks the customer: on any failure the conversation is flagged so a
@@ -100,18 +136,22 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
     the CRM before this branch is switched on — the precise studio + owner_id we
     resolved is written to attributes + a private note either way.
     """
+    interest_label = _INTEREST_LABEL.get(interest, "")
     try:
         await chatwoot.merge_custom_attributes(conv_id, {
             "deal_customer_details": {"phone": phone, "city": store["city"],
-                                      "pincode": pincode, "captured_at": _now_iso()},
+                                      "pincode": pincode, "interest": interest,
+                                      "captured_at": _now_iso()},
             "phase2_category": "full_home_customization",
             "fhc_studio": store["location"],
+            "fhc_interest": interest,
             "retail_customer_phone": phone,
         })
         await chatwoot.post_private_note(
             conv_id,
-            f"🧾 WhatsApp FHC enquiry — {name} · {phone} · pincode {pincode}\n"
-            f"Nearest studio: {store['location']} (CRM owner {store['owner_id']}).")
+            f"🧾 WhatsApp FHC enquiry — {name} · {phone} · pincode {pincode}"
+            + (f"\nLooking to customise: {interest_label}" if interest_label else "")
+            + f"\nNearest studio: {store['location']} (CRM owner {store['owner_id']}).")
         import main  # lazy import — avoids a circular import at module load
         await main._create_crm_deal(conv_id, agent_name="WhatsApp FHC bot",
                                     sector="full_home_customization", phone=phone)
@@ -119,6 +159,41 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] deal auto-create deferred to human for conv {conv_id}: {e}")
         await _flag_agent(conv_id, f"WhatsApp FHC deal auto-create failed ({e})")
+        return False
+
+
+async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str,
+                               interest: str = "") -> bool:
+    """Out-of-coverage FHC lead → create the deal assigned to Customer Support
+    (config.FHC_SUPPORT_OWNER_ID), so no lead is invisible to the CRM. No-op
+    (returns False) when that owner isn't configured — the caller keeps the
+    Chatwoot handoff. Never blocks the customer."""
+    if not config.FHC_SUPPORT_OWNER_ID:
+        return False
+    interest_label = _INTEREST_LABEL.get(interest, "")
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "deal_customer_details": {"phone": phone, "pincode": pincode,
+                                      "interest": interest, "captured_at": _now_iso()},
+            "phase2_category": "full_home_customization",
+            "fhc_interest": interest,
+            "fhc_out_of_coverage": True,
+            "retail_customer_phone": phone,
+        })
+        await chatwoot.post_private_note(
+            conv_id,
+            f"🧾 WhatsApp FHC enquiry (OUTSIDE studio network) — {name} · {phone} "
+            f"· pincode {pincode}"
+            + (f"\nLooking to customise: {interest_label}" if interest_label else "")
+            + "\nRouted to Customer Support in the CRM.")
+        import main  # lazy import — avoids a circular import at module load
+        await main._create_crm_deal(conv_id, agent_name="WhatsApp FHC bot",
+                                    sector="full_home_customization", phone=phone,
+                                    owner_id_override=config.FHC_SUPPORT_OWNER_ID,
+                                    owner_label="Customer Support")
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] support deal create failed for conv {conv_id}: {e}")
         return False
 
 
@@ -183,9 +258,44 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
-        await _say(f"Thank you, {_first_name(text)}! 📞 Please share your *phone number*.")
-        await _save(step="p_phone", name=text[:80])
+        await chatwoot.send_interactive_buttons(
+            conv_id,
+            f"Thank you, {_first_name(text)}! What would you like to customise? 🏠",
+            _INTEREST)
+        await _save(step="p_interest", name=text[:80])
         return {"handled": "wa_fhc_p_name"}
+
+    if step == "p_interest":
+        interest = _match_interest(text)
+        known = _sender_phone(conv)
+        if known:
+            # We already have their number (WhatsApp) — confirm instead of asking.
+            await chatwoot.send_interactive_buttons(
+                conv_id,
+                f"Got it! Can we reach you on this same number ending "
+                f"{known[-4:]}? 📞",
+                _CONFIRM_PHONE)
+            await _save(step="p_phone_confirm", interest=interest, known_phone=known)
+        else:
+            await _say("Got it! 📞 Please share your *phone number*.")
+            await _save(step="p_phone", interest=interest)
+        return {"handled": "wa_fhc_p_interest"}
+
+    if step == "p_phone_confirm":
+        t = text.strip().lower()
+        if any(k in t for k in ("yes", "phone_yes", "use this", "same", "correct")):
+            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
+                       "your nearest studio.")
+            await _save(step="p_pin", phone=st.get("known_phone"))
+        elif any(k in t for k in ("no", "phone_no", "another", "different", "other")):
+            await _say("No problem — please share the *phone number* you'd like us to "
+                       "use. 📞")
+            await _save(step="p_phone")
+        else:
+            await chatwoot.send_interactive_buttons(
+                conv_id, "Just to confirm — which number should we use? 📞",
+                _CONFIRM_PHONE)
+        return {"handled": "wa_fhc_p_phone_confirm"}
 
     if step == "p_phone":
         phone = _extract_phone(text)
@@ -207,13 +317,16 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
             await _create_fhc_deal(conv_id, st.get("name") or "", st.get("phone") or "",
-                                   pin, store)
+                                   pin, store, interest=st.get("interest") or "")
             await _say(f"Thank you, {_first_name(name)}! ✅ Your enquiry has been "
                        f"registered with our *{store['card_name']}* studio. Our team "
                        f"will reach out to you shortly.\n\nThank you for choosing Durian ✨")
             await _save(step="done", pincode=pin, store=store["location"])
             return {"handled": "wa_fhc_deal"}
-        # Outside the studio network → Customer Support.
+        # Outside the studio network → create a Customer Support deal (if the
+        # support owner is configured) AND hand off in Chatwoot.
+        await _create_support_deal(conv_id, st.get("name") or "",
+                                   st.get("phone") or "", pin, st.get("interest") or "")
         await _flag_agent(conv_id,
                           f"WhatsApp FHC: product enquiry outside studio network (pincode {pin})",
                           support=True)

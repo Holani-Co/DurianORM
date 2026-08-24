@@ -7329,7 +7329,8 @@ async def chatwoot_crm_create_deal(request: Request):
 
 
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
-                           phone="", ignore_existing=False):
+                           phone="", ignore_existing=False, owner_id_override="",
+                           owner_label=""):
     """Core Create-Deal logic, shared by the manual button endpoint and the
     email-channel auto-create. Raises HTTPException for the cases that need a
     human decision (409 buyer-type unclear, 422 unresolvable location, 409
@@ -7401,14 +7402,22 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     # agent to pick Government/Private. Unresolvable location → 422, do NOT
     # tag CRM (client rule).
     sector_override = (sector or "").lower()
-    owner = await _resolve_deal_owner(custom, body_text, subject, email,
-                                      sector_override=sector_override)
-    if owner.get("sector_unclear"):
-        raise HTTPException(409, owner.get("reason") or "buyer type unclear")
-    if owner.get("configured") and owner.get("location") is None:
-        raise HTTPException(
-            422, owner.get("reason")
-            or "location could not be determined — not tagging to CRM")
+    if owner_id_override:
+        # Explicit owner — skip location routing entirely. Used for FHC leads
+        # that fall OUTSIDE the studio network (routed to Customer Support), so
+        # the "unresolvable location → 422" guard doesn't drop the lead.
+        _lbl = owner_label or "Customer Support"
+        owner = {"owner_id": owner_id_override, "vertical": "",
+                 "display": _lbl, "location": _lbl}
+    else:
+        owner = await _resolve_deal_owner(custom, body_text, subject, email,
+                                          sector_override=sector_override)
+        if owner.get("sector_unclear"):
+            raise HTTPException(409, owner.get("reason") or "buyer type unclear")
+        if owner.get("configured") and owner.get("location") is None:
+            raise HTTPException(
+                422, owner.get("reason")
+                or "location could not be determined — not tagging to CRM")
     owner_id = owner.get("owner_id", "")
 
     # Contact matching: prefer an agent-supplied phone, else the phone the
