@@ -3923,6 +3923,20 @@ async def handle_message_created(data: dict) -> dict:
             if handled is not None:
                 return handled
 
+    # The SAME FHC flow on the website widget (FHC section of durian.in). The
+    # Chatwoot web-widget renders the same input_select buttons, so it reuses
+    # whatsapp_fhc.handle as-is (state in the same wa_fhc attribute). Website
+    # inbox only (Channel::WebWidget), only when no human owns the conversation.
+    # Dark-launched behind WEBSITE_FHC_FLOW_ENABLED.
+    if inbox_type == "Channel::WebWidget" and config.WEBSITE_FHC_FLOW_ENABLED and conv_id:
+        full_conv = await chatwoot.get_conversation(conv_id)
+        assignee = (full_conv.get("meta") or {}).get("assignee") or {}
+        if not assignee or social_agent.is_bot_agent(assignee):
+            handled = await whatsapp_fhc.handle(
+                full_conv, conv_id, data.get("content") or "", data.get("id"))
+            if handled is not None:
+                return handled
+
     # Comment conversations: when the comment auto-reply bot is ON it owns
     # them (comment-specific prompt in Chatwoot's DmBot). When it's OFF —
     # the prod-test default — agents used to get NOTHING on comments; now
