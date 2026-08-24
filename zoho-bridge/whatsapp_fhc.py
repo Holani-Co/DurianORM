@@ -300,20 +300,23 @@ async def _create_booking(conv_id: int, st: dict) -> bool:
         desc = (f"Studio visit booked via FHC bot.\nCustomer: {name} · {phone}\n"
                 f"People: {people}"
                 + (f"\nInterest: {interest_label}" if interest_label else ""))
-        await chatwoot.post_private_note(
-            conv_id,
-            f"🗓️ Studio visit booked — {name} · {phone} · "
-            f"{start_dt:%a %d %b, %I:%M %p} · {store['card_name']} · {people} ppl "
-            f"(owner {store['owner_id']}).")
+        summary = (f"{name} · {phone} · {start_dt:%a %d %b, %I:%M %p} · "
+                   f"{store['card_name']} · {people} ppl")
         import zoho_crm
-        await zoho_crm.create_event(
+        result = await zoho_crm.create_event(
             f"Studio Visit — {name} — {store['card_name']}",
             start_iso, end_iso,
             owner_id=store["owner_id"], host_id=store["owner_id"],
             location=f"Durian FHC — {store['card_name']}", description=desc)
+        event_id = (result or {}).get("id")
+        link = zoho_crm.event_url(event_id) if event_id else ""
+        await chatwoot.post_private_note(
+            conv_id,
+            f"🗓️ Studio visit booked — {summary} (owner {store['owner_id']})."
+            + (f"\n🔗 Open the meeting in Zoho: {link}" if link else ""))
         await chatwoot.merge_custom_attributes(conv_id, {"fhc_booking": {
             "store": store["location"], "date": st["book_date"], "slot": slot,
-            "people": people, "at": _now_iso()}})
+            "people": people, "event_id": event_id, "at": _now_iso()}})
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] booking create failed for conv {conv_id}: {e}")

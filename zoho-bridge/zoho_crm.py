@@ -404,3 +404,8 @@ def contact_url(contact_id: str) -> str:
 
 def deal_url(deal_id: str) -> str:
     return f"{_ui_base()}/crm/tab/Potentials/{deal_id}" if deal_id else ""
+
+
+def event_url(event_id: str) -> str:
+    """UI link to a Meeting (Events module) record."""
+    return f"{_ui_base()}/crm/tab/Events/{event_id}" if event_id else ""
