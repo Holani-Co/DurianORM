@@ -124,6 +124,21 @@ async def _flag_agent(conv_id: int, reason: str, *, support: bool = False) -> No
             pass
 
 
+async def _add_interest_note(deal_id: str, interest_label: str) -> None:
+    """Attach the 'what they're customising' answer to the Zoho deal as a note
+    (the Home Studio layout has no dedicated field for it — client asked for a
+    note). Best-effort; never blocks the deal."""
+    if not (deal_id and interest_label):
+        return
+    try:
+        import zoho_crm
+        await zoho_crm.create_note(
+            "Deals", str(deal_id), "Customisation interest",
+            f"Customer is looking to customise: {interest_label} (via FHC bot).")
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] interest note failed for deal {deal_id}: {e}")
+
+
 async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
                            store: dict, interest: str = "") -> bool:
     """Record the resolved studio + create the FHC (Home Studio) deal via the
@@ -153,8 +168,10 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
             + (f"\nLooking to customise: {interest_label}" if interest_label else "")
             + f"\nNearest studio: {store['location']} (CRM owner {store['owner_id']}).")
         import main  # lazy import — avoids a circular import at module load
-        await main._create_crm_deal(conv_id, agent_name="WhatsApp FHC bot",
-                                    sector="full_home_customization", phone=phone)
+        result = await main._create_crm_deal(
+            conv_id, agent_name="WhatsApp FHC bot",
+            sector="full_home_customization", phone=phone)
+        await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] deal auto-create deferred to human for conv {conv_id}: {e}")
@@ -187,10 +204,12 @@ async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str
             + (f"\nLooking to customise: {interest_label}" if interest_label else "")
             + "\nRouted to Customer Support in the CRM.")
         import main  # lazy import — avoids a circular import at module load
-        await main._create_crm_deal(conv_id, agent_name="WhatsApp FHC bot",
-                                    sector="full_home_customization", phone=phone,
-                                    owner_id_override=config.FHC_SUPPORT_OWNER_ID,
-                                    owner_label="Customer Support")
+        result = await main._create_crm_deal(
+            conv_id, agent_name="WhatsApp FHC bot",
+            sector="full_home_customization", phone=phone,
+            owner_id_override=config.FHC_SUPPORT_OWNER_ID,
+            owner_label="Customer Support")
+        await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] support deal create failed for conv {conv_id}: {e}")
