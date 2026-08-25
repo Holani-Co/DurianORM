@@ -206,6 +206,26 @@ async def _add_interest_note(deal_id: str, interest_label: str) -> None:
         print(f"[wa-fhc] interest note failed for deal {deal_id}: {e}")
 
 
+def _existing_deals_note(name: str, phone: str, deals: list) -> str:
+    """A readable private note for the dedup case — the customer already has
+    deal(s) in the CRM, so we skip auto-create rather than make a duplicate.
+    Replaces the raw 409 payload dump the agent used to see."""
+    lines = [f"🧾 {name} ({phone}) is already in the CRM with "
+             f"{len(deals)} existing deal(s) — auto-create was skipped to avoid a "
+             f"duplicate. Please review and create a new deal only if needed:"]
+    for d in deals[:5]:
+        line = f"• {d.get('name') or '(unnamed deal)'} — {d.get('stage') or '—'}"
+        created = (d.get("created_time") or "")[:10]
+        if created:
+            line += f" (created {created})"
+        if d.get("url"):
+            line += f"\n  {d['url']}"
+        lines.append(line)
+    if len(deals) > 5:
+        lines.append(f"…and {len(deals) - 5} more.")
+    return "\n".join(lines)
+
+
 async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
                            store: dict, interest: str = "") -> bool:
     """Record the resolved studio + create the FHC (Home Studio) deal via the
@@ -242,7 +262,15 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] deal auto-create deferred to human for conv {conv_id}: {e}")
-        await _flag_agent(conv_id, f"WhatsApp FHC deal auto-create failed ({e})")
+        detail = getattr(e, "detail", None)
+        if isinstance(detail, dict) and detail.get("code") == "existing_deals":
+            await chatwoot.post_private_note(
+                conv_id, _existing_deals_note(name, phone, detail.get("deals") or []))
+            await _flag_agent(conv_id, "Existing CRM deal found — review before "
+                                       "creating a new one")
+        else:
+            await _flag_agent(
+                conv_id, f"Couldn't auto-create the FHC deal for {name} ({phone})")
         return False
 
 

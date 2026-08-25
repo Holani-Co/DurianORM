@@ -7376,7 +7376,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     subject, body_text = _conv_first_incoming_body(messages)
     category_display = (custom.get("email_category_v2") or {}).get("display_name") \
                        or (custom.get("email_category_v2") or {}).get("category") \
-                       or "Chatwoot Deal"
+                       or "ORM Deal"
 
     # Deal-details gate: for bulk order / FHC / door the client requires the
     # customer's phone + city (gathered by the auto-ask flow) before any deal is
