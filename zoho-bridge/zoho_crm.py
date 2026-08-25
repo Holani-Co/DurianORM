@@ -311,7 +311,7 @@ async def create_deal(contact_id: str, deal_name: str,
     escape hatch for org-specific MANDATORY custom fields (e.g. the client's
     Business_Type_New picklist) without another signature change."""
     record = {
-        "Deal_Name":   (deal_name or "Chatwoot Deal")[:255],
+        "Deal_Name":   (deal_name or "ORM Deal")[:255],
         "Stage":       stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE,
         "Lead_Source": source,
         "Description": (description or "")[:NOTE_CONTENT_MAX],
