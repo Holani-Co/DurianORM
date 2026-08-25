@@ -6221,6 +6221,29 @@ async def handle_message_updated(data: dict) -> dict:
     external_error, and source_id in this webhook after the delivery job runs.
     """
     attrs = data.get("content_attributes") or {}
+
+    # Website FHC flow: the web-widget records a button tap as `submitted_values`
+    # on the input_select message — a message UPDATE, not a new message — so it
+    # never reaches handle_message_created (unlike WhatsApp, where a tap is a real
+    # incoming message). Route the selection into the flow here. Guarded to an
+    # ACTIVE FHC conversation so unrelated selects (CSAT, etc.) don't trigger it.
+    sv = attrs.get("submitted_values") or []
+    if (config.WEBSITE_FHC_FLOW_ENABLED and sv
+            and (data.get("inbox") or {}).get("channel_type") == "Channel::WebWidget"):
+        _conv = data.get("conversation") or {}
+        _cid = _conv.get("id")
+        if _cid:
+            _full = await chatwoot.get_conversation(_cid)
+            _st = (_full.get("custom_attributes") or {}).get("wa_fhc") or {}
+            _assignee = (_full.get("meta") or {}).get("assignee") or {}
+            if (_st.get("step") and _st.get("step") != "done"
+                    and (not _assignee or social_agent.is_bot_agent(_assignee))):
+                _choice = (sv[0] or {}).get("value") or (sv[0] or {}).get("title") or ""
+                handled = await whatsapp_fhc.handle(
+                    _full, _cid, latest_message=_choice, latest_msg_id=data.get("id"))
+                if handled is not None:
+                    return handled
+
     if attrs.get("source") != _STORE_DELIVERY_SOURCE:
         return {"ignored": True, "reason": "not_social_store_delivery"}
 
