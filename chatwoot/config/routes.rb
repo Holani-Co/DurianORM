@@ -146,7 +146,25 @@ Rails.application.routes.draw do
               resources :inbox_limits, only: [:create, :update, :destroy]
             end
           end
-          resources :campaigns, only: [:index, :create, :show, :update, :destroy]
+          resources :campaigns, only: [:index, :create, :show, :update, :destroy] do
+            resources :deliveries, only: [:index], controller: 'campaign_deliveries'
+            collection do
+              post :preview_audience
+            end
+            member do
+              post :pause
+              post :resume
+              post :cancel
+            end
+          end
+          resources :whatsapp_consents, only: [:index, :create]
+          resources :whatsapp_templates, only: [:index, :show, :create, :update, :destroy] do
+            post :submit, on: :member
+            collection do
+              post :sync
+              post :upload_sample
+            end
+          end
           resources :dashboard_apps, only: [:index, :show, :create, :update, :destroy]
           namespace :channels do
             resource :twilio_channel, only: [:create]

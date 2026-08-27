@@ -11,6 +11,19 @@ end
 json.message resource.message
 json.template_params resource.template_params
 json.campaign_status resource.campaign_status
+json.execution_status resource.execution_status
+json.execution_started_at resource.execution_started_at&.to_i
+json.execution_completed_at resource.execution_completed_at&.to_i
+json.execution_error resource.execution_error
+json.audience_snapshot_at resource.audience_snapshot_at&.to_i
+json.whatsapp_template_id resource.whatsapp_template_id
+json.audience_count resource.audience_count
+json.eligible_count resource.eligible_count
+json.skipped_count resource.skipped_count
+json.sent_count resource.sent_count
+json.delivered_count resource.delivered_count
+json.read_count resource.read_count
+json.failed_count resource.failed_count
 json.enabled resource.enabled
 json.campaign_type resource.campaign_type
 if resource.campaign_type == 'one_off'

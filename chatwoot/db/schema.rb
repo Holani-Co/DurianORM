@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_18_120000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_27_120004) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -275,6 +275,40 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_18_120000) do
     t.index ["provider", "provider_call_id"], name: "index_calls_on_provider_and_provider_call_id", unique: true
   end
 
+  create_table "campaign_deliveries", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "campaign_id", null: false
+    t.bigint "contact_id", null: false
+    t.bigint "message_id"
+    t.bigint "whatsapp_consent_id"
+    t.string "phone_number"
+    t.string "status", default: "pending", null: false
+    t.string "meta_message_id"
+    t.jsonb "recipient_snapshot", default: {}, null: false
+    t.jsonb "template_parameters", default: {}, null: false
+    t.integer "attempt_count", default: 0, null: false
+    t.string "error_code"
+    t.text "error_message"
+    t.datetime "queued_at"
+    t.datetime "sent_at"
+    t.datetime "delivered_at"
+    t.datetime "read_at"
+    t.datetime "failed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "skip_reason"
+    t.datetime "next_retry_at"
+    t.index ["account_id"], name: "index_campaign_deliveries_on_account_id"
+    t.index ["campaign_id", "contact_id"], name: "idx_campaign_deliveries_recipient", unique: true
+    t.index ["campaign_id", "status"], name: "idx_campaign_deliveries_status"
+    t.index ["campaign_id"], name: "index_campaign_deliveries_on_campaign_id"
+    t.index ["contact_id"], name: "index_campaign_deliveries_on_contact_id"
+    t.index ["message_id"], name: "idx_campaign_deliveries_message", unique: true, where: "(message_id IS NOT NULL)"
+    t.index ["meta_message_id"], name: "idx_campaign_deliveries_meta_message", unique: true, where: "(meta_message_id IS NOT NULL)"
+    t.index ["next_retry_at"], name: "index_campaign_deliveries_on_next_retry_at"
+    t.index ["whatsapp_consent_id"], name: "index_campaign_deliveries_on_whatsapp_consent_id"
+  end
+
   create_table "campaigns", force: :cascade do |t|
     t.integer "display_id", null: false
     t.string "title", null: false
@@ -293,11 +327,26 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_18_120000) do
     t.datetime "scheduled_at", precision: nil
     t.boolean "trigger_only_during_business_hours", default: false
     t.jsonb "template_params"
+    t.bigint "whatsapp_template_id"
+    t.integer "execution_status"
+    t.datetime "audience_snapshot_at"
+    t.datetime "execution_started_at"
+    t.datetime "execution_completed_at"
+    t.text "execution_error"
+    t.integer "audience_count", default: 0, null: false
+    t.integer "eligible_count", default: 0, null: false
+    t.integer "skipped_count", default: 0, null: false
+    t.integer "sent_count", default: 0, null: false
+    t.integer "delivered_count", default: 0, null: false
+    t.integer "read_count", default: 0, null: false
+    t.integer "failed_count", default: 0, null: false
+    t.index ["account_id", "execution_status"], name: "idx_campaigns_account_execution_status"
     t.index ["account_id"], name: "index_campaigns_on_account_id"
     t.index ["campaign_status"], name: "index_campaigns_on_campaign_status"
     t.index ["campaign_type"], name: "index_campaigns_on_campaign_type"
     t.index ["inbox_id"], name: "index_campaigns_on_inbox_id"
     t.index ["scheduled_at"], name: "index_campaigns_on_scheduled_at"
+    t.index ["whatsapp_template_id"], name: "index_campaigns_on_whatsapp_template_id"
   end
 
   create_table "canned_responses", id: :serial, force: :cascade do |t|
@@ -1303,6 +1352,51 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_18_120000) do
     t.string "name"
     t.string "secret"
     t.index ["account_id", "url"], name: "index_webhooks_on_account_id_and_url", unique: true
+  end
+
+  create_table "whatsapp_consents", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "inbox_id", null: false
+    t.bigint "contact_id", null: false
+    t.string "purpose", default: "MARKETING", null: false
+    t.string "status", null: false
+    t.string "source", null: false
+    t.string "source_reference"
+    t.datetime "recorded_at", null: false
+    t.jsonb "details", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "inbox_id", "source", "source_reference"], name: "idx_wa_consents_source_reference", unique: true, where: "(source_reference IS NOT NULL)"
+    t.index ["account_id"], name: "index_whatsapp_consents_on_account_id"
+    t.index ["contact_id"], name: "index_whatsapp_consents_on_contact_id"
+    t.index ["inbox_id", "contact_id", "purpose", "recorded_at"], name: "idx_wa_consents_current_lookup"
+    t.index ["inbox_id"], name: "index_whatsapp_consents_on_inbox_id"
+  end
+
+  create_table "whatsapp_templates", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "inbox_id", null: false
+    t.bigint "submitted_by_id"
+    t.string "meta_template_id"
+    t.string "name", null: false
+    t.string "language", null: false
+    t.string "category", null: false
+    t.jsonb "components", default: [], null: false
+    t.string "status", default: "DRAFT", null: false
+    t.text "rejection_reason"
+    t.string "quality_rating"
+    t.datetime "submitted_at"
+    t.datetime "approved_at"
+    t.datetime "rejected_at"
+    t.datetime "last_synced_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "status"], name: "idx_wa_templates_account_status"
+    t.index ["account_id"], name: "index_whatsapp_templates_on_account_id"
+    t.index ["inbox_id", "meta_template_id"], name: "idx_wa_templates_inbox_meta_id", unique: true, where: "(meta_template_id IS NOT NULL)"
+    t.index ["inbox_id", "name", "language"], name: "idx_wa_templates_inbox_name_language", unique: true
+    t.index ["inbox_id"], name: "index_whatsapp_templates_on_inbox_id"
+    t.index ["submitted_by_id"], name: "index_whatsapp_templates_on_submitted_by_id"
   end
 
   create_table "working_hours", force: :cascade do |t|

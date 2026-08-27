@@ -18,4 +18,20 @@ class CampaignPolicy < ApplicationPolicy
   def destroy?
     @account_user.administrator?
   end
+
+  def preview_audience?
+    @account_user.administrator?
+  end
+
+  def pause?
+    @account_user.administrator?
+  end
+
+  def resume?
+    @account_user.administrator?
+  end
+
+  def cancel?
+    @account_user.administrator?
+  end
 end

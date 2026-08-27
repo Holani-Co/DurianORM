@@ -3,7 +3,7 @@ import { reactive, computed, watch, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useVuelidate } from '@vuelidate/core';
 import { required, minLength } from '@vuelidate/validators';
-import { useMapGetter } from 'dashboard/composables/store';
+import { useMapGetter, useStore } from 'dashboard/composables/store';
 
 import Input from 'dashboard/components-next/input/Input.vue';
 import Button from 'dashboard/components-next/button/Button.vue';
@@ -14,6 +14,7 @@ import WhatsAppTemplateParser from 'dashboard/components-next/whatsapp/WhatsAppT
 const emit = defineEmits(['submit', 'cancel']);
 
 const { t } = useI18n();
+const store = useStore();
 
 const formState = {
   uiFlags: useMapGetter('campaigns/getUIFlags'),
@@ -34,6 +35,8 @@ const initialState = {
 
 const state = reactive({ ...initialState });
 const templateParserRef = ref(null);
+const audiencePreview = ref(null);
+const isPreviewingAudience = ref(false);
 
 const rules = {
   title: { required, minLength: minLength(1) },
@@ -91,21 +94,29 @@ const selectedTemplate = computed(() => {
     ?.template;
 });
 
-const getErrorMessage = (field, errorKey) => {
-  const baseKey = 'CAMPAIGN.WHATSAPP.CREATE.FORM';
-  return v$.value[field].$error ? t(`${baseKey}.${errorKey}.ERROR`) : '';
-};
-
 const formErrors = computed(() => ({
-  title: getErrorMessage('title', 'TITLE'),
-  inbox: getErrorMessage('inboxId', 'INBOX'),
-  template: getErrorMessage('templateId', 'TEMPLATE'),
-  scheduledAt: getErrorMessage('scheduledAt', 'SCHEDULED_AT'),
-  audience: getErrorMessage('selectedAudience', 'AUDIENCE'),
+  title: v$.value.title.$error
+    ? t('CAMPAIGN.WHATSAPP.CREATE.FORM.TITLE.ERROR')
+    : '',
+  inbox: v$.value.inboxId.$error
+    ? t('CAMPAIGN.WHATSAPP.CREATE.FORM.INBOX.ERROR')
+    : '',
+  template: v$.value.templateId.$error
+    ? t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEMPLATE.ERROR')
+    : '',
+  scheduledAt: v$.value.scheduledAt.$error
+    ? t('CAMPAIGN.WHATSAPP.CREATE.FORM.SCHEDULED_AT.ERROR')
+    : '',
+  audience: v$.value.selectedAudience.$error
+    ? t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.ERROR')
+    : '',
 }));
 
 const hasRequiredTemplateParams = computed(() => {
-  return templateParserRef.value?.v$?.$invalid === false || true;
+  return (
+    templateParserRef.value?.v$?.$invalid === false &&
+    templateParserRef.value?.isFormInvalid === false
+  );
 });
 
 const isSubmitDisabled = computed(
@@ -121,6 +132,21 @@ const resetState = () => {
 };
 
 const handleCancel = () => emit('cancel');
+
+const previewAudience = async () => {
+  if (!state.inboxId || state.selectedAudience.length === 0) return null;
+
+  isPreviewingAudience.value = true;
+  try {
+    audiencePreview.value = await store.dispatch('campaigns/previewAudience', {
+      inbox_id: state.inboxId,
+      audience: state.selectedAudience.map(id => ({ id, type: 'Label' })),
+    });
+    return audiencePreview.value;
+  } finally {
+    isPreviewingAudience.value = false;
+  }
+};
 
 const prepareCampaignDetails = () => {
   // Find the selected template to get its content
@@ -155,6 +181,8 @@ const prepareCampaignDetails = () => {
 const handleSubmit = async () => {
   const isFormValid = await v$.value.$validate();
   if (!isFormValid) return;
+  const preview = await previewAudience();
+  if (!preview?.eligible_count) return;
 
   emit('submit', prepareCampaignDetails());
   resetState();
@@ -166,7 +194,16 @@ watch(
   () => state.inboxId,
   () => {
     state.templateId = null;
+    audiencePreview.value = null;
   }
+);
+
+watch(
+  () => state.selectedAudience,
+  () => {
+    audiencePreview.value = null;
+  },
+  { deep: true }
 );
 </script>
 
@@ -233,6 +270,33 @@ watch(
         :message="formErrors.audience"
         class="[&>div>button]:bg-n-alpha-black2"
       />
+      <div class="mt-2 flex items-center justify-between gap-3">
+        <Button
+          type="button"
+          size="xs"
+          variant="faded"
+          color="slate"
+          :is-loading="isPreviewingAudience"
+          :disabled="!state.inboxId || state.selectedAudience.length === 0"
+          :label="t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.PREVIEW')"
+          @click="previewAudience"
+        />
+        <p v-if="audiencePreview" class="text-xs text-n-slate-11">
+          {{
+            t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.PREVIEW_RESULT', {
+              eligible: audiencePreview.eligible_count,
+              total: audiencePreview.audience_count,
+              skipped: audiencePreview.skipped_count,
+            })
+          }}
+        </p>
+      </div>
+      <p
+        v-if="audiencePreview && audiencePreview.eligible_count === 0"
+        class="mt-1 text-xs text-n-ruby-10"
+      >
+        {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.NO_ELIGIBLE') }}
+      </p>
     </div>
 
     <Input

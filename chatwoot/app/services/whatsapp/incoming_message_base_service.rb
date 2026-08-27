@@ -46,9 +46,13 @@ class Whatsapp::IncomingMessageBaseService
   end
 
   def process_statuses
-    return unless find_message_by_source_id(@processed_params[:statuses].first[:id])
+    status = @processed_params[:statuses].first
+    unless find_message_by_source_id(status[:id])
+      Whatsapp::CampaignDeliveryStatusService.new(status).perform
+      return
+    end
 
-    update_message_with_status(@message, @processed_params[:statuses].first)
+    update_message_with_status(@message, status)
   rescue ArgumentError => e
     Rails.logger.error "Error while processing whatsapp status update #{e.message}"
   end
@@ -85,6 +89,7 @@ class Whatsapp::IncomingMessageBaseService
     attach_files
     attach_location if message_type == 'location'
     @message.save!
+    Whatsapp::ConsentCaptureService.new(inbox: inbox, contact: @contact, message_payload: message).perform
   end
 
   def set_contact
@@ -214,8 +219,7 @@ class Whatsapp::IncomingMessageBaseService
 
   def update_contact_with_profile_name(contact_params)
     profile_name = contact_params.dig(:profile, :name)
-    return if profile_name.blank?
-    return if @contact.name == profile_name
+    return if profile_name.blank? || @contact.name == profile_name
 
     # Only update if current name exactly matches the phone number or formatted phone number
     return unless contact_name_matches_phone_number?
