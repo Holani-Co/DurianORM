@@ -84,21 +84,19 @@ _CONFIRM_PHONE = [{"title": "Yes, use this", "value": "phone_yes"},
 # name; until then it rides in the deal Description + a private note.
 _INTEREST = [{"title": "Kitchen", "value": "kitchen"},
              {"title": "Wardrobe", "value": "wardrobe"},
-             {"title": "Full Home", "value": "full_home"},
-             {"title": "TV Unit", "value": "tv_unit"},
-             {"title": "Other storage", "value": "other_storage"}]
+             {"title": "Entertainment System", "value": "entertainment_system"},
+             {"title": "Lifestyle System", "value": "lifestyle_system"}]
 _INTEREST_LABEL = {"kitchen": "Kitchen", "wardrobe": "Wardrobe",
-                   "full_home": "Full Home", "tv_unit": "TV Unit",
-                   "other_storage": "Other storage"}
+                   "entertainment_system": "Entertainment System",
+                   "lifestyle_system": "Lifestyle System"}
 
 
 def _match_interest(text: str) -> str:
     t = (text or "").strip().lower()
-    for key, kws in (("full_home", ("full home", "full_home", "whole home", "entire home")),
-                     ("kitchen", ("kitchen",)),
+    for key, kws in (("kitchen", ("kitchen",)),
                      ("wardrobe", ("wardrobe", "closet", "almirah")),
-                     ("tv_unit", ("tv", "entertainment")),
-                     ("other_storage", ("other", "storage"))):
+                     ("entertainment_system", ("entertainment", "tv", "media")),
+                     ("lifestyle_system", ("lifestyle", "lifestyle system"))):
         if any(k in t for k in kws):
             return key
     return "unspecified"
