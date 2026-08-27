@@ -46,6 +46,7 @@ const handleViewDeliveries = campaign => emit('viewDeliveries', campaign);
       :sent-count="campaign.sent_count"
       :delivered-count="campaign.delivered_count"
       :read-count="campaign.read_count"
+      :reply-count="campaign.reply_count"
       :failed-count="campaign.failed_count"
       :is-live-chat-type="isLiveChatType"
       @edit="handleEdit(campaign)"

@@ -59,6 +59,16 @@ class WhatsappTemplate < ApplicationRecord
     status == 'APPROVED'
   end
 
+  def processor_payload
+    {
+      'name' => name,
+      'language' => language,
+      'category' => category,
+      'status' => status,
+      'components' => components
+    }
+  end
+
   private
 
   def normalize_meta_fields

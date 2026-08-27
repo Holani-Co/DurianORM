@@ -147,9 +147,12 @@ Rails.application.routes.draw do
             end
           end
           resources :campaigns, only: [:index, :create, :show, :update, :destroy] do
-            resources :deliveries, only: [:index], controller: 'campaign_deliveries'
+            resources :deliveries, only: [:index], controller: 'campaign_deliveries' do
+              get :export, on: :collection
+            end
             collection do
               post :preview_audience
+              post :test_message
             end
             member do
               post :pause

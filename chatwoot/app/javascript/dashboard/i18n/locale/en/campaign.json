@@ -4,17 +4,6 @@
       "HEADER_TITLE": "Live chat campaigns",
       "NEW_CAMPAIGN": "Create campaign",
       "CARD": {
-        "EXECUTION": {
-          "DRAFT": "Draft",
-          "SCHEDULED": "Scheduled",
-          "QUEUED": "Queued",
-          "RUNNING": "Running",
-          "PAUSED": "Paused",
-          "COMPLETED": "Completed",
-          "CANCELLED": "Cancelled",
-          "FAILED": "Failed"
-        },
-        "METRICS": "Audience {audience} · Sent {sent} · Delivered {delivered} · Read {read} · Failed {failed}",
         "STATUS": {
           "ENABLED": "Enabled",
           "DISABLED": "Disabled"
@@ -130,10 +119,7 @@
           "AUDIENCE": {
             "LABEL": "Audience",
             "PLACEHOLDER": "Select the customer labels",
-            "ERROR": "Audience is required",
-            "PREVIEW": "Check audience",
-            "PREVIEW_RESULT": "{eligible} eligible of {total} · {skipped} skipped",
-            "NO_ELIGIBLE": "No selected contacts have a valid phone number and recorded WhatsApp marketing opt-in."
+            "ERROR": "Audience is required"
           },
           "SCHEDULED_AT": {
             "LABEL": "Scheduled time",
@@ -237,6 +223,11 @@
       "DELIVERIES": {
         "TITLE": "Deliveries · {name}",
         "EMPTY": "No delivery records are available yet.",
+        "ALL_STATUSES": "All delivery statuses",
+        "SEARCH": "Search recipient, phone, or error",
+        "REPLIED": "Customer replied",
+        "EXPORT": "Export CSV",
+        "EXPORT_ERROR": "The delivery report could not be exported.",
         "CLOSE": "Close"
       },
       "EMPTY_STATE": {
@@ -244,6 +235,17 @@
         "SUBTITLE": "Launch a WhatsApp campaign to reach your customers directly. Send offers or make announcements with ease. Click 'Create campaign' to get started."
       },
       "CARD": {
+        "EXECUTION": {
+          "DRAFT": "Draft",
+          "SCHEDULED": "Scheduled",
+          "QUEUED": "Queued",
+          "RUNNING": "Running",
+          "PAUSED": "Paused",
+          "COMPLETED": "Completed",
+          "CANCELLED": "Cancelled",
+          "FAILED": "Failed"
+        },
+        "METRICS": "Audience {audience} · Sent {sent} · Delivered {delivered} · Read {read} · Replies {replies} · Failed {failed}",
         "STATUS": {
           "COMPLETED": "Completed",
           "SCHEDULED": "Scheduled"
@@ -282,7 +284,21 @@
           "AUDIENCE": {
             "LABEL": "Audience",
             "PLACEHOLDER": "Select the customer labels",
-            "ERROR": "Audience is required"
+            "ERROR": "Audience is required",
+            "PREVIEW": "Check audience",
+            "PREVIEW_RESULT": "{eligible} eligible of {total} · {skipped} skipped",
+            "PREVIEW_ERROR": "The audience could not be checked.",
+            "NO_ELIGIBLE": "No selected contacts have a valid phone number and recorded WhatsApp marketing opt-in.",
+            "LIMIT_EXCEEDED": "This audience exceeds the configured limit of {max} contacts. Narrow the selected labels before publishing."
+          },
+          "TEST": {
+            "TITLE": "Send a test message",
+            "PHONE": "Test phone number",
+            "PLACEHOLDER": "+919876543210",
+            "SEND": "Send test",
+            "HELP": "This immediately sends the completed template through Meta and does not add the recipient to the campaign.",
+            "SUCCESS": "Test message sent",
+            "ERROR": "The test message could not be sent."
           },
           "SCHEDULED_AT": {
             "LABEL": "Scheduled time",

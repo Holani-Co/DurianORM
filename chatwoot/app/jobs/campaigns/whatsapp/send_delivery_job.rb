@@ -41,7 +41,8 @@ class Campaigns::Whatsapp::SendDeliveryJob < ApplicationJob
 
     name, namespace, language, parameters = Whatsapp::TemplateProcessorService.new(
       channel: campaign.inbox.channel,
-      template_params: processed_template_params
+      template_params: processed_template_params,
+      template: campaign.whatsapp_template.processor_payload
     ).call
     raise 'Approved template could not be resolved' if name.blank?
 

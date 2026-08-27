@@ -3,6 +3,7 @@ import { reactive, computed, watch, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useVuelidate } from '@vuelidate/core';
 import { required, minLength } from '@vuelidate/validators';
+import { useAlert } from 'dashboard/composables';
 import { useMapGetter, useStore } from 'dashboard/composables/store';
 
 import Input from 'dashboard/components-next/input/Input.vue';
@@ -20,9 +21,7 @@ const formState = {
   uiFlags: useMapGetter('campaigns/getUIFlags'),
   labels: useMapGetter('labels/getLabels'),
   inboxes: useMapGetter('inboxes/getWhatsAppInboxes'),
-  getFilteredWhatsAppTemplates: useMapGetter(
-    'inboxes/getFilteredWhatsAppTemplates'
-  ),
+  whatsappTemplates: useMapGetter('whatsappTemplates/getTemplates'),
 };
 
 const initialState = {
@@ -31,12 +30,14 @@ const initialState = {
   templateId: null,
   scheduledAt: null,
   selectedAudience: [],
+  testPhone: '',
 };
 
 const state = reactive({ ...initialState });
 const templateParserRef = ref(null);
 const audiencePreview = ref(null);
 const isPreviewingAudience = ref(false);
+const isSendingTest = ref(false);
 
 const rules = {
   title: { required, minLength: minLength(1) },
@@ -73,7 +74,11 @@ const inboxOptions = computed(() =>
 
 const templateOptions = computed(() => {
   if (!state.inboxId) return [];
-  const templates = formState.getFilteredWhatsAppTemplates.value(state.inboxId);
+  const templates = formState.whatsappTemplates.value.filter(
+    template =>
+      template.inbox_id === Number(state.inboxId) &&
+      template.status === 'APPROVED'
+  );
   return templates.map(template => {
     // Create a more user-friendly label from template name
     const friendlyName = template.name
@@ -122,6 +127,12 @@ const hasRequiredTemplateParams = computed(() => {
 const isSubmitDisabled = computed(
   () => v$.value.$invalid || !hasRequiredTemplateParams.value
 );
+const canSendTest = computed(
+  () =>
+    /^\+[1-9]\d{1,14}$/.test(state.testPhone) &&
+    selectedTemplate.value &&
+    hasRequiredTemplateParams.value
+);
 
 const formatToUTCString = localDateTime =>
   localDateTime ? new Date(localDateTime).toISOString() : null;
@@ -143,27 +154,56 @@ const previewAudience = async () => {
       audience: state.selectedAudience.map(id => ({ id, type: 'Label' })),
     });
     return audiencePreview.value;
+  } catch (error) {
+    useAlert(
+      error?.response?.data?.error ||
+        t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.PREVIEW_ERROR')
+    );
+    return null;
   } finally {
     isPreviewingAudience.value = false;
   }
 };
 
+const prepareTemplateParams = () => ({
+  name: selectedTemplate.value?.name || '',
+  namespace: selectedTemplate.value?.namespace || '',
+  category: selectedTemplate.value?.category || 'UTILITY',
+  language: selectedTemplate.value?.language || 'en_US',
+  processed_params: templateParserRef.value?.processedParams || {},
+});
+
+const sendTestMessage = async () => {
+  if (!canSendTest.value) return;
+
+  isSendingTest.value = true;
+  try {
+    await store.dispatch('campaigns/sendTestMessage', {
+      inbox_id: state.inboxId,
+      template_id: state.templateId,
+      phone_number: state.testPhone,
+      template_params: prepareTemplateParams(),
+    });
+    useAlert(t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.SUCCESS'));
+  } catch (error) {
+    useAlert(
+      error?.response?.data?.error ||
+        t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.ERROR')
+    );
+  } finally {
+    isSendingTest.value = false;
+  }
+};
+
 const prepareCampaignDetails = () => {
   // Find the selected template to get its content
-  const currentTemplate = selectedTemplate.value;
   const parserData = templateParserRef.value;
 
   // Extract template content - this should be the template message body
   const templateContent = parserData?.renderedTemplate || '';
 
   // Prepare template_params object with the same structure as used in contacts
-  const templateParams = {
-    name: currentTemplate?.name || '',
-    namespace: currentTemplate?.namespace || '',
-    category: currentTemplate?.category || 'UTILITY',
-    language: currentTemplate?.language || 'en_US',
-    processed_params: parserData?.processedParams || {},
-  };
+  const templateParams = prepareTemplateParams();
 
   return {
     title: state.title,
@@ -257,6 +297,32 @@ watch(
       :template="selectedTemplate"
     />
 
+    <div v-if="selectedTemplate" class="rounded-lg border border-n-weak p-3">
+      <p class="mb-2 text-sm font-medium text-n-slate-12">
+        {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.TITLE') }}
+      </p>
+      <div class="flex items-end gap-2">
+        <Input
+          v-model="state.testPhone"
+          class="min-w-0 flex-1"
+          :label="t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.PHONE')"
+          :placeholder="t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.PLACEHOLDER')"
+        />
+        <Button
+          type="button"
+          variant="faded"
+          color="slate"
+          :is-loading="isSendingTest"
+          :disabled="!canSendTest || isSendingTest"
+          :label="t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.SEND')"
+          @click="sendTestMessage"
+        />
+      </div>
+      <p class="mt-2 text-xs text-n-slate-10">
+        {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.HELP') }}
+      </p>
+    </div>
+
     <div class="flex flex-col gap-1">
       <label for="audience" class="mb-0.5 text-sm font-medium text-n-slate-12">
         {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.LABEL') }}
@@ -292,7 +358,17 @@ watch(
         </p>
       </div>
       <p
-        v-if="audiencePreview && audiencePreview.eligible_count === 0"
+        v-if="audiencePreview?.limit_exceeded"
+        class="mt-1 text-xs text-n-ruby-10"
+      >
+        {{
+          t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.LIMIT_EXCEEDED', {
+            max: audiencePreview.max_audience_count,
+          })
+        }}
+      </p>
+      <p
+        v-else-if="audiencePreview && audiencePreview.eligible_count === 0"
         class="mt-1 text-xs text-n-ruby-10"
       >
         {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.AUDIENCE.NO_ELIGIBLE') }}

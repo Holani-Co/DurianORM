@@ -1,5 +1,5 @@
 class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
-  before_action :campaign, except: [:index, :create, :preview_audience]
+  before_action :campaign, except: [:index, :create, :preview_audience, :test_message]
   before_action :check_authorization
 
   def index
@@ -25,6 +25,20 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
     inbox = Current.account.inboxes.find(params.require(:inbox_id))
     audience = params.permit(audience: [:type, :id])[:audience]
     render json: Whatsapp::CampaignAudienceService.new(account: Current.account, inbox: inbox, audience: audience).summary
+  end
+
+  def test_message
+    inbox = Current.account.inboxes.find(params.require(:inbox_id))
+    template = Current.account.whatsapp_templates.find(params.require(:template_id))
+    message_id = Whatsapp::CampaignTestSendService.new(
+      inbox: inbox,
+      template: template,
+      phone_number: params.require(:phone_number),
+      template_params: params.require(:template_params).permit!.to_h
+    ).perform
+    render json: { message_id: message_id }
+  rescue Whatsapp::CampaignTestSendService::Error => e
+    render json: { error: e.message }, status: :unprocessable_entity
   end
 
   def pause

@@ -1,5 +1,5 @@
 class Whatsapp::TemplateProcessorService
-  pattr_initialize [:channel!, :template_params, :message]
+  pattr_initialize [:channel!, :template_params, :message, :template]
 
   def call
     return [nil, nil, nil, nil] if template_params.blank?
@@ -19,11 +19,15 @@ class Whatsapp::TemplateProcessorService
   end
 
   def find_template
-    channel.message_templates.find do |t|
-      t['name'] == template_params['name'] &&
-        t['language']&.downcase == template_params['language']&.downcase &&
-        t['status']&.downcase == 'approved'
-    end
+    return template if template.present?
+
+    Array(channel.message_templates).find { |candidate| matching_template?(candidate) }
+  end
+
+  def matching_template?(candidate)
+    candidate['name'] == template_params['name'] &&
+      candidate['language']&.downcase == template_params['language']&.downcase &&
+      candidate['status']&.downcase == 'approved'
   end
 
   def processed_templates_params

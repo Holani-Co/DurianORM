@@ -1,5 +1,8 @@
 class Whatsapp::CampaignAudienceService
+  class AudienceLimitExceeded < StandardError; end
+
   E164_PHONE_NUMBER = /\A\+[1-9]\d{1,14}\z/
+  DEFAULT_MAX_AUDIENCE = 10_000
 
   Result = Data.define(:contact, :phone_number, :consent, :skip_reason) do
     def eligible?
@@ -14,10 +17,23 @@ class Whatsapp::CampaignAudienceService
   end
 
   def results
+    raise AudienceLimitExceeded, audience_limit_error if audience_count > max_audience
+
     @results ||= contacts.map { |contact| build_result(contact) }
   end
 
   def summary
+    if audience_count > max_audience
+      return {
+        audience_count: audience_count,
+        eligible_count: 0,
+        skipped_count: audience_count,
+        reasons: { 'audience_limit_exceeded' => audience_count },
+        limit_exceeded: true,
+        max_audience_count: max_audience
+      }
+    end
+
     reasons = results.filter_map(&:skip_reason).tally
     {
       audience_count: results.size,
@@ -28,6 +44,18 @@ class Whatsapp::CampaignAudienceService
   end
 
   private
+
+  def audience_count
+    @audience_count ||= contacts.count
+  end
+
+  def max_audience
+    @max_audience ||= [ENV.fetch('WHATSAPP_CAMPAIGN_MAX_RECIPIENTS', DEFAULT_MAX_AUDIENCE).to_i, 1].max
+  end
+
+  def audience_limit_error
+    "Audience has #{audience_count} contacts; the configured maximum is #{max_audience}"
+  end
 
   def contacts
     label_ids = @audience.filter_map { |item| item['id'] if item['type'] == 'Label' }

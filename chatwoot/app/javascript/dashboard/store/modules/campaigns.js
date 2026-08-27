@@ -104,6 +104,10 @@ export const actions = {
     const response = await CampaignsAPI.previewAudience(payload);
     return response.data;
   },
+  sendTestMessage: async (_, payload) => {
+    const response = await CampaignsAPI.testMessage(payload);
+    return response.data;
+  },
   pause: async ({ commit }, id) => {
     const response = await CampaignsAPI.pause(id);
     commit(types.EDIT_CAMPAIGN, response.data);
@@ -118,6 +122,10 @@ export const actions = {
   },
   getDeliveries: async (_, id) => {
     const response = await CampaignsAPI.deliveries(id);
+    return response.data;
+  },
+  exportDeliveries: async (_, id) => {
+    const response = await CampaignsAPI.exportDeliveries(id);
     return response.data;
   },
 };

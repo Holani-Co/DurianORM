@@ -89,7 +89,7 @@ class Whatsapp::IncomingMessageBaseService
     attach_files
     attach_location if message_type == 'location'
     @message.save!
-    Whatsapp::ConsentCaptureService.new(inbox: inbox, contact: @contact, message_payload: message).perform
+    Whatsapp::CampaignInboundActivityService.perform(inbox, @contact, @message, message) unless outgoing_echo
   end
 
   def set_contact

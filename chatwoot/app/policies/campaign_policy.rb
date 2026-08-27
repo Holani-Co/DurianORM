@@ -23,6 +23,10 @@ class CampaignPolicy < ApplicationPolicy
     @account_user.administrator?
   end
 
+  def test_message?
+    @account_user.administrator?
+  end
+
   def pause?
     @account_user.administrator?
   end

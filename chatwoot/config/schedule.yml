@@ -14,6 +14,12 @@ trigger_scheduled_items_job:
   class: 'TriggerScheduledItemsJob'
   queue: scheduled_jobs
 
+# recovers interrupted WhatsApp campaign dispatch without risking duplicate sends
+reconcile_whatsapp_campaigns_job:
+  cron: '*/10 * * * *'
+  class: 'Campaigns::Whatsapp::ReconcileJob'
+  queue: scheduled_jobs
+
 # executed hourly for scheduled jobs that do not need minute-level cadence
 trigger_hourly_scheduled_items_job:
   cron: '0 * * * *'

@@ -23,6 +23,8 @@ json.skipped_count resource.skipped_count
 json.sent_count resource.sent_count
 json.delivered_count resource.delivered_count
 json.read_count resource.read_count
+json.reply_count resource.reply_count
+json.reply_rate resource.sent_count.positive? ? (resource.reply_count.to_f / resource.sent_count * 100).round(1) : 0
 json.failed_count resource.failed_count
 json.enabled resource.enabled
 json.campaign_type resource.campaign_type

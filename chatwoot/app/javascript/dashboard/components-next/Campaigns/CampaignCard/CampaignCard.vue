@@ -47,6 +47,7 @@ const props = defineProps({
   sentCount: { type: Number, default: 0 },
   deliveredCount: { type: Number, default: 0 },
   readCount: { type: Number, default: 0 },
+  replyCount: { type: Number, default: 0 },
   failedCount: { type: Number, default: 0 },
 });
 
@@ -168,6 +169,7 @@ const inboxIcon = computed(() => {
             sent: sentCount,
             delivered: deliveredCount,
             read: readCount,
+            replies: replyCount,
             failed: failedCount,
           })
         }}

@@ -19,6 +19,7 @@
 #  failed_count                       :integer          default(0), not null
 #  message                            :text             not null
 #  read_count                         :integer          default(0), not null
+#  reply_count                        :integer          default(0), not null
 #  scheduled_at                       :datetime
 #  sent_count                         :integer          default(0), not null
 #  skipped_count                      :integer          default(0), not null
@@ -128,24 +129,33 @@ class Campaign < ApplicationRecord
   end
 
   def refresh_delivery_counts!
-    counts = campaign_deliveries.group(:status).count
     # Delivery webhooks continue after a campaign is complete, so counters must
     # bypass the completed-campaign definition guard.
     # rubocop:disable Rails/SkipsModelValidations
-    update_columns(
-      audience_count: counts.values.sum,
-      eligible_count: counts.values.sum - counts.fetch('skipped', 0),
-      skipped_count: counts.fetch('skipped', 0),
-      sent_count: campaign_deliveries.where.not(sent_at: nil).count,
-      delivered_count: campaign_deliveries.where.not(delivered_at: nil).count,
-      read_count: campaign_deliveries.where.not(read_at: nil).count,
-      failed_count: counts.fetch('failed', 0),
-      updated_at: Time.current
-    )
+    update_columns(delivery_counts.merge(updated_at: Time.current))
     # rubocop:enable Rails/SkipsModelValidations
   end
 
   private
+
+  def delivery_counts
+    counts = campaign_deliveries.group(:status).count
+    {
+      audience_count: counts.values.sum,
+      eligible_count: counts.values.sum - counts.fetch('skipped', 0),
+      skipped_count: counts.fetch('skipped', 0),
+      failed_count: counts.fetch('failed', 0)
+    }.merge(delivery_engagement_counts)
+  end
+
+  def delivery_engagement_counts
+    {
+      sent_count: campaign_deliveries.where.not(sent_at: nil).count,
+      delivered_count: campaign_deliveries.where.not(delivered_at: nil).count,
+      read_count: campaign_deliveries.where.not(read_at: nil).count,
+      reply_count: campaign_deliveries.where.not(replied_at: nil).count
+    }
+  end
 
   def initialize_execution_status
     return unless one_off?

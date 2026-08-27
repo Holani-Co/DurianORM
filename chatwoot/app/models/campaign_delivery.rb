@@ -13,6 +13,7 @@
 #  queued_at           :datetime
 #  read_at             :datetime
 #  recipient_snapshot  :jsonb            not null
+#  replied_at          :datetime
 #  sent_at             :datetime
 #  skip_reason         :string
 #  status              :string           default("pending"), not null
@@ -36,6 +37,7 @@
 #  index_campaign_deliveries_on_campaign_id          (campaign_id)
 #  index_campaign_deliveries_on_contact_id           (contact_id)
 #  index_campaign_deliveries_on_next_retry_at        (next_retry_at)
+#  index_campaign_deliveries_on_replied_at           (replied_at)
 #  index_campaign_deliveries_on_whatsapp_consent_id  (whatsapp_consent_id)
 #
 class CampaignDelivery < ApplicationRecord

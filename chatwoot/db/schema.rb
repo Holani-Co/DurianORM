@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_27_120004) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_27_120005) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -298,6 +298,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_120004) do
     t.datetime "updated_at", null: false
     t.string "skip_reason"
     t.datetime "next_retry_at"
+    t.datetime "replied_at"
     t.index ["account_id"], name: "index_campaign_deliveries_on_account_id"
     t.index ["campaign_id", "contact_id"], name: "idx_campaign_deliveries_recipient", unique: true
     t.index ["campaign_id", "status"], name: "idx_campaign_deliveries_status"
@@ -306,6 +307,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_120004) do
     t.index ["message_id"], name: "idx_campaign_deliveries_message", unique: true, where: "(message_id IS NOT NULL)"
     t.index ["meta_message_id"], name: "idx_campaign_deliveries_meta_message", unique: true, where: "(meta_message_id IS NOT NULL)"
     t.index ["next_retry_at"], name: "index_campaign_deliveries_on_next_retry_at"
+    t.index ["replied_at"], name: "index_campaign_deliveries_on_replied_at"
     t.index ["whatsapp_consent_id"], name: "index_campaign_deliveries_on_whatsapp_consent_id"
   end
 
@@ -340,6 +342,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_120004) do
     t.integer "delivered_count", default: 0, null: false
     t.integer "read_count", default: 0, null: false
     t.integer "failed_count", default: 0, null: false
+    t.integer "reply_count", default: 0, null: false
     t.index ["account_id", "execution_status"], name: "idx_campaigns_account_execution_status"
     t.index ["account_id"], name: "index_campaigns_on_account_id"
     t.index ["campaign_status"], name: "index_campaigns_on_campaign_status"

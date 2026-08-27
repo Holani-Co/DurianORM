@@ -11,6 +11,10 @@ class CampaignsAPI extends ApiClient {
     return axios.post(`${this.url}/preview_audience`, data);
   }
 
+  testMessage(data) {
+    return axios.post(`${this.url}/test_message`, data);
+  }
+
   pause(id) {
     return axios.post(`${this.url}/${id}/pause`);
   }
@@ -25,6 +29,10 @@ class CampaignsAPI extends ApiClient {
 
   deliveries(id) {
     return axios.get(`${this.url}/${id}/deliveries`);
+  }
+
+  exportDeliveries(id) {
+    return axios.get(`${this.url}/${id}/deliveries/export`);
   }
 }
 
