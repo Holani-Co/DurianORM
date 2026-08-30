@@ -113,6 +113,23 @@ ZOHO_CRM_MOBILE_FIELD = os.environ.get("ZOHO_CRM_MOBILE_FIELD", "")
 ZOHO_CRM_CITY_FIELD   = os.environ.get("ZOHO_CRM_CITY_FIELD", "")
 ZOHO_CRM_EMAIL_FIELD  = os.environ.get("ZOHO_CRM_EMAIL_FIELD", "")
 
+# Blueprint selector for FHC Deals. Zoho does not let its API choose a
+# Blueprint by name; the record enters a Blueprint when its field values match
+# that Blueprint's entry criteria. Set this to the API name of the client's
+# Digital/Offline selector field, then set the two values exactly as they
+# appear in its picklist. Empty is fail-safe: the bridge still records the
+# intended mode in Chatwoot and the Deal description, but does not risk an
+# INVALID_DATA response from an unverified CRM field.
+ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD = os.environ.get(
+    "ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD", ""
+)
+ZOHO_CRM_BLUEPRINT_DIGITAL_VALUE = os.environ.get(
+    "ZOHO_CRM_BLUEPRINT_DIGITAL_VALUE", "Digital"
+)
+ZOHO_CRM_BLUEPRINT_OFFLINE_VALUE = os.environ.get(
+    "ZOHO_CRM_BLUEPRINT_OFFLINE_VALUE", "Offline"
+)
+
 # The client's Standard Deals layout has more REQUIRED fields the bridge
 # can't infer from an email — filled with sensible defaults the agent
 # refines during qualification:

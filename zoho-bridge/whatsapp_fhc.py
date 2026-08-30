@@ -3,9 +3,10 @@
 # is a fixed state machine: greet → 3-button menu → collect details → route.
 #
 #   Product enquiry → name → phone → pincode → nearest of the 7 FHC studios:
-#       in coverage  → create the Home Studio deal (owner = that studio)
+#       in coverage  → create a Digital lead deal (owner = that studio)
 #       outside      → tag Customer Support
-#   Store address   → city/pincode → send that studio's store card
+#   Store address   → city/pincode → store card → optional physical visit;
+#                     a confirmed visit creates an Offline lead deal + Event
 #   Other help      → capture the ask → flag agent-needed, a human takes over
 #
 # State lives in conversation custom_attributes["wa_fhc"] = {step, choice, name,
@@ -74,6 +75,20 @@ def _sender_phone(conv: dict) -> str:
     on the website widget it's usually blank (so we ask)."""
     raw = ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
     return _extract_phone(raw)
+
+
+async def _sync_widget_contact_name(conv: dict, name: str) -> None:
+    """Best-effort web-widget profile rename. Chatwoot creates anonymous
+    contacts before the bot asks for a name; saving only in `wa_fhc` left the
+    dashboard showing names such as ``cold-sun-22`` forever."""
+    contact_id = ((conv.get("meta") or {}).get("sender") or {}).get("id")
+    clean_name = (name or "").strip()[:80]
+    if not contact_id or not clean_name:
+        return
+    try:
+        await chatwoot.update_contact_name(int(contact_id), clean_name)
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] contact-name sync failed for contact {contact_id}: {e}")
 
 
 _CONFIRM_PHONE = [{"title": "Yes, use this", "value": "phone_yes"},
@@ -225,7 +240,8 @@ def _existing_deals_note(name: str, phone: str, deals: list) -> str:
 
 
 async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
-                           store: dict, interest: str = "") -> bool:
+                           store: dict, interest: str = "",
+                           blueprint: str = "digital") -> dict | None:
     """Record the resolved studio + create the FHC (Home Studio) deal via the
     shared _create_crm_deal (which handles the CRM's mandatory custom fields).
     Never blocks the customer: on any failure the conversation is flagged so a
@@ -236,28 +252,32 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
     the CRM before this branch is switched on — the precise studio + owner_id we
     resolved is written to attributes + a private note either way.
     """
+    blueprint = "offline" if blueprint == "offline" else "digital"
     interest_label = _INTEREST_LABEL.get(interest, "")
     try:
         await chatwoot.merge_custom_attributes(conv_id, {
             "deal_customer_details": {"phone": phone, "city": store["city"],
                                       "pincode": pincode, "interest": interest,
+                                      "blueprint": blueprint,
                                       "captured_at": _now_iso()},
             "phase2_category": "full_home_customization",
             "fhc_studio": store["location"],
             "fhc_interest": interest,
+            "fhc_blueprint": blueprint,
             "retail_customer_phone": phone,
         })
         await chatwoot.post_private_note(
             conv_id,
-            f"🧾 WhatsApp FHC enquiry — {name} · {phone} · pincode {pincode}"
+            f"🧾 FHC enquiry — {name} · {phone} · pincode {pincode}"
             + (f"\nLooking to customise: {interest_label}" if interest_label else "")
+            + f"\nLead route: {blueprint.title()} Blueprint"
             + f"\nNearest studio: {store['location']} (CRM owner {store['owner_id']}).")
         import main  # lazy import — avoids a circular import at module load
         result = await main._create_crm_deal(
-            conv_id, agent_name="WhatsApp FHC bot",
+            conv_id, agent_name="FHC bot",
             sector="full_home_customization", phone=phone)
         await _add_interest_note((result or {}).get("deal_id"), interest_label)
-        return True
+        return result
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] deal auto-create deferred to human for conv {conv_id}: {e}")
         detail = getattr(e, "detail", None)
@@ -269,7 +289,7 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
         else:
             await _flag_agent(
                 conv_id, f"Couldn't auto-create the FHC deal for {name} ({phone})")
-        return False
+        return None
 
 
 async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str,
@@ -284,9 +304,11 @@ async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str
     try:
         await chatwoot.merge_custom_attributes(conv_id, {
             "deal_customer_details": {"phone": phone, "pincode": pincode,
-                                      "interest": interest, "captured_at": _now_iso()},
+                                      "interest": interest, "blueprint": "digital",
+                                      "captured_at": _now_iso()},
             "phase2_category": "full_home_customization",
             "fhc_interest": interest,
+            "fhc_blueprint": "digital",
             "fhc_out_of_coverage": True,
             "retail_customer_phone": phone,
         })
@@ -310,8 +332,8 @@ async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str
 
 
 async def _create_booking(conv_id: int, st: dict) -> bool:
-    """Create the Zoho Meeting (Events) for a studio visit, hosted by the studio
-    owner. Best-effort; flags a human on failure. Returns True on success."""
+    """Create an Offline-Blueprint Deal and its linked Zoho Meeting for a
+    confirmed physical studio visit. Best-effort; flags a human on failure."""
     store = fhc_stores.by_location(st.get("book_store") or "")
     if not store or not st.get("book_date"):
         return False
@@ -329,11 +351,16 @@ async def _create_booking(conv_id: int, st: dict) -> bool:
         summary = (f"{name} · {phone} · {start_dt:%a %d %b, %I:%M %p} · "
                    f"{store['card_name']} · {people} ppl")
         import zoho_crm
+        deal = await _create_fhc_deal(
+            conv_id, name, phone, st.get("pincode") or "", store,
+            interest=st.get("interest") or "", blueprint="offline")
         result = await zoho_crm.create_event(
             f"Studio Visit — {name} — {store['card_name']}",
             start_iso, end_iso,
             owner_id=store["owner_id"], host_id=store["owner_id"],
-            location=f"Durian FHC — {store['card_name']}", description=desc)
+            location=f"Durian FHC — {store['card_name']}", description=desc,
+            what_id=(deal or {}).get("deal_id") or "",
+            who_id=(deal or {}).get("contact_id") or "")
         event_id = (result or {}).get("id")
         link = zoho_crm.event_url(event_id) if event_id else ""
         await chatwoot.post_private_note(
@@ -342,7 +369,8 @@ async def _create_booking(conv_id: int, st: dict) -> bool:
             + (f"\n🔗 Open the meeting in Zoho: {link}" if link else ""))
         await chatwoot.merge_custom_attributes(conv_id, {"fhc_booking": {
             "store": store["location"], "date": st["book_date"], "slot": slot,
-            "people": people, "event_id": event_id, "at": _now_iso()}})
+            "people": people, "event_id": event_id,
+            "deal_id": (deal or {}).get("deal_id") or "", "at": _now_iso()}})
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[wa-fhc] booking create failed for conv {conv_id}: {e}")
@@ -351,7 +379,7 @@ async def _create_booking(conv_id: int, st: dict) -> bool:
 
 
 async def handle(conv: dict, conv_id: int, latest_message: str = "",
-                 latest_msg_id=None) -> dict | None:
+                 latest_msg_id=None, sync_contact_name: bool = False) -> dict | None:
     """Advance the FHC flow one step. Shared by the WhatsApp and website-widget
     dispatch hooks — each gates on its own enable flag BEFORE calling, so this
     just runs the flow. Returns a handled/ignored dict. The wa_fhc conversation
@@ -373,9 +401,15 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
     async def _say(msg: str) -> None:
         await chatwoot.send_outgoing_message(conv_id, msg)
 
-    # Flow finished → the human (or the customer's next fresh intent) owns it.
+    # A newly received message after completion is a fresh intent. The old
+    # implementation returned `wa_fhc_done` forever, so every later message was
+    # swallowed without a reply. Clear the previous state and reopen the menu;
+    # duplicate delivery of the finishing message was already rejected above.
     if step == "done":
-        return {"ignored": True, "reason": "wa_fhc_done"}
+        st.clear()
+        await chatwoot.send_interactive_buttons(conv_id, _GREETING, _MENU)
+        await _save(step="menu", tries=0)
+        return {"handled": "wa_fhc_reengaged"}
 
     # ── First contact → greet + menu ────────────────────────────────────────
     if not step:
@@ -411,6 +445,8 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
+        if sync_contact_name:
+            await _sync_widget_contact_name(conv, text)
         await chatwoot.send_interactive_buttons(
             conv_id,
             f"Thank you, {_first_name(text)}! What would you like to customise? 🏠",
@@ -470,7 +506,8 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
             await _create_fhc_deal(conv_id, st.get("name") or "", st.get("phone") or "",
-                                   pin, store, interest=st.get("interest") or "")
+                                   pin, store, interest=st.get("interest") or "",
+                                   blueprint="digital")
             await _say(f"Thank you, {_first_name(name)}! ✅ Your enquiry has been "
                        f"registered with our *{store['card_name']}* studio. Our team "
                        f"will reach out to you shortly.\n\nThank you for choosing Durian ✨")
@@ -530,6 +567,8 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         return {"handled": "wa_fhc_book_offer"}
 
     if step == "b_name":
+        if sync_contact_name:
+            await _sync_widget_contact_name(conv, text)
         known = _sender_phone(conv)
         if known:
             await chatwoot.send_interactive_buttons(
