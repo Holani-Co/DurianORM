@@ -669,6 +669,27 @@ async def update_contact_attributes(contact_id: int, custom_attributes: dict) ->
         return r.json() or {}
 
 
+async def update_contact_name(contact_id: int, name: str) -> dict:
+    """Replace a generated web-widget contact name with the name the customer
+    supplied in the FHC flow. Kept separate from custom-attribute writes so a
+    failed profile rename can never lose the flow state."""
+    clean_name = (name or "").strip()[:80]
+    if not clean_name:
+        return {}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.put(
+            _acct_url(f"/contacts/{contact_id}"),
+            headers=_headers(),
+            json={"name": clean_name},
+        )
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot update contact name failed [{r.status_code}]: "
+                f"{r.text[:200]}"
+            )
+        return r.json() or {}
+
+
 async def search_contacts(query: str) -> list[dict]:
     """Contact search (name / email / phone / identifier) — used by profile
     soft-linking to find other identities carrying the same phone/email."""

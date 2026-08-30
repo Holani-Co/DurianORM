@@ -3919,7 +3919,8 @@ async def handle_message_created(data: dict) -> dict:
         assignee = (full_conv.get("meta") or {}).get("assignee") or {}
         if not assignee or social_agent.is_bot_agent(assignee):
             handled = await whatsapp_fhc.handle(
-                full_conv, conv_id, data.get("content") or "", data.get("id"))
+                full_conv, conv_id, data.get("content") or "", data.get("id"),
+                sync_contact_name=False)
             if handled is not None:
                 return handled
 
@@ -3933,7 +3934,8 @@ async def handle_message_created(data: dict) -> dict:
         assignee = (full_conv.get("meta") or {}).get("assignee") or {}
         if not assignee or social_agent.is_bot_agent(assignee):
             handled = await whatsapp_fhc.handle(
-                full_conv, conv_id, data.get("content") or "", data.get("id"))
+                full_conv, conv_id, data.get("content") or "", data.get("id"),
+                sync_contact_name=True)
             if handled is not None:
                 return handled
 
@@ -6240,7 +6242,8 @@ async def handle_message_updated(data: dict) -> dict:
                     and (not _assignee or social_agent.is_bot_agent(_assignee))):
                 _choice = (sv[0] or {}).get("value") or (sv[0] or {}).get("title") or ""
                 handled = await whatsapp_fhc.handle(
-                    _full, _cid, latest_message=_choice, latest_msg_id=data.get("id"))
+                    _full, _cid, latest_message=_choice,
+                    latest_msg_id=data.get("id"), sync_contact_name=True)
                 if handled is not None:
                     return handled
 
@@ -7250,6 +7253,7 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
     (AI summary + transcript), how it was qualified (category/sector/
     location), and a link back to the full Chatwoot conversation."""
     sender = (conv.get("meta") or {}).get("sender") or {}
+    custom = conv.get("custom_attributes") or {}
     phone  = sender.get("phone_number") or ""
     sector = "government" if owner.get("location") == "govt" else "private"
     link   = (f"{config.CHATWOOT_PUBLIC_URL.rstrip('/')}"
@@ -7265,6 +7269,8 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
         f"Subject:   {subject or '(no subject)'}",
         f"Chatwoot:  {link}",
     ]
+    if custom.get("fhc_blueprint"):
+        parts.insert(5, f"Blueprint: {str(custom['fhc_blueprint']).title()}")
     # AI summary — same summarizer the Desk tickets use. Best-effort.
     try:
         summary = await summarizer.summarize_conversation(messages) if messages else {}
@@ -7514,6 +7520,19 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     is_project = (owner.get("location") == "govt"
                   or deal_category == "project_bulk_order")
     extra_fields = dict(config.ZOHO_CRM_DEAL_EXTRA_FIELDS)  # static env defaults
+    # FHC digital/offline Blueprint routing. Zoho selects a Blueprint from the
+    # Deal's field values, so the shared FHC state machine records the intended
+    # mode and this one CRM boundary writes the configured selector field.
+    # No studio visit => digital; a confirmed physical visit => offline.
+    blueprint_mode = str(custom.get("fhc_blueprint") or "").lower()
+    if (config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD
+            and blueprint_mode in ("digital", "offline")):
+        blueprint_value = (
+            config.ZOHO_CRM_BLUEPRINT_DIGITAL_VALUE
+            if blueprint_mode == "digital"
+            else config.ZOHO_CRM_BLUEPRINT_OFFLINE_VALUE
+        )
+        extra_fields[config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD] = blueprint_value
     if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
         # "Business Type" picklist (Retail / Project / Retail A & ID) —
         # "Retail A & ID" is agent-set in CRM afterwards.
