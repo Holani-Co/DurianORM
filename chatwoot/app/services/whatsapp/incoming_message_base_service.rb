@@ -1,7 +1,7 @@
 # Mostly modeled after the intial implementation of the service based on 360 Dialog
 # https://docs.360dialog.com/whatsapp-api/whatsapp-api/media
 # https://developers.facebook.com/docs/whatsapp/api/media/
-class Whatsapp::IncomingMessageBaseService
+class Whatsapp::IncomingMessageBaseService # rubocop:disable Metrics/ClassLength
   include ::Whatsapp::IncomingMessageServiceHelpers
 
   pattr_initialize [:inbox!, :params!, :outgoing_echo]
@@ -43,6 +43,20 @@ class Whatsapp::IncomingMessageBaseService
       set_conversation
       create_messages
     end
+
+    record_campaign_inbound_activity
+  end
+
+  # Campaign bookkeeping (consent capture + reply attribution) runs AFTER the
+  # message transaction has committed, so a failure here can never roll back —
+  # and lose — the customer's inbound message (the source_id is already locked
+  # in Redis, so a rolled-back message would never be reprocessed). Best-effort.
+  def record_campaign_inbound_activity
+    return if outgoing_echo || @message.blank? || message_type == 'contacts'
+
+    Whatsapp::CampaignInboundActivityService.perform(inbox, @contact, @message, messages_data.first)
+  rescue StandardError => e
+    Rails.logger.error("[whatsapp] campaign inbound activity failed for inbox #{inbox.id}: #{e.message}")
   end
 
   def process_statuses
@@ -89,7 +103,6 @@ class Whatsapp::IncomingMessageBaseService
     attach_files
     attach_location if message_type == 'location'
     @message.save!
-    Whatsapp::CampaignInboundActivityService.perform(inbox, @contact, @message, message) unless outgoing_echo
   end
 
   def set_contact

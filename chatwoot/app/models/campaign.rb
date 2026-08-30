@@ -49,8 +49,8 @@ class Campaign < ApplicationRecord
   include UrlHelper
 
   EXECUTION_TRANSITIONS = {
-    'draft' => %w[scheduled cancelled],
-    'scheduled' => %w[queued paused cancelled],
+    'draft' => %w[scheduled cancelled failed],
+    'scheduled' => %w[queued paused cancelled failed],
     'queued' => %w[running paused cancelled failed],
     'running' => %w[paused completed cancelled failed],
     'paused' => %w[scheduled queued running cancelled],
@@ -109,18 +109,16 @@ class Campaign < ApplicationRecord
     raise ArgumentError, "Unknown campaign execution status: #{target_status}" unless self.class.execution_statuses.key?(target_status)
 
     with_lock do
+      # Idempotent: if we're already in the target state (e.g. two finalizers
+      # racing to complete the campaign), do nothing rather than raise.
+      next if execution_status.to_s == target_status
+
       allowed_statuses = EXECUTION_TRANSITIONS.fetch(execution_status.to_s, [])
       unless allowed_statuses.include?(target_status)
         raise ArgumentError, "Cannot transition campaign execution from #{execution_status.inspect} to #{target_status}"
       end
 
-      attributes = {
-        execution_status: target_status,
-        execution_completed_at: %w[completed cancelled failed].include?(target_status) ? Time.current : nil,
-        execution_error: target_status == 'failed' ? error.to_s.presence : nil
-      }
-      attributes[:execution_started_at] = Time.current if target_status == 'running' && execution_started_at.blank?
-      update!(attributes)
+      update!(execution_transition_attributes(target_status, error))
     end
   end
 
@@ -137,6 +135,16 @@ class Campaign < ApplicationRecord
   end
 
   private
+
+  def execution_transition_attributes(target_status, error)
+    attributes = {
+      execution_status: target_status,
+      execution_completed_at: %w[completed cancelled failed].include?(target_status) ? Time.current : nil,
+      execution_error: target_status == 'failed' ? error.to_s.presence : nil
+    }
+    attributes[:execution_started_at] = Time.current if target_status == 'running' && execution_started_at.blank?
+    attributes
+  end
 
   def delivery_counts
     counts = campaign_deliveries.group(:status).count

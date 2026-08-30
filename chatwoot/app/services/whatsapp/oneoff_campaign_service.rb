@@ -10,11 +10,24 @@ class Whatsapp::OneoffCampaignService
     Campaigns::Whatsapp::DispatchBatchJob.perform_later(campaign)
     Whatsapp::CampaignFinalizeService.new(campaign).perform
   rescue StandardError => e
-    campaign.transition_execution_to!(:failed, error: e.message) if campaign.execution_queued? || campaign.execution_running?
+    # Mark the campaign failed so TriggerScheduledItemsJob stops re-picking it
+    # (it filters execution_status: :scheduled) — otherwise a validation failure
+    # here loops every 5 minutes forever. Then re-raise so the trigger job
+    # surfaces the error normally (Sidekiq's exponential backoff makes a
+    # permanently-invalid campaign's retries negligible).
+    fail_campaign!(e.message)
     raise
   end
 
   private
+
+  def fail_campaign!(message)
+    return if campaign.execution_terminal?
+
+    campaign.transition_execution_to!(:failed, error: message)
+  rescue StandardError => e
+    Rails.logger.error("[whatsapp campaign #{campaign.id}] could not mark failed: #{e.message}")
+  end
 
   delegate :inbox, to: :campaign
   delegate :channel, to: :inbox

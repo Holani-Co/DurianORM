@@ -65,8 +65,20 @@ class WhatsappTemplate < ApplicationRecord
       'language' => language,
       'category' => category,
       'status' => status,
-      'components' => components
+      'components' => components,
+      'parameter_format' => parameter_format
     }
+  end
+
+  # Meta encodes NAMED vs POSITIONAL body variables in the BODY component's
+  # example shape (body_text_named_params vs body_text). Derive it so the
+  # TemplateProcessorService fills named parameters correctly.
+  def parameter_format
+    body = Array(components).find { |component| component['type'].to_s.upcase == 'BODY' }
+    example = body && body['example']
+    return 'NAMED' if example.is_a?(Hash) && example.key?('body_text_named_params')
+
+    'POSITIONAL'
   end
 
   private

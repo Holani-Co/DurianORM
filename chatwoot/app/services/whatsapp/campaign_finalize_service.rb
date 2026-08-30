@@ -11,6 +11,6 @@ class Whatsapp::CampaignFinalizeService
     return unless @campaign.execution_running?
 
     @campaign.transition_execution_to!(:completed)
-    @campaign.completed!
+    @campaign.completed! unless @campaign.completed?
   end
 end

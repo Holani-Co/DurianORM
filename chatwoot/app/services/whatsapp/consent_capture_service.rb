@@ -12,6 +12,17 @@ class Whatsapp::ConsentCaptureService
     status = consent_status
     return if status.blank?
 
+    consent = create_consent!(status)
+    # Honor the opt-out immediately: cancel any of this contact's campaign
+    # deliveries that are still pending/queued for this inbox, so a message
+    # already snapshotted before the STOP is never sent.
+    cancel_pending_campaign_deliveries if status == 'OPTED_OUT'
+    consent
+  end
+
+  private
+
+  def create_consent!(status)
     @inbox.account.whatsapp_consents.create!(
       inbox: @inbox,
       contact: @contact,
@@ -22,9 +33,23 @@ class Whatsapp::ConsentCaptureService
       recorded_at: Time.current,
       details: { content: normalized_content }
     )
+  rescue ActiveRecord::RecordNotUnique
+    # Meta re-delivered the same inbound message; the consent is already on
+    # record (unique on source_reference). Reuse it rather than raising.
+    @inbox.account.whatsapp_consents.find_by(
+      inbox: @inbox, source: 'inbound_message', source_reference: @message_payload[:id]
+    )
   end
 
-  private
+  def cancel_pending_campaign_deliveries
+    campaign_ids = @inbox.account.campaigns.where(inbox_id: @inbox.id).select(:id)
+    # rubocop:disable Rails/SkipsModelValidations
+    CampaignDelivery.dispatchable
+                    .where(contact_id: @contact.id, campaign_id: campaign_ids)
+                    .update_all(status: 'cancelled', skip_reason: 'opted_out',
+                                next_retry_at: nil, updated_at: Time.current)
+    # rubocop:enable Rails/SkipsModelValidations
+  end
 
   def consent_status
     return 'OPTED_OUT' if opt_out_content?

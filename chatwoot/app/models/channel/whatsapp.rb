@@ -32,7 +32,7 @@ class Channel::Whatsapp < ApplicationRecord
   validates :phone_number, presence: true, uniqueness: true
   validate :validate_provider_config
 
-  after_create :sync_templates
+  after_create :sync_templates_on_create
   before_destroy :teardown_webhooks
   after_commit :setup_webhooks, on: :create, if: :should_auto_setup_webhooks?
 
@@ -62,6 +62,16 @@ class Channel::Whatsapp < ApplicationRecord
     # rubocop:disable Rails/SkipsModelValidations
     update_column(:message_templates_last_updated, Time.zone.now)
     # rubocop:enable Rails/SkipsModelValidations
+  end
+
+  # Initial template sync runs inside the create transaction (after_create), so
+  # a Meta API failure here must NOT roll back inbox creation. Best-effort only;
+  # the scheduled sync and the manual "sync now" action still surface errors.
+  def sync_templates_on_create
+    sync_templates
+  rescue StandardError => e
+    Rails.logger.error("[whatsapp] initial template sync failed for channel #{id}: #{e.message}")
+    mark_message_templates_updated
   end
 
   delegate :send_message, to: :provider_service

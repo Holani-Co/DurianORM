@@ -1,5 +1,7 @@
 class Campaigns::Whatsapp::SendDeliveryJob < ApplicationJob
-  queue_as :low
+  # Runs on :deferred (below :low, where inbound WhatsApp is handled) so a large
+  # campaign fan-out never delays live customer message processing on a small box.
+  queue_as :deferred
 
   MAX_ATTEMPTS = 3
 
@@ -24,12 +26,27 @@ class Campaigns::Whatsapp::SendDeliveryJob < ApplicationJob
     claimed = false
     @delivery.with_lock do
       @delivery.reload
-      if (@delivery.status_pending? || @delivery.status_queued?) && campaign.reload.execution_running?
+      if consent_revoked?
+        # Contact opted out after the audience snapshot — never send.
+        @delivery.update!(status: 'cancelled', skip_reason: 'opted_out', next_retry_at: nil)
+      elsif (@delivery.status_pending? || @delivery.status_queued?) && campaign.reload.execution_running?
         @delivery.update!(status: 'sending', attempt_count: @delivery.attempt_count + 1, error_code: nil, error_message: nil)
         claimed = true
       end
     end
     claimed
+  end
+
+  # Defense-in-depth against the snapshot→send window: re-verify the contact is
+  # still opted in for MARKETING right before dispatch.
+  def consent_revoked?
+    return false unless @delivery.status_pending? || @delivery.status_queued?
+
+    # Only cancel on an EXPLICIT opt-out recorded after the snapshot. Absence of
+    # a consent record is not treated as revocation — the snapshot already
+    # verified eligibility.
+    consent = WhatsappConsent.current_for(inbox: campaign.inbox, contact: @delivery.contact)
+    consent.present? && !consent.opted_in?
   end
 
   def send_template!

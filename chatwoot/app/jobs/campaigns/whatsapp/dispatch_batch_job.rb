@@ -1,5 +1,7 @@
 class Campaigns::Whatsapp::DispatchBatchJob < ApplicationJob
-  queue_as :low
+  # :deferred sits below :low (where inbound WhatsApp is processed), so campaign
+  # fan-out yields to live customer message handling on a resource-limited box.
+  queue_as :deferred
 
   BATCH_SIZE = ENV.fetch('WHATSAPP_CAMPAIGN_BATCH_SIZE', 100).to_i
   BATCH_INTERVAL = ENV.fetch('WHATSAPP_CAMPAIGN_BATCH_INTERVAL_SECONDS', 1).to_i.seconds
