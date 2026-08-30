@@ -31,10 +31,22 @@ pnpm install --frozen-lockfile --silent --ignore-scripts
 # untouched. A running Puma serves the asset manifest it loaded at boot, so
 # writing new assets underneath it does not disturb live traffic, and swap (see
 # /etc/fstab) absorbs the build's peak so it need not fight web/worker for RAM.
+# Vite now needs slightly more than a 3 GB JS heap while rendering Chatwoot's
+# production chunks. Refuse to start the build unless RAM + free swap provides
+# enough headroom for Node, Rails, and the still-running production services.
+available_build_kb="$(awk '/MemAvailable:|SwapFree:/ { total += $2 } END { print total + 0 }' /proc/meminfo)"
+minimum_build_kb=$((5 * 1024 * 1024))
+if [ "$available_build_kb" -lt "$minimum_build_kb" ]; then
+  log "ERROR: asset build needs at least 5 GB of available RAM + free swap."
+  log "Current available total: $((available_build_kb / 1024)) MB. Production was not changed."
+  log "Check: free -h && swapon --show"
+  exit 1
+fi
+
 log "Precompiling assets (services still up; abort here if the build fails)..."
 PRECOMPILE_LOG="$(mktemp)"
 precompile_rc=0
-NODE_OPTIONS="--max-old-space-size=3072" RAILS_ENV=production \
+NODE_OPTIONS="--max-old-space-size=4096" RAILS_ENV=production \
   $RBENV_BUNDLE exec rails assets:precompile > "$PRECOMPILE_LOG" 2>&1 || precompile_rc=$?
 grep -v "DEPRECATION WARNING\|legacy-js-api\|v-deep\|More info:" "$PRECOMPILE_LOG" | tail -20
 rm -f "$PRECOMPILE_LOG"

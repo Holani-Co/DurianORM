@@ -1,4 +1,6 @@
 class Whatsapp::CampaignAudienceSnapshotService
+  INSERT_BATCH_SIZE = 500
+
   def initialize(campaign)
     @campaign = campaign
   end
@@ -8,11 +10,18 @@ class Whatsapp::CampaignAudienceSnapshotService
 
     audience_results = audience_service.results
     CampaignDelivery.transaction do
-      audience_results.each { |result| create_delivery!(result) }
+      audience_results.each_slice(INSERT_BATCH_SIZE) do |batch|
+        # Attributes are built entirely from account-scoped, already-validated
+        # audience results. Bulk insertion keeps a maximum-size campaign from
+        # issuing 10,000 individual INSERT statements during its snapshot.
+        # rubocop:disable Rails/SkipsModelValidations
+        CampaignDelivery.insert_all!(batch.map { |result| delivery_attributes(result) })
+        # rubocop:enable Rails/SkipsModelValidations
+      end
       @campaign.update!(audience_snapshot_at: Time.current)
       @campaign.refresh_delivery_counts!
     end
-    @campaign.campaign_deliveries.reload
+    @campaign.campaign_deliveries
   end
 
   private
@@ -25,18 +34,22 @@ class Whatsapp::CampaignAudienceSnapshotService
     )
   end
 
-  def create_delivery!(result)
-    @campaign.campaign_deliveries.create!(
-      account: @campaign.account,
-      contact: result.contact,
-      whatsapp_consent: result.consent,
-      phone_number: result.phone_number,
+  def delivery_attributes(result)
+    now = Time.current
+    {
+      account_id: @campaign.account_id,
+      campaign_id: @campaign.id,
+      contact_id: result.contact.id,
+      whatsapp_consent_id: result.consent&.id,
+      phone_number: result.phone_number.to_s.strip.presence,
       status: result.eligible? ? 'queued' : 'skipped',
       skip_reason: result.skip_reason,
       queued_at: result.eligible? ? Time.current : nil,
       recipient_snapshot: recipient_snapshot(result),
-      template_parameters: @campaign.template_params || {}
-    )
+      template_parameters: @campaign.template_params || {},
+      created_at: now,
+      updated_at: now
+    }
   end
 
   def recipient_snapshot(result)

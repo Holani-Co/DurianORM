@@ -1,10 +1,15 @@
 class Api::V1::Accounts::CampaignDeliveriesController < Api::V1::Accounts::BaseController
+  RESULTS_PER_PAGE = 100
+
   before_action :check_authorization
   before_action :campaign
 
   def index
-    @campaign_deliveries = @campaign.campaign_deliveries.includes(:contact).latest_first
-    @campaign_deliveries = @campaign_deliveries.where(status: params[:status]) if params[:status].present?
+    deliveries = @campaign.campaign_deliveries.includes(:contact).latest_first
+    deliveries = deliveries.where(status: params[:status]) if params[:status].present?
+    deliveries = search(deliveries) if params[:q].present?
+
+    @campaign_deliveries = deliveries.page(params[:page]).per(RESULTS_PER_PAGE)
   end
 
   def export
@@ -17,6 +22,15 @@ class Api::V1::Accounts::CampaignDeliveriesController < Api::V1::Accounts::BaseC
 
   def campaign
     @campaign = Current.account.campaigns.find_by!(display_id: params[:campaign_id])
+  end
+
+  def search(deliveries)
+    query = "%#{ActiveRecord::Base.sanitize_sql_like(params[:q].strip)}%"
+    deliveries.left_joins(:contact).where(
+      'contacts.name ILIKE :query OR campaign_deliveries.phone_number ILIKE :query OR ' \
+      'campaign_deliveries.skip_reason ILIKE :query OR campaign_deliveries.error_message ILIKE :query',
+      query: query
+    )
   end
 
   def delivery_csv

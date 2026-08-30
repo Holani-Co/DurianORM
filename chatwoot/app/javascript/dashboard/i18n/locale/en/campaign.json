@@ -228,6 +228,9 @@
         "REPLIED": "Customer replied",
         "EXPORT": "Export CSV",
         "EXPORT_ERROR": "The delivery report could not be exported.",
+        "PAGE": "Page {current} of {total} · {count} records",
+        "PREVIOUS": "Previous",
+        "NEXT": "Next",
         "CLOSE": "Close"
       },
       "EMPTY_STATE": {

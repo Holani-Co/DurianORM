@@ -27,8 +27,8 @@ class CampaignsAPI extends ApiClient {
     return axios.post(`${this.url}/${id}/cancel`);
   }
 
-  deliveries(id) {
-    return axios.get(`${this.url}/${id}/deliveries`);
+  deliveries(id, params = {}) {
+    return axios.get(`${this.url}/${id}/deliveries`, { params });
   }
 
   exportDeliveries(id) {

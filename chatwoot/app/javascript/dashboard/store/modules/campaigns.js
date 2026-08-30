@@ -120,8 +120,8 @@ export const actions = {
     const response = await CampaignsAPI.cancel(id);
     commit(types.EDIT_CAMPAIGN, response.data);
   },
-  getDeliveries: async (_, id) => {
-    const response = await CampaignsAPI.deliveries(id);
+  getDeliveries: async (_, { id, ...params }) => {
+    const response = await CampaignsAPI.deliveries(id, params);
     return response.data;
   },
   exportDeliveries: async (_, id) => {

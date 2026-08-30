@@ -66,13 +66,24 @@ class Whatsapp::CampaignAudienceService
   end
 
   def build_result(contact)
-    consent = WhatsappConsent.current_for(inbox: @inbox, contact: contact)
+    consent = current_consents[contact.id]
     Result.new(
       contact: contact,
       phone_number: contact.phone_number,
       consent: consent,
       skip_reason: skip_reason(contact, consent)
     )
+  end
+
+  # Load the latest consent for the whole audience in one query. Calling
+  # WhatsappConsent.current_for once per contact turns a 10,000-recipient
+  # campaign into 10,000 database queries before dispatch even starts.
+  def current_consents
+    @current_consents ||= WhatsappConsent
+                          .where(inbox: @inbox, contact_id: contacts.reselect(:id), purpose: 'MARKETING')
+                          .select('DISTINCT ON (contact_id) whatsapp_consents.*')
+                          .order(:contact_id, recorded_at: :desc, id: :desc)
+                          .index_by(&:contact_id)
   end
 
   def skip_reason(contact, consent)

@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useDebounceFn } from '@vueuse/core';
 import { useAlert } from 'dashboard/composables';
 import { useStore } from 'dashboard/composables/store';
 import { downloadCsvFile } from 'dashboard/helper/downloadHelper';
@@ -20,6 +21,9 @@ const isLoading = ref(false);
 const isExporting = ref(false);
 const statusFilter = ref('');
 const searchQuery = ref('');
+const currentPage = ref(1);
+const totalPages = ref(1);
+const totalCount = ref(0);
 
 const statusOptions = computed(() => [
   { value: '', label: t('CAMPAIGN.WHATSAPP.DELIVERIES.ALL_STATUSES') },
@@ -36,24 +40,6 @@ const statusOptions = computed(() => [
   ].map(status => ({ value: status, label: status.replace('_', ' ') })),
 ]);
 
-const visibleDeliveries = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase();
-  return deliveries.value.filter(delivery => {
-    const matchesStatus =
-      !statusFilter.value || delivery.status === statusFilter.value;
-    const haystack = [
-      delivery.contact?.name,
-      delivery.phone_number,
-      delivery.skip_reason,
-      delivery.error_message,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return matchesStatus && (!query || haystack.includes(query));
-  });
-});
-
 const statusClass = status => {
   if (['delivered', 'read'].includes(status))
     return 'bg-n-teal-3 text-n-teal-11';
@@ -62,22 +48,58 @@ const statusClass = status => {
   return 'bg-n-amber-3 text-n-amber-11';
 };
 
-const open = async selectedCampaign => {
-  campaign.value = selectedCampaign;
-  deliveries.value = [];
-  statusFilter.value = '';
-  searchQuery.value = '';
-  dialogRef.value.open();
+const fetchDeliveries = async () => {
+  if (!campaign.value) return;
+
   isLoading.value = true;
   try {
-    deliveries.value = await store.dispatch(
-      'campaigns/getDeliveries',
-      selectedCampaign.id
-    );
+    const response = await store.dispatch('campaigns/getDeliveries', {
+      id: campaign.value.id,
+      page: currentPage.value,
+      status: statusFilter.value || undefined,
+      q: searchQuery.value.trim() || undefined,
+    });
+    deliveries.value = response.payload;
+    currentPage.value = response.meta.current_page;
+    totalPages.value = response.meta.total_pages;
+    totalCount.value = response.meta.total_count;
   } finally {
     isLoading.value = false;
   }
 };
+
+const open = async selectedCampaign => {
+  campaign.value = null;
+  deliveries.value = [];
+  statusFilter.value = '';
+  searchQuery.value = '';
+  currentPage.value = 1;
+  totalPages.value = 1;
+  totalCount.value = 0;
+  campaign.value = selectedCampaign;
+  dialogRef.value.open();
+  await fetchDeliveries();
+};
+
+const changePage = page => {
+  if (page < 1 || page > totalPages.value || page === currentPage.value) return;
+  currentPage.value = page;
+  fetchDeliveries();
+};
+
+watch(statusFilter, () => {
+  if (!campaign.value) return;
+  currentPage.value = 1;
+  fetchDeliveries();
+});
+
+const fetchSearchResults = useDebounceFn(() => {
+  if (!campaign.value) return;
+  currentPage.value = 1;
+  fetchDeliveries();
+}, 300);
+
+watch(searchQuery, fetchSearchResults);
 
 const exportDeliveries = async () => {
   if (!campaign.value) return;
@@ -121,7 +143,7 @@ defineExpose({ open });
       </div>
       <div class="max-h-[55vh] overflow-y-auto rounded-lg border border-n-weak">
         <div
-          v-for="delivery in visibleDeliveries"
+          v-for="delivery in deliveries"
           :key="delivery.id"
           class="flex items-center gap-3 border-b border-n-weak px-3 py-2.5 last:border-b-0"
         >
@@ -150,11 +172,43 @@ defineExpose({ open });
           </span>
         </div>
         <p
-          v-if="visibleDeliveries.length === 0"
+          v-if="deliveries.length === 0"
           class="px-4 py-10 text-center text-sm text-n-slate-11"
         >
           {{ t('CAMPAIGN.WHATSAPP.DELIVERIES.EMPTY') }}
         </p>
+      </div>
+      <div
+        v-if="totalPages > 1"
+        class="flex items-center justify-between text-sm text-n-slate-11"
+      >
+        <span>
+          {{
+            t('CAMPAIGN.WHATSAPP.DELIVERIES.PAGE', {
+              current: currentPage,
+              total: totalPages,
+              count: totalCount,
+            })
+          }}
+        </span>
+        <div class="flex gap-2">
+          <Button
+            color="slate"
+            variant="faded"
+            size="sm"
+            :disabled="currentPage === 1 || isLoading"
+            :label="t('CAMPAIGN.WHATSAPP.DELIVERIES.PREVIOUS')"
+            @click="changePage(currentPage - 1)"
+          />
+          <Button
+            color="slate"
+            variant="faded"
+            size="sm"
+            :disabled="currentPage === totalPages || isLoading"
+            :label="t('CAMPAIGN.WHATSAPP.DELIVERIES.NEXT')"
+            @click="changePage(currentPage + 1)"
+          />
+        </div>
       </div>
     </div>
     <template #footer>
