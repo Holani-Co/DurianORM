@@ -7532,7 +7532,14 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             if blueprint_mode == "digital"
             else config.ZOHO_CRM_BLUEPRINT_OFFLINE_VALUE
         )
-        extra_fields[config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD] = blueprint_value
+        if blueprint_value:
+            extra_fields[config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD] = blueprint_value
+        else:
+            # Durian's Offline Home Studio Blueprint requires Integration
+            # Source to be EMPTY. Also remove a generic EXTRA_FIELDS default
+            # for this key, if one exists, so offline records cannot
+            # accidentally satisfy the Digital Blueprint's non-empty rule.
+            extra_fields.pop(config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD, None)
     if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
         # "Business Type" picklist (Retail / Project / Retail A & ID) —
         # "Retail A & ID" is agent-set in CRM afterwards.
