@@ -247,10 +247,10 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
     Never blocks the customer: on any failure the conversation is flagged so a
     human completes the deal from the Create-Deal button.
 
-    NB: _create_crm_deal routes the OWNER by city, so the exact owner assignment
-    (esp. Mumbai: Goregaon vs Thane, same city) needs live verification against
-    the CRM before this branch is switched on — the precise studio + owner_id we
-    resolved is written to attributes + a private note either way.
+    The deal is tagged to the RESOLVED studio's owner (store["owner_id"]) via
+    owner_id_override — NOT city-routed — so Mumbai's Goregaon vs Thane (same
+    city) each get their correct studio owner. The studio + owner_id is also
+    written to conversation attributes + a private note.
     """
     blueprint = "offline" if blueprint == "offline" else "digital"
     interest_label = _INTEREST_LABEL.get(interest, "")
@@ -275,7 +275,8 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
         import main  # lazy import — avoids a circular import at module load
         result = await main._create_crm_deal(
             conv_id, agent_name="FHC bot",
-            sector="full_home_customization", phone=phone)
+            sector="full_home_customization", phone=phone,
+            owner_id_override=store["owner_id"], owner_label=store["location"])
         await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return result
     except Exception as e:  # noqa: BLE001

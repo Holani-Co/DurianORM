@@ -68,8 +68,8 @@ FHC_STORES = [
         "owner_id": "3608871000000804001",
         "city": "Mumbai",
         "pincode": "400063",   # Goregaon (400062 not in pincode_geo; 400063 is)
-        "manager": "Ms. Janhavi Khapre",
-        "contact": "8693046731",
+        "manager": "Pratik Ojha",
+        "contact": "9152011244",
         "map": "https://www.google.com/maps?q=place_id:ChIJ_-exKUy35zsR4VTFPhDf3w8",
         "card_name": "Mumbai – Goregaon",
     },
