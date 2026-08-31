@@ -32,10 +32,10 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
   end
 
   def sync_templates
-    # ensuring that channels with wrong provider config wouldn't keep trying to sync templates
-    whatsapp_channel.mark_message_templates_updated
-    templates = fetch_whatsapp_templates("#{business_account_path}/message_templates?access_token=#{whatsapp_channel.provider_config['api_key']}")
-    whatsapp_channel.update(message_templates: templates, message_templates_last_updated: Time.now.utc) if templates.present?
+    inbox = whatsapp_channel.inbox
+    return sync_channel_template_cache if inbox.blank?
+
+    Whatsapp::TemplateManagementService.new(inbox).sync!
   end
 
   def fetch_whatsapp_templates(url)
@@ -81,6 +81,14 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
 
   private
 
+  def sync_channel_template_cache
+    templates = fetch_whatsapp_templates(
+      "#{business_account_path}/message_templates?access_token=#{whatsapp_channel.provider_config['api_key']}"
+    )
+    whatsapp_channel.update!(message_templates: templates, message_templates_last_updated: Time.current)
+    templates
+  end
+
   def csat_template_service
     @csat_template_service ||= Whatsapp::CsatTemplateService.new(whatsapp_channel)
   end
@@ -91,11 +99,15 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
 
   # TODO: See if we can unify the API versions and for both paths and make it consistent with out facebook app API versions
   def phone_id_path
-    "#{api_base_path}/v13.0/#{whatsapp_channel.provider_config['phone_number_id']}"
+    "#{api_base_path}/#{api_version}/#{whatsapp_channel.provider_config['phone_number_id']}"
   end
 
   def business_account_path
-    "#{api_base_path}/v14.0/#{whatsapp_channel.provider_config['business_account_id']}"
+    "#{api_base_path}/#{api_version}/#{whatsapp_channel.provider_config['business_account_id']}"
+  end
+
+  def api_version
+    GlobalConfigService.load('WHATSAPP_API_VERSION', 'v22.0')
   end
 
   def send_text_message(phone_number, message)

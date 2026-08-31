@@ -140,11 +140,115 @@
     "WHATSAPP": {
       "HEADER_TITLE": "WhatsApp campaigns",
       "NEW_CAMPAIGN": "Create campaign",
+  "TABS": {
+    "CAMPAIGNS": "Campaigns",
+    "TEMPLATES": "Templates",
+    "CONSENTS": "Consent ledger"
+  },
+  "TEMPLATES": {
+        "NEW": "Create template",
+        "SYNC": "Sync with Meta",
+        "SUBMIT": "Submit",
+        "META": "{inbox} · {language} · {category}",
+        "ALL_INBOXES": "All WhatsApp inboxes",
+        "EMPTY_TITLE": "No WhatsApp templates yet",
+        "EMPTY_SUBTITLE": "Create a template or sync templates that already exist in Meta Business Manager.",
+        "CREATE_TITLE": "Create WhatsApp template",
+        "EDIT_TITLE": "Edit WhatsApp template",
+        "CREATE_SUBTITLE": "The template will be saved in ORM and submitted to Meta for approval.",
+        "DELETE_CONFIRM": "Delete this template from ORM and Meta?",
+        "FORM": {
+          "NAME": "Template name",
+          "NAME_PLACEHOLDER": "summer_sale_announcement",
+          "INBOX": "WhatsApp inbox",
+          "INBOX_PLACEHOLDER": "Select an inbox",
+          "CATEGORY": "Category",
+          "LANGUAGE": "Language",
+          "HEADER_TYPE": "Header type",
+          "HEADER_NONE": "No header",
+          "HEADER_TEXT": "Text",
+          "HEADER_IMAGE": "Image",
+          "HEADER_VIDEO": "Video",
+          "HEADER_DOCUMENT": "Document",
+          "HEADER": "Header (optional)",
+          "HEADER_PLACEHOLDER": "A short headline",
+          "MEDIA_SAMPLE": "Media sample",
+          "MEDIA_HELP": "Upload a JPG, PNG, MP4, or PDF sample up to 16 MB for Meta's review.",
+          "BODY": "Message",
+          "BODY_PLACEHOLDER": "Write the message Meta should approve",
+          "BODY_HELP": "Use {{1}}, {{2}}, and so on for campaign variables.",
+          "FOOTER": "Footer (optional)",
+          "FOOTER_PLACEHOLDER": "A short footer",
+          "BUTTONS": "Buttons",
+          "ADD_BUTTON": "Add button",
+          "BUTTON_QUICK_REPLY": "Quick reply",
+          "BUTTON_URL": "Website URL",
+          "BUTTON_PHONE": "Phone number",
+          "BUTTON_TEXT": "Button label",
+          "BUTTON_URL_PLACEHOLDER": "https://example.com/offers/{{1}}",
+          "BUTTON_PHONE_PLACEHOLDER": "+919876543210",
+          "CANCEL": "Cancel",
+          "SUBMIT": "Save and submit",
+          "UPDATE": "Update and resubmit"
+        },
+        "API": {
+          "SUBMITTED": "Template submitted to Meta for approval",
+          "SYNCED": "Templates synced with Meta",
+          "DELETED": "Template deleted",
+          "ERROR": "The template operation failed. Please try again."
+    }
+  },
+  "CONSENTS": {
+    "NEW": "Record consent",
+    "RECORD_TITLE": "Record WhatsApp marketing consent",
+    "RECORD_SUBTITLE": "Record a customer's explicit opt-in or opt-out for this WhatsApp inbox.",
+    "INBOX": "WhatsApp inbox",
+    "INBOX_PLACEHOLDER": "Select an inbox",
+    "PHONE": "Customer phone number",
+    "PHONE_PLACEHOLDER": "+919876543210",
+    "STATUS": "Consent status",
+    "OPTED_IN": "Opted in",
+    "OPTED_OUT": "Opted out",
+    "CANCEL": "Cancel",
+    "SAVE": "Save consent",
+    "ALL_INBOXES": "All WhatsApp inboxes",
+    "META": "{phone} · {inbox} · {source}",
+    "EMPTY_TITLE": "No marketing consent records yet",
+    "EMPTY_SUBTITLE": "Record explicit consent here, or let customers opt in and out through WhatsApp messages.",
+    "API": {
+      "CREATED": "WhatsApp marketing consent recorded",
+      "ERROR": "The consent could not be recorded. Please try again."
+    }
+  },
+      "DELIVERIES": {
+        "TITLE": "Deliveries · {name}",
+        "EMPTY": "No delivery records are available yet.",
+        "ALL_STATUSES": "All delivery statuses",
+        "SEARCH": "Search recipient, phone, or error",
+        "REPLIED": "Customer replied",
+        "EXPORT": "Export CSV",
+        "EXPORT_ERROR": "The delivery report could not be exported.",
+        "PAGE": "Page {current} of {total} · {count} records",
+        "PREVIOUS": "Previous",
+        "NEXT": "Next",
+        "CLOSE": "Close"
+      },
       "EMPTY_STATE": {
         "TITLE": "No WhatsApp campaigns are available",
         "SUBTITLE": "Launch a WhatsApp campaign to reach your customers directly. Send offers or make announcements with ease. Click 'Create campaign' to get started."
       },
       "CARD": {
+        "EXECUTION": {
+          "DRAFT": "Draft",
+          "SCHEDULED": "Scheduled",
+          "QUEUED": "Queued",
+          "RUNNING": "Running",
+          "PAUSED": "Paused",
+          "COMPLETED": "Completed",
+          "CANCELLED": "Cancelled",
+          "FAILED": "Failed"
+        },
+        "METRICS": "Audience {audience} · Sent {sent} · Delivered {delivered} · Read {read} · Replies {replies} · Failed {failed}",
         "STATUS": {
           "COMPLETED": "Completed",
           "SCHEDULED": "Scheduled"
@@ -183,7 +287,21 @@
           "AUDIENCE": {
             "LABEL": "Audience",
             "PLACEHOLDER": "Select the customer labels",
-            "ERROR": "Audience is required"
+            "ERROR": "Audience is required",
+            "PREVIEW": "Check audience",
+            "PREVIEW_RESULT": "{eligible} eligible of {total} · {skipped} skipped",
+            "PREVIEW_ERROR": "The audience could not be checked.",
+            "NO_ELIGIBLE": "No selected contacts have a valid phone number and recorded WhatsApp marketing opt-in.",
+            "LIMIT_EXCEEDED": "This audience exceeds the configured limit of {max} contacts. Narrow the selected labels before publishing."
+          },
+          "TEST": {
+            "TITLE": "Send a test message",
+            "PHONE": "Test phone number",
+            "PLACEHOLDER": "+919876543210",
+            "SEND": "Send test",
+            "HELP": "This immediately sends the completed template through Meta and does not add the recipient to the campaign.",
+            "SUCCESS": "Test message sent",
+            "ERROR": "The test message could not be sent."
           },
           "SCHEDULED_AT": {
             "LABEL": "Scheduled time",

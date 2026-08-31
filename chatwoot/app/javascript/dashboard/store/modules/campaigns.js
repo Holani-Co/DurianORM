@@ -100,6 +100,34 @@ export const actions = {
       commit(types.SET_CAMPAIGN_UI_FLAG, { isDeleting: false });
     }
   },
+  previewAudience: async (_, payload) => {
+    const response = await CampaignsAPI.previewAudience(payload);
+    return response.data;
+  },
+  sendTestMessage: async (_, payload) => {
+    const response = await CampaignsAPI.testMessage(payload);
+    return response.data;
+  },
+  pause: async ({ commit }, id) => {
+    const response = await CampaignsAPI.pause(id);
+    commit(types.EDIT_CAMPAIGN, response.data);
+  },
+  resume: async ({ commit }, id) => {
+    const response = await CampaignsAPI.resume(id);
+    commit(types.EDIT_CAMPAIGN, response.data);
+  },
+  cancel: async ({ commit }, id) => {
+    const response = await CampaignsAPI.cancel(id);
+    commit(types.EDIT_CAMPAIGN, response.data);
+  },
+  getDeliveries: async (_, { id, ...params }) => {
+    const response = await CampaignsAPI.deliveries(id, params);
+    return response.data;
+  },
+  exportDeliveries: async (_, id) => {
+    const response = await CampaignsAPI.exportDeliveries(id);
+    return response.data;
+  },
 };
 
 export const mutations = {

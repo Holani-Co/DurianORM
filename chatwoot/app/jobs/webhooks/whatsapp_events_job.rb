@@ -27,7 +27,9 @@ class Webhooks::WhatsappEventsJob < MutexApplicationJob
   end
 
   def process_events(channel, params)
-    if message_echo_event?(params)
+    if template_event?(params)
+      Whatsapp::TemplateStatusUpdateService.new(channel: channel, params: params).perform
+    elsif message_echo_event?(params)
       handle_message_echo(channel, params)
     else
       handle_message_events(channel, params)
@@ -70,6 +72,10 @@ class Webhooks::WhatsappEventsJob < MutexApplicationJob
   # - No "contacts" array in echo payload
   def message_echo_event?(params)
     params.dig(:entry, 0, :changes, 0, :field) == 'smb_message_echoes'
+  end
+
+  def template_event?(params)
+    %w[message_template_status_update message_template_quality_update].include?(params.dig(:entry, 0, :changes, 0, :field))
   end
 
   def handle_message_echo(channel, params)
@@ -115,7 +121,14 @@ class Webhooks::WhatsappEventsJob < MutexApplicationJob
     # for the case where facebook cloud api support multiple numbers for a single app
     # https://github.com/chatwoot/chatwoot/issues/4712#issuecomment-1173838350
     # we will give priority to the phone_number in the payload
-    return get_channel_from_wb_payload(params) if params[:object] == 'whatsapp_business_account'
+    if params[:object] == 'whatsapp_business_account'
+      channel = get_channel_from_wb_payload(params)
+      # Template status/quality webhooks carry no phone in the payload, so fall
+      # back to the URL phone param ONLY for them — message events must still
+      # require a valid payload (never process a message off the URL param alone).
+      channel ||= find_channel_by_url_param(params) if template_event?(params)
+      return channel
+    end
 
     find_channel_by_url_param(params)
   end
