@@ -73,7 +73,11 @@ class Campaigns::Whatsapp::SendDeliveryJob < ApplicationJob
   def handle_failure(error)
     return unless @delivery&.persisted?
 
-    if @delivery.attempt_count < MAX_ATTEMPTS && campaign.execution_running?
+    if campaign.execution_paused?
+      # Paused mid-flight — return the delivery to the queue so resume re-dispatches
+      # it; don't consume its retry budget or mark it failed for a pause.
+      @delivery.update!(status: 'queued', error_message: error.message, next_retry_at: nil)
+    elsif @delivery.attempt_count < MAX_ATTEMPTS && campaign.execution_running?
       retry_at = (2**@delivery.attempt_count).minutes.from_now
       @delivery.update!(status: 'queued', error_message: error.message, next_retry_at: retry_at)
       self.class.set(wait_until: retry_at).perform_later(@delivery)

@@ -158,7 +158,7 @@ class Campaign < ApplicationRecord
 
   def delivery_engagement_counts
     {
-      sent_count: campaign_deliveries.where.not(sent_at: nil).count,
+      sent_count: campaign_deliveries.where.not(sent_at: nil).where.not(status: 'failed').count,
       delivered_count: campaign_deliveries.where.not(delivered_at: nil).count,
       read_count: campaign_deliveries.where.not(read_at: nil).count,
       reply_count: campaign_deliveries.where.not(replied_at: nil).count
@@ -179,7 +179,10 @@ class Campaign < ApplicationRecord
     when 'Sms'
       Sms::OneoffSmsCampaignService.new(campaign: self).perform
     when 'Whatsapp'
-      Whatsapp::OneoffCampaignService.new(campaign: self).perform if account.feature_enabled?(:whatsapp_campaign)
+      # No feature-flag guard here: the service's validate_feature_flag! raises
+      # when the flag is off, which marks the campaign failed with a visible
+      # error instead of silently looping in TriggerScheduledItemsJob forever.
+      Whatsapp::OneoffCampaignService.new(campaign: self).perform
     end
   end
 
