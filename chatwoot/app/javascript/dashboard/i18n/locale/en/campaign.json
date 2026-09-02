@@ -228,6 +228,7 @@
         "REPLIED": "Customer replied",
         "EXPORT": "Export CSV",
         "EXPORT_ERROR": "The delivery report could not be exported.",
+        "FETCH_ERROR": "The delivery details could not be loaded. Please try again.",
         "PAGE": "Page {current} of {total} · {count} records",
         "PREVIOUS": "Previous",
         "NEXT": "Next",

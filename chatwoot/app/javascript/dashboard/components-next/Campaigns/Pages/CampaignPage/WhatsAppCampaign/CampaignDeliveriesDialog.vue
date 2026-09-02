@@ -63,6 +63,8 @@ const fetchDeliveries = async () => {
     currentPage.value = response.meta.current_page;
     totalPages.value = response.meta.total_pages;
     totalCount.value = response.meta.total_count;
+  } catch (error) {
+    useAlert(t('CAMPAIGN.WHATSAPP.DELIVERIES.FETCH_ERROR'));
   } finally {
     isLoading.value = false;
   }

@@ -54,15 +54,18 @@ export const getters = {
 };
 
 export const actions = {
-  get: async function getCampaigns({ commit }) {
-    commit(types.SET_CAMPAIGN_UI_FLAG, { isFetching: true });
+  get: async function getCampaigns({ commit }, { background = false } = {}) {
+    // Background polls must not toggle isFetching — that flag gates the whole
+    // list, so flipping it every 15s makes the list unmount/remount (blink).
+    if (!background) commit(types.SET_CAMPAIGN_UI_FLAG, { isFetching: true });
     try {
       const response = await CampaignsAPI.get();
       commit(types.SET_CAMPAIGNS, response.data);
     } catch (error) {
       // Ignore error
     } finally {
-      commit(types.SET_CAMPAIGN_UI_FLAG, { isFetching: false });
+      if (!background)
+        commit(types.SET_CAMPAIGN_UI_FLAG, { isFetching: false });
     }
   },
   create: async function createCampaign({ commit }, campaignObj) {
@@ -70,8 +73,6 @@ export const actions = {
     try {
       const response = await CampaignsAPI.create(campaignObj);
       commit(types.ADD_CAMPAIGN, response.data);
-    } catch (error) {
-      throw new Error(error);
     } finally {
       commit(types.SET_CAMPAIGN_UI_FLAG, { isCreating: false });
     }
@@ -82,8 +83,6 @@ export const actions = {
       const response = await CampaignsAPI.update(id, updateObj);
       AnalyticsHelper.track(CAMPAIGNS_EVENTS.UPDATE_CAMPAIGN);
       commit(types.EDIT_CAMPAIGN, response.data);
-    } catch (error) {
-      throw new Error(error);
     } finally {
       commit(types.SET_CAMPAIGN_UI_FLAG, { isUpdating: false });
     }
@@ -94,8 +93,6 @@ export const actions = {
       await CampaignsAPI.delete(id);
       AnalyticsHelper.track(CAMPAIGNS_EVENTS.DELETE_CAMPAIGN);
       commit(types.DELETE_CAMPAIGN, id);
-    } catch (error) {
-      throw new Error(error);
     } finally {
       commit(types.SET_CAMPAIGN_UI_FLAG, { isDeleting: false });
     }
