@@ -4,7 +4,7 @@ import WhatsappConsentsAPI from '../../api/whatsappConsents';
 
 export const state = {
   records: [],
-  uiFlags: { isFetching: false, isCreating: false },
+  uiFlags: { isFetching: false, isCreating: false, isImporting: false },
 };
 
 export const getters = {
@@ -32,6 +32,18 @@ export const actions = {
       return response.data;
     } finally {
       commit(types.SET_WHATSAPP_CONSENT_UI_FLAG, { isCreating: false });
+    }
+  },
+  import: async ({ commit }, { file, inboxId, label }) => {
+    commit(types.SET_WHATSAPP_CONSENT_UI_FLAG, { isImporting: true });
+    try {
+      const formData = new FormData();
+      formData.append('import_file', file);
+      formData.append('inbox_id', inboxId);
+      formData.append('label', label);
+      await WhatsappConsentsAPI.importConsents(formData);
+    } finally {
+      commit(types.SET_WHATSAPP_CONSENT_UI_FLAG, { isImporting: false });
     }
   },
 };

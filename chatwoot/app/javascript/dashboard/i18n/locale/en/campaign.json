@@ -218,6 +218,18 @@
     "API": {
       "CREATED": "WhatsApp marketing consent recorded",
       "ERROR": "The consent could not be recorded. Please try again."
+    },
+    "IMPORT": {
+      "MODE_SINGLE": "Single",
+      "MODE_CSV": "Upload CSV",
+      "CSV_TITLE": "Bulk opt-in from CSV",
+      "CSV_SUBTITLE": "Upload numbers to opt in for marketing and tag them with a label. Create a campaign against that label to reach them. Numbers that already opted out are skipped.",
+      "LABEL": "Label",
+      "LABEL_PLACEHOLDER": "Select a label to tag these contacts",
+      "FILE": "CSV file",
+      "FILE_HINT": "A CSV with a 'phone_number' column (E.164, e.g. +919876543210) and an optional 'name' column.",
+      "SUBMIT": "Upload and opt in",
+      "QUEUED": "Upload received — contacts are being opted in and labelled. This can take a minute."
     }
   },
       "DELIVERIES": {
