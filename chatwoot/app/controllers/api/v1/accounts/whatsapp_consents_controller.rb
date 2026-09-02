@@ -21,7 +21,29 @@ class Api::V1::Accounts::WhatsappConsentsController < Api::V1::Accounts::BaseCon
     )
   end
 
+  # Bulk opt-in: upload a CSV of numbers, tag them with a label, and record
+  # MARKETING OPTED_IN for the inbox — processed async by WhatsappConsentImportJob.
+  def import
+    inbox = Current.account.inboxes.find(params[:inbox_id])
+    error = import_validation_error(inbox)
+    return render json: { error: error }, status: :unprocessable_entity if error
+
+    data_import = Current.account.data_imports.new(data_type: 'whatsapp_consent_optin', inbox_id: inbox.id, label: params[:label])
+    data_import.import_file.attach(params[:import_file])
+    data_import.save!
+    head :ok
+  end
+
   private
+
+  def import_validation_error(inbox)
+    return 'Select a WhatsApp inbox' unless inbox.channel_type == 'Channel::Whatsapp'
+    return 'A CSV file is required' if params[:import_file].blank?
+    return 'A label is required' if params[:label].blank?
+    return 'Unknown label' unless Current.account.labels.exists?(title: params[:label])
+
+    nil
+  end
 
   def consent_params
     params.require(:whatsapp_consent).permit(

@@ -6,4 +6,8 @@ class WhatsappConsentPolicy < ApplicationPolicy
   def create?
     @account_user.administrator?
   end
+
+  def import?
+    @account_user.administrator?
+  end
 end

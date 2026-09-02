@@ -160,7 +160,11 @@ Rails.application.routes.draw do
               post :cancel
             end
           end
-          resources :whatsapp_consents, only: [:index, :create]
+          resources :whatsapp_consents, only: [:index, :create] do
+            collection do
+              post :import
+            end
+          end
           resources :whatsapp_templates, only: [:index, :show, :create, :update, :destroy] do
             post :submit, on: :member
             collection do
