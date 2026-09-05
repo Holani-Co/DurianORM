@@ -125,7 +125,12 @@ onMounted(() => {
   store.dispatch('whatsappConsents/get');
 });
 
-useIntervalFn(() => store.dispatch('campaigns/get'), 15000);
+// Poll in the background so the list refreshes without flipping the isFetching
+// flag (which would blank the list to a spinner every 15s).
+useIntervalFn(
+  () => store.dispatch('campaigns/get', { background: true }),
+  15000
+);
 </script>
 
 <template>
@@ -159,7 +164,7 @@ useIntervalFn(() => store.dispatch('campaigns/get'), 15000);
 
     <template v-if="!isTemplatesTab">
       <div
-        v-if="isFetchingCampaigns"
+        v-if="isFetchingCampaigns && !WhatsAppCampaigns.length"
         class="flex items-center justify-center py-10 text-n-slate-11"
       >
         <Spinner />

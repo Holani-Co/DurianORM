@@ -237,6 +237,9 @@ defineExpose({
             @update:model-value="updateMediaUrl"
           />
         </div>
+        <p class="mb-2.5 text-xs text-n-slate-11">
+          {{ t('WHATSAPP_TEMPLATES.PARSER.MEDIA_URL_HINT') }}
+        </p>
         <div v-if="isDocumentTemplate" class="flex items-center mb-2.5">
           <Input
             :model-value="processedParams.header?.media_name || ''"
