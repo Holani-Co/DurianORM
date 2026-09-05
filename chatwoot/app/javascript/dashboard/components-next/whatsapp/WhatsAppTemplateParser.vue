@@ -12,8 +12,12 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useVuelidate } from '@vuelidate/core';
 import { requiredIf } from '@vuelidate/validators';
 import { useI18n } from 'vue-i18n';
+import { useAlert } from 'dashboard/composables';
+import { uploadFile } from 'dashboard/helper/uploadHelper';
+import { checkFileSizeLimit } from 'shared/helpers/FileHelper';
 
 import Input from 'dashboard/components-next/input/Input.vue';
+import Button from 'dashboard/components-next/button/Button.vue';
 import {
   buildTemplateParameters,
   allKeysRequired,
@@ -71,6 +75,31 @@ const formatType = computed(() => {
   const format = headerComponent.value?.format;
   return format ? format.charAt(0) + format.slice(1).toLowerCase() : '';
 });
+
+const isUploading = ref(false);
+const fileInputRef = ref(null);
+
+// Meta media size limits (MB), capped to what the server accepts.
+const MEDIA_MAX_SIZE_MB = { image: 5, video: 16, document: 40 };
+
+const mediaKind = computed(
+  () => headerComponent.value?.format?.toLowerCase() || ''
+);
+
+const acceptTypes = computed(() => {
+  switch (mediaKind.value) {
+    case 'image':
+      return 'image/*';
+    case 'video':
+      return 'video/*';
+    case 'document':
+      return '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+    default:
+      return '';
+  }
+});
+
+const maxUploadSize = computed(() => MEDIA_MAX_SIZE_MB[mediaKind.value] || 5);
 
 const isDocumentTemplate = computed(() => {
   return headerComponent.value?.format?.toLowerCase() === 'document';
@@ -135,6 +164,43 @@ const updateMediaName = value => {
   processedParams.value.header.media_name = value;
 };
 
+const triggerFileSelect = () => {
+  fileInputRef.value?.click();
+};
+
+const handleFileUpload = async event => {
+  const file = event.target.files?.[0];
+  event.target.value = ''; // allow re-selecting the same file
+  if (!file) return;
+
+  if (!checkFileSizeLimit(file, maxUploadSize.value)) {
+    useAlert(
+      t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_SIZE_ERROR', {
+        size: maxUploadSize.value,
+      })
+    );
+    return;
+  }
+
+  isUploading.value = true;
+  try {
+    const { fileUrl } = await uploadFile(file);
+    if (!fileUrl) {
+      useAlert(t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_ERROR'));
+      return;
+    }
+    updateMediaUrl(fileUrl);
+    if (isDocumentTemplate.value && !processedParams.value.header?.media_name) {
+      updateMediaName(file.name);
+    }
+    useAlert(t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_SUCCESS'));
+  } catch (error) {
+    useAlert(t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_ERROR'));
+  } finally {
+    isUploading.value = false;
+  }
+};
+
 const sendMessage = () => {
   v$.value.$touch();
   if (v$.value.$invalid) return;
@@ -184,6 +250,10 @@ defineExpose({
   v$,
   updateMediaUrl,
   updateMediaName,
+  isUploading,
+  acceptTypes,
+  triggerFileSelect,
+  handleFileUpload,
   sendMessage,
   resetTemplate,
   goBack,
@@ -224,6 +294,29 @@ defineExpose({
             }) || `${formatType} Header`
           }}
         </p>
+        <div class="flex items-center gap-2 mb-2.5">
+          <Button
+            type="button"
+            size="sm"
+            color="slate"
+            variant="faded"
+            icon="i-lucide-upload"
+            :label="t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_LABEL')"
+            :is-loading="isUploading"
+            :disabled="isUploading"
+            @click="triggerFileSelect"
+          />
+          <span class="text-xs text-n-slate-11">
+            {{ t('WHATSAPP_TEMPLATES.PARSER.UPLOAD_OR') }}
+          </span>
+        </div>
+        <input
+          ref="fileInputRef"
+          type="file"
+          class="hidden"
+          :accept="acceptTypes"
+          @change="handleFileUpload"
+        />
         <div class="flex items-center mb-2.5">
           <Input
             :model-value="processedParams.header?.media_url || ''"
