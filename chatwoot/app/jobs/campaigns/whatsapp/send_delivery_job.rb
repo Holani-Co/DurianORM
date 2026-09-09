@@ -53,7 +53,7 @@ class Campaigns::Whatsapp::SendDeliveryJob < ApplicationJob
     processed_template_params = Whatsapp::LiquidTemplateProcessorService.new(
       campaign: campaign,
       contact: @delivery.contact
-    ).process_template_params(@delivery.template_parameters)
+    ).process_template_params(campaign.whatsapp_media_params(@delivery.template_parameters))
     raise 'Template variables resolved to blank values' if processed_template_params.nil?
 
     name, namespace, language, parameters = Whatsapp::TemplateProcessorService.new(

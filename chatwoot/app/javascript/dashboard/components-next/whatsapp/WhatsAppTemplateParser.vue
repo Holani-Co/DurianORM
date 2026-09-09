@@ -12,6 +12,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useVuelidate } from '@vuelidate/core';
 import { requiredIf } from '@vuelidate/validators';
 import { useI18n } from 'vue-i18n';
+import { uploadFile } from 'dashboard/helper/uploadHelper';
 
 import Input from 'dashboard/components-next/input/Input.vue';
 import {
@@ -35,6 +36,10 @@ const props = defineProps({
       return true;
     },
   },
+  allowMediaUpload: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(['sendMessage', 'resetTemplate', 'back']);
@@ -42,6 +47,17 @@ const emit = defineEmits(['sendMessage', 'resetTemplate', 'back']);
 const { t } = useI18n();
 
 const processedParams = ref({});
+const mediaBlobId = ref(null);
+const mediaFileName = ref('');
+const mediaUploadError = ref('');
+const isUploadingMedia = ref(false);
+
+const MEDIA_FILE_TYPES = {
+  IMAGE: ['image/jpeg', 'image/png'],
+  VIDEO: ['video/mp4'],
+  DOCUMENT: ['application/pdf'],
+};
+const MAX_MEDIA_FILE_SIZE = 16 * 1024 * 1024;
 
 const languageLabel = computed(() => {
   return `${t('WHATSAPP_TEMPLATES.PARSER.LANGUAGE')}: ${props.template.language || DEFAULT_LANGUAGE}`;
@@ -76,6 +92,10 @@ const isDocumentTemplate = computed(() => {
   return headerComponent.value?.format?.toLowerCase() === 'document';
 });
 
+const acceptedMediaTypes = computed(() =>
+  (MEDIA_FILE_TYPES[headerComponent.value?.format] || []).join(',')
+);
+
 const hasVariables = computed(() => {
   return bodyText.value?.match(/{{([^}]+)}}/g) !== null;
 });
@@ -87,9 +107,15 @@ const renderedTemplate = computed(() => {
 const isFormInvalid = computed(() => {
   if (!hasVariables.value && !hasMediaHeader.value) return false;
 
-  if (hasMediaHeader.value && !processedParams.value.header?.media_url) {
+  if (
+    hasMediaHeader.value &&
+    !processedParams.value.header?.media_url &&
+    !mediaBlobId.value
+  ) {
     return true;
   }
+
+  if (isUploadingMedia.value || mediaUploadError.value) return true;
 
   if (hasVariables.value && processedParams.value.body) {
     const hasEmptyBodyVariable = Object.values(processedParams.value.body).some(
@@ -123,16 +149,64 @@ const initializeTemplateParameters = () => {
     props.template,
     hasMediaHeader.value
   );
+  mediaBlobId.value = null;
+  mediaFileName.value = '';
+  mediaUploadError.value = '';
 };
 
 const updateMediaUrl = value => {
   processedParams.value.header ??= {};
   processedParams.value.header.media_url = value;
+  if (value) {
+    mediaBlobId.value = null;
+    mediaFileName.value = '';
+    mediaUploadError.value = '';
+  }
 };
 
 const updateMediaName = value => {
   processedParams.value.header ??= {};
   processedParams.value.header.media_name = value;
+};
+
+const uploadMedia = async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  event.target.value = '';
+
+  mediaBlobId.value = null;
+  mediaFileName.value = '';
+  mediaUploadError.value = '';
+  if (!acceptedMediaTypes.value.split(',').includes(file.type)) {
+    mediaUploadError.value = t(
+      'WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_TYPE_ERROR',
+      { type: formatType.value }
+    );
+    return;
+  }
+  if (file.size > MAX_MEDIA_FILE_SIZE) {
+    mediaUploadError.value = t(
+      'WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_SIZE_ERROR'
+    );
+    return;
+  }
+
+  isUploadingMedia.value = true;
+  try {
+    const { blobId } = await uploadFile(file);
+    mediaBlobId.value = blobId;
+    mediaFileName.value = file.name;
+    processedParams.value.header.media_url = '';
+    if (isDocumentTemplate.value && !processedParams.value.header.media_name) {
+      processedParams.value.header.media_name = file.name;
+    }
+  } catch (error) {
+    mediaUploadError.value =
+      error?.response?.data?.error ||
+      t('WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_ERROR');
+  } finally {
+    isUploadingMedia.value = false;
+  }
 };
 
 const sendMessage = () => {
@@ -175,12 +249,14 @@ watch(
 
 defineExpose({
   processedParams,
+  mediaBlobId,
   hasVariables,
   hasMediaHeader,
   isDocumentTemplate,
   headerComponent,
   renderedTemplate,
   isFormInvalid,
+  isUploadingMedia,
   v$,
   updateMediaUrl,
   updateMediaName,
@@ -224,7 +300,35 @@ defineExpose({
             }) || `${formatType} Header`
           }}
         </p>
-        <div class="flex items-center mb-2.5">
+        <div v-if="allowMediaUpload" class="mb-3 flex flex-col gap-2">
+          <label class="text-sm font-medium text-n-slate-12">
+            {{ t('WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_LABEL') }}
+          </label>
+          <input
+            type="file"
+            :accept="acceptedMediaTypes"
+            class="text-sm text-n-slate-11 file:mr-3 file:rounded-md file:border-0 file:bg-n-alpha-2 file:px-3 file:py-1.5 file:text-n-slate-12"
+            :disabled="isUploadingMedia"
+            @change="uploadMedia"
+          />
+          <p v-if="isUploadingMedia" class="text-xs text-n-slate-11">
+            {{ t('WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOADING') }}
+          </p>
+          <p v-else-if="mediaFileName" class="text-xs text-n-teal-11">
+            {{
+              t('WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_SUCCESS', {
+                filename: mediaFileName,
+              })
+            }}
+          </p>
+          <p v-if="mediaUploadError" class="text-xs text-n-ruby-11">
+            {{ mediaUploadError }}
+          </p>
+          <p class="text-center text-xs text-n-slate-10">
+            {{ t('WHATSAPP_TEMPLATES.PARSER.MEDIA_UPLOAD_OR_URL') }}
+          </p>
+        </div>
+        <div class="mb-2.5 flex items-center">
           <Input
             :model-value="processedParams.header?.media_url || ''"
             type="url"

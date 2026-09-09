@@ -69,12 +69,14 @@ class Campaign < ApplicationRecord
   validate :sender_must_belong_to_account
   validate :inbox_must_belong_to_account
   validate :whatsapp_template_must_match_campaign
+  validate :whatsapp_media_matches_template
   validate :prevent_definition_changes_after_snapshot, on: :update
 
   belongs_to :account
   belongs_to :inbox
   belongs_to :sender, class_name: 'User', optional: true
   belongs_to :whatsapp_template, optional: true
+  has_one_attached :media
 
   enum campaign_type: { ongoing: 0, one_off: 1 }
   # TODO : enabled attribute is unneccessary . lets move that to the campaign status with additional statuses like draft, disabled etc.
@@ -134,6 +136,12 @@ class Campaign < ApplicationRecord
     # rubocop:enable Rails/SkipsModelValidations
   end
 
+  def whatsapp_media_params(template_parameters)
+    return template_parameters unless media.attached?
+
+    Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template).apply(template_parameters)
+  end
+
   private
 
   def execution_transition_attributes(target_status, error)
@@ -170,6 +178,14 @@ class Campaign < ApplicationRecord
     return if execution_status.present?
 
     self.execution_status = completed? ? :completed : :scheduled
+  end
+
+  def whatsapp_media_matches_template
+    return unless media.attached?
+
+    Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template).validate!
+  rescue Whatsapp::CampaignMediaService::Error => e
+    errors.add(:media, e.message)
   end
 
   def execute_campaign
