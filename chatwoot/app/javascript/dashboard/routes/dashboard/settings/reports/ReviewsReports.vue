@@ -6,6 +6,11 @@ import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
+import {
+  downloadCsvFile,
+  generateFileName,
+} from 'dashboard/helper/downloadHelper';
+import V4Button from 'dashboard/components-next/button/Button.vue';
 import ReportHeader from './components/ReportHeader.vue';
 import ReportFilters from './components/ReportFilters.vue';
 import ReportMetricCard from './components/ReportMetricCard.vue';
@@ -15,7 +20,9 @@ const accountId = useMapGetter('getCurrentAccountId');
 const axios = window.axios;
 
 const isLoading = ref(false);
+const isDownloading = ref(false);
 const report = ref(null);
+const range = ref({ from: 0, to: 0 });
 
 const fetchReport = async ({ from, to }) => {
   if (!from || !to) return;
@@ -33,7 +40,31 @@ const fetchReport = async ({ from, to }) => {
   }
 };
 
-const onFilterChange = ({ from, to }) => fetchReport({ from, to });
+const onFilterChange = ({ from, to }) => {
+  range.value = { from, to };
+  fetchReport({ from, to });
+};
+
+const downloadReport = async () => {
+  if (!range.value.from || !range.value.to) return;
+
+  isDownloading.value = true;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/reviews_report`,
+      { params: { since: range.value.from, until: range.value.to } }
+    );
+    const fileName = generateFileName({
+      type: 'google-reviews',
+      to: range.value.to,
+    });
+    downloadCsvFile(fileName, data);
+  } catch {
+    useAlert(t('REVIEWS_REPORTS.DOWNLOAD_ERROR'));
+  } finally {
+    isDownloading.value = false;
+  }
+};
 
 const num = value => (value || 0).toLocaleString();
 
@@ -88,7 +119,16 @@ const locationSummary = row => `${num(row.count)} · ${row.avg_stars} ★`;
 </script>
 
 <template>
-  <ReportHeader :header-title="$t('REVIEWS_REPORTS.HEADER')" />
+  <ReportHeader :header-title="$t('REVIEWS_REPORTS.HEADER')">
+    <V4Button
+      :label="$t('REVIEWS_REPORTS.DOWNLOAD')"
+      icon="i-ph-download-simple"
+      size="sm"
+      :is-loading="isDownloading"
+      :disabled="!range.from || !range.to"
+      @click="downloadReport"
+    />
+  </ReportHeader>
   <div class="flex flex-col gap-4">
     <ReportFilters
       :show-entity-filter="false"

@@ -3,11 +3,12 @@ class Whatsapp::CampaignTestSendService
 
   E164_PHONE_NUMBER = /\A\+[1-9]\d{1,14}\z/
 
-  def initialize(inbox:, template:, phone_number:, template_params:)
+  def initialize(inbox:, template:, phone_number:, template_params:, media_blob: nil)
     @inbox = inbox
     @template = template
     @phone_number = phone_number.to_s.strip
     @template_params = template_params
+    @media_blob = media_blob
   end
 
   def perform
@@ -35,10 +36,18 @@ class Whatsapp::CampaignTestSendService
   end
 
   def processed_template
+    template_params = if @media_blob
+                        Whatsapp::CampaignMediaService.new(blob: @media_blob, template: @template).apply(@template_params)
+                      else
+                        @template_params
+                      end
+
     Whatsapp::TemplateProcessorService.new(
       channel: @inbox.channel,
-      template_params: @template_params,
+      template_params: template_params,
       template: @template.processor_payload
     ).call
+  rescue Whatsapp::CampaignMediaService::Error => e
+    raise Error, e.message
   end
 end

@@ -20,6 +20,12 @@ reconcile_whatsapp_campaigns_job:
   class: 'Campaigns::Whatsapp::ReconcileJob'
   queue: scheduled_jobs
 
+# sends the previous calendar month's Google Reviews CSV on the 5th at 10:30 AM IST
+send_monthly_google_reviews_report_job:
+  cron: '30 10 5 * * Asia/Kolkata'
+  class: 'Reports::SendMonthlyGoogleReviewsReportJob'
+  queue: scheduled_jobs
+
 # executed hourly for scheduled jobs that do not need minute-level cadence
 trigger_hourly_scheduled_items_job:
   cron: '0 * * * *'

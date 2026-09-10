@@ -41,6 +41,13 @@
       "COUPON_CODE": "Enter coupon code (max 15 chars)",
       "MEDIA_URL_LABEL": "Enter {type} URL",
       "MEDIA_URL_HINT": "Use a direct, public link to the file itself (e.g. …/banner.jpg) — not a web page. WhatsApp must be able to download it.",
+      "MEDIA_UPLOAD_LABEL": "Upload from your computer",
+      "MEDIA_UPLOADING": "Uploading media…",
+      "MEDIA_UPLOAD_SUCCESS": "{filename} uploaded",
+      "MEDIA_UPLOAD_OR_URL": "or use a direct public URL",
+      "MEDIA_UPLOAD_TYPE_ERROR": "Upload a valid {type} file that matches the template header.",
+      "MEDIA_UPLOAD_SIZE_ERROR": "Campaign media must be smaller than 16 MB.",
+      "MEDIA_UPLOAD_ERROR": "The media file could not be uploaded. Please try again.",
       "DOCUMENT_NAME_PLACEHOLDER": "Enter document filename (e.g., Invoice_2025.pdf)",
       "BUTTON_PARAMETER": "Enter button parameter"
     }

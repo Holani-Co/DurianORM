@@ -17,6 +17,8 @@
   },
   "REVIEWS_REPORTS": {
     "HEADER": "Reviews",
+    "DOWNLOAD": "Download CSV",
+    "DOWNLOAD_ERROR": "Couldn't generate the reviews report, please try again.",
     "FETCH_ERROR": "Failed to load reviews, please try again.",
     "EMPTY": "No reviews with a location in this period.",
     "NO_LOW": "No 1–2★ reviews in this period. 🎉",

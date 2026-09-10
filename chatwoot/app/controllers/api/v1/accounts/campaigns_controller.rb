@@ -34,7 +34,8 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
       inbox: inbox,
       template: template,
       phone_number: params.require(:phone_number),
-      template_params: params.require(:template_params).permit!.to_h
+      template_params: params.require(:template_params).permit!.to_h,
+      media_blob: campaign_media_blob
     ).perform
     render json: { message_id: message_id }
   rescue Whatsapp::CampaignTestSendService::Error => e
@@ -59,9 +60,17 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
     @campaign ||= Current.account.campaigns.find_by(display_id: params[:id])
   end
 
+  def campaign_media_blob
+    return if params[:media].blank?
+
+    ActiveStorage::Blob.find_signed(params[:media]) ||
+      raise(Whatsapp::CampaignTestSendService::Error, 'Uploaded campaign media could not be found')
+  end
+
   def campaign_params
     permitted = params.require(:campaign).permit(:title, :description, :message, :enabled, :trigger_only_during_business_hours, :inbox_id, :sender_id,
-                                                 :scheduled_at, audience: [:type, :id], trigger_rules: {}, template_params: {})
+                                                 :scheduled_at, :media, audience: [:type, :id], trigger_rules: {}, template_params: {})
+    permitted.delete(:media) unless action_name == 'create'
     template_name = permitted.dig(:template_params, :name)
     language = permitted.dig(:template_params, :language)
     if permitted[:inbox_id].present? && template_name.present? && language.present?

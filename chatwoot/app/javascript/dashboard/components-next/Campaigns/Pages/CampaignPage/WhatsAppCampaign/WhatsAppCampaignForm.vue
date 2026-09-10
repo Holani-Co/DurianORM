@@ -183,6 +183,7 @@ const sendTestMessage = async () => {
       template_id: state.templateId,
       phone_number: state.testPhone,
       template_params: prepareTemplateParams(),
+      media: templateParserRef.value?.mediaBlobId || undefined,
     });
     useAlert(t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEST.SUCCESS'));
   } catch (error) {
@@ -209,6 +210,7 @@ const prepareCampaignDetails = () => {
     title: state.title,
     message: templateContent,
     template_params: templateParams,
+    media: parserData?.mediaBlobId || undefined,
     inbox_id: state.inboxId,
     scheduled_at: formatToUTCString(state.scheduledAt),
     audience: state.selectedAudience?.map(id => ({
@@ -295,6 +297,7 @@ watch(
       v-if="selectedTemplate"
       ref="templateParserRef"
       :template="selectedTemplate"
+      allow-media-upload
     />
 
     <div v-if="selectedTemplate" class="rounded-lg border border-n-weak p-3">
