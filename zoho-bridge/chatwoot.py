@@ -161,6 +161,28 @@ async def list_canned_responses() -> list[dict]:
         return body if isinstance(body, list) else body.get("payload", [])
 
 
+async def upsert_review_store_stat(store_label: str, title: str, average_rating,
+                                   total_review_count: int) -> None:
+    """Push a showroom's official Google aggregates (average rating + total
+    review count) to Chatwoot so the showroom report can render them. The
+    endpoint upserts on (account, store_label). Best-effort: a stats push must
+    never break polling, so non-2xx / errors are logged and swallowed."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                _acct_url("/google_review_store_stats"),
+                headers=_headers(),
+                json={"store_label": store_label, "title": title,
+                      "average_rating": average_rating,
+                      "total_review_count": total_review_count},
+            )
+            if r.status_code >= 300:
+                print(f"[chatwoot] upsert_review_store_stat non-2xx "
+                      f"[{r.status_code}]: {r.text[:200]}")
+    except Exception as e:
+        print(f"[chatwoot] upsert_review_store_stat error for {store_label}: {e}")
+
+
 async def create_contact(name: str, identifier: str, inbox_id: int,
                          custom_attributes: dict | None = None,
                          email: str | None = None) -> tuple[int, str]:
