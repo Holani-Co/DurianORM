@@ -472,6 +472,7 @@ Rails.application.routes.draw do
           end
 
           resources :upload, only: [:create]
+          resources :google_review_store_stats, only: [:create]
         end
       end
       # end of account scoped api routes

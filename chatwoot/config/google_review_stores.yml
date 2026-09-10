@@ -1,0 +1,174 @@
+# Durian — COCO vs FOFO classification + display name for each Google Reviews
+# showroom, used by the "Google Reviews showroom report" (Reports::GoogleReviewStores).
+#
+# Keys are the `store-*` label slugs the reviews poller derives from each Google
+# Business Profile listing title (reviews_poller._store_label). Ported from the
+# frontend STORE_SEGMENTS map (storeSegments.js). `type` is FOFO (Franchise-Owned
+# Franchise-Operated) or COCO (Company-Owned Company-Operated); `name` is the
+# human display name shown in the report. Human-editable: to reclassify or rename
+# a store, edit its entry here.
+store-durian-furniture-agra-sikandra:
+  type: FOFO
+  name: Agra Sikandra
+store-durian-furniture-ahmedabad-bodakdev:
+  type: COCO
+  name: Ahmedabad Bodakdev
+store-durian-furniture-aizawl-chaltlang:
+  type: FOFO
+  name: Aizawl Chaltlang
+store-durian-furniture-ajmer-vaishali-nagar:
+  type: FOFO
+  name: Ajmer Vaishali Nagar
+store-durian-furniture-bengaluru-banaswadi:
+  type: COCO
+  name: Bengaluru Banaswadi
+store-durian-furniture-bengaluru-jp-nagar:
+  type: FOFO
+  name: Bengaluru Jp Nagar
+store-durian-furniture-bengaluru-marathahalli:
+  type: COCO
+  name: Bengaluru Marathahalli
+store-durian-furniture-bengaluru-shivaji-nagar:
+  type: FOFO
+  name: Bengaluru Shivaji Nagar
+store-durian-furniture-bhubaneshwar-patia:
+  type: FOFO
+  name: Bhubaneshwar Patia
+store-durian-furniture-bhubaneshwar-samantarapur:
+  type: COCO
+  name: Bhubaneshwar Samantarapur
+store-durian-furniture-bikaner-rani-bazar:
+  type: FOFO
+  name: Bikaner Rani Bazar
+store-durian-furniture-chennai-nungambakkam:
+  type: COCO
+  name: Chennai Nungambakkam
+store-durian-furniture-chennai-omr-perungudi:
+  type: COCO
+  name: Chennai Omr Perungudi
+store-durian-furniture-chhatrapati-sambhajinagar-aurangabad:
+  type: COCO
+  name: Chhatrapati Sambhajinagar Aurangabad
+store-durian-furniture-coimbatore-rs-puram:
+  type: FOFO
+  name: Coimbatore Rs Puram
+store-durian-furniture-delhi-ghitorni:
+  type: COCO
+  name: Delhi Ghitorni
+store-durian-furniture-delhi-gurgaon-jmd:
+  type: COCO
+  name: Delhi Gurgaon Jmd
+store-durian-furniture-delhi-kirti-nagar:
+  type: COCO
+  name: Delhi Kirti Nagar
+store-durian-furniture-delhi-sohna-road:
+  type: COCO
+  name: Delhi Sohna Road
+store-durian-furniture-dhanbad-hirapur:
+  type: FOFO
+  name: Dhanbad Hirapur
+store-durian-furniture-faridabad-mewla-maharajpur:
+  type: COCO
+  name: Faridabad Mewla Maharajpur
+store-durian-furniture-guwahati-lachitnagar:
+  type: COCO
+  name: Guwahati Lachitnagar
+store-durian-furniture-hyderabad-banjara-hills:
+  type: COCO
+  name: Hyderabad Banjara Hills
+store-durian-furniture-hyderabad-kompally:
+  type: COCO
+  name: Hyderabad Kompally
+store-durian-furniture-hyderabad-sarath-city:
+  type: COCO
+  name: Hyderabad Sarath City
+store-durian-furniture-indore-vijay-nagar:
+  type: COCO
+  name: Indore Vijay Nagar
+store-durian-furniture-jaipur-vaishali-nagar:
+  type: COCO
+  name: Jaipur Vaishali Nagar
+store-durian-furniture-jammu-kunjwani:
+  type: COCO
+  name: Jammu Kunjwani
+store-durian-furniture-jamshedpur-adityapur:
+  type: COCO
+  name: Jamshedpur Adityapur
+store-durian-furniture-kanpur-rai-purwa:
+  type: FOFO
+  name: Kanpur Rai Purwa
+store-durian-furniture-kolkata-topsia:
+  type: COCO
+  name: Kolkata Topsia
+store-durian-furniture-lucknow-arjunganj:
+  type: FOFO
+  name: Lucknow Arjunganj
+store-durian-furniture-lucknow-indira-nagar:
+  type: FOFO
+  name: Lucknow Indira Nagar
+store-durian-furniture-ludhiana-daad-village:
+  type: COCO
+  name: Ludhiana Daad Village
+store-durian-furniture-mohali-jlpl-industrial-area:
+  type: FOFO
+  name: Mohali Jlpl Industrial Area
+store-durian-furniture-motihari-bankat:
+  type: FOFO
+  name: Motihari Bankat
+store-durian-furniture-mumbai-goregaon:
+  type: COCO
+  name: Mumbai Goregaon
+store-durian-furniture-mumbai-worli:
+  type: COCO
+  name: Mumbai Worli
+store-durian-furniture-noida-sector-10:
+  type: COCO
+  name: Noida Sector 10
+store-durian-furniture-noida-sector-49:
+  type: FOFO
+  name: Noida Sector 49
+store-durian-furniture-panchkula:
+  type: FOFO
+  name: Panchkula
+store-durian-furniture-patna-danapur:
+  type: COCO
+  name: Patna Danapur
+store-durian-furniture-prayagraj-phaphamau:
+  type: FOFO
+  name: Prayagraj Phaphamau
+store-durian-furniture-pune-baner:
+  type: COCO
+  name: Pune Baner
+store-durian-furniture-pune-creaticity:
+  type: COCO
+  name: Pune Creaticity
+store-durian-furniture-ranchi-ashok-nagar:
+  type: COCO
+  name: Ranchi Ashok Nagar
+store-durian-furniture-sambalpur:
+  type: FOFO
+  name: Sambalpur
+store-durian-furniture-shillong-demseiniong:
+  type: FOFO
+  name: Shillong Demseiniong
+store-durian-furniture-siliguri-sevoke-road:
+  type: FOFO
+  name: Siliguri Sevoke Road
+store-durian-furniture-surat:
+  type: COCO
+  name: Surat
+store-durian-furniture-thane-subhash-nagar:
+  type: FOFO
+  name: Thane Subhash Nagar
+store-durian-furniture-tirupati-avilala:
+  type: FOFO
+  name: Tirupati Avilala
+store-durian-furniture-vadodara-subhanpura:
+  type: FOFO
+  name: Vadodara Subhanpura
+store-durian-furniture-varanasi-shivpur:
+  type: FOFO
+  name: Varanasi Shivpur
+store-durian-furniture-visakhapatnam-dondaparthy:
+  type: FOFO
+  name: Visakhapatnam Dondaparthy

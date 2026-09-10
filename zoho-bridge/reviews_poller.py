@@ -646,11 +646,22 @@ async def poll_once():
     edit_count = 0
     skipped_for_cap = 0
     for loc in locations:
+        summary: dict = {}
         try:
-            reviews = await gr.list_reviews(loc["account_id"], loc["location_id"])
+            reviews = await gr.list_reviews(loc["account_id"], loc["location_id"],
+                                            summary_out=summary)
         except Exception as e:
             print(f"[reviews] list failed for {loc['title']}: {e}")
             continue
+        # Refresh this store's official aggregates every cycle, even when it had
+        # no new reviews, so the showroom report's rating/total stay current.
+        title = loc["title"]
+        try:
+            await chatwoot.upsert_review_store_stat(
+                _store_label(title), title, summary.get("average_rating"),
+                summary.get("total_review_count") or 0)
+        except Exception as e:
+            print(f"[reviews] store-stat upsert failed for {title}: {e}")
         for rv in reviews:
             rec = state.seen_record(rv["review_id"])
             if rec is not None:
