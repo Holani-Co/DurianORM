@@ -70,6 +70,7 @@ class Campaign < ApplicationRecord
   validate :inbox_must_belong_to_account
   validate :whatsapp_template_must_match_campaign
   validate :whatsapp_media_matches_template
+  validate :whatsapp_media_required_for_template
   validate :prevent_definition_changes_after_snapshot, on: :update
 
   belongs_to :account
@@ -186,6 +187,26 @@ class Campaign < ApplicationRecord
     Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template).validate!
   rescue Whatsapp::CampaignMediaService::Error => e
     errors.add(:media, e.message)
+  end
+
+  # A template with an image/video/document header cannot be sent without media
+  # (Meta rejects it as error 132012 "Format mismatch, received UNKNOWN"). Require
+  # either an attached file or a public media URL before the campaign can launch.
+  def whatsapp_media_required_for_template
+    header_format = whatsapp_template_media_format
+    return if header_format.blank?
+    return if media.attached?
+    return if (template_params&.dig('processed_params', 'header') || {})['media_url'].present?
+
+    msg = "This template has a #{header_format} header — upload a file or provide a public " \
+          "#{header_format} URL before launching the campaign."
+    errors.add(:media, msg)
+  end
+
+  def whatsapp_template_media_format
+    format = Array(whatsapp_template&.components)
+             .find { |component| component['type'].to_s.upcase == 'HEADER' }&.dig('format')&.to_s&.downcase
+    format if %w[image video document].include?(format)
   end
 
   def execute_campaign
