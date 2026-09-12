@@ -70,14 +70,25 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
   def campaign_params
     permitted = params.require(:campaign).permit(:title, :description, :message, :enabled, :trigger_only_during_business_hours, :inbox_id, :sender_id,
                                                  :scheduled_at, :media, audience: [:type, :id], trigger_rules: {}, template_params: {})
+    assign_campaign_media(permitted)
+    assign_whatsapp_template_id(permitted)
+    permitted
+  end
+
+  def assign_campaign_media(permitted)
+    # The media blob id is posted at the top level; ParamsWrapper doesn't nest it
+    # under :campaign (it's an attachment, not a column), so read it directly.
+    permitted[:media] = params[:media] if action_name == 'create' && params[:media].present?
     permitted.delete(:media) unless action_name == 'create'
+  end
+
+  def assign_whatsapp_template_id(permitted)
     template_name = permitted.dig(:template_params, :name)
     language = permitted.dig(:template_params, :language)
-    if permitted[:inbox_id].present? && template_name.present? && language.present?
-      template = Current.account.whatsapp_templates.find_by(inbox_id: permitted[:inbox_id], name: template_name, language: language)
-      permitted[:whatsapp_template_id] = template.id if template.present?
-    end
-    permitted
+    return unless permitted[:inbox_id].present? && template_name.present? && language.present?
+
+    template = Current.account.whatsapp_templates.find_by(inbox_id: permitted[:inbox_id], name: template_name, language: language)
+    permitted[:whatsapp_template_id] = template.id if template.present?
   end
 
   def perform_campaign_control(action)

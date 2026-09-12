@@ -150,6 +150,51 @@ RSpec.describe 'Campaigns API', type: :request do
         expect(response_data[:scheduled_at]).to eq(scheduled_at.to_i)
         expect(response_data[:audience].pluck(:id)).to include(label1.id, label2.id)
       end
+
+      context 'with a WhatsApp media-header template' do
+        let(:whatsapp_channel) do
+          create(:channel_whatsapp, account: account, provider: 'whatsapp_cloud', validate_provider_config: false, sync_templates: false)
+        end
+        let(:whatsapp_inbox) { whatsapp_channel.inbox }
+        let(:label) { create(:label, account: account) }
+        let!(:template) do
+          WhatsappTemplate.create!(account: account, inbox: whatsapp_inbox, name: 'promo', language: 'en_US',
+                                   category: 'MARKETING', status: 'APPROVED',
+                                   components: [{ 'type' => 'HEADER', 'format' => 'IMAGE' }, { 'type' => 'BODY', 'text' => 'Hi {{1}}' }])
+        end
+        let(:template_params) do
+          { name: 'promo', language: 'en_US', category: 'MARKETING',
+            processed_params: { header: { media_url: '', media_type: 'image' }, body: { '1' => 'Durian' } } }
+        end
+        let(:base_params) do
+          { inbox_id: whatsapp_inbox.id, title: 'promo', message: 'Hi Durian', scheduled_at: 2.days.from_now,
+            template_params: template_params, audience: [{ type: 'Label', id: label.id }] }
+        end
+
+        # Regression: the media blob id is posted at the top level (not nested under
+        # :campaign, since it's an attachment, not a column). Create must still attach it.
+        it 'attaches the media posted at the top level of the request' do
+          blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new('image-bytes'), filename: 'banner.jpg', content_type: 'image/jpeg')
+
+          post "/api/v1/accounts/#{account.id}/campaigns",
+               params: base_params.merge(media: blob.signed_id),
+               headers: administrator.create_new_auth_token, as: :json
+
+          expect(response).to have_http_status(:success)
+          campaign = account.campaigns.last
+          expect(campaign.media).to be_attached
+          expect(campaign.whatsapp_template_id).to eq(template.id)
+        end
+
+        it 'rejects a media-header template with no media' do
+          post "/api/v1/accounts/#{account.id}/campaigns",
+               params: base_params,
+               headers: administrator.create_new_auth_token, as: :json
+
+          expect(response).to have_http_status(:unprocessable_entity)
+          expect(response.body).to include('image header')
+        end
+      end
     end
   end
 
