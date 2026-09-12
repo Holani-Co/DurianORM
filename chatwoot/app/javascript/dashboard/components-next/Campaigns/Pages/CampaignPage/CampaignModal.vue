@@ -25,7 +25,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown));
 <template>
   <Teleport to="body">
     <div
-      class="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-n-alpha-black1 p-4 backdrop-blur-[4px]"
+      class="campaign-modal-overlay fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-n-alpha-black1 p-4 backdrop-blur-[4px]"
       @click.self="close"
     >
       <div
