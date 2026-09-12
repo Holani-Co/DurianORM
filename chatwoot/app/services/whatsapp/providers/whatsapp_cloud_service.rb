@@ -79,6 +79,22 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
     "#{api_base_path}/v13.0/#{media_id}"
   end
 
+  # Uploads a file to Meta and returns the resumable media id. Cannot reuse
+  # api_headers here: it forces Content-Type application/json, which breaks the
+  # multipart upload. `file` is a Ruby File/Tempfile; HTTParty handles it with multipart: true.
+  def upload_media(file, _filename, content_type)
+    response = HTTParty.post(
+      "#{phone_id_path}/media",
+      headers: { 'Authorization' => "Bearer #{whatsapp_channel.provider_config['api_key']}" },
+      multipart: true,
+      body: { messaging_product: 'whatsapp', type: content_type, file: file }
+    )
+    parsed = response.parsed_response
+    raise "WhatsApp media upload failed: #{parsed}" unless response.success? && parsed.is_a?(Hash) && parsed['id'].present?
+
+    parsed['id']
+  end
+
   private
 
   def sync_channel_template_cache

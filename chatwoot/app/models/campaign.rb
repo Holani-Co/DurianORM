@@ -33,6 +33,7 @@
 #  display_id                         :integer          not null
 #  inbox_id                           :bigint           not null
 #  sender_id                          :integer
+#  whatsapp_media_id                  :string
 #  whatsapp_template_id               :bigint
 #
 # Indexes
@@ -47,6 +48,7 @@
 #
 class Campaign < ApplicationRecord
   include UrlHelper
+  include WhatsappCampaignMedia
 
   EXECUTION_TRANSITIONS = {
     'draft' => %w[scheduled cancelled failed],
@@ -69,7 +71,6 @@ class Campaign < ApplicationRecord
   validate :sender_must_belong_to_account
   validate :inbox_must_belong_to_account
   validate :whatsapp_template_must_match_campaign
-  validate :whatsapp_media_matches_template
   validate :prevent_definition_changes_after_snapshot, on: :update
 
   belongs_to :account
@@ -136,12 +137,6 @@ class Campaign < ApplicationRecord
     # rubocop:enable Rails/SkipsModelValidations
   end
 
-  def whatsapp_media_params(template_parameters)
-    return template_parameters unless media.attached?
-
-    Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template).apply(template_parameters)
-  end
-
   private
 
   def execution_transition_attributes(target_status, error)
@@ -178,14 +173,6 @@ class Campaign < ApplicationRecord
     return if execution_status.present?
 
     self.execution_status = completed? ? :completed : :scheduled
-  end
-
-  def whatsapp_media_matches_template
-    return unless media.attached?
-
-    Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template).validate!
-  rescue Whatsapp::CampaignMediaService::Error => e
-    errors.add(:media, e.message)
   end
 
   def execute_campaign

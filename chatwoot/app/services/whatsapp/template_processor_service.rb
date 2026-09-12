@@ -61,19 +61,21 @@ class Whatsapp::TemplateProcessorService
   end
 
   def build_header_params(header_data)
-    header_params = []
-    header_data.each do |key, value|
+    header_data.filter_map do |key, value|
       next if value.blank?
 
-      if media_url_with_type?(key, header_data)
-        media_name = header_data['media_name']
-        media_param = parameter_builder.build_media_parameter(value, header_data['media_type'], media_name)
-        header_params << media_param if media_param
-      elsif key != 'media_type' && key != 'media_name'
-        header_params << parameter_builder.build_parameter(value)
-      end
+      build_header_param(key, value, header_data)
     end
-    header_params
+  end
+
+  def build_header_param(key, value, header_data)
+    if key == 'media_id' && header_data['media_type'].present?
+      parameter_builder.build_media_id_parameter(value, header_data['media_type'], header_data['media_name'])
+    elsif media_url_with_type?(key, header_data)
+      parameter_builder.build_media_parameter(value, header_data['media_type'], header_data['media_name'])
+    elsif %w[media_type media_name media_id].exclude?(key)
+      parameter_builder.build_parameter(value)
+    end
   end
 
   def media_url_with_type?(key, header_data)
