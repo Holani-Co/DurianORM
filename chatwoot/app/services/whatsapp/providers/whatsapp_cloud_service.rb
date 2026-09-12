@@ -1,3 +1,5 @@
+require 'faraday/multipart'
+
 class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseService
   def send_message(phone_number, message)
     @message = message
@@ -79,20 +81,31 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
     "#{api_base_path}/v13.0/#{media_id}"
   end
 
-  # Uploads a file to Meta and returns the resumable media id. Cannot reuse
-  # api_headers here: it forces Content-Type application/json, which breaks the
-  # multipart upload. `file` is a Ruby File/Tempfile; HTTParty handles it with multipart: true.
-  def upload_media(file, _filename, content_type)
-    response = HTTParty.post(
-      "#{phone_id_path}/media",
-      headers: { 'Authorization' => "Bearer #{whatsapp_channel.provider_config['api_key']}" },
-      multipart: true,
-      body: { messaging_product: 'whatsapp', type: content_type, file: file }
-    )
-    parsed = response.parsed_response
-    raise "WhatsApp media upload failed: #{parsed}" unless response.success? && parsed.is_a?(Hash) && parsed['id'].present?
+  # Uploads a blob to Meta and returns the media id, sent by id on each delivery
+  # instead of a public URL. Uses Faraday multipart (HTTParty's multipart did not
+  # reliably attach the file part → Meta "(#100) The parameter file is required").
+  def upload_media(blob)
+    blob.open do |temp_file|
+      temp_file.rewind
+      payload = {
+        messaging_product: 'whatsapp',
+        type: blob.content_type,
+        file: Faraday::Multipart::FilePart.new(temp_file, blob.content_type || 'application/octet-stream', blob.filename.to_s)
+      }
+      response = multipart_connection.post("#{phone_id_path}/media", payload) do |request|
+        request.headers['Authorization'] = "Bearer #{whatsapp_channel.provider_config['api_key']}"
+      end
+      parsed = response.success? ? JSON.parse(response.body) : {}
+      raise "WhatsApp media upload failed: #{response.body}" if parsed['id'].blank?
 
-    parsed['id']
+      parsed['id']
+    end
+  end
+
+  def multipart_connection
+    @multipart_connection ||= Faraday.new do |faraday|
+      faraday.request :multipart
+    end
   end
 
   private
