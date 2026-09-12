@@ -33,10 +33,12 @@ class Api::V1::Accounts::CampaignDeliveriesController < Api::V1::Accounts::BaseC
     )
   end
 
+  REPORT_TIME_ZONE = 'Asia/Kolkata'.freeze
+
   def delivery_csv
     CSV.generate do |csv|
       csv << ['Contact', 'Phone number', 'Status', 'Skip reason', 'Attempts', 'Queued at', 'Sent at',
-              'Delivered at', 'Read at', 'Replied at', 'Failed at', 'Error code', 'Error message', 'Meta message ID']
+              'Delivered at', 'Read at', 'Replied at', 'Failed at', 'Error code', 'Error message']
       @campaign.campaign_deliveries.includes(:contact).find_each do |delivery|
         csv << delivery_row(delivery).map { |value| safe_csv_cell(value) }
       end
@@ -46,10 +48,14 @@ class Api::V1::Accounts::CampaignDeliveriesController < Api::V1::Accounts::BaseC
   def delivery_row(delivery)
     [
       delivery.contact.name, delivery.phone_number, delivery.status, delivery.skip_reason, delivery.attempt_count,
-      delivery.queued_at&.iso8601, delivery.sent_at&.iso8601, delivery.delivered_at&.iso8601,
-      delivery.read_at&.iso8601, delivery.replied_at&.iso8601, delivery.failed_at&.iso8601,
-      delivery.error_code, delivery.error_message, delivery.meta_message_id
+      format_time(delivery.queued_at), format_time(delivery.sent_at), format_time(delivery.delivered_at),
+      format_time(delivery.read_at), format_time(delivery.replied_at), format_time(delivery.failed_at),
+      delivery.error_code, delivery.error_message
     ]
+  end
+
+  def format_time(time)
+    time&.in_time_zone(REPORT_TIME_ZONE)&.strftime('%d %b %Y, %I:%M %p')
   end
 
   def safe_csv_cell(value)
