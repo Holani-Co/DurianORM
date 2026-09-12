@@ -18,10 +18,7 @@ class Whatsapp::CampaignMediaService
   # reference it by id instead of a public URL.
   def upload_to!(channel)
     validate!
-    @blob.open do |file|
-      @media_id = channel.upload_media(file, @blob.filename.to_s, @blob.content_type)
-    end
-    @media_id
+    @media_id = channel.upload_media(@blob)
   end
 
   def apply(template_params)
