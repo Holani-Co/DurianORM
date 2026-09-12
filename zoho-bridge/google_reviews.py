@@ -88,16 +88,24 @@ async def list_locations(account_name: str) -> list[dict]:
 
 
 # ── Reviews ─────────────────────────────────────────────────────────────────
-async def list_reviews(account_id: str, location_id: str, page_size: int = 50) -> list[dict]:
+async def list_reviews(account_id: str, location_id: str, page_size: int = 50,
+                       summary_out: dict | None = None) -> list[dict]:
     """
     Return recent reviews for a location, newest first. Each normalized to:
       {review_id, stars(int), comment(str), reviewer(str), create_time,
        has_reply(bool), reply_path(str)}
     account_id / location_id are bare numeric ids (no 'accounts/' prefix).
+
+    When `summary_out` is given, the location's official aggregates from the
+    same response are written into it: summary_out["average_rating"] (float)
+    and summary_out["total_review_count"] (int). The return value is unchanged.
     """
     url = f"{REVIEWS_V4}/accounts/{account_id}/locations/{location_id}/reviews"
     async with httpx.AsyncClient(timeout=20) as client:
         data = await _get(client, url, {"pageSize": page_size, "orderBy": "updateTime desc"})
+    if summary_out is not None:
+        summary_out["average_rating"] = data.get("averageRating")
+        summary_out["total_review_count"] = int(data.get("totalReviewCount") or 0)
     out = []
     for rv in data.get("reviews", []):
         rid = rv.get("reviewId") or rv.get("name", "").split("/")[-1]
