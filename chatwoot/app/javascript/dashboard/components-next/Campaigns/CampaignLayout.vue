@@ -31,8 +31,16 @@ const handleButtonClick = () => {
           <div
             v-on-click-outside="[
               () => emit('close'),
-              // This will prevent closing the modal when the editor Create link popup is open
-              { ignore: ['dialog.ProseMirror-prompt-backdrop'] },
+              // Ignore clicks inside teleported overlays that are not DOM children
+              // of this button: the editor Create-link popup and the campaign/
+              // template/consent modals (CampaignModal) — otherwise a click inside
+              // the modal counts as 'outside' and closes it.
+              {
+                ignore: [
+                  'dialog.ProseMirror-prompt-backdrop',
+                  '.campaign-modal-overlay',
+                ],
+              },
             ]"
             class="relative group/campaign-button"
           >

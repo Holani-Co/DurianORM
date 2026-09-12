@@ -7,6 +7,7 @@ import { useMapGetter, useStore } from 'dashboard/composables/store';
 import Input from 'dashboard/components-next/input/Input.vue';
 import Button from 'dashboard/components-next/button/Button.vue';
 import ComboBox from 'dashboard/components-next/combobox/ComboBox.vue';
+import CampaignModal from 'dashboard/components-next/Campaigns/Pages/CampaignPage/CampaignModal.vue';
 
 const props = defineProps({
   template: {
@@ -255,9 +256,7 @@ const submitTemplate = async () => {
 </script>
 
 <template>
-  <div
-    class="absolute top-10 z-50 flex max-h-[80vh] w-[28rem] flex-col overflow-y-auto rounded-xl border border-n-weak bg-n-alpha-3 shadow-md backdrop-blur-[100px] ltr:right-0 rtl:left-0"
-  >
+  <CampaignModal width-class="max-w-2xl" @close="emit('close')">
     <form class="flex flex-col gap-4 p-6" @submit.prevent="submitTemplate">
       <div>
         <h3 class="text-base font-medium text-n-slate-12">
@@ -437,5 +436,5 @@ const submitTemplate = async () => {
         />
       </div>
     </form>
-  </div>
+  </CampaignModal>
 </template>
