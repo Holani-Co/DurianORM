@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_02_120000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_12_120000) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -343,6 +343,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_02_120000) do
     t.integer "read_count", default: 0, null: false
     t.integer "failed_count", default: 0, null: false
     t.integer "reply_count", default: 0, null: false
+    t.string "whatsapp_media_id"
     t.index ["account_id", "execution_status"], name: "idx_campaigns_account_execution_status"
     t.index ["account_id"], name: "index_campaigns_on_account_id"
     t.index ["campaign_status"], name: "index_campaigns_on_campaign_status"

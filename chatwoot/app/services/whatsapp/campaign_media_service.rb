@@ -8,9 +8,20 @@ class Whatsapp::CampaignMediaService
     'document' => %w[application/pdf]
   }.freeze
 
-  def initialize(blob:, template:)
+  def initialize(blob:, template:, media_id: nil)
     @blob = blob
     @template = template
+    @media_id = media_id
+  end
+
+  # Uploads the blob to Meta once and captures the returned media id so sends can
+  # reference it by id instead of a public URL.
+  def upload_to!(channel)
+    validate!
+    @blob.open do |file|
+      @media_id = channel.upload_media(file, @blob.filename.to_s, @blob.content_type)
+    end
+    @media_id
   end
 
   def apply(template_params)
@@ -19,7 +30,13 @@ class Whatsapp::CampaignMediaService
     params = template_params.deep_dup
     params['processed_params'] ||= {}
     header = params['processed_params']['header'] ||= {}
-    header['media_url'] = download_url
+    header['media_type'] ||= media_format
+    if @media_id.present?
+      header['media_id'] = @media_id
+      header.delete('media_url')
+    else
+      header['media_url'] = download_url
+    end
     header['media_name'] = @blob.filename.to_s if media_format == 'document' && header['media_name'].blank?
     params
   end

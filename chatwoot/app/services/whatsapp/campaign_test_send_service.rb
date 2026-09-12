@@ -37,7 +37,9 @@ class Whatsapp::CampaignTestSendService
 
   def processed_template
     template_params = if @media_blob
-                        Whatsapp::CampaignMediaService.new(blob: @media_blob, template: @template).apply(@template_params)
+                        svc = Whatsapp::CampaignMediaService.new(blob: @media_blob, template: @template)
+                        svc.upload_to!(@inbox.channel)
+                        svc.apply(@template_params)
                       else
                         @template_params
                       end
