@@ -1,6 +1,10 @@
 class Whatsapp::ConsentCaptureService
-  OPT_OUT_KEYWORDS = ['STOP', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'STOP PROMOTIONS'].freeze
-  OPT_IN_KEYWORDS = %w[START SUBSCRIBE].freeze
+  OPT_OUT_KEYWORDS = [
+    'STOP', 'STOP ALL', 'STOPALL', 'STOP PROMOTIONS', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT',
+    'OPT OUT', 'OPTOUT', 'OPT-OUT', 'REMOVE', 'REMOVE ME', 'DND', 'BAND KARO', 'ROK DO'
+  ].freeze
+  OPT_OUT_PREFIXES = ['STOP ', 'UNSUBSCRIBE ', 'CANCEL ', 'QUIT ', 'REMOVE ', 'OPT OUT', 'OPTOUT'].freeze
+  OPT_IN_KEYWORDS = ['START', 'SUBSCRIBE', 'RESUME', 'OPT IN', 'OPTIN', 'OPT-IN'].freeze
 
   def initialize(inbox:, contact:, message_payload:)
     @inbox = inbox
@@ -60,7 +64,7 @@ class Whatsapp::ConsentCaptureService
 
   def opt_out_content?
     OPT_OUT_KEYWORDS.include?(normalized_content) ||
-      normalized_content.start_with?('STOP ', 'UNSUBSCRIBE ')
+      normalized_content.start_with?(*OPT_OUT_PREFIXES)
   end
 
   def normalized_content
