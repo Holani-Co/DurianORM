@@ -13,6 +13,7 @@ class Whatsapp::TemplateManagementService
 
   def submit!(template)
     raise Error, 'Only draft or rejected templates can be submitted' unless %w[DRAFT REJECTED].include?(template.status)
+    raise Error, template.errors.full_messages.to_sentence unless template.valid?
 
     response = HTTParty.post(message_templates_path, headers: api_headers, body: submission_payload(template).to_json)
     raise_api_error!(response, 'Template submission failed') unless response.success?

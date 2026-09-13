@@ -53,4 +53,34 @@ describe Campaigns::Whatsapp::SendDeliveryJob do
     expect(delivery.attempt_count).to eq(3)
     expect(campaign.reload).to be_execution_completed
   end
+
+  it 'captures the Meta error code and message on a permanent failure' do
+    delivery.update!(attempt_count: 2)
+    error_body = { error: { code: 131_026, message: 'Message undeliverable',
+                            error_data: { details: 'Recipient cannot receive marketing messages' } } }
+    stub_request(:post, /graph\.facebook\.com.*messages/)
+      .to_return(status: 400, body: error_body.to_json, headers: { 'Content-Type' => 'application/json' })
+
+    described_class.perform_now(delivery)
+
+    expect(delivery.reload).to be_status_failed
+    expect(delivery.error_code).to eq('131026')
+    expect(delivery.error_message).to eq('Recipient cannot receive marketing messages')
+  end
+
+  it 'backs off a rate-limit response without consuming the fast-retry budget and trips the cooldown' do
+    # attempt_count 2 → 3 after claim: a generic error would fail here (>= MAX_ATTEMPTS),
+    # so staying queued proves the rate-limit path (RATE_LIMIT_MAX_ATTEMPTS) was taken.
+    delivery.update!(attempt_count: 2)
+    error_body = { error: { code: 130_429, message: 'Rate limit hit' } }
+    stub_request(:post, /graph\.facebook\.com.*messages/)
+      .to_return(status: 400, body: error_body.to_json, headers: { 'Content-Type' => 'application/json' })
+
+    expect(Campaigns::Whatsapp::RateLimitCooldown).to receive(:trip!).with(campaign.inbox_id, anything)
+    expect { described_class.perform_now(delivery) }.to have_enqueued_job(described_class)
+
+    expect(delivery.reload).to be_status_queued
+    expect(delivery.error_code).to eq('130429')
+    expect(delivery.next_retry_at).to be_present
+  end
 end

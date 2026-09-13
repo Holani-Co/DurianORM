@@ -14,23 +14,17 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
   end
 
   def send_template(phone_number, template_info, message)
-    template_body = template_body_parameters(template_info)
+    process_response(post_template(phone_number, template_info), message)
+  end
 
-    request_body = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual', # Only individual messages supported (not group messages)
-      to: phone_number,
-      type: 'template',
-      template: template_body
-    }
-
-    response = HTTParty.post(
-      "#{phone_id_path}/messages",
-      headers: api_headers,
-      body: request_body.to_json
-    )
-
-    process_response(response, message)
+  # Campaign send path. Unlike send_template (which returns only the message id or
+  # nil, discarding the Meta error), this returns a structured result so the
+  # delivery job can persist the real Meta error code/message and detect
+  # rate-limit / tier responses. Returns:
+  #   { message_id: 'wamid...' }                       on success
+  #   { error_code: '130429', error_message: '...' }   on failure
+  def send_campaign_template(phone_number, template_info)
+    Whatsapp::SendResult.from_response(post_template(phone_number, template_info))
   end
 
   def sync_templates
@@ -109,6 +103,18 @@ class Whatsapp::Providers::WhatsappCloudService < Whatsapp::Providers::BaseServi
   end
 
   private
+
+  def post_template(phone_number, template_info)
+    request_body = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual', # Only individual messages supported (not group messages)
+      to: phone_number,
+      type: 'template',
+      template: template_body_parameters(template_info)
+    }
+
+    HTTParty.post("#{phone_id_path}/messages", headers: api_headers, body: request_body.to_json)
+  end
 
   def sync_channel_template_cache
     templates = fetch_whatsapp_templates(
