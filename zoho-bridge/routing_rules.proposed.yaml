@@ -1,0 +1,777 @@
+# PROPOSED — two-level routing (category -> subcategory). NOT the live config.
+# Generated from 'Durian ORM Working Team - Feedback' sheet (Executive Detail + Email - Keywords).
+# Review target; the classifier + resolve() code must land before this replaces routing_rules.yaml.
+# Decisions baked in: doors+veneer+plywood = one vertical; laminate separate (Cedar India);
+#   ambiguous subcategory -> agent decision card; sheet emails are the internal forward targets.
+# OPEN: share_executive_email currently set to the 4 rows marked YES in col G — confirm the rule.
+verticals:
+  retail_furniture:
+    keywords:
+    - Sofa
+    - Recliner
+    - Bed
+    - Mattress
+    - Dining
+    - Furniture
+    - Wardrobe (ready)
+    note: DEFAULT vertical when no doors/FHC/ecom/laminate signal fires
+  full_home_customization:
+    keywords:
+    - Modular Furniture Installation
+    - Modular Kitchen Installation
+    - Customize Wardrobe
+    - Vanity Unit
+    - Crockery Unit
+    - Utility Unit
+    - Home Furniture Assembly
+    - Modular Kitchen
+    - Island Kitchen
+    - Kitchen Design Consultation
+    - Kitchen Layout Consultation
+    - Kitchen Size Feasibility
+    - Custom Kitchen Design
+    - Full Home Customisation
+    - Kitchen Renovation
+    - Home Interior
+    - Residential Interior Project
+    - Interior Design Consultation
+    - BHK Customisation
+    - New Home Furnishing
+    - Flat Interior Project
+    - Residential Project Lead
+    - Interior Project Planning
+    - Design And Build Enquiry
+    - Home Renovation Enquiry
+    - Customisation Project Lead
+    - Premium Interior Solution
+    - Modular Wardrobe
+    - Modular TV Unit / Entertainment Unit
+    - Modular Crockery Unit
+    - Modular Bar Unit
+    - Modular Study Unit
+    - Customized Design Consultation
+    - Residential Modular Solutions
+    - End-to-End Residential Design Solutions
+    - Design Coordination
+    - Project Management Consultation
+    - Installation Supervision
+  ecom:
+    keywords: &id001
+    - Online Order Status
+    - Order Status
+    - Order Delivery Date
+    - Order Installation
+    - Order Not Received Yet
+    - Where Is My Product
+    - Track My Order
+    - Order Tracking
+    - Delivery Status
+    - Shipment Status
+    - Dispatch Status
+    - Order Update
+    - Order Progress
+    - Expected Delivery Date (EDD)
+    - Delivery Timeline
+    - Order Delay
+    - Delayed Delivery
+    - Order Pending
+    - Order Confirmation
+    - Order Processing
+    - Order Shipped
+    - Order Dispatched
+    - Order In Transit
+    - Order Received by Warehouse
+    - Product Not Delivered
+    - Delivery Not Received
+    - Installation Pending
+    - Installation Status
+    - Installation Date
+    - When Will My Order Arrive
+    - When Will My Product Be Delivered
+    - Need Delivery Update
+    - Need Order Update
+    - Order Follow-up
+    - Delivery Follow-up
+    - Order ETA
+    - Shipment Tracking Number
+    - Courier Details
+    - Logistics Update
+    - Delivery Schedule
+    - Product Arrival Status
+    - Awaiting Delivery
+    - Awaiting Installation
+    - Order Fulfillment Status
+    note: online order / e-commerce
+  doors_veneer_plywood:
+    keywords:
+    - Doors
+    - Door Frames
+    - Veneer
+    - Door Installation
+    - Door Replacement
+    - Wooden Frame
+    - Fringe Frame
+    - Verve Frame
+    - Helix Frame
+    - Frame Pricing
+    - Door Quotation
+    - Door Catalog
+    - Door After-Sales Service
+    - Purchase Doors
+    - Buy Doors
+    - New Door Installation
+    - Door and Frame Package
+    - Door Supplier
+    - Interior Door Solutions
+    - Bulk Door Requirement
+    - Door Bulk Order
+    note: doors + veneer + plywood are ONE vertical (client decision)
+  laminate:
+    keywords:
+    - Laminate
+    - Laminates
+    - Sunmica
+    note: SEPARATE vertical → external Cedar India
+categories:
+  product_enquiry:
+    action: in_channel
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    ack_template: product_enquiry
+    keywords:
+    - Buy
+    - Price
+    - Enquiry
+    - Interested
+    - Product
+    subcategories:
+      retail_furniture:
+        route: crm_owner_matrix
+      doors_veneer_plywood:
+        route: crm_owner_matrix
+      full_home_customization:
+        forward_to: hofhc.mis@durian.in
+      ecom:
+        forward_to: sushil.k@durian.in
+        share_executive_email: true
+      laminate:
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+        share_executive_email: true
+  general_information:
+    action: in_channel
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    note: Email = in-channel only. City/store template is Instagram/Facebook ONLY, not email.
+    keywords:
+    - Store
+    - Showroom
+    - Timing
+    - Address
+    - Location
+    - Contact number
+  existing_order_enquiry:
+    action: in_channel
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    note: Order status handled by the BMS order-lookup flow; owner is Abhishek Pandey.
+    keywords: *id001
+  complaint:
+    action: forward
+    acknowledge_customer: true
+    default:
+      forward_to: customersupport@durian.in
+      include_customer_in_cc: true
+      cc:
+      - Jeevan.jyoti@durian.in
+    on_ambiguous_subcategory: agent_decision_card
+    keywords:
+    - Repair
+    - Senior Management Escalation
+    - Seat Sagging
+    - Structural Damage
+    - Frame Damage
+    - Noise Issue
+    - Clicking Sound
+    - Cracking Sound
+    - Leather Peeling
+    - Leather Scraping
+    - Leather Damage
+    - Upholstery Defect
+    - Wood Peeling
+    - Stitching Issue
+    - Crack
+    - Tilted
+    - Damage
+    - Loose Drawer Handle
+    - Drawer Repair
+    - Table Wobbling
+    - Defect
+    - Workmanship Issue
+    - Finishing Issue
+    - Mismatch
+    - Fungal Infection
+    - Rotten Material
+    - Bad Odour
+    - Quality Complaint
+    - Poor Product Quality
+    - Premium Quality Concern
+    - Durability Issue
+    - Hygiene Issue
+    - Used Product Appearance
+    - Delayed Service
+    - Delayed Repair
+    - Delayed Replacement
+    - Pending Inspection
+    - No Update After Inspection
+    - Multiple Follow Ups
+    - Repeat Complaint
+    - Unresolved Complaint
+    - Complaint Reopened
+    - Escalated Complaint
+    - Technician Visit
+    - Poor Installation
+    - Incorrect Assembly
+    - Unauthorized Installer
+    - Service
+    - Quality Issue
+    - After Sales Service Issue
+    - Warranty
+    - Defective Product Under Warranty
+    - Replacement Request
+    - Urgent Resolution
+    - Immediate Action Required
+    - Senior Management Intervention
+    - Written Confirmation Request
+    - Customer Dissatisfaction
+    - Customer Frustration
+    - Lack Of Communication
+    - No Response From Service Team
+    - Order Concern
+    - Brand Trust Concern
+    - Mental Stress
+    - Customer Inconvenience
+    - Social Media Escalation
+    - Misrepresentation
+    - Breach Of Commitment
+    - Deficient Service
+    - Brand Reputation Risk
+    - High Priority Case
+    - Aging Complaint
+    - Replacement Pending
+    - Customer Retention Risk
+    - Legal Risk Case
+    - Product Defects & Damage
+    - Manufacturing Defect
+    - Product Failure
+    - Broken Part
+    - Bent Frame
+    - Surface Damage
+    - Scratch Marks
+    - Dent
+    - Chipped Material
+    - Color Fading
+    - Color Mismatch
+    - Fabric Damage
+    - Fabric Tearing
+    - Cushion Deformation
+    - Cushion Hardness Issue
+    - Cushion Softness Issue
+    - Foam Collapse
+    - Joint Failure
+    - Wheel/Caster Issue
+    - Recliner Mechanism Issue
+    - Locking Mechanism Failure
+    - Hydraulic Failure
+    - Handle Damage
+    - Door Alignment Issue
+    - Drawer Alignment Issue
+    - Storage Unit Defect
+    - Delivery & Logistics
+    - Delayed Delivery
+    - Wrong Product Delivered
+    - Missing Parts
+    - Incomplete Delivery
+    - Transit Damage
+    - Packaging Damage
+    - Delivery Rescheduling Issue
+    - Delivery Coordination Issue
+    - Installation Delay
+    - Product Not Delivered
+    - Lost Shipment
+    - Dispatch Delay
+    - Installation & Assembly
+    - Assembly Error
+    - Incomplete Installation
+    - Installation Quality Issue
+    - Installation Damage
+    - Improper Product Setup
+    - Technician Delay
+    - Repeat Technician Visit Required
+    - Installation Appointment Issue
+    - Service & Support
+    - Poor Customer Service
+    - Service Delay
+    - Service Request Pending
+    - Service Ticket Open
+    - Service Ticket Closure Dispute
+    - Inadequate Resolution
+    - Unsatisfactory Service
+    - Follow-Up Failure
+    - Callback Not Received
+    - Incorrect Information Provided
+    - Customer Support Escalation
+    - Service Commitment Not Met
+    - Lack of Ownership
+    - Poor Coordination
+    - Replacement & Refund
+    - Replacement Delay
+    - Replacement Rejected
+    - Incorrect Replacement
+    - Refund Delay
+    - Refund Not Received
+    - Partial Refund Dispute
+    - Return Request
+    - Return Rejected
+    - Exchange Request
+    - Exchange Delay
+    - Warranty & Policy
+    - Warranty Claim Rejected
+    - Warranty Clarification Required
+    - Warranty Coverage Dispute
+    - Extended Warranty Concern
+    - Policy Miscommunication
+    - Manufacturing Defect
+    - Product Failure
+    - Broken Part
+    - Bent Frame
+    - Surface Damage
+    - Scratch Marks
+    - Dent
+    - Chipped Material
+    - Color Fading
+    - Color Mismatch
+    - Fabric Damage
+    - Fabric Tearing
+    - Cushion Deformation
+    - Cushion Hardness Issue
+    - Cushion Softness Issue
+    - Foam Collapse
+    - Wheel/Caster Issue
+    - Recliner Mechanism Issue
+    - Locking Mechanism Failure
+    - Hydraulic Failure
+    - Handle Damage
+    - Door Alignment Issue
+    - Drawer Alignment Issue
+    - Storage Unit Defect
+    - Delayed Delivery
+    - Wrong Product Delivered
+    - Missing Parts
+    - Incomplete Delivery
+    - Transit Damage
+    - Packaging Damage
+    - Delivery Rescheduling Issue
+    - Delivery Coordination Issue
+    - Installation Delay
+    - Product Not Delivered
+    - Dispatch Delay
+    - Assembly Error
+    - Incomplete Installation
+    - Installation Quality Issue
+    - Installation Damage
+    - Improper Product Setup
+    - Technician Delay
+    - Repeat Technician Visit Required
+    - Installation Appointment Issue
+    - Poor Customer Service
+    - Service Request Pending
+    - Service Ticket Open
+    - Service Ticket Closure Dispute
+    - Inadequate Resolution
+    - Unsatisfactory Service
+    - Follow-Up Failure
+    - Callback Not Received
+    - Incorrect Information Provided
+    - Customer Support Escalation
+    - Service Commitment Not Met
+    - Lack of Ownership
+    - Poor Coordination
+    - Replacement Delay
+    - Replacement Rejected
+    - Incorrect Replacement
+    - Refund Delay
+    - Refund Not Received
+    - Partial Refund Dispute
+    - Return Request
+    - Exchange Request
+    - Warranty Clarification Required
+    - Warranty Coverage Dispute
+    - Extended Warranty Concern
+    - Policy Miscommunication
+    subcategories:
+      retail_furniture:
+        forward_to: customersupport@durian.in
+        cc:
+        - Jeevan.jyoti@durian.in
+        include_customer_in_cc: true
+      full_home_customization:
+        forward_to: nishita.nayak@durian.in, hofhc.mis@durian.in
+        include_customer_in_cc: false
+      ecom:
+        forward_to: abhishek.pandey@durian.in
+        include_customer_in_cc: false
+      doors_veneer_plywood:
+        forward_to: anshu.tiwari@durian.in
+        include_customer_in_cc: false
+        share_executive_email: true
+      laminate:
+        forward_to: rsenapati@cedarindia.com
+        include_customer_in_cc: false
+        share_executive_email: true
+  legal_complaint:
+    action: forward
+    acknowledge_customer: true
+    default:
+      forward_to: escalation@durian.in
+      include_customer_in_cc: true
+      cc:
+      - customersupport@durian.in
+      bcc:
+      - Jeevan.jyoti@durian.in
+    keywords:
+    - Legal Counsel
+    - Legal Notice
+    - Refund of Purchase Amount
+    - Unauthorized Use and Infringement of Copyrighted Works
+    - Refund with Compensation
+    - Consumer Court
+    - Case Filed
+    - Demand for Immediate Cessation
+    - Payment of Damages
+    - Consumer Forum Escalation
+    - Consumer Court Escalation
+    - National Consumer Helpline
+    - Legal Complaint Threat
+    - Public Apology
+    - Removal of Infringing Material
+    - Legal Risk Case
+    subcategories:
+      legal_notice:
+        forward_to: escalation@durian.in
+        include_customer_in_cc: true
+        cc:
+        - customersupport@durian.in
+        bcc:
+        - Jeevan.jyoti@durian.in
+      grievance_form:
+        forward_to: tsen@durian.in
+        include_customer_in_cc: false
+        cc: []
+        bcc: []
+  franchise_dealership:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    on_ambiguous_subcategory: agent_decision_card
+    keywords:
+    - Commercial Space
+    - Franchise
+    - Manufacturer
+    - Dealership
+    - Rent
+    - Lease
+    - Business Enquiries
+    - Brand Partners
+    - Real Estate Developer Partnerships
+    subcategories:
+      retail_furniture:
+        forward_to: ram.sai@durian.in
+      full_home_customization:
+        forward_to: ram.sai@durian.in
+      ecom:
+        forward_to: shilpa@durian.in
+      doors_veneer_plywood:
+        forward_to: anshu.tiwari@durian.in
+        cc:
+        - rohit.kanoujia@durian.in
+      laminate:
+        forward_to: rsenapati@cedarindia.com, laminates@durian.in
+  vendor_supplier_enquiry:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: ganguli@durian.in
+    cc:
+    - shivshankar.kushwah@durian.in
+    keywords:
+    - Vendor
+    - Supplier
+    - Collaboration Opportunity
+    - Developed furniture innovations
+    - Vendor Proposal
+    - Supplier Collaboration
+    - Licensing Request
+    - Product Innovation
+    - Furniture Design Proposal
+    - Patent Collaboration
+    - NDA Request Non-Disclosure Agreement Request
+    - Business Development Inquiry
+    - Partnership Opportunity
+    - New Product Concept Submission
+  marketing_advertising:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: shilpa@durian.in
+    keywords:
+    - Magazine
+    - Newsletter
+    - Website Collaboration
+    - Print & Digital Cover Edition
+    - E-commerce
+    - B2B
+    - Barter Deals
+    - PR Tieups
+    - Any Marketing Automation Tools
+  collaboration_request:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: snehal@durian.in
+    keywords:
+    - Brand Collaboration Opportunity
+    - Music Studio Collaboration
+    - Sponsored content
+    - Digital TV Advertising Proposal
+    - Creative influencer marketing
+    - Digital Media
+    - Social Media Promotion
+    - Video Production
+    - Brand Endorsement
+    - Product photography
+    - Influencers Collaboration
+    - Art & Creative Community Collaboration
+    - Seasonal/ festive Marketing
+    - Freelancers -Graphics, Photography,content
+    - Celebrity Collaborations
+    - Vendor Collaborations for Marketing Items- Gifting, POSM etc
+    - AI Creators for Content, Graphics, Videos
+    - Ad Agencies
+    - Podcast
+    - UGC Pcreators
+    - Gifting Partners
+    - POSM Vendors
+    - Printing Vendors
+    - Event Fabrication Vendors
+    - Exhibition Partners
+    - Packaging Vendors
+    - Signage Vendors
+    - Creator Meetups
+    - Home Decor Exhibitions
+    - Architecture Conferences
+    - Interior Design Events
+  career_job_enquiry:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: true
+    forward_to: hrcoordinator@durian.in
+    keywords:
+    - Job
+    - Employment Enquiry
+    - Career Opportunity
+    - Recruitment
+    - Vacancy
+    - Hiring Request
+    - Candidate Application
+    - Experienced Candidate Application
+    - Store Manager Application
+    - Customer Support Executive Application
+    - Candidate Resume Submission
+    - CV Submission
+    - Profile Sharing
+    - Resume Forwarded
+    - Candidate Referral Request
+    - Job Seeking Assistance
+    - Employment Opportunity
+    - Interview Availability
+    - Immediate Joiner
+    - Candidate Verification Request
+    - Job Posting Verification
+    - Recruitment Authenticity Check
+    - Fake Job Alert Verification
+    - Job Search Assistance
+    - Third Party Recruitment Enquiry
+    - HR Services Proposal
+    - Recruitment Partnership Proposal
+    - Placement Agency Proposal
+    - Staffing Services Offer
+    - Manpower Consultancy Enquiry
+    - Vendor Recruitment Proposal
+    - Bulk Recruitment Services
+    - Talent Acquisition Support
+    - Job Opportunity Request
+    - Career Opportunity Request
+    - Employment Support Request
+    - Professional Networking Request
+    - Job Referral Request
+    - Candidate Availability
+    - Experienced Professional Application
+    - Fresher Candidate Application
+    - Open Position Enquiry
+    - Hiring Status Enquiry
+    - Recruitment Related Query
+    - Careers Department Enquiry
+    - HR Department Enquiry
+    - Job Lead Request
+    - Employment Verification Query
+    - LinkedIn Job Application
+    - Email Job Application
+  project_bulk_order:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: marketing@durian.in
+    note: govt/private sector split → existing crm_owner_routing_govt_bulk / _private matrix
+    sector_keywords:
+      government:
+      - Ministry, Department, Directorate, Bureau, Secretariat, Office of the… — e.g. "Department of Posts",
+        "Directorate of Education"
+      - Government of / Govt. of / Govt of India / State Government + a state name
+      - Municipal Corporation, Municipality, Nagar Nigam, Nagar Palika, Panchayat, Zilla Parishad, Gram
+        Panchayat
+      - Collectorate, District Office, Tehsil, Block Office, Sub-Divisional
+      - Council (e.g. City Council, Research Council), Board (e.g. Electricity Board, Housing Board, Pollution
+        Control Board, Examination Board)
+      - Commission (e.g. Election Commission, UPSC, State PSC, Human Rights Commission)
+      - Authority (e.g. Development Authority/DDA, Port Authority, Airports Authority/AAI, NHAI, Water
+        Authority)
+      - Corporation when public-sector — BSNL, ONGC, NTPC, SAIL, GAIL, BHEL, LIC, Coal India, FCI, etc.
+        (the PSU names)
+      - Bhavan / Bhawan / Sadan / Karyalaya (Hindi for office/building, common in govt naming)
+      - Institute / Institution when prefixed by national/central — AIIMS, IIT, IIM, NIT, IISc, ICAR,
+        ISRO, DRDO, CSIR labs
+      - University (most are state/central public), Vidyalaya (Kendriya Vidyalaya, Navodaya), Vidyapeeth
+      - Police, Defence, Army, Navy, Air Force, Cantonment, CRPF/CISF/BSF, Ordnance
+      - Railways, Indian Railways, Zonal Railway, Metro Rail / Metro Corporation
+      - Court, High Court, District Court, Judiciary, Tribunal, Bar Council
+      - Hospital / Medical College when prefixed Government/Civil/District/General/ESI
+      - Reserve Bank / RBI, Public Sector Bank names (SBI, PNB, Canara, etc.), NABARD, SIDBI
+      - Mission, Yojana, Samiti, Parishad, Sabha, Ayog, Mandal, Nigam, Vibhag (Hindi institutional terms)
+      - Raj Bhavan, Vidhan Sabha, Lok Sabha, Rajya Sabha, Assembly, Legislature
+      - 'Abbreviation/email patterns: .gov.in, .nic.in, .ac.in (the last is education — often but not
+        always public)'
+      - Cabinet Supply
+      - Bulk Order
+      - Quotation for Bulk Order/ Ongoing Project
+      - GeM Portal
+      - Central Government Supplies
+      - GeM Authorization
+      - OEM Authorization
+      private:
+      - Pvt. Ltd. / Private Limited, LLP, & Co., & Sons, & Associates, Enterprises, Ventures, Holdings
+      - Ltd. / Limited without a PSU name — usually a private public-listed company
+      - Inc., Corp., GmbH, Pte. Ltd. — foreign/MNC entities
+      - Solutions, Technologies, Systems, Software, Labs, Digital, Infotech, Consulting, Consultancy,
+        Services, Group
+      - Industries, Manufacturing, Mills, Works, Trading, Exports, Imports, Traders
+      - Realty, Builders, Developers, Estates, Infra, Construction, Properties, Constructions
+      - Studio, Designs, Architects, Interiors, Creatives, Media, Agency
+      - Hospitality, Hotels, Resorts, Retail, Mart, Stores, Bazaar
+      - Clinic, Nursing Home, Diagnostics without a Govt/Civil prefix — usually private healthcare
+      - Startup-style coined names (made-up words, camelCase, English brand names without institutional
+        terms)
+      - 'Email patterns: company.com, .co.in, gmail.com, outlook.com, or a custom brand domain'
+  finance_related:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: dipesh.patel@durian.in
+    keywords:
+    - Debt Financing
+    - Financing
+    - Corporate Financing
+    - Business Loan
+    - OD Line
+    - Overdraft Facility
+    - Working Capital
+    - WCDL
+    - Credit Line
+    - Credit Facility
+    - Term Loan
+    - Growth Capital
+    - Capex Funding
+    - Bridge Financing
+    - Invoice Discounting
+    - Vendor Financing
+    - Receivable Financing
+    - PO Funding
+    - Inventory Funding
+    new: true
+  customer_technology:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: varsha@durian.in
+    keywords:
+    - Website Development
+    - Website Design
+    - Website Creation
+    - New Website
+    - Website Upgrade
+    - Website Optimization
+    - Ecommerce Website
+    - Landing Page
+    new: true
+  digital_marketing_seo:
+    action: forward
+    acknowledge_customer: true
+    include_customer_in_cc: false
+    forward_to: lav.agarwal@durian.in
+    keywords:
+    - Digital Marketing
+    - Online Marketing
+    - Social Media Marketing
+    - SMM
+    - Facebook Marketing
+    - Instagram Marketing
+    - Google Ads
+    - PPC
+    - Lead Generation
+    - Online Promotion
+    - Brand Promotion
+    - Brand Awareness
+    - Marketing Services
+    - Advertising Services
+    - Performance Marketing
+    - Content Marketing
+    - SEO
+    - Search Engine Optimization
+    - Google Ranking
+    - Google Business Profile
+    - Google My Business
+    - GBP Optimization
+    - Local SEO
+    - Google Reviews
+    - Social Media Management
+    - Facebook Page
+    - Instagram Page
+    - LinkedIn Marketing
+    - Social Media Growth
+    - Social Media Promotion
+    - Social Media Services
+    - Content Creation
+    - Reels Marketing
+    - Grow your business online
+    - Improve online presence
+    - Increase website traffic
+    - Generate more leads
+    - Reach more customers
+    - Online branding
+    - Marketing proposal
+    - Digital solutions
+    - Marketing agency
+    - Marketing support
+    - Business growth
+    - Online visibility
+    - Brand building
+    new: true
