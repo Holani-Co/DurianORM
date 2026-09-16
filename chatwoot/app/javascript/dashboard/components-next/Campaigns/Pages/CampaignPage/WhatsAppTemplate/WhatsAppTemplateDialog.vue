@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAlert } from 'dashboard/composables';
 import { useMapGetter, useStore } from 'dashboard/composables/store';
@@ -48,6 +48,59 @@ const state = reactive({
 });
 
 const isEdit = computed(() => Boolean(props.template));
+
+// WhatsApp renders these markers as formatting in the message BODY only
+// (headers/footers are plain text). Wrap the current selection with the marker.
+const bodyRef = ref(null);
+const FORMAT_MARKERS = {
+  bold: '*',
+  italic: '_',
+  strikethrough: '~',
+  monospace: '```',
+};
+
+const applyFormat = async format => {
+  const marker = FORMAT_MARKERS[format];
+  const textarea = bodyRef.value;
+  if (!textarea) return;
+
+  const { selectionStart: start, selectionEnd: end } = textarea;
+  const selected = state.body.slice(start, end);
+  state.body =
+    state.body.slice(0, start) +
+    marker +
+    selected +
+    marker +
+    state.body.slice(end);
+
+  await nextTick();
+  textarea.focus();
+  const innerStart = start + marker.length;
+  textarea.setSelectionRange(innerStart, innerStart + selected.length);
+};
+
+const formatButtons = computed(() => [
+  {
+    format: 'bold',
+    icon: 'i-lucide-bold',
+    label: t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.FORMAT_BOLD'),
+  },
+  {
+    format: 'italic',
+    icon: 'i-lucide-italic',
+    label: t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.FORMAT_ITALIC'),
+  },
+  {
+    format: 'strikethrough',
+    icon: 'i-lucide-strikethrough',
+    label: t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.FORMAT_STRIKETHROUGH'),
+  },
+  {
+    format: 'monospace',
+    icon: 'i-lucide-code',
+    label: t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.FORMAT_MONOSPACE'),
+  },
+]);
 
 const cloudInboxes = computed(() =>
   inboxes.value.filter(inbox => inbox.provider === 'whatsapp_cloud')
@@ -347,8 +400,22 @@ const submitTemplate = async () => {
         >
           {{ t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.BODY') }}
         </label>
+        <div class="flex items-center gap-1">
+          <Button
+            v-for="item in formatButtons"
+            :key="item.format"
+            type="button"
+            size="xs"
+            color="slate"
+            variant="ghost"
+            :icon="item.icon"
+            :title="item.label"
+            @click="applyFormat(item.format)"
+          />
+        </div>
         <textarea
           id="whatsapp-template-body"
+          ref="bodyRef"
           v-model="state.body"
           rows="6"
           :placeholder="t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.BODY_PLACEHOLDER')"
