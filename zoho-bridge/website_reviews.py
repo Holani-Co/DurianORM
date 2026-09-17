@@ -35,10 +35,16 @@ def _normalize(raw: dict) -> dict:
             return 0
 
     reply = (raw.get("reply") or "").strip()
+    # NOTE: the live API's field names differ from the client's written doc —
+    # the product/user ids come back as `product`/`user`, and the reviewer's
+    # name/email/city are inline (`user_name`/`user_email`/`user_city`).
     return {
         "review_id": str(raw.get("id")),
-        "product_id": raw.get("product_id"),
-        "user_id": raw.get("user_id"),
+        "product_id": raw.get("product"),
+        "user_id": raw.get("user"),
+        "reviewer": (raw.get("user_name") or "").strip(),
+        "email": (raw.get("user_email") or "").strip(),
+        "city": (raw.get("user_city") or "").strip(),
         "title": (raw.get("title") or "").strip(),
         "comment": (raw.get("review") or "").strip(),
         "stars": _int(raw.get("rating")),

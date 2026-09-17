@@ -35,6 +35,8 @@ def _stars_bar(stars: int) -> str:
 
 
 def _reviewer_name(rv: dict) -> str:
+    if rv.get("reviewer"):
+        return rv["reviewer"]
     uid = rv.get("user_id")
     return f"Website reviewer #{uid}" if uid else "Website reviewer"
 
@@ -61,18 +63,25 @@ async def _ingest_review(rv: dict) -> None:
     """Bring one new website review into Chatwoot as an open conversation."""
     reviewer = _reviewer_name(rv)
     product = f"Product #{rv['product_id']}" if rv.get("product_id") else "Product (unknown)"
+    location = " · ".join(p for p in (rv.get("city"),) if p)
     heading = rv["title"] or "(no title)"
     body = (
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
-        f"🛋 {product}\n\n"
+        f"🛋 {product}"
+        f"{('  ·  📍 ' + location) if location else ''}\n\n"
         f"{heading}\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
 
+    # Key the contact by email when present so a reviewer's multiple reviews
+    # group under one contact; the guest `user` id can be shared, so fall back
+    # to the review id (unique) rather than collapsing guests together.
+    ident = rv.get("email") or f"review_{rv['review_id']}"
     contact_id, source_id = await chatwoot.create_contact(
         name=reviewer,
-        identifier=f"webreview_user_{rv.get('user_id') or rv['review_id']}",
+        identifier=f"webreview_{ident}".lower().replace(" ", "_"),
         inbox_id=config.WEBSITE_REVIEWS_INBOX_ID,
+        email=rv.get("email") or None,
     )
     conv_id = await chatwoot.create_conversation(
         source_id=source_id or f"wr_{rv['review_id']}",
@@ -122,6 +131,14 @@ async def poll_once() -> None:
         if rv["already_replied"]:
             state.mark_seen(rv["review_id"], 0, rv["stars"],
                             replied=True, update_time=rv["update_time"])
+            continue
+        # Backlog cutoff: the list has ~23k historical reviews and no `since`
+        # filter, so without this the inbox floods with years of old reviews.
+        # Skip (record as seen) anything created before WEBSITE_REVIEWS_SINCE.
+        since = config.WEBSITE_REVIEWS_SINCE
+        if since and rv["created"] and rv["created"] < since:
+            state.mark_seen(rv["review_id"], 0, rv["stars"],
+                            replied=False, update_time=rv["update_time"])
             continue
         if cap and new_count >= cap:
             skipped_for_cap += 1
