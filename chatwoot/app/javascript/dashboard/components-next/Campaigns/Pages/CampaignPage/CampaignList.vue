@@ -18,6 +18,7 @@ const emit = defineEmits([
   'pause',
   'resume',
   'cancel',
+  'retryFailed',
   'viewDeliveries',
 ]);
 
@@ -26,6 +27,7 @@ const handleDelete = campaign => emit('delete', campaign);
 const handlePause = campaign => emit('pause', campaign);
 const handleResume = campaign => emit('resume', campaign);
 const handleCancel = campaign => emit('cancel', campaign);
+const handleRetryFailed = campaign => emit('retryFailed', campaign);
 const handleViewDeliveries = campaign => emit('viewDeliveries', campaign);
 </script>
 
@@ -54,6 +56,7 @@ const handleViewDeliveries = campaign => emit('viewDeliveries', campaign);
       @pause="handlePause(campaign)"
       @resume="handleResume(campaign)"
       @cancel="handleCancel(campaign)"
+      @retry-failed="handleRetryFailed(campaign)"
       @view-deliveries="handleViewDeliveries(campaign)"
     />
   </div>

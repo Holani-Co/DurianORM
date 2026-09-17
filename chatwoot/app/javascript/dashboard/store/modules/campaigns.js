@@ -117,6 +117,10 @@ export const actions = {
     const response = await CampaignsAPI.cancel(id);
     commit(types.EDIT_CAMPAIGN, response.data);
   },
+  retryFailed: async ({ commit }, id) => {
+    const response = await CampaignsAPI.retryFailed(id);
+    commit(types.EDIT_CAMPAIGN, response.data);
+  },
   getDeliveries: async (_, { id, ...params }) => {
     const response = await CampaignsAPI.deliveries(id, params);
     return response.data;

@@ -262,6 +262,7 @@
           "FAILED": "Failed"
         },
         "METRICS": "Audience {audience} · Sent {sent} · Delivered {delivered} · Read {read} · Replies {replies} · Failed {failed}",
+        "RETRY_FAILED": "Retry failed deliveries",
         "STATUS": {
           "COMPLETED": "Completed",
           "SCHEDULED": "Scheduled"
@@ -270,6 +271,10 @@
           "SENT_FROM": "Sent from",
           "ON": "on"
         }
+      },
+      "RETRY_FAILED": {
+        "SUCCESS": "Re-sending the campaign to the recipients whose delivery failed.",
+        "ERROR": "Could not retry the failed deliveries. Please try again."
       },
       "CREATE": {
         "TITLE": "Create WhatsApp campaign",

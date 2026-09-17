@@ -27,6 +27,22 @@ class Whatsapp::CampaignControlService
     @campaign.completed!
   end
 
+  # Re-send only the recipients whose delivery FAILED, in one click. Reuses the
+  # same requeue → dispatch → finalize path as resume!, but re-opens a campaign
+  # that already finished (completed is otherwise terminal). Non-failed rows
+  # (sent/delivered/skipped) are untouched, so only the failures go out again.
+  def retry_failed!
+    raise ArgumentError, 'Campaign has no audience snapshot to retry' if @campaign.audience_snapshot_at.blank?
+    raise ArgumentError, 'No failed deliveries to retry' unless @campaign.campaign_deliveries.status_failed.exists?
+
+    @campaign.active! if @campaign.completed?
+    prepare_failed_deliveries
+    @campaign.transition_execution_to!(:queued)
+    @campaign.transition_execution_to!(:running)
+    enqueue_dispatchable_deliveries
+    Whatsapp::CampaignFinalizeService.new(@campaign).perform
+  end
+
   private
 
   def prepare_failed_deliveries

@@ -54,6 +54,10 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
     perform_campaign_control(:cancel!)
   end
 
+  def retry_failed
+    perform_campaign_control(:retry_failed!)
+  end
+
   private
 
   def campaign

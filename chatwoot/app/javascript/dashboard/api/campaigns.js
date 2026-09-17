@@ -27,6 +27,10 @@ class CampaignsAPI extends ApiClient {
     return axios.post(`${this.url}/${id}/cancel`);
   }
 
+  retryFailed(id) {
+    return axios.post(`${this.url}/${id}/retry_failed`);
+  }
+
   deliveries(id, params = {}) {
     return axios.get(`${this.url}/${id}/deliveries`, { params });
   }

@@ -57,6 +57,7 @@ const emit = defineEmits([
   'pause',
   'resume',
   'cancel',
+  'retryFailed',
   'viewDeliveries',
 ]);
 
@@ -118,6 +119,14 @@ const canCancel = computed(
   () =>
     isWhatsapp.value &&
     !['completed', 'cancelled'].includes(props.executionStatus)
+);
+// A finished campaign is terminal (can't resume), so offer a one-click re-send
+// to just the recipients whose delivery failed. Failed-state campaigns use resume.
+const canRetryFailed = computed(
+  () =>
+    isWhatsapp.value &&
+    props.executionStatus === 'completed' &&
+    props.failedCount > 0
 );
 
 const inboxName = computed(() => props.inbox?.name || '');
@@ -207,6 +216,15 @@ const inboxIcon = computed(() => {
         color="slate"
         icon="i-lucide-ban"
         @click="emit('cancel')"
+      />
+      <Button
+        v-if="canRetryFailed"
+        variant="faded"
+        size="sm"
+        color="teal"
+        icon="i-lucide-refresh-cw"
+        :title="t('CAMPAIGN.WHATSAPP.CARD.RETRY_FAILED')"
+        @click="emit('retryFailed')"
       />
       <Button
         v-if="isLiveChatType"

@@ -158,6 +158,7 @@ Rails.application.routes.draw do
               post :pause
               post :resume
               post :cancel
+              post :retry_failed
             end
           end
           resources :whatsapp_consents, only: [:index, :create] do

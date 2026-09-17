@@ -38,4 +38,8 @@ class CampaignPolicy < ApplicationPolicy
   def cancel?
     @account_user.administrator?
   end
+
+  def retry_failed?
+    @account_user.administrator?
+  end
 end
