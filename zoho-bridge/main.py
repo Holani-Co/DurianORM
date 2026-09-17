@@ -51,6 +51,9 @@ import google_reviews as gr
 import forwarded_email
 import review_reply
 import reviews_poller
+import website_reviews
+import website_reviews_poller
+import website_reviews_state
 import reviews_state
 import crm_state
 import config_store
@@ -71,6 +74,8 @@ def _now_iso() -> str:
 async def _start_reviews_poller():
     # Boot-safe: run_forever() no-ops if Google isn't configured yet.
     asyncio.create_task(reviews_poller.run_forever())
+    # Website (durian.in) product reviews — independent poller, own inbox.
+    asyncio.create_task(website_reviews_poller.run_forever())
 
 
 @app.on_event("shutdown")
@@ -3879,8 +3884,12 @@ async def handle_message_created(data: dict) -> dict:
     print(f"[msg] message_type={msg_type!r}")
 
     # Outgoing on the reviews inbox = agent's public reply → post to Google.
+    # If it isn't the Google reviews inbox, try the website reviews inbox.
     if msg_type in (1, "outgoing"):
-        return await handle_review_reply(data)
+        result = await handle_review_reply(data)
+        if result.get("ignored") and result.get("reason") == "not_reviews_inbox":
+            return await handle_website_review_reply(data)
+        return result
 
     if msg_type not in (0, "incoming"):
         print(f"[msg] ignoring — not incoming")
@@ -3896,6 +3905,9 @@ async def handle_message_created(data: dict) -> dict:
     if config.REVIEWS_INBOX_ID and inbox_id == config.REVIEWS_INBOX_ID:
         print(f"[msg] ignoring — reviews inbox (handled by reviews poller)")
         return {"ignored": True, "reason": "reviews_inbox"}
+    if config.WEBSITE_REVIEWS_INBOX_ID and inbox_id == config.WEBSITE_REVIEWS_INBOX_ID:
+        print(f"[msg] ignoring — website reviews inbox (handled by website reviews poller)")
+        return {"ignored": True, "reason": "website_reviews_inbox"}
 
     # WhatsApp / Instagram / Facebook DMs. We still let the categorizer LABEL
     # the intent (the "Auto-classified as …" note + team), but the email action
@@ -6211,6 +6223,39 @@ async def handle_review_reply(data: dict) -> dict:
         return {"posted": True, "conversation_id": conv_id}
     except Exception as e:
         print(f"[reviews] ERROR posting human reply for conv {conv_id}: {e}")
+        return {"posted": False, "error": str(e)}
+
+
+# ── Handler: agent reply on a website review → post to durian.in ──────────
+async def handle_website_review_reply(data: dict) -> dict:
+    inbox_id = (data.get("inbox") or {}).get("id")
+    if not config.WEBSITE_REVIEWS_INBOX_ID or inbox_id != config.WEBSITE_REVIEWS_INBOX_ID:
+        return {"ignored": True, "reason": "not_website_reviews_inbox"}
+    if data.get("private"):
+        return {"ignored": True, "reason": "private_note"}
+    if (data.get("content_attributes") or {}).get("source") == website_reviews_poller.AUTO_MARKER["source"]:
+        return {"ignored": True, "reason": "echo_already_on_site"}
+
+    conv = data.get("conversation") or {}
+    conv_id = conv.get("id")
+    content = (data.get("content") or "").strip()
+    if not conv_id or not content:
+        return {"ignored": True, "reason": "no_conv_or_content"}
+
+    review_id = website_reviews_state.review_id_for_conversation(conv_id) \
+        or (conv.get("custom_attributes") or {}).get("website_review_id")
+    if not review_id:
+        return {"ignored": True, "reason": "no_review_id"}
+
+    try:
+        await website_reviews.post_reply(review_id, content)
+        website_reviews_state.mark_replied(str(review_id))
+        await website_reviews_poller._add_label(
+            conv_id, website_reviews_poller.LBL_REPLIED)
+        print(f"[web-reviews] posted human reply for conv {conv_id} → review {review_id}")
+        return {"posted": True, "conversation_id": conv_id}
+    except Exception as e:
+        print(f"[web-reviews] ERROR posting reply for conv {conv_id}: {e}")
         return {"posted": False, "error": str(e)}
 
 

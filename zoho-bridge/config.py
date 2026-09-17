@@ -281,6 +281,22 @@ REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS
 REVIEWS_MAX_PER_SWEEP         = max(0, int(os.environ.get("REVIEWS_MAX_PER_SWEEP", "20")))
 
 
+# ── Website (durian.in) product reviews ────────────────────────────────────
+# Ingests durian.in on-site product reviews into a DEDICATED Chatwoot inbox and
+# posts agent replies back via the client's review-reply API. Independent of the
+# Google Reviews poller above. Dark-launched — set WEBSITE_REVIEWS_ENABLED=true
+# once the token + inbox exist.
+WEBSITE_REVIEWS_ENABLED        = _bool("WEBSITE_REVIEWS_ENABLED")
+WEBSITE_REVIEWS_API_BASE_URL   = os.environ.get("WEBSITE_REVIEWS_API_BASE_URL", "https://www.durian.in/backend").rstrip("/")
+WEBSITE_REVIEWS_API_TOKEN      = os.environ.get("WEBSITE_REVIEWS_API_TOKEN", "")
+# Chatwoot API-channel inbox that holds website reviews (create it once).
+WEBSITE_REVIEWS_INBOX_ID       = int(os.environ.get("WEBSITE_REVIEWS_INBOX_ID", "0") or 0)
+WEBSITE_REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("WEBSITE_REVIEWS_POLL_INTERVAL_SECONDS", "300"))
+# Cap ingested-per-sweep so the first run doesn't flood the inbox with the whole
+# historical backlog (the GET returns every review). 0 disables the cap.
+WEBSITE_REVIEWS_MAX_PER_SWEEP  = max(0, int(os.environ.get("WEBSITE_REVIEWS_MAX_PER_SWEEP", "20")))
+
+
 # ── Spam-classifier safeguards ────────────────────────────────────────────
 # Defaults are conservative — the system biases toward NEVER losing a real
 # customer (false-positives cost more than false-negatives).
