@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useIntervalFn, useToggle } from '@vueuse/core';
+import { useAlert } from 'dashboard/composables';
 import {
   useStore,
   useStoreGetters,
@@ -114,6 +115,16 @@ const handleCampaignAction = action => campaign => {
 const handlePause = handleCampaignAction('pause');
 const handleResume = handleCampaignAction('resume');
 const handleCancel = handleCampaignAction('cancel');
+const handleRetryFailed = async campaign => {
+  try {
+    await store.dispatch('campaigns/retryFailed', campaign.id);
+    useAlert(t('CAMPAIGN.WHATSAPP.RETRY_FAILED.SUCCESS'));
+  } catch (error) {
+    useAlert(
+      error?.response?.data?.error || t('CAMPAIGN.WHATSAPP.RETRY_FAILED.ERROR')
+    );
+  }
+};
 const handleViewDeliveries = campaign => {
   campaignDeliveriesDialogRef.value.open(campaign);
 };
@@ -176,6 +187,7 @@ useIntervalFn(
         @pause="handlePause"
         @resume="handleResume"
         @cancel="handleCancel"
+        @retry-failed="handleRetryFailed"
         @view-deliveries="handleViewDeliveries"
       />
       <WhatsAppCampaignEmptyState

@@ -57,7 +57,7 @@ class Campaign < ApplicationRecord
     'running' => %w[paused completed cancelled failed],
     'paused' => %w[scheduled queued running cancelled],
     'failed' => %w[scheduled queued cancelled],
-    'completed' => [],
+    'completed' => %w[queued],
     'cancelled' => []
   }.freeze
 
