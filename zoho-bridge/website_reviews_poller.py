@@ -1,24 +1,27 @@
 # durian.in website product-reviews poller.
 #
-# On a timer: pull every website review and for each NEW one create a Chatwoot
-# conversation in the Website Reviews inbox (contact = reviewer, incoming
-# message = review text + rating). Human-only: an agent replies in Chatwoot and
-# the reply is posted back to durian.in by main.handle_website_review_reply.
+# On a timer: pull website reviews and, for each new one that has NOT already
+# been replied to on durian.in, create a Chatwoot conversation in the Website
+# Reviews inbox (contact = reviewer, incoming message = review text + rating)
+# and leave it OPEN for a human. An agent's reply is posted back to durian.in by
+# main.handle_website_review_reply.
 #
-# Deliberately simpler than the Google poller — no locations, no store labels,
-# no auto-reply/reply-bank, no low-star email forwarding.
+# Reviews already answered on the site are skipped (recorded as seen, never
+# ingested) — we never echo or auto-reply. Deliberately simpler than the Google
+# poller — no locations, no store labels, no auto-reply/reply-bank, no low-star
+# email forwarding.
 
 import asyncio
-import re
 
 import config
 import chatwoot
 import website_reviews as wr
 import website_reviews_state as state
 
-# content_attributes marker parity with the Google poller: any reply we post
-# ourselves (e.g. echoing an existing website reply) is tagged so the outgoing
-# webhook doesn't try to re-post it to durian.in.
+# Defensive marker read by main.handle_website_review_reply: any outgoing
+# message the bridge itself posts on this inbox would carry it, so the reply-back
+# webhook skips it. The poller no longer posts outgoing messages (unreplied-only,
+# human-only), so nothing currently sets it — kept as a guard for the handler.
 AUTO_MARKER = {"source": "website_review_echo"}
 
 LBL_REPLIED = "review-replied"
@@ -89,22 +92,12 @@ async def _ingest_review(rv: dict) -> None:
 
     star_label = f"review-{rv['stars']}star" if rv["stars"] else "review-unrated"
     await _add_label(conv_id, star_label)
-
-    # If durian.in already carries a reply, echo it as an outgoing message and
-    # mark replied/resolved so agents see history but don't re-reply. Tagged
-    # with AUTO_MARKER so the outgoing webhook doesn't post it back.
-    if rv["already_replied"] and rv["reply"]:
-        try:
-            await chatwoot.create_message(conv_id, rv["reply"], message_type="outgoing",
-                                          content_attributes=AUTO_MARKER)
-            await _add_label(conv_id, LBL_REPLIED)
-        except Exception as e:
-            print(f"[web-reviews] echo existing reply failed for conv {conv_id}: {e}")
-    else:
-        await _add_label(conv_id, LBL_UNREPLIED)
+    # Only unreplied reviews are ingested (see poll_once), so this is always
+    # open for a human — we never post an outgoing message ourselves.
+    await _add_label(conv_id, LBL_UNREPLIED)
 
     state.mark_seen(rv["review_id"], conv_id, rv["stars"],
-                    replied=rv["already_replied"], update_time=rv["update_time"])
+                    replied=False, update_time=rv["update_time"])
     print(f"[web-reviews] ingested review {rv['review_id']} → conv {conv_id}")
 
 
@@ -122,6 +115,13 @@ async def poll_once() -> None:
             if rv["already_replied"] and not rec.get("replied") and rec.get("conversation_id"):
                 await _add_label(rec["conversation_id"], LBL_REPLIED)
                 state.mark_replied(rv["review_id"])
+            continue
+        # Already answered on durian.in → record as seen (so we don't reconsider
+        # it) but DON'T bring it into the inbox. We only surface reviews that
+        # still need a human reply, and we never auto-reply.
+        if rv["already_replied"]:
+            state.mark_seen(rv["review_id"], 0, rv["stars"],
+                            replied=True, update_time=rv["update_time"])
             continue
         if cap and new_count >= cap:
             skipped_for_cap += 1
