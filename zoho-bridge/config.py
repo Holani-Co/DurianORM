@@ -295,6 +295,11 @@ WEBSITE_REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("WEBSITE_REVIEWS_POLL
 # Cap ingested-per-sweep so the first run doesn't flood the inbox with the whole
 # historical backlog (the GET returns every review). 0 disables the cap.
 WEBSITE_REVIEWS_MAX_PER_SWEEP  = max(0, int(os.environ.get("WEBSITE_REVIEWS_MAX_PER_SWEEP", "20")))
+# The GET returns the ENTIRE review history (~23k, no since/pagination). Set
+# this to an ISO date (e.g. 2026-09-18) to ingest only reviews created on/after
+# it — reviews older than this are recorded as seen and skipped, so the inbox
+# isn't flooded with years of backlog. Empty = ingest all (not recommended).
+WEBSITE_REVIEWS_SINCE          = os.environ.get("WEBSITE_REVIEWS_SINCE", "").strip()
 
 
 # ── Spam-classifier safeguards ────────────────────────────────────────────
