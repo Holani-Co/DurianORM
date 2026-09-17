@@ -9,9 +9,12 @@ module WhatsappCampaignMedia
   end
 
   def whatsapp_media_params(template_parameters)
-    return template_parameters unless media.attached?
+    # The local blob is purged once a campaign completes, but the Meta media id
+    # persists — so a retry can still attach the header by id without the file.
+    return template_parameters unless media.attached? || whatsapp_media_id.present?
 
-    Whatsapp::CampaignMediaService.new(blob: media.blob, template: whatsapp_template, media_id: whatsapp_media_id).apply(template_parameters)
+    blob = media.attached? ? media.blob : nil
+    Whatsapp::CampaignMediaService.new(blob: blob, template: whatsapp_template, media_id: whatsapp_media_id).apply(template_parameters)
   end
 
   private
@@ -31,6 +34,9 @@ module WhatsappCampaignMedia
     header_format = whatsapp_template_media_format
     return if header_format.blank?
     return if media.attached?
+    # Already uploaded to Meta (e.g. a completed campaign being retried after its
+    # local blob was purged) — the media id is a valid source.
+    return if whatsapp_media_id.present?
     return if (template_params&.dig('processed_params', 'header') || {})['media_url'].present?
 
     msg = "This template has a #{header_format} header — upload a file or provide a public " \

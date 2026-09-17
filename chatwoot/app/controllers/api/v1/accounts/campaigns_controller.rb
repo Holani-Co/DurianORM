@@ -98,7 +98,7 @@ class Api::V1::Accounts::CampaignsController < Api::V1::Accounts::BaseController
   def perform_campaign_control(action)
     Whatsapp::CampaignControlService.new(@campaign).public_send(action)
     render :show
-  rescue ArgumentError => e
+  rescue ArgumentError, ActiveRecord::RecordInvalid => e
     render json: { error: e.message }, status: :unprocessable_entity
   end
 end
