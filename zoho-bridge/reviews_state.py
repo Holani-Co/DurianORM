@@ -9,6 +9,7 @@
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 _DB_PATH = os.environ.get(
     "REVIEWS_STATE_DB", os.path.join(os.path.dirname(__file__), "reviews_state.db")
@@ -16,10 +17,18 @@ _DB_PATH = os.environ.get(
 _lock = threading.Lock()
 
 
+@contextmanager
 def _conn():
+    # sqlite3's own `with connection:` commits/rolls back but does NOT close the
+    # connection — `with _conn() as c:` used to leak a file descriptor per call.
+    # This wrapper closes it while keeping the same transaction behaviour.
     c = sqlite3.connect(_DB_PATH)
     c.row_factory = sqlite3.Row
-    return c
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def init():

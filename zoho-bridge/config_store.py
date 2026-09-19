@@ -17,6 +17,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 _DB_PATH = os.environ.get(
@@ -25,10 +26,18 @@ _DB_PATH = os.environ.get(
 _lock = threading.Lock()
 
 
+@contextmanager
 def _conn():
+    # sqlite3's own `with connection:` commits/rolls back but does NOT close the
+    # connection — `with _conn() as c:` used to leak a file descriptor per call.
+    # This wrapper closes it while keeping the same transaction behaviour.
     c = sqlite3.connect(_DB_PATH)
     c.row_factory = sqlite3.Row
-    return c
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def _now() -> str:
