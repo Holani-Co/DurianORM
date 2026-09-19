@@ -63,25 +63,25 @@ async def _ingest_review(rv: dict) -> None:
     """Bring one new website review into Chatwoot as an open conversation."""
     reviewer = _reviewer_name(rv)
     product = f"Product #{rv['product_id']}" if rv.get("product_id") else "Product (unknown)"
-    location = " · ".join(p for p in (rv.get("city"),) if p)
+    meta_bits = [b for b in (rv.get("city"), rv.get("email")) if b]
     heading = rv["title"] or "(no title)"
     body = (
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
         f"🛋 {product}"
-        f"{('  ·  📍 ' + location) if location else ''}\n\n"
+        f"{('  ·  ' + '  ·  '.join(meta_bits)) if meta_bits else ''}\n\n"
         f"{heading}\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
 
-    # Key the contact by email when present so a reviewer's multiple reviews
-    # group under one contact; the guest `user` id can be shared, so fall back
-    # to the review id (unique) rather than collapsing guests together.
-    ident = rv.get("email") or f"review_{rv['review_id']}"
+    # Key the contact by the UNIQUE review id — each review is its own inbox item.
+    # We can't key by email: the site fills a shared placeholder
+    # (customersupport@durian.in) for reviews with no customer email, which would
+    # collide on Chatwoot's unique email/identifier (422). For the same reason we
+    # do NOT set the contact email; the email (if any) is shown in the body.
     contact_id, source_id = await chatwoot.create_contact(
         name=reviewer,
-        identifier=f"webreview_{ident}".lower().replace(" ", "_"),
+        identifier=f"webreview_review_{rv['review_id']}",
         inbox_id=config.WEBSITE_REVIEWS_INBOX_ID,
-        email=rv.get("email") or None,
     )
     conv_id = await chatwoot.create_conversation(
         source_id=source_id or f"wr_{rv['review_id']}",
