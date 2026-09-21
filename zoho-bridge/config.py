@@ -300,6 +300,14 @@ WEBSITE_REVIEWS_MAX_PER_SWEEP  = max(0, int(os.environ.get("WEBSITE_REVIEWS_MAX_
 # it — reviews older than this are recorded as seen and skipped, so the inbox
 # isn't flooded with years of backlog. Empty = ingest all (not recommended).
 WEBSITE_REVIEWS_SINCE          = os.environ.get("WEBSITE_REVIEWS_SINCE", "").strip()
+# Auto-reply to website reviews with the client's two approved templates
+# (positive / negative), chosen by MESSAGE INTENT (LLM sentiment) and falling
+# back to the star rating only for rating-only reviews. Dark-launched — reviews
+# stay human-only until this is true.
+WEBSITE_REVIEWS_AUTO_REPLY     = _bool("WEBSITE_REVIEWS_AUTO_REPLY")
+# For a rating-only review (no text to classify), this star rating and above
+# gets the positive template; below it gets the negative one.
+WEBSITE_REVIEWS_POSITIVE_MIN_STARS = int(os.environ.get("WEBSITE_REVIEWS_POSITIVE_MIN_STARS", "4"))
 
 
 # ── Spam-classifier safeguards ────────────────────────────────────────────
