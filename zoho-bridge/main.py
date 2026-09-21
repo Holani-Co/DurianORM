@@ -1666,6 +1666,36 @@ async def _send_complaint_reference_ack(conv_id: int, sender_email: str,
         print(f"[zoho-dedup] reference ack send failed for conv {conv_id}: {e}")
 
 
+async def _send_forwarder_confirmation(conv_id: int, forwarder_email: str,
+                                       forwarder_name: str, customer_name: str,
+                                       category_display: str,
+                                       rule: Optional[dict]) -> None:
+    """Email a whitelisted staff forwarder (FORWARD_CONFIRM_SENDERS) to confirm
+    their forwarded customer mail was logged + routed. Plain text (email has no
+    markdown). Best-effort — a failure never affects the customer-facing flow.
+    The conversation contact is still the forwarder, but we address it explicitly
+    via to_emails so it can't accidentally go to the substituted customer."""
+    team = (rule or {}).get("display_name") or category_display or "the concerned"
+    fwd_addr = (((rule or {}).get("forward_to") or "").split(",")[0]).strip()
+    at_team = f" ({fwd_addr})" if fwd_addr else ""
+    greeting = forwarder_name.split()[0] if forwarder_name.strip() else "there"
+    for_customer = f" from {customer_name}" if customer_name else ""
+    body = (
+        f"Hi {greeting},\n\n"
+        f"Thanks for forwarding this. We've logged the customer's email{for_customer}, "
+        f"categorised it as \"{category_display}\", and routed it to our {team} team{at_team}, "
+        f"who will follow up with the customer. An acknowledgement has also been sent "
+        f"to the customer.\n\n"
+        f"No further action is needed from you.\n\n"
+        f"Regards,\nTeam Durian (ORM)"
+    )
+    try:
+        await chatwoot.send_outgoing_message(conv_id, body, to_emails=forwarder_email)
+        print(f"[fwd] conv {conv_id}: confirmation sent to forwarder {forwarder_email}")
+    except Exception as e:
+        print(f"[fwd] conv {conv_id}: forwarder confirmation failed: {e}")
+
+
 async def _create_or_pause_zoho_ticket(conv_id: int,
                                        data: dict,
                                        sender_email: str,
@@ -4133,6 +4163,10 @@ async def handle_message_created(data: dict) -> dict:
     # — uses the customer's own details. The forwarder keeps no role beyond a
     # private note. The conversation contact is deliberately left alone; the
     # acknowledgement is addressed explicitly via to_emails.
+    # Captured before the substitution below so we can (optionally) confirm back
+    # to a whitelisted staff forwarder once the mail is classified + routed.
+    forwarded_by_email = ""
+    forwarded_by_name = ""
     if additional.get("mail_subject") and \
             forwarded_email.looks_forwarded(real_subject, content):
         original = forwarded_email.extract_original_sender(
@@ -4141,6 +4175,8 @@ async def handle_message_created(data: dict) -> dict:
             exclude_emails=(sender_email,))
         if original:
             forwarded_by = sender_email or "a colleague"
+            forwarded_by_email = (sender_email or "").lower()
+            forwarded_by_name = sender.get("name") or ""
             sender = {**sender, "email": original["email"],
                       "name": original["name"] or sender.get("name") or ""}
             sender_email = original["email"]
@@ -4587,6 +4623,18 @@ async def handle_message_created(data: dict) -> dict:
             await chatwoot.post_private_note(conv_id, "\n".join(note_lines))
         except Exception as e:
             print(f"[category-v2] post_private_note failed: {e}")
+
+        # ── Confirm back to a whitelisted staff forwarder ────────────
+        # Only for FORWARD_CONFIRM_SENDERS (e.g. somesh/shilpi/saharsh); any other
+        # forwarder just gets the normal handling. Real-send path only (not
+        # dry-run, not the loop-guard re-entry), and only once the mail was
+        # actually classified + routed above.
+        if (not is_social and not _PHASE_2_DRY_RUN and not existing_phase2
+                and forwarded_by_email
+                and forwarded_by_email in config.FORWARD_CONFIRM_SENDERS):
+            await _send_forwarder_confirmation(
+                conv_id, forwarded_by_email, forwarded_by_name,
+                sender.get("name") or "", display, rule)
 
         # ── Category label ──────────────────────────────────────────
         cat_label = category_result["category"].replace("_", "-")
