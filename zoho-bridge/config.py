@@ -698,3 +698,10 @@ INTERNAL_EMAIL_DOMAINS = tuple(
     for d in os.environ.get("INTERNAL_EMAIL_DOMAINS", "durian.in").split(",")
     if d.strip()
 )
+
+# Staff whose forwards get an email confirmation back ("logged, categorised as X,
+# routed to the Y team"). Comma-separated exact addresses (lowercased), e.g.
+# somesh@durian.in,shilpi@durian.in,saharsh@durian.in. EMPTY = feature off — any
+# other forwarder just gets the normal handling with no confirmation. This is the
+# allow-list that gates the whole feature, so no separate on/off flag is needed.
+FORWARD_CONFIRM_SENDERS = _csv("FORWARD_CONFIRM_SENDERS")
