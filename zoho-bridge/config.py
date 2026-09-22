@@ -611,6 +611,15 @@ WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.
 WEBSITE_FHC_FLOW_ENABLED = _bool("WEBSITE_FHC_FLOW_ENABLED", "false")
+
+# ── WhatsApp Furniture flow (whatsapp_furniture.py) ────────────────────────
+# Deterministic menu bot for the FURNITURE WhatsApp number, mirroring the
+# durian.in website chatbot: Explore Offers / Sale / Find Stores / Talk to a
+# Durian Expert (→ CRM) / Track your Order (→ BMS) / Shop In-Store. INBOX-SCOPED
+# (runs only on WHATSAPP_FURNITURE_INBOX_ID) so the current number is untouched.
+# Dark-launched OFF. See docs/whatsapp-furniture-flow-spec.md.
+WHATSAPP_FURNITURE_FLOW_ENABLED = _bool("WHATSAPP_FURNITURE_FLOW_ENABLED", "false")
+WHATSAPP_FURNITURE_INBOX_ID = int(os.environ.get("WHATSAPP_FURNITURE_INBOX_ID", "0") or 0)
 # Zoho CRM owner (user id) for FHC enquiries that fall OUTSIDE the 7-studio
 # network — the deal is created and assigned to Customer Support instead of
 # being dropped. Empty → out-of-coverage stays a Chatwoot-only handoff (no

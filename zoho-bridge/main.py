@@ -41,6 +41,7 @@ import product_catalog
 import snapmint
 import social_agent
 import whatsapp_fhc
+import whatsapp_furniture
 import retail_showrooms as retail
 import document_extractor
 import summarizer
@@ -3956,6 +3957,20 @@ async def handle_message_created(data: dict) -> dict:
     # / handoff). It owns the conversation while the flow runs, unless a human
     # has taken it over. Dark-launched behind WHATSAPP_FHC_FLOW_ENABLED; when
     # off, whatsapp_fhc.handle returns None and we fall through as before.
+    # Furniture WhatsApp number: its own deterministic menu bot (offers / stores /
+    # expert→CRM / track→BMS / shop). INBOX-SCOPED so it runs only on the
+    # furniture inbox — checked before the FHC gate (which is not inbox-scoped)
+    # so the furniture number never falls into the FHC flow. Dark-launched.
+    if (conv_id and config.WHATSAPP_FURNITURE_FLOW_ENABLED
+            and inbox_id == config.WHATSAPP_FURNITURE_INBOX_ID):
+        full_conv = await chatwoot.get_conversation(conv_id)
+        assignee = (full_conv.get("meta") or {}).get("assignee") or {}
+        if not assignee or social_agent.is_bot_agent(assignee):
+            handled = await whatsapp_furniture.handle(
+                full_conv, conv_id, data.get("content") or "", data.get("id"))
+            if handled is not None:
+                return handled
+
     if social_channel == "whatsapp" and config.WHATSAPP_FHC_FLOW_ENABLED and conv_id:
         full_conv = await chatwoot.get_conversation(conv_id)
         assignee = (full_conv.get("meta") or {}).get("assignee") or {}
