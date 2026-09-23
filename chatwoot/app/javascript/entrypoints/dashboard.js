@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createI18n } from 'vue-i18n';
+import { installationNamePostTranslation } from 'shared/helpers/installationName';
 
 import axios from 'axios';
 // Global Components
@@ -34,6 +35,7 @@ import { directive as onClickaway } from 'vue3-click-away';
 import 'floating-vue/dist/style.css';
 
 const i18n = createI18n({
+  postTranslation: installationNamePostTranslation,
   legacy: false, // https://github.com/intlify/vue-i18n/issues/1902
   locale: 'en',
   messages: i18nMessages,

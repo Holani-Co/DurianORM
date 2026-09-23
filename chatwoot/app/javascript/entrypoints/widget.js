@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createI18n } from 'vue-i18n';
+import { installationNamePostTranslation } from 'shared/helpers/installationName';
 
 import VueDOMPurifyHTML from 'vue-dompurify-html';
 import store from '../widget/store';
@@ -17,6 +18,7 @@ import {
 } from 'shared/helpers/Validators';
 
 const i18n = createI18n({
+  postTranslation: installationNamePostTranslation,
   legacy: false, // https://github.com/intlify/vue-i18n/issues/1902
   locale: 'en',
   messages: i18nMessages,
