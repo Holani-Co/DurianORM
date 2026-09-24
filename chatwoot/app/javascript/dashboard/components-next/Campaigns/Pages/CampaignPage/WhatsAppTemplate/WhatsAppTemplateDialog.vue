@@ -266,9 +266,13 @@ const setMediaFile = event => {
   [state.mediaFile] = event.target.files;
 };
 
+// Surface the real reason: Meta's / the backend's message first, then the
+// axios-level message (e.g. a timeout or network error on a large media
+// upload) so failures are actionable instead of the generic fallback.
 const errorMessage = error =>
   error?.response?.data?.error ||
   error?.response?.data?.message ||
+  error?.message ||
   t('CAMPAIGN.WHATSAPP.TEMPLATES.API.ERROR');
 
 const submitTemplate = async () => {
