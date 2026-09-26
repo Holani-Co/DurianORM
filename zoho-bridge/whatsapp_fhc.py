@@ -509,9 +509,13 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             await _create_fhc_deal(conv_id, st.get("name") or "", st.get("phone") or "",
                                    pin, store, interest=st.get("interest") or "",
                                    blueprint="digital")
+            _map_line = (f"\n🗺️ {store['map']}"
+                         if config.DEAL_ACK_STORE_LINE_ENABLED and store.get("map")
+                         else "")
             await _say(f"Thank you, {_first_name(name)}! ✅ Your enquiry has been "
-                       f"registered with our *{store['card_name']}* studio. Our team "
-                       f"will reach out to you shortly.\n\nThank you for choosing Durian ✨")
+                       f"registered with our *{store['card_name']}* studio.{_map_line}\n\n"
+                       f"Our team will reach out to you shortly.\n\n"
+                       f"Thank you for choosing Durian ✨")
             await _save(step="done", pincode=pin, store=store["location"])
             return {"handled": "wa_fhc_deal"}
         # Outside the studio network → create a Customer Support deal (if the

@@ -488,3 +488,114 @@ def test_no_deterministic_profile_writers():
     assert not hasattr(cp, "events_from_conversation")
     prof = cp.empty_profile()
     assert prof.get("identity") == {} and prof.get("location") == {}
+
+
+# ── Location change after routing (conv 8405: Bikaner → Kolkata) ─────────────
+# A different location must never silently re-route or be claimed as routed:
+# before a deal we ask the customer to pick ONE (no deal until they do); after
+# a deal we leave CRM alone and flag a human.
+
+_BIKANER = {"owner_id": "3608871000560226015", "location": "Bikaner - Rani Baraz",
+            "city": "Bikaner"}
+
+
+def _routed_ctx(**attrs):
+    ca = {"retail_deal_owner": dict(_BIKANER), "retail_customer_phone": "9820649178"}
+    ca.update(attrs)
+    return {"conv_id": 1, "conv": {"custom_attributes": ca},
+            "profile": {"identity": {"phone": {"value": "9820649178"}}}}
+
+
+class _RouteFakeChatwoot(_DealFakeChatwoot):
+    """Adds remove_label — the normal routing path also drops a label."""
+
+    async def remove_label(self, conv_id, label):
+        pass
+
+
+def _route_setup(monkeypatch):
+    fake = _RouteFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    created = []
+
+    async def creator(conv_id, agent_name=""):
+        created.append(conv_id)
+        return {"deal_id": "D1", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    return fake, created
+
+
+def test_route_same_city_unchanged(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx()
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Bikaner"))
+    assert r["routed"] and "already routed" in r["note"]
+    assert not created and "pending_showroom_choice" not in ctx["conv"]["custom_attributes"]
+
+
+def test_route_new_city_asks_to_confirm(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx()
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Kolkata"))
+    ca = ctx["conv"]["custom_attributes"]
+    assert r["routed"] is False and r["needs_confirmation"]
+    assert r["new_showroom"] == "Kolkata - Topsia"
+    assert "Do NOT say" in r["note"]
+    assert ca["retail_deal_owner"]["location"] == "Bikaner - Rani Baraz"   # not re-routed
+    assert ca["pending_showroom_choice"] == {"current": "Bikaner - Rani Baraz",
+                                             "new": "Kolkata - Topsia"}
+    assert not created
+
+
+def test_route_confirm_without_asking_still_asks(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx()
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Kolkata", confirm=True))
+    assert r.get("needs_confirmation") and not created
+
+
+def test_route_confirmed_switch_reroutes_and_creates(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx(pending_showroom_choice={"current": "Bikaner - Rani Baraz",
+                                               "new": "Kolkata - Topsia"})
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Kolkata", confirm=True))
+    ca = ctx["conv"]["custom_attributes"]
+    assert r["routed"] and r["showroom"] == "Kolkata - Topsia" and r["deal_created"]
+    assert ca["retail_deal_owner"]["location"] == "Kolkata - Topsia"
+    assert not ca.get("pending_showroom_choice")
+    assert created == [1]
+
+
+def test_route_confirmed_current_keeps_and_creates(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx(pending_showroom_choice={"current": "Bikaner - Rani Baraz",
+                                               "new": "Kolkata - Topsia"})
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Bikaner", confirm=True))
+    ca = ctx["conv"]["custom_attributes"]
+    assert r["routed"] and r["showroom"] == "Bikaner - Rani Baraz" and r["deal_created"]
+    assert ca["retail_deal_owner"]["location"] == "Bikaner - Rani Baraz"
+    assert not ca.get("pending_showroom_choice") and created == [1]
+
+
+def test_route_change_after_deal_flags_human(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx(crm_deal_id="D0")
+    r = asyncio.run(sa._sk_route_to_showroom(ctx, city="Kolkata"))
+    ca = ctx["conv"]["custom_attributes"]
+    assert r["deal_created"] and "do NOT say it has been moved" in r["note"]
+    assert ca["retail_deal_owner"]["location"] == "Bikaner - Rani Baraz"
+    assert "deal-ready" in fake.labels and fake.notes and not created
+
+
+def test_auto_deal_waits_for_location_choice(monkeypatch):
+    import asyncio
+    fake, created = _route_setup(monkeypatch)
+    ctx = _routed_ctx(pending_showroom_choice={"current": "a", "new": "b"})
+    assert asyncio.run(sa._maybe_auto_deal(ctx)) is False and not created
