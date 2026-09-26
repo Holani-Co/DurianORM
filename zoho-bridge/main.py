@@ -6527,6 +6527,42 @@ def _walk_owner_dicts(node):
             yield from _walk_owner_dicts(v)
 
 
+# Categories the bridge's own flows depend on by key (deal gates, complaint
+# tickets, bulk sector routing, FHC/doors flows…). They can be edited but not
+# disabled — switching one off would silently stop that flow.
+CORE_CATEGORIES = (
+    "product_enquiry", "general_information", "existing_order_enquiry",
+    "complaint", "franchise_dealership", "project_bulk_order",
+    "full_home_customization", "doors_veneer_plywood",
+)
+
+
+def _default_subcategories() -> dict:
+    """{category: [subcategory keys]} that are the category's DEFAULT flow in the
+    shipped YAML (no forward_to — e.g. Product Enquiry → Retail Furniture feeds
+    the retail showroom gate). They can be taught (keywords/description) but not
+    made to forward or disabled."""
+    base = classifier.merge_over_base({}).get("categories") or {}
+    return {k: [vk for vk, v in (c.get("vertical_routing") or {}).items()
+                if not (v or {}).get("forward_to")]
+            for k, c in base.items() if c.get("vertical_routing")}
+
+
+def _is_str_list(v) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _validate_ai_fields(where: str, cfg: dict, errors: list) -> None:
+    """Shape checks for the AI-facing fields a client can edit."""
+    if "disabled" in cfg and not isinstance(cfg["disabled"], bool):
+        errors.append(f"{where}: disabled must be true or false.")
+    if "description" in cfg and not isinstance(cfg["description"], str):
+        errors.append(f"{where}: description must be text.")
+    for f in ("keywords", "examples"):
+        if f in cfg and not _is_str_list(cfg[f]):
+            errors.append(f"{where}: {f} must be a list of text entries.")
+
+
 def _validate_routing_doc(doc) -> dict:
     """Return {ok, errors, warnings}. Errors block publish; warnings don't.
     Pragmatic integrity checks — the ones that would actually misroute mail or
@@ -6534,6 +6570,16 @@ def _validate_routing_doc(doc) -> dict:
     errors, warnings = [], []
     if not isinstance(doc, dict):
         return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
+    # Cross-checks (new subcategory names, all-disabled…) need the YAML floor too.
+    merged_cats = classifier.merge_over_base(doc).get("categories") or {}
+    defaults = _default_subcategories()
+
+    if "category_ai_rules" in doc and not _is_str_list(doc["category_ai_rules"]):
+        errors.append("category_ai_rules must be a list of text rules.")
+    if "ai_examples_per_category" in doc:
+        n = doc["ai_examples_per_category"]
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= 20:
+            errors.append("ai_examples_per_category must be a whole number from 1 to 20.")
 
     cats = doc.get("categories")
     if cats is not None and not isinstance(cats, dict):
@@ -6548,6 +6594,24 @@ def _validate_routing_doc(doc) -> dict:
             if not isinstance(cfg, dict):
                 errors.append(f"Category '{key}' must be an object.")
                 continue
+            _validate_ai_fields(f"Category '{key}'", cfg, errors)
+            if cfg.get("disabled") is True and key in CORE_CATEGORIES:
+                errors.append(f"Category '{key}' can't be disabled — the bridge's "
+                              "own flows depend on it.")
+            if "vertical_rules" in cfg and not _is_str_list(cfg["vertical_rules"]):
+                errors.append(f"Category '{key}': vertical_rules must be a list of text rules.")
+            if cfg.get("vertical_ambiguous") not in (None, "", "card"):
+                errors.append(f"Category '{key}': vertical_ambiguous must be 'card' or empty.")
+            sr = cfg.get("sector_routing")
+            if sr is not None and not isinstance(sr, dict):
+                errors.append(f"Category '{key}': sector_routing must be an object.")
+            elif isinstance(sr, dict):
+                if "ai_rules" in sr and not _is_str_list(sr["ai_rules"]):
+                    errors.append(f"Category '{key}': sector ai_rules must be a list of text rules.")
+                for sec in ("government", "private"):
+                    kws = (sr.get(sec) or {}).get("keywords") if isinstance(sr.get(sec), dict) else None
+                    if kws is not None and not _is_str_list(kws):
+                        errors.append(f"Category '{key}': {sec} keywords must be a list of text entries.")
             action = cfg.get("action")
             if action is not None and action not in ("in_channel", "forward"):
                 errors.append(f"Category '{key}': action must be 'in_channel' or 'forward'.")
@@ -6574,10 +6638,31 @@ def _validate_routing_doc(doc) -> dict:
             if vr is not None and not isinstance(vr, dict):
                 errors.append(f"Category '{key}': vertical_routing must be an object.")
             elif isinstance(vr, dict):
+                merged_vr = (merged_cats.get(key) or {}).get("vertical_routing") or {}
                 for vkey, vcfg in vr.items():
+                    if not re.match(r"^[a-z][a-z0-9_]*$", str(vkey)) or vkey == "unclear":
+                        errors.append(f"Category '{key}': subcategory key '{vkey}' must use "
+                                      "lowercase letters, numbers and underscores "
+                                      "(and can't be 'unclear').")
                     if not isinstance(vcfg, dict):
                         errors.append(f"Category '{key}' vertical '{vkey}' must be an object.")
                         continue
+                    _validate_ai_fields(f"Category '{key}' subcategory '{vkey}'", vcfg, errors)
+                    mv = merged_vr.get(vkey) or {}
+                    if vkey in defaults.get(key, []):
+                        if mv.get("disabled"):
+                            errors.append(f"Category '{key}': '{vkey}' is the default "
+                                          "subcategory and can't be disabled.")
+                        if mv.get("forward_to"):
+                            errors.append(f"Category '{key}': '{vkey}' is the default "
+                                          "subcategory — it stays in the normal flow "
+                                          "and can't forward.")
+                    if not str(mv.get("display_name") or "").strip():
+                        errors.append(f"Category '{key}': subcategory '{vkey}' needs a name.")
+                    if not mv.get("disabled") and not (
+                            str(mv.get("description") or "").strip() or mv.get("keywords")):
+                        warnings.append(f"Category '{key}': subcategory '{vkey}' has no "
+                                        "description or keywords — the AI will rarely pick it.")
                     vft = vcfg.get("forward_to")
                     if vft:
                         for addr in str(vft).split(","):
@@ -6598,7 +6683,22 @@ def _validate_routing_doc(doc) -> dict:
                                 if not _valid_email(a):
                                     errors.append(f"Category '{key}' vertical '{vkey}': "
                                                   f"{vf} has an invalid email '{a}'.")
-            if not (cfg.get("description") or "").strip():
+            mcat = merged_cats.get(key) or {}
+            mvr = mcat.get("vertical_routing")
+            mvr = mvr if isinstance(mvr, dict) else {}
+            if mvr and (mcat.get("sector_routing") or mcat.get("location_routing")):
+                errors.append(f"Category '{key}' already routes by buyer type / location, "
+                              "so it can't also have subcategories.")
+            if mvr and all((v or {}).get("disabled") for v in mvr.values()):
+                warnings.append(f"Category '{key}': every subcategory is disabled — "
+                                "it will no longer be split by subcategory.")
+            off = [vk for vk, v in mvr.items() if (v or {}).get("disabled")]
+            for rule_text in (mcat.get("vertical_rules") or []):
+                named = [vk for vk in off if vk in str(rule_text)]
+                if named:
+                    warnings.append(f"Category '{key}': a subcategory rule mentions "
+                                    f"disabled subcategory {', '.join(named)} — update the rule.")
+            if not ((merged_cats.get(key) or {}).get("description") or "").strip():
                 warnings.append(f"Category '{key}' has no description — the classifier picks it less reliably.")
 
     if "confidence_threshold" in doc:
@@ -6651,6 +6751,8 @@ async def admin_routing_config_get(x_routing_admin_secret: Optional[str] = Heade
         "override":          config_store.get_active_override(),
         "active_version":    config_store.active_version(),
         "known_owners":      _known_owners(effective),
+        "core_categories":   list(CORE_CATEGORIES),
+        "default_subcategories": _default_subcategories(),
         "cache_ttl_seconds": classifier._RULES_CACHE_TTL,
     }
 
@@ -6747,6 +6849,7 @@ async def admin_routing_config_preview(request: Request,
         "vertical":         vertical,
         "vertical_display": classifier.vertical_display_name(cat, vertical) if vertical else "",
         "vertical_uncertain": bool(result.get("vertical_uncertain")),
+        "vertical_reason":    result.get("vertical_reason") or "",
         "reason":       result.get("reason"),
         "alternatives": result.get("alternatives") or [],
     }

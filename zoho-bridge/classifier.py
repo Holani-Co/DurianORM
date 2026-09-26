@@ -595,10 +595,25 @@ def is_auto_file_sender(email: str) -> bool:
     return False
 
 
+def _active(items: dict) -> dict:
+    """Categories / subcategories not switched off in ORM Settings
+    (`disabled: true`). Disabled ones are hidden from the AI and the agent
+    pickers, but keep their display names for conversations already tagged."""
+    return {k: v for k, v in (items or {}).items() if not (v or {}).get("disabled")}
+
+
+def _examples_cap(rules: dict) -> int:
+    """Example messages per category/subcategory shown to the AI (ORM Settings)."""
+    try:
+        return max(1, min(20, int(rules.get("ai_examples_per_category", 4))))
+    except (TypeError, ValueError):
+        return 4
+
+
 def category_choices() -> list[dict]:
-    """[{category, display_name}] for every routing category — used to build
-    the dropdown on the human-in-the-loop Category decision card."""
-    cats = get_routing_rules().get("categories") or {}
+    """[{category, display_name}] for every active routing category — used to
+    build the dropdown on the human-in-the-loop Category decision card."""
+    cats = _active(get_routing_rules().get("categories"))
     return [
         {"category": key,
          "display_name": (cfg or {}).get("display_name") or key.replace("_", " ").title()}
@@ -616,7 +631,8 @@ def _build_category_system_prompt(rules: dict) -> str:
     """Compose the LLM system prompt from the YAML. The category descriptions
     + few-shot examples live in the YAML so non-engineers can edit them; we
     just lay them out into the prompt at startup."""
-    cats = rules.get("categories") or {}
+    cats = _active(rules.get("categories"))
+    cap = _examples_cap(rules)
     lines = [
         "You are an email-routing classifier for Durian Industries — a "
         "furniture brand whose customer-support inbox (hello@durian.in) "
@@ -635,7 +651,7 @@ def _build_category_system_prompt(rules: dict) -> str:
         examples = cfg.get("examples") or []
         if examples:
             lines.append("  Example messages:")
-            for ex in examples[:4]:
+            for ex in examples[:cap]:
                 lines.append(f'    • "{ex}"')
         # Subject-line keyword anchors from the client's Email-Keywords
         # sheet — short topic phrases that strongly indicate the category,
@@ -649,19 +665,13 @@ def _build_category_system_prompt(rules: dict) -> str:
             lines.append(f"  Common subject keywords: {shown}")
         lines.append("")
 
+    # Decision rules come from the config (category_ai_rules — editable in ORM
+    # Settings). The output-format bullets below stay locked in code so an
+    # edit can't break the machine-readable response.
+    lines.append("Rules:")
+    lines.extend(f"  • {r}" for r in (rules.get("category_ai_rules") or [])
+                 if str(r).strip())
     lines.extend([
-        "Rules:",
-        "  • Pick the category that BEST fits the customer's primary "
-        "intent. If a message touches multiple categories, pick the most "
-        "actionable one (complaint > enquiry; legal_complaint > complaint).",
-        "  • Distinguish carefully: 'product_enquiry' is PRE-purchase "
-        "interest; 'existing_order_enquiry' is POST-purchase status; "
-        "'complaint' is dissatisfaction; 'legal_complaint' is when the "
-        "customer cites law / threatens proceedings.",
-        "  • Distinguish 'franchise_dealership' (wants to sell Durian) "
-        "from 'vendor_supplier_enquiry' (wants to sell TO Durian).",
-        "  • Distinguish 'marketing_advertising' (paid services pitch) "
-        "from 'collaboration_request' (brand/influencer barter / co-marketing).",
         "  • Output a confidence score 0.0-1.0 reflecting how cleanly the "
         "message matches your chosen category. Use < 0.6 when uncertain.",
         "  • Brief reason: one sentence, what signal led you to the "
@@ -746,7 +756,7 @@ async def classify_email_category(content: str, sender_email: str = "",
     # One snapshot of the effective rules (YAML ⊕ UI override) for this call —
     # so a mid-flight publish can't change the category set half-way through.
     rules         = get_routing_rules()
-    category_keys = list((rules.get("categories") or {}).keys())
+    category_keys = list(_active(rules.get("categories")).keys())
     if not content or not content.strip() or not category_keys:
         return dict(_SAFE_CATEGORY_DEFAULT)
 
@@ -826,7 +836,15 @@ async def classify_email_category(content: str, sender_email: str = "",
             "alternatives": alternatives,
         }
 
-    rule = (rules.get("categories") or {}).get(rule_key) or {}
+    rule = dict((rules.get("categories") or {}).get(rule_key) or {})
+    # Only ACTIVE subcategories travel downstream (AI choice, decision-card
+    # picker, forwarding). All switched off → the category isn't sub-routed.
+    if rule.get("vertical_routing"):
+        active_v = _active(rule["vertical_routing"])
+        if active_v:
+            rule["vertical_routing"] = active_v
+        else:
+            rule.pop("vertical_routing")
     result = {
         "category":   rule_key,
         "confidence": confidence,
@@ -905,7 +923,9 @@ async def classify_email_category(content: str, sender_email: str = "",
     if rule.get("vertical_routing"):
         vroute_map = rule["vertical_routing"]
         vres = await classify_vertical(content, vroute_map, sender_email,
-                                       subject, lf_parent=lf_parent)
+                                       subject, lf_parent=lf_parent,
+                                       ai_rules=rule.get("vertical_rules"),
+                                       examples_cap=_examples_cap(rules))
         result["vertical"]            = vres["vertical"]
         result["vertical_confidence"] = vres["confidence"]
         result["vertical_reason"]     = vres["reason"]
@@ -958,16 +978,19 @@ _BULK_SECTOR_SCHEMA = {
 def _build_bulk_sector_prompt(sector_routing: dict) -> str:
     gov_kw = ", ".join(str(k) for k in (sector_routing.get("government", {}).get("keywords") or []))
     pri_kw = ", ".join(str(k) for k in (sector_routing.get("private", {}).get("keywords") or []))
-    return (
+    # Decision rules come from sector_routing.ai_rules (editable in ORM
+    # Settings). The ambiguity calibration + output format below stay locked:
+    # they're tied to BULK_SECTOR_AUTO_CONFIDENCE (auto-route vs ask an agent).
+    ai_rules = [str(r).strip() for r in (sector_routing.get("ai_rules") or [])
+                if str(r).strip()]
+    return "\n\n".join([
         "A bulk / project furniture order has come in. Decide whether the BUYER "
         "is a GOVERNMENT / public-sector body or a PRIVATE company, so it routes "
-        "to the right handler.\n\n"
-        "Strongest signal: the sender's email domain. A .gov.in or .nic.in domain "
-        "is government almost without exception. A company/brand domain or a free "
-        "mailbox (gmail/outlook) leans private — but weigh the organisation name "
-        "too.\n\n"
-        f"Government / public-sector name signals: {gov_kw}\n\n"
-        f"Private-sector name signals: {pri_kw}\n\n"
+        "to the right handler.",
+        *ai_rules,
+        f"Government / public-sector name signals: {gov_kw}",
+        f"Private-sector name signals: {pri_kw}",
+    ]) + "\n\n" + (
         "Ambiguous (judge from the specific name): Trust/Foundation/Society/NGO, "
         "Co-operative/Sahakari, University/College (.ac.in can be public or "
         "private), Bank (public vs private like HDFC/ICICI/Axis), and a bare "
@@ -1063,7 +1086,8 @@ def _vertical_response_schema(vertical_keys: list) -> dict:
     }
 
 
-def _build_vertical_prompt(vertical_routing: dict) -> str:
+def _build_vertical_prompt(vertical_routing: dict, ai_rules=None,
+                           examples_cap: int = 4) -> str:
     lines = [
         "A Durian email has been classified into a category that routes by "
         "PRODUCT VERTICAL. Decide which product line the email concerns so it "
@@ -1071,23 +1095,25 @@ def _build_vertical_prompt(vertical_routing: dict) -> str:
         "",
         "Verticals:",
     ]
-    for key, cfg in (vertical_routing or {}).items():
-        disp = (cfg or {}).get("display_name") or key.replace("_", " ").title()
+    for key, cfg in _active(vertical_routing).items():
+        cfg = cfg or {}
+        disp = cfg.get("display_name") or key.replace("_", " ").title()
         lines.append(f"- {key} ({disp})")
-        kws = (cfg or {}).get("keywords") or []
+        for descline in str(cfg.get("description") or "").strip().splitlines():
+            lines.append(f"    {descline.strip()}")
+        kws = cfg.get("keywords") or []
         if kws:
             lines.append("    signals: " + ", ".join(
                 str(k) for k in kws[:config.CATEGORY_KEYWORDS_IN_PROMPT]))
+        examples = [e for e in (cfg.get("examples") or []) if str(e).strip()]
+        if examples:
+            lines.append("    Example messages:")
+            lines.extend(f'      • "{ex}"' for ex in examples[:examples_cap])
+    # Decision rules come from the category's vertical_rules (editable in ORM
+    # Settings); the output-format bullet stays locked in code.
+    lines.extend(["", "Rules:"])
+    lines.extend(f"  • {r}" for r in (ai_rules or []) if str(r).strip())
     lines.extend([
-        "",
-        "Rules:",
-        "  • retail_furniture is the DEFAULT — ready furniture (sofa, bed, "
-        "mattress, dining, recliner, ready wardrobe). Pick it unless another "
-        "vertical's signal clearly fires.",
-        "  • doors_veneer_plywood covers doors, door frames, veneer AND plywood "
-        "(one vertical). laminate (decorative laminate / sunmica) is SEPARATE.",
-        "  • full_home_customization = modular kitchen / wardrobe / whole-home "
-        "interiors. ecom = online order / e-commerce.",
         "  • Output a 0.0–1.0 confidence and a one-sentence reason. Use "
         "'unclear' with a low confidence when you genuinely cannot tell which "
         "vertical — a human will pick it.",
@@ -1097,13 +1123,14 @@ def _build_vertical_prompt(vertical_routing: dict) -> str:
 
 async def classify_vertical(content: str, vertical_routing: dict,
                             sender_email: str = "", subject: str = "",
-                            lf_parent: dict = None) -> dict:
+                            lf_parent: dict = None, ai_rules=None,
+                            examples_cap: int = 4) -> dict:
     """Decide the product vertical for a vertical-routed category. Returns
     {vertical, confidence, reason}; vertical is '' when unclear. Fail-safe:
     an empty vertical on any error, so routing falls back to the category
     default / the agent decision card rather than a wrong team."""
     default = {"vertical": "", "confidence": 0.0, "reason": ""}
-    keys = list((vertical_routing or {}).keys())
+    keys = list(_active(vertical_routing).keys())
     if not content or not content.strip() or not keys:
         return default
     ctx = []
@@ -1120,7 +1147,8 @@ async def classify_vertical(content: str, vertical_routing: dict,
             response_format={"type": "json_schema",
                              "json_schema": _vertical_response_schema(keys)},
             messages=[
-                {"role": "system", "content": _build_vertical_prompt(vertical_routing)},
+                {"role": "system", "content": _build_vertical_prompt(
+                    vertical_routing, ai_rules, examples_cap)},
                 {"role": "user",   "content": "\n".join(ctx)},
             ],
             name="product-vertical-classification",
@@ -1147,7 +1175,7 @@ def vertical_choices(category: str) -> list[dict]:
           ).get("vertical_routing") or {}
     return [{"vertical": k,
              "display_name": (v or {}).get("display_name") or k.replace("_", " ").title()}
-            for k, v in vr.items()]
+            for k, v in _active(vr).items()]
 
 
 def vertical_display_name(category: str, vertical: str) -> str:
