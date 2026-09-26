@@ -336,6 +336,107 @@ async def _record_enquiry_phone(ctx, phone: str) -> str:
 
 
 
+def _route_next(location: str, deal_created: bool) -> str:
+    """What the customer may be told after routing — an unregistered enquiry is
+    never announced as registered."""
+    if deal_created:
+        return (f"the enquiry IS registered with {location} — you may tell the "
+                "customer the showroom team will contact them")
+    return ("routed, but NO enquiry is registered yet (our team completes it) — "
+            "NEVER say the enquiry is registered/created; say it has been passed "
+            "to our team, who will take care of it")
+
+
+async def _set_pending_showroom(ctx, value) -> None:
+    ctx["conv"].setdefault("custom_attributes", {})["pending_showroom_choice"] = value
+    try:
+        await chatwoot.merge_custom_attributes(
+            ctx["conv_id"], {"pending_showroom_choice": value})
+    except Exception:
+        pass
+
+
+async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
+                                 showroom: str, confirm: bool):
+    """The enquiry is already routed to `cur`. Returns the skill result, or None
+    when the customer has CONFIRMED a switch to a different showroom (the caller
+    then routes normally to it). A different location never silently re-routes:
+    before a deal exists we ask the customer to pick ONE (no deal until they do);
+    after a deal exists we don't touch CRM — a human handles the move."""
+    conv, conv_id = ctx["conv"], ctx["conv_id"]
+    ca = conv.get("custom_attributes") or {}
+    cur_loc = cur.get("location") or ""
+    pending = ca.get("pending_showroom_choice") or {}
+    new_loc = ""
+    if pincode or city or showroom:
+        room = _resolve_showroom(pincode, city, showroom, "furniture")[0]
+        new_loc = (room or {}).get("location") or ""
+
+    if new_loc and new_loc != cur_loc:
+        if ca.get("crm_deal_id"):
+            try:
+                await chatwoot.post_private_note(
+                    conv_id, f"📍 **Customer mentioned another location — {new_loc}**\n\n"
+                             f"Their enquiry is already registered with {cur_loc}. "
+                             "Move the deal in CRM if they want it handled from "
+                             f"{new_loc}.")
+                await chatwoot.add_label(conv_id, "deal-ready")
+            except Exception:
+                pass
+            return {"routed": True, "deal_created": True, "showroom": cur_loc,
+                    "note": f"The enquiry is ALREADY registered with {cur_loc}. Tell "
+                            f"the customer that, and that our team will help if they "
+                            f"want it handled from {new_loc} — do NOT say it has been "
+                            f"moved or routed to {new_loc}."}
+        if confirm and pending.get("new") == new_loc:
+            await _set_pending_showroom(ctx, None)
+            return None                     # confirmed switch → route normally
+        await _set_pending_showroom(ctx, {"current": cur_loc, "new": new_loc})
+        try:
+            await chatwoot.post_private_note(
+                conv_id, f"📍 **Location changed — waiting for the customer to "
+                         f"confirm one:** {cur_loc} or {new_loc}. No deal is "
+                         "created until they choose.")
+        except Exception:
+            pass
+        return {"routed": False, "needs_confirmation": True,
+                "current_showroom": cur_loc, "new_showroom": new_loc,
+                "note": f"The customer named a DIFFERENT location. Ask them to "
+                        f"confirm ONE: should we register their enquiry with our "
+                        f"{cur_loc} showroom or our {new_loc} showroom? Do NOT say "
+                        f"the enquiry is routed, passed or registered with either. "
+                        f"Once they choose, call route_to_showroom again with that "
+                        f"showroom and confirm=true."}
+
+    if pending:
+        if confirm and new_loc == cur_loc:
+            await _set_pending_showroom(ctx, None)
+            try:
+                await chatwoot.post_private_note(
+                    conv_id, f"📍 Customer confirmed **{cur_loc}**.")
+            except Exception:
+                pass
+            deal_created = await _maybe_auto_deal(ctx)
+            return {"routed": True, "showroom": cur_loc, "deal_created": deal_created,
+                    "next": _route_next(cur_loc, deal_created)}
+        return {"routed": False, "needs_confirmation": True,
+                "current_showroom": pending.get("current") or cur_loc,
+                "new_showroom": pending.get("new") or "",
+                "note": "Still waiting for the customer to pick ONE location: "
+                        f"{pending.get('current') or cur_loc} or "
+                        f"{pending.get('new')}. Call route_to_showroom with the "
+                        "showroom they chose and confirm=true."}
+
+    if ca.get("crm_deal_id"):
+        return {"routed": True, "deal_created": True,
+                "note": "already routed and the enquiry IS registered — "
+                        "reassure, do not re-route"}
+    return {"routed": True, "deal_created": False,
+            "note": "already routed; enquiry completion sits with our "
+                    "team — say the team will assist, NEVER say the "
+                    "enquiry is registered/created"}
+
+
 @_skill(
     "route_to_showroom",
     "Register a FURNITURE purchase enquiry with a showroom (bounded write — "
@@ -345,18 +446,25 @@ async def _record_enquiry_phone(ctx, phone: str) -> str:
     "Pass `phone` when the customer has given THEIR OWN contact number (this "
     "turn or earlier in the profile) — the enquiry is registered against it "
     "and the deal can auto-create; someone else's number is never passed. "
-    "Refuses ambiguity and re-routing.",
+    "Refuses ambiguity. If the customer later names a DIFFERENT location it "
+    "asks them to confirm one — call again with that showroom and "
+    "confirm=true once they choose.",
     {"pincode": {"type": "string"}, "city": {"type": "string"},
      "showroom": {"type": "string"},
      "phone": {"type": "string",
-               "description": "the customer's own contact number, if given"}},
+               "description": "the customer's own contact number, if given"},
+     "confirm": {"type": "boolean",
+                 "description": "true ONLY when the customer just picked this "
+                                "showroom after being asked to choose between "
+                                "two locations"}},
     {"routed": "bool", "showroom": "str", "deal_created": "bool",
      "options": "list[str] when ambiguous", "note": "str"},
     ({"pincode": "110054"},
      {"routed": True, "showroom": "Delhi - Kirti Nagar", "deal_created": True}),
 )
 async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
-                                showroom: str = "", phone: str = "", **_) -> dict:
+                                showroom: str = "", phone: str = "",
+                                confirm: bool = False, **_) -> dict:
     conv, conv_id = ctx["conv"], ctx["conv_id"]
     # The enquiry phone: what the agent passes now, else what the agent set
     # in the profile on an earlier turn (its own judgment, just older) —
@@ -365,14 +473,10 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     await _record_enquiry_phone(ctx, phone)
     ca = conv.get("custom_attributes") or {}
     if ca.get("retail_deal_owner"):
-        if ca.get("crm_deal_id"):
-            return {"routed": True, "deal_created": True,
-                    "note": "already routed and the enquiry IS registered — "
-                            "reassure, do not re-route"}
-        return {"routed": True, "deal_created": False,
-                "note": "already routed; enquiry completion sits with our "
-                        "team — say the team will assist, NEVER say the "
-                        "enquiry is registered/created"}
+        result = await _showroom_change_check(ctx, ca["retail_deal_owner"], pincode,
+                                              city, showroom, bool(confirm))
+        if result is not None:
+            return result
     room, ckey, cdata, options = _resolve_showroom(pincode, city, showroom, "furniture")
     if not room:
         return {"routed": False, "options": options,
@@ -419,18 +523,10 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     except Exception:
         pass
     deal_created = await _maybe_auto_deal(ctx)
-    out = {"routed": True, "showroom": owner["location"],
-           "city": owner["city"], "deal_created": deal_created}
-    # What actually happened decides what the customer may be told — an
-    # unregistered enquiry is never announced as registered.
-    out["next"] = (
-        f"the enquiry IS registered with {owner['location']} — you may tell "
-        "the customer the showroom team will contact them"
-        if deal_created else
-        "routed, but NO enquiry is registered yet (our team completes it) — "
-        "NEVER say the enquiry is registered/created; say it has been passed "
-        "to our team, who will take care of it")
-    return out
+    # What actually happened decides what the customer may be told.
+    return {"routed": True, "showroom": owner["location"],
+            "city": owner["city"], "deal_created": deal_created,
+            "next": _route_next(owner["location"], deal_created)}
 
 
 @_skill(
@@ -1357,6 +1453,8 @@ async def _maybe_auto_deal(ctx) -> bool:
     phone = ca.get("retail_customer_phone") or \
         ((prof.get("identity") or {}).get("phone") or {}).get("value")
     if ca.get("crm_deal_id") or not (phone and ca.get("retail_deal_owner")):
+        return False
+    if ca.get("pending_showroom_choice"):   # customer hasn't picked ONE location yet
         return False
     try:
         result = await _deal_creator(ctx["conv_id"], agent_name="Durian agent mode")
