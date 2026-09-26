@@ -105,6 +105,35 @@ def template_for(vertical: str, city: str = "", location: str = "") -> dict | No
     return None
 
 
+# Google-Maps URLs the store cards embed (short share links + full map URLs).
+_MAP_RE = re.compile(
+    r"https?://(?:maps\.app\.goo\.gl|maps\.google\.com|(?:www\.)?google\.com/maps)/\S+")
+
+# City-name drift between the routing sheet and the location-template sheet that
+# difflib's 0.8 cutoff won't bridge. Conservative on purpose — only 1:1 renames
+# of the SAME city, never a satellite→metro regroup (that risks a wrong address).
+_CITY_ALIASES = {"bengaluru": "bangalore", "bangaluru": "bangalore"}
+
+
+def map_link(vertical: str, city: str = "", location: str = "") -> str:
+    """Google-Map URL for the ONE store matching (vertical, city, locality), or ""
+    when it can't be pinned to a single store. Used to append a store's address
+    to a deal-created acknowledgement, so we return a link ONLY when it's
+    unambiguously one store — a location-scope match, or a city card that lists a
+    single store. A city-wide card with several stores returns "" (we never guess
+    which address to show)."""
+    city = _CITY_ALIASES.get(_norm(city), city)
+    t = template_for(vertical, city, location)
+    if not t:
+        return ""
+    links = _MAP_RE.findall(t.get("text") or "")
+    if t.get("scope") == "location" and links:
+        return links[0]
+    if t.get("scope") == "city" and len(links) == 1:
+        return links[0]
+    return ""
+
+
 def _template_for_tag(vkey: str, tag: str) -> dict | None:
     """Furniture pincode tags name a store ('bhubaneshwar - samantarapur',
     'bangalore-marathalli', 'goregaon'). Split into city/locality and resolve;

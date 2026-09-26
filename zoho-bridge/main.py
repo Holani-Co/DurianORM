@@ -2545,6 +2545,63 @@ Thank you — we've registered your enquiry and shared it with our team. Our rep
 Regards,
 Team Durian"""
 
+# Category → the store-template vertical, used only when the resolved owner
+# doesn't already name a vertical (e.g. the doors override path).
+_CAT_STORE_VERTICAL = {
+    "doors_veneer_plywood":    "doors",
+    "full_home_customization": "fhc",
+}
+
+# Deal-details-gate categories whose owner is a single physical store/studio we
+# can name + map in the ack. These resolve DETERMINISTICALLY (by location, no
+# round-robin), so resolving at the gate returns the SAME owner the deal is later
+# tagged to. Bulk/govt are territory owners (round-robin, no single showroom) →
+# excluded, so we never advance the round-robin counter just to draft an ack.
+_DEAL_ACK_SHOWROOM_CATEGORIES = {"doors_veneer_plywood", "full_home_customization"}
+
+
+def _deal_store_map_url(owner: dict, deal_category: str, customer_city: str) -> str:
+    """Google-Map URL for the store a deal was tagged to, or "" when the owner
+    isn't a physical store (govt / project / support / online) or a single store's
+    map can't be resolved — we never announce a guessed address."""
+    loc = (owner or {}).get("location") or ""
+    if not loc or loc.strip().lower() in {
+            "govt", "government", "online", "ecom", "e-commerce",
+            "customer support", "support"}:
+        return ""
+    vert = (owner.get("vertical") or _CAT_STORE_VERTICAL.get(deal_category)
+            or "furniture")
+    if " - " in loc:
+        city_part, locality = [s.strip() for s in loc.split(" - ", 1)]
+    else:
+        city_part, locality = (customer_city or loc), ""
+    return social_store_templates.map_link(vert, city_part, locality)
+
+
+def _deal_store_line(owner: dict, deal_category: str, customer_city: str) -> str:
+    """Standalone "your enquiry is registered with <store> + <map>" message — used
+    by the manual Create-Deal button, which has no ack to fold a map into. "" when
+    no single store's address resolves (we fall back to no extra message)."""
+    murl = _deal_store_map_url(owner, deal_category, customer_city)
+    if not murl:
+        return ""
+    loc = (owner or {}).get("location") or ""
+    return (f"📍 Your enquiry has been registered with our {loc} showroom.\n"
+            f"🗺️ Location: {murl}")
+
+
+def _deal_store_map_suffix(owner: dict, deal_category: str = "",
+                           customer_city: str = "") -> str:
+    """Map-only suffix to fold INTO an ack that already names the store (the retail
+    confirm, the social-agent reply). Returns "" when no single store resolves."""
+    if not config.DEAL_ACK_STORE_LINE_ENABLED:
+        return ""
+    murl = _deal_store_map_url(owner, deal_category, customer_city)
+    if not murl:
+        return ""
+    loc = (owner or {}).get("location") or "showroom"
+    return f"\n\n🗺️ {loc} showroom location: {murl}"
+
 
 async def _deal_details_gate_llm(customer_name: str, text: str,
                                  have_phone: bool) -> dict:
@@ -2637,11 +2694,28 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
             await chatwoot.remove_label(conv_id, DEAL_DETAILS_NEEDED_LABEL)
         except Exception:
             pass
+        # The showroom/studio is deterministic from the captured city, so resolve
+        # it NOW and fold its address (Google Map) into THIS single ack — the same
+        # owner is what the deal gets tagged to (doors/FHC resolve without any
+        # round-robin, so resolving here and again at Create Deal agree). Only
+        # doors/FHC (a single store); bulk/govt are territory owners → skipped.
+        store_suffix = ""
+        if (config.DEAL_ACK_STORE_LINE_ENABLED
+                and category in _DEAL_ACK_SHOWROOM_CATEGORIES):
+            try:
+                _cf = await chatwoot.get_conversation(conv_id)
+                _owner = await _resolve_deal_owner(
+                    _cf.get("custom_attributes") or {},
+                    f"City: {city}. {body}", subject, sender_email)
+                if _owner.get("location") and not _owner.get("sector_unclear"):
+                    store_suffix = _deal_store_map_suffix(_owner, category, city)
+            except Exception as e:
+                print(f"[deal-gate] store-line resolve skipped for conv {conv_id}: {e}")
         # _EMAIL_CUSTOMER_ACK_ENABLED is an email-channel kill switch; it must not
         # mute the social ack, where the confirmation IS the conversation.
         if channel != "email" or (_EMAIL_CUSTOMER_ACK_ENABLED and sender_email):
             await _retail_send(conv_id, channel, sender_email,
-                               _DEAL_DETAILS_ACK.format(customer_name=name))
+                               _DEAL_DETAILS_ACK.format(customer_name=name) + store_suffix)
         await _label_conversation(conv_id, DEAL_READY_LABEL)
         print(f"[deal-gate] conv {conv_id}: captured phone + city ({city}) — deal-ready")
         # Email channel: create the deal now (no Create-Deal click needed).
@@ -2878,6 +2952,8 @@ async def _retail_capture_owner(conv_id: int, sender_email: str, name: str,
                    "will assist you with your purchase and reach out to you shortly.")
         if need_phone:
             confirm += _RETAIL_PHONE_REQUEST
+        # Fold the store's address (Google Map) into THIS single ack — no 2nd message.
+        confirm += _deal_store_map_suffix(owner, "", owner.get("city") or "")
         confirm += "\n\nRegards,\nTeam Durian"
         await _retail_send(conv_id, channel, sender_email, confirm, trace_steps=[
             {"type": "decision", "source": "rule", "visibility": "internal",
@@ -7447,12 +7523,12 @@ async def chatwoot_crm_create_deal(request: Request):
     return await _create_crm_deal(
         conv_id, agent_name=body.get("agent_name") or "an agent",
         sector=(body.get("sector") or ""), phone=str(body.get("phone") or ""),
-        ignore_existing=bool(body.get("ignore_existing")))
+        ignore_existing=bool(body.get("ignore_existing")), send_store_line=True)
 
 
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            phone="", ignore_existing=False, owner_id_override="",
-                           owner_label=""):
+                           owner_label="", send_store_line=False):
     """Core Create-Deal logic, shared by the manual button endpoint and the
     email-channel auto-create. Raises HTTPException for the cases that need a
     human decision (409 buyer-type unclear, 422 unresolvable location, 409
@@ -7706,6 +7782,28 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            "crm_deal_url": zoho_crm.deal_url(deal_id)})
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
+
+    # Manual "Create Deal" button only: it has no auto-acknowledgement to fold a
+    # store line into (the agent writes their own reply), so send the store name +
+    # address (Google Map) as its own single message. The AUTO flows instead fold
+    # the store line INTO their existing single ack (retail confirm / social-agent
+    # reply / FHC ack) so the customer is never sent a second message.
+    try:
+        raw_chan = str((conv.get("meta") or {}).get("channel")
+                       or conv.get("channel") or "").lower()
+        chan = ("email" if "email" in raw_chan
+                else "whatsapp" if "whatsapp" in raw_chan
+                else "social")
+        allow = (send_store_line and config.DEAL_ACK_STORE_LINE_ENABLED
+                 and chan != "whatsapp" and not custom.get("deal_store_line_sent"))
+        if allow:
+            store_line = _deal_store_line(owner, deal_category,
+                                          _captured.get("city") or "")
+            if store_line and await _retail_send(int(conv_id), chan, email, store_line):
+                await chatwoot.merge_custom_attributes(
+                    int(conv_id), {"deal_store_line_sent": True})
+    except Exception as e:
+        print(f"[crm] store-line ack failed for conv {conv_id}: {e}")
 
     # Tag the conversation so agents can see/filter every deal-creating enquiry,
     # plus a per-vertical label for what kind of deal it was. Permanent markers

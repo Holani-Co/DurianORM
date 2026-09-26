@@ -483,6 +483,14 @@ DEAL_DETAILS_MAX_ASKS     = int(os.environ.get("DEAL_DETAILS_MAX_ASKS", "5"))
 # Kill switch: set AUTO_DEAL_EMAIL_ENABLED=false to revert to fully manual.
 AUTO_DEAL_EMAIL_ENABLED = _bool("AUTO_DEAL_EMAIL_ENABLED", "true")
 
+# When a CRM deal is created, also tell the customer WHICH store the enquiry was
+# registered with + that store's address (Google Map link), on top of the plain
+# enquiry acknowledgement. Fires wherever a deal is created — email auto, IG/FB
+# auto, and the manual Create-Deal button (WhatsApp FHC appends its own studio
+# map to its ack). Only sent when a single store's map link resolves, so we
+# never guess an address. Kill switch: DEAL_ACK_STORE_LINE_ENABLED=false.
+DEAL_ACK_STORE_LINE_ENABLED = _bool("DEAL_ACK_STORE_LINE_ENABLED", "true")
+
 # ── Retail routing gate ────────────────────────────────────────────────────
 # Retail furniture product enquiries (a few pieces, NOT bulk) route by
 # city -> showroom -> CRM owner (retail_showrooms.yaml). The gate asks the
