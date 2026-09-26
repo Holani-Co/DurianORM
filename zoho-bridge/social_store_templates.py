@@ -112,7 +112,7 @@ _MAP_RE = re.compile(
 # City-name drift between the routing sheet and the location-template sheet that
 # difflib's 0.8 cutoff won't bridge. Conservative on purpose — only 1:1 renames
 # of the SAME city, never a satellite→metro regroup (that risks a wrong address).
-_CITY_ALIASES = {"bengaluru": "bangalore", "bangaluru": "bangalore"}
+_CITY_ALIASES = {"bengaluru": "bangalore"}
 
 
 def map_link(vertical: str, city: str = "", location: str = "") -> str:

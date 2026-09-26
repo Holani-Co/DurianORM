@@ -2151,27 +2151,24 @@ async def _handle_locked(conv, conv_id, channel, surface,
                     pass
         return {"handled": "agent_card", "confidence": confidence, "hold": hold}
 
-    # Fold the tagged store's address (Google Map) into THIS reply so the customer
-    # is never sent a second message. Once per conversation, only when a retail
-    # deal has actually been created. Appended after the guardrails (it's our own
-    # trusted link), and kept short so it stays within the channel char limit.
+    # Fold the retail showroom's address (Google Map) into THIS reply — once per
+    # conversation, when the retail deal exists and the address hasn't gone out
+    # yet (e.g. in the retail confirm). Appended after the guardrails (it's our
+    # own trusted link). Only when it still fits the channel's single-message cap;
+    # otherwise it's dropped for good — never a 2nd message, never tacked onto
+    # some unrelated later reply.
     _ca_send = conv.get("custom_attributes") or {}
     if (_ca_send.get("crm_deal_id") and _ca_send.get("retail_deal_owner")
             and not _ca_send.get("deal_store_line_sent")):
         try:
             import main  # lazy import — avoids a circular import at module load
-            _suffix = main._deal_store_map_suffix(_ca_send.get("retail_deal_owner"))
+            _suffix = main._retail_store_map_suffix(_ca_send["retail_deal_owner"])
             if _suffix:
-                # Never spawn a 2nd message to fit the map: only fold it in when it
-                # still fits the channel's single-message cap. If the reply is
-                # already near the cap (rare for a deal confirmation), skip the map
-                # this turn — deal_store_line_sent stays unset, so a later, shorter
-                # reply carries it. Email/WhatsApp have no per-message cap.
                 _limit = _CHANNEL_CHAR_LIMITS.get(channel)
                 if _limit is None or len(reply) + len(_suffix) <= _limit - 50:
-                    reply = reply + _suffix
-                    await chatwoot.merge_custom_attributes(
-                        conv_id, {"deal_store_line_sent": True})
+                    reply += _suffix
+                await chatwoot.merge_custom_attributes(
+                    conv_id, {"deal_store_line_sent": True})
         except Exception as e:
             print(f"[agent] store-line append failed for conv {conv_id}: {e}")
 
