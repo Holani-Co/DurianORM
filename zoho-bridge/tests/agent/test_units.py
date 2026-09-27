@@ -599,3 +599,108 @@ def test_auto_deal_waits_for_location_choice(monkeypatch):
     fake, created = _route_setup(monkeypatch)
     ctx = _routed_ctx(pending_showroom_choice={"current": "a", "new": "b"})
     assert asyncio.run(sa._maybe_auto_deal(ctx)) is False and not created
+
+
+# ── Non-product photo / shared post with no text → stay silent (conv 8457) ───
+
+def _photo(url="https://cdn/x.jpg", content="Shared post", **attrs):
+    return {"message_type": 0, "content": content,
+            "attachments": [{"data_url": url, "file_type": "image"}],
+            "content_attributes": attrs}
+
+
+def test_silent_photo_burst_detection():
+    reply = {"message_type": 1, "content": "Hi!"}
+    activity = {"message_type": 2, "content": "DurianAI added agent-needed"}
+    assert sa._silent_photo_burst([_photo()]) == ["https://cdn/x.jpg"]
+    # activity lines after the photo are skipped; our earlier reply ends the burst
+    assert sa._silent_photo_burst([_photo("a"), reply, _photo("b"), activity]) == ["b"]
+    # any real text, a Durian post caption, or a reel → not the silent case
+    assert sa._silent_photo_burst([_photo(content="price of this?")]) is None
+    assert sa._silent_photo_burst([_photo(shared_post_caption="Benjamin sofa")]) is None
+    reel = {"message_type": 0, "content": "",
+            "attachments": [{"data_url": "u", "file_type": "ig_reel"}]}
+    assert sa._silent_photo_burst([reel]) is None
+    assert sa._silent_photo_burst([{"message_type": 0, "content": "hello"}]) is None
+    assert sa._silent_photo_burst([_photo(str(i)) for i in range(4)]) is None
+
+
+class _SilentFakeChatwoot:
+    def __init__(self, msgs):
+        self.msgs, self.notes = msgs, []
+
+    async def get_conversation_messages_raw(self, conv_id):
+        return self.msgs
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+
+class _ReachedAgent(Exception):
+    pass
+
+
+def _run_locked(monkeypatch, msgs, verdict, latest="Shared post", msg_id=1):
+    import asyncio
+    fake = _SilentFakeChatwoot(msgs)
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", True)
+    monkeypatch.setattr(sa.config, "GEMINI_API_KEY", "k")
+
+    async def fake_verdict(url):
+        return verdict
+    monkeypatch.setattr(sa, "_vision_verdict", fake_verdict)
+
+    async def reached(*a, **k):
+        raise _ReachedAgent()
+    monkeypatch.setattr(sa.profile_mod, "load", reached)   # first step after the guard
+    sa._last_handled_msgid.pop(99, None)
+    conv = {"id": 99, "meta": {"sender": {"id": 5, "name": "S"}}, "custom_attributes": {}}
+    try:
+        res = asyncio.run(sa._handle_locked(conv, 99, "instagram", "", latest, msg_id))
+    except _ReachedAgent:
+        res = "agent"
+    return res, fake
+
+
+def test_non_product_photo_stays_silent(monkeypatch):
+    res, fake = _run_locked(monkeypatch, [_photo()], {"is_product": False})
+    assert res == {"handled": "non_product_photo_silent"}
+    assert len(fake.notes) == 1 and "no reply sent" in fake.notes[0]
+    assert sa._last_handled_msgid.get(99) == 1
+
+
+def test_product_photo_still_reaches_agent(monkeypatch):
+    res, fake = _run_locked(monkeypatch, [_photo()], {"is_product": True})
+    assert res == "agent" and not fake.notes
+
+
+def test_unviewable_photo_still_reaches_agent(monkeypatch):
+    res, fake = _run_locked(monkeypatch, [_photo()], None)       # vision failed
+    assert res == "agent" and not fake.notes
+
+
+def test_photo_with_text_reaches_agent(monkeypatch):
+    res, _ = _run_locked(monkeypatch, [_photo(content="is this available?")],
+                         {"is_product": False}, latest="is this available?")
+    assert res == "agent"
+
+
+def test_vision_verdict_cached_one_call(monkeypatch):
+    import asyncio
+    calls = []
+
+    async def fake_fetch(url):
+        return {"inline": url}
+
+    async def fake_gen(model, parts, timeout=60):
+        calls.append(parts)
+        return {}
+    monkeypatch.setattr(sa, "_fetch_image_part", fake_fetch)
+    monkeypatch.setattr(sa, "_gemini_generate", fake_gen)
+    monkeypatch.setattr(sa, "_gemini_text", lambda b: '{"is_product": false}')
+    sa._VISION_CACHE.clear()
+    assert asyncio.run(sa._vision_verdict("u1")) == {"is_product": False}
+    assert asyncio.run(sa._vision_verdict("u1")) == {"is_product": False}
+    assert len(calls) == 1
+    assert "while asking about a product" not in calls[0][1]["text"]
