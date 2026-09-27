@@ -7,12 +7,8 @@ module V2::Reports::OrmMonthlyQueries
   TIME_ZONE = 'Asia/Kolkata'.freeze
   EMAIL_CHANNEL = 'Channel::Email'.freeze
   REVIEW_TYPES = %w[google_review website_review].freeze
-  # messages.content_attributes is a json column behind a JSON-coded `store`,
-  # so rows hold a JSON *string* ("{\"source\":…}") rather than an object and a
-  # plain `content_attributes ->> 'key'` never matches. Unwrap it first (works
-  # for either form).
-  MESSAGE_ATTRS = "(CASE WHEN json_typeof(messages.content_attributes) = 'string' " \
-                  "THEN (messages.content_attributes #>> '{}')::json ELSE messages.content_attributes END)".freeze
+  # Unwrapped message content_attributes (see V2::Reports::OrmMetrics).
+  MESSAGE_ATTRS = V2::Reports::OrmMetrics::MESSAGE_ATTRS
 
   private
 
