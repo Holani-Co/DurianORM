@@ -37,6 +37,7 @@ import chatwoot
 import classifier
 import pincode_resolver
 import social_store_templates
+from customer_profile import msg_attrs
 import product_catalog
 import snapmint
 import social_agent
@@ -3251,27 +3252,74 @@ async def _run_complaint_details_gate(conv_id: int, sender_name: str,
             f"holding forward + ticket."], False
 
 
-def _complaint_thread_transcript(messages: list, sender_name: str,
-                                 max_chars: int = 8000) -> str:
-    """The full PUBLIC back-and-forth of the complaint (oldest first), Customer
-    / Team Durian labelled — forwarded to the team so they have the whole
-    thread, not just the first message. Private agent notes are excluded."""
-    lines = []
-    for m in messages:
-        if m.get("private"):
-            continue
-        content = (m.get("content") or "").strip()
-        if not content:
-            continue
+_IST = timezone(timedelta(hours=5, minutes=30))
+_HTML_BREAKS = re.compile(r"<\s*(br|/p|/div|/tr|/li|/h[1-6])\b[^>]*>", re.I)
+_HTML_DROP = re.compile(r"<(style|script|head)\b.*?</\1>", re.I | re.S)
+
+
+def _html_to_text(markup: str) -> str:
+    """Plain text from an HTML email body — keeps line breaks, drops tags."""
+    if not markup:
+        return ""
+    text = _HTML_BREAKS.sub("\n", _HTML_DROP.sub("", markup))
+    text = html.unescape(re.sub(r"<[^>]+>", "", text))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(l.rstrip() for l in text.splitlines())).strip()
+
+
+def _email_body(m: dict, full: bool) -> str:
+    """One message's text for a forward. full=True keeps the quoted history the
+    email carried (Chatwoot's `content` drops it for HTML-only mail); otherwise
+    just what's new in that email (Chatwoot's trimmed reply — its `quoted`
+    field, despite the name)."""
+    email = msg_attrs(m).get("email") or {}
+    text, markup = email.get("text_content") or {}, email.get("html_content") or {}
+    if full:
+        body = text.get("full") or _html_to_text(markup.get("full"))
+    else:
+        body = text.get("quoted") or markup.get("quoted")
+    return (body or m.get("content") or "").strip()
+
+
+def _is_team_forward(m: dict, customer_email: str) -> bool:
+    """An email WE sent to someone other than the customer (a team forward, a
+    forwarder confirmation) — not part of the customer's trail."""
+    to = msg_attrs(m).get("to_emails")
+    if m.get("message_type") not in (1, "outgoing") or not to:
+        return False
+    to = to if isinstance(to, list) else str(to).split(",")
+    return (customer_email or "").strip().lower() not in {t.strip().lower() for t in to}
+
+
+def _email_thread(messages: list, customer_name: str, customer_email: str,
+                  max_chars: int = 50000) -> str:
+    """The whole email trail for a team forward, oldest first: every customer
+    email and every reply we sent the customer (our own team forwards are left
+    out), each with who/when and any attachment links. The FIRST customer
+    email keeps its full text, quoted history included (it may carry an older
+    thread); later ones show only what's new, since each reply already quotes
+    the previous one. Private notes / activity rows never appear."""
+    blocks, first_incoming = [], True
+    for m in messages or []:
         mtype = m.get("message_type")
-        if mtype in (0, "incoming"):
-            who = sender_name or "Customer"
-        elif mtype in (1, "outgoing"):
-            who = "Team Durian"
-        else:
+        if m.get("private") or mtype not in (0, 1, "incoming", "outgoing") \
+                or _is_team_forward(m, customer_email):
             continue
-        lines.append(f"{who}:\n{content}")
-    return "\n\n----\n\n".join(lines)[:max_chars]
+        incoming = mtype in (0, "incoming")
+        body = _email_body(m, full=first_incoming) if incoming else (m.get("content") or "").strip()
+        first_incoming = first_incoming and not incoming
+        links = [a.get("data_url") for a in (m.get("attachments") or []) if a.get("data_url")]
+        if not body and not links:
+            continue
+        who = (customer_name or customer_email or "Customer") if incoming else "Team Durian"
+        when = datetime.fromtimestamp(int(m.get("created_at") or 0), _IST).strftime("%d %b %Y, %I:%M %p")
+        block = f"{who} — {when}:\n{body}"
+        if links:
+            block += "\nAttachments:\n" + "\n".join(links)
+        blocks.append(block)
+    thread = "\n\n----\n\n".join(blocks)
+    if len(thread) > max_chars:
+        thread = thread[:max_chars] + "\n\n[…trail shortened — see the full conversation in ORM]"
+    return thread
 
 
 async def _handle_complaint_details_reply(conv_id: int, data: dict,
@@ -3306,7 +3354,7 @@ async def _handle_complaint_details_reply(conv_id: int, data: dict,
     category_result = custom.get("email_category_v2") or {"category": "complaint",
                                                           "action": "forward"}
     rule = (classifier._ROUTING_RULES.get("categories") or {}).get("complaint")
-    thread = _complaint_thread_transcript(messages, name) or (orig_content or reply)
+    thread = _email_thread(messages, name, email) or (orig_content or reply)
     extra = await _phase2_execute_actions(
         conv_id, category_result, rule, name, email,
         thread, orig_subject,
@@ -3478,6 +3526,10 @@ async def _phase2_execute_actions(conv_id: int,
             # it must NOT expose internal routing jargon ("auto-forwarded by
             # routing bridge", category enum, etc.). Reads like a normal
             # professional internal forward of the customer's message.
+            # The complete email trail, not just the message that triggered the
+            # forward — later customer emails and our replies included.
+            forward_trail = _email_thread(await chatwoot.get_conversation_messages(conv_id),
+                                          sender_name, sender_email) or original_content.strip()
             if cat_key == "complaint":
                 fwd_lines = [f"Forwarding this complaint from {sender_name or sender_email} "
                              "for your review and necessary action.", ""]
@@ -3504,7 +3556,7 @@ async def _phase2_execute_actions(conv_id: int,
                 "",
                 "----------------------------------------",
                 "",
-                original_content.strip(),
+                forward_trail,
                 "",
                 "----------------------------------------",
                 "Regards,",
