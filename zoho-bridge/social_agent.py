@@ -1186,6 +1186,47 @@ def _latest_photo_url(ctx) -> str | None:
     return None
 
 
+_VISION_CACHE: dict = {}   # data_url → verdict; one Gemini look per photo
+
+
+async def _vision_verdict(url: str) -> dict | None:
+    """One vision look at a customer photo → the parsed JSON verdict
+    ({is_product, category, description, visible_brand_text, suggested_query}),
+    or None when it can't be viewed. Cached per URL so the pre-agent
+    non-product check and look_at_photo share a single call; failures aren't
+    cached, so a later look can retry."""
+    if url in _VISION_CACHE:
+        return _VISION_CACHE[url]
+    try:
+        part = await _fetch_image_part(url)
+        prompt = (
+            "A customer of Durian (a premium furniture & home-furnishing brand) "
+            "sent this image in a chat. Look at it and reply "
+            "STRICT JSON only, no prose: "
+            '{"is_product": <true ONLY if it clearly shows a furniture / home '
+            'product>, "category": "<one of: sofa, bed, mattress, dining, chair, '
+            'table, wardrobe, recliner, tv unit, decor — or \\"\\" if unsure>", '
+            '"description": "<short: material, colour, style you can actually '
+            'see; no guessing>", "visible_brand_text": "<any brand or model '
+            'name legibly printed IN the image, else empty>", "suggested_query": '
+            '"<the product nouns to search our catalogue, e.g. \\"l-shaped '
+            'fabric sofa\\"; empty if not a product>"}')
+        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL,
+                                      [part, {"text": prompt}], timeout=30)
+        text = re.sub(r"^```(?:json)?|```$", "", _gemini_text(body).strip(),
+                      flags=re.M).strip()
+        out = json.loads(text)
+    except Exception as e:
+        print(f"[agent] photo vision failed: {type(e).__name__}: {e}")
+        return None
+    if not isinstance(out, dict):
+        return None
+    if len(_VISION_CACHE) >= 200:
+        _VISION_CACHE.pop(next(iter(_VISION_CACHE)))
+    _VISION_CACHE[url] = out
+    return out
+
+
 @_skill(
     "look_at_photo",
     "Actually VIEW a photo/screenshot the customer sent (flagged '[customer "
@@ -1229,35 +1270,16 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
         return {"looked": False,
                 "note": "no viewable photo found — ask the customer to share a "
                         "clear screenshot of the product they mean"}
-    try:
-        part = await _fetch_image_part(url)
-        prompt = (
-            "A customer of Durian (a premium furniture & home-furnishing brand) "
-            "sent this image while asking about a product. Look at it and reply "
-            "STRICT JSON only, no prose: "
-            '{"is_product": <true ONLY if it clearly shows a furniture / home '
-            'product>, "category": "<one of: sofa, bed, mattress, dining, chair, '
-            'table, wardrobe, recliner, tv unit, decor — or \\"\\" if unsure>", '
-            '"description": "<short: material, colour, style you can actually '
-            'see; no guessing>", "visible_brand_text": "<any brand or model '
-            'name legibly printed IN the image, else empty>", "suggested_query": '
-            '"<the product nouns to search our catalogue, e.g. \\"l-shaped '
-            'fabric sofa\\"; empty if not a product>"}')
-        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL,
-                                      [part, {"text": prompt}], timeout=30)
-        text = re.sub(r"^```(?:json)?|```$", "", _gemini_text(body).strip(),
-                      flags=re.M).strip()
-        out = json.loads(text)
-        if not isinstance(out, dict):
-            return _escalate
-    except Exception as e:
-        print(f"[agent] look_at_photo failed: {type(e).__name__}: {e}")
+    out = await _vision_verdict(url)
+    if out is None:
         return _escalate
     if not out.get("is_product"):
         return {"looked": True, "is_product": False, "category": "",
                 "description": str(out.get("description") or "")[:200],
-                "note": "not a clear product — ask ONE clarifying question about "
-                        "what they want, or escalate_to_human; do NOT guess"}
+                "note": "not a product — do NOT assume it's about a product or "
+                        "describe it. If the customer asked something, answer "
+                        "that; otherwise ask ONE open question (how can we "
+                        "help?) or escalate_to_human. Never guess."}
     return {"looked": True, "is_product": True,
             "category": str(out.get("category") or "").strip(),
             "description": str(out.get("description") or "").strip()[:200],
@@ -1830,6 +1852,38 @@ def _is_unviewable_media(m: dict) -> bool:
     return "story" in it or "reel" in it
 
 
+# Chatwoot's stand-in text for a bare shared post / photo — not a real message.
+_PLACEHOLDER_TEXT = {"", "shared post", "shared a post", "sent a photo", "photo", "image"}
+
+
+def _silent_photo_burst(all_messages) -> list | None:
+    """Photo URLs when the customer's newest messages (since our last reply) are
+    ONLY photos / shared posts with no text, no Durian-post caption, and nothing
+    we can't view — the case where a non-product image gets no reply. None
+    otherwise (any text, a Durian post, a reel/story, or >3 images)."""
+    burst = []
+    for m in reversed(all_messages or []):
+        mt = m.get("message_type")
+        if m.get("private") or mt in (2, "activity"):
+            continue
+        if mt not in (0, "incoming"):
+            break
+        burst.append(m)
+    if not burst or len(burst) > 3:
+        return None
+    urls = []
+    for m in burst:
+        if (m.get("content") or "").strip().lower() not in _PLACEHOLDER_TEXT:
+            return None
+        if profile_mod.msg_attrs(m).get("shared_post_caption") or _is_unviewable_media(m):
+            return None
+        url = ((m.get("attachments") or [{}])[0] or {}).get("data_url")
+        if not url:
+            return None
+        urls.append(url)
+    return urls
+
+
 _ASK_FOR_SCREENSHOT = ("[customer shared a reel/video we cannot view — ASK them "
                        "to share a screenshot of the product so we can identify "
                        "and route it; do NOT guess the product]")
@@ -1900,6 +1954,27 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # conversation to DurianAI (or unassigning) — see the
         # conversation_updated catch-up in main.py.
         return {"ignored": True, "reason": "assigned_to_human"}
+
+    # Guardrail (conv 8457): a photo / shared post that isn't one of ours and
+    # isn't a product, with no text (e.g. a customer's selfie), gets NO reply
+    # and no agent flag — we answer once they write something. Decided in code
+    # before the LLM so the agent can't draft a product question for a selfie.
+    if (surface != "comment" and config.PRODUCT_VISION_ENABLED
+            and config.GEMINI_API_KEY):
+        urls = _silent_photo_burst(all_messages)
+        if urls:
+            verdicts = [await _vision_verdict(u) for u in urls]
+            if all(v is not None and not v.get("is_product") for v in verdicts):
+                if latest_msg_id is not None:
+                    _last_handled_msgid[conv_id] = latest_msg_id
+                try:
+                    await chatwoot.post_private_note(
+                        conv_id, "📷 Customer shared a photo/post that doesn't show "
+                                 "a product and wrote nothing — no reply sent. The "
+                                 "AI will answer as soon as they send a message.")
+                except Exception:
+                    pass
+                return {"handled": "non_product_photo_silent"}
 
     # ── Profile: load or cold-start, ingest this conversation's new events ──
     prof = None
