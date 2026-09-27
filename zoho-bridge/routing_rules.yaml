@@ -37,6 +37,12 @@ categories:
     # (city → showroom → CRM owner). Doors & Full Home Customization remain their
     # OWN top-level categories with their existing deal flow — not verticals here.
     # No vertical_ambiguous:card here, so a furniture enquiry never cards.
+    # How the AI picks between this category's subcategories — editable
+    # in ORM Settings. Output format instructions stay locked in code.
+    vertical_rules:
+      - "retail_furniture is the DEFAULT — ready furniture (sofa, bed, mattress, dining, recliner, ready wardrobe). Pick it unless another vertical's signal clearly fires."
+      - "doors_veneer_plywood covers doors, door frames, veneer AND plywood (one vertical). laminate (decorative laminate / sunmica) is SEPARATE."
+      - "full_home_customization = modular kitchen / wardrobe / whole-home interiors. ecom = online order / e-commerce."
     vertical_routing:
       # Retail Furniture is the DEFAULT — NO forward_to, so it stays in_channel
       # and flows to the retail showroom gate (city → showroom → CRM owner). It's
@@ -155,6 +161,12 @@ categories:
     # Route the complaint to the vertical's team (client "Working Team – Feedback"
     # sheet). Vertical detected by classify_vertical; unclear → agent decision card.
     vertical_ambiguous: card
+    # How the AI picks between this category's subcategories — editable
+    # in ORM Settings. Output format instructions stay locked in code.
+    vertical_rules:
+      - "retail_furniture is the DEFAULT — ready furniture (sofa, bed, mattress, dining, recliner, ready wardrobe). Pick it unless another vertical's signal clearly fires."
+      - "doors_veneer_plywood covers doors, door frames, veneer AND plywood (one vertical). laminate (decorative laminate / sunmica) is SEPARATE."
+      - "full_home_customization = modular kitchen / wardrobe / whole-home interiors. ecom = online order / e-commerce."
     vertical_routing:
       retail_furniture:
         display_name: Retail Furniture
@@ -429,6 +441,12 @@ categories:
     include_customer_in_cc: false
     # Franchise routes by the product line the applicant wants to sell (sheet).
     vertical_ambiguous: card
+    # How the AI picks between this category's subcategories — editable
+    # in ORM Settings. Output format instructions stay locked in code.
+    vertical_rules:
+      - "retail_furniture is the DEFAULT — ready furniture (sofa, bed, mattress, dining, recliner, ready wardrobe). Pick it unless another vertical's signal clearly fires."
+      - "doors_veneer_plywood covers doors, door frames, veneer AND plywood (one vertical). laminate (decorative laminate / sunmica) is SEPARATE."
+      - "full_home_customization = modular kitchen / wardrobe / whole-home interiors. ecom = online order / e-commerce."
     vertical_routing:
       retail_furniture:
         display_name: Retail Furniture
@@ -732,6 +750,10 @@ categories:
     # determined confidently, an agent confirms it (human-in-the-loop card)
     # before anything forwards.
     sector_routing:
+      # How the AI decides Government vs Private — editable in ORM Settings.
+      # (The confidence calibration + output format stay locked in code.)
+      ai_rules:
+        - "Strongest signal: the sender's email domain. A .gov.in or .nic.in domain is government almost without exception. A company/brand domain or a free mailbox (gmail/outlook) leans private — but weigh the organisation name too."
       government:
         # Government bulk orders route by the customer's city/state. Only the
         # locations listed in region_routing have a handler; any other location
@@ -1250,6 +1272,18 @@ fallback:
 # Confidence threshold below which we treat the classification as the
 # fallback category. Tune after observing real-world behaviour.
 confidence_threshold: 0.6
+
+# How many example messages per category / subcategory the AI sees.
+ai_examples_per_category: 4
+
+# Rules the AI follows when choosing between categories — editable in
+# ORM Settings. Output format instructions (confidence, reason,
+# alternatives) stay locked in code.
+category_ai_rules:
+  - "Pick the category that BEST fits the customer's primary intent. If a message touches multiple categories, pick the most actionable one (complaint > enquiry; legal_complaint > complaint)."
+  - "Distinguish carefully: 'product_enquiry' is PRE-purchase interest; 'existing_order_enquiry' is POST-purchase status; 'complaint' is dissatisfaction; 'legal_complaint' is when the customer cites law / threatens proceedings."
+  - "Distinguish 'franchise_dealership' (wants to sell Durian) from 'vendor_supplier_enquiry' (wants to sell TO Durian)."
+  - "Distinguish 'marketing_advertising' (paid services pitch) from 'collaboration_request' (brand/influencer barter / co-marketing)."
 
 # Automated system / transactional emails — Durian's own no-reply
 # notifications (order confirmations, shipping updates, OTP, newsletter

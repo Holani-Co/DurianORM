@@ -9,10 +9,15 @@ import { ref, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
+import SubcategoriesEditor from './SubcategoriesEditor.vue';
 
 const props = defineProps({
   effective: { type: Object, default: () => ({}) },
   override: { type: Object, default: () => ({}) },
+  // Categories the bridge's own flows depend on — editable, not disable-able.
+  coreCategories: { type: Array, default: () => [] },
+  // { category: [subcategory keys] } that are the category's default flow.
+  defaultSubcategories: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits(['published']);
 
@@ -203,23 +208,28 @@ function setExamples(key, text) {
 }
 
 // ── Subcategories (vertical_routing) ──
-// Some categories (Complaint, Franchise, Product Enquiry) route by product
-// vertical. Each vertical has its own forward target + Cc + toggles, edited
-// nested under catEdits[key].vertical_routing[vertical] and deep-merged by the
-// bridge onto the YAML floor at publish.
-function verticalsOf(key) {
-  return Object.keys(base(key).vertical_routing || {});
+// Each subcategory has its own route (forward / stay) and its own AI teaching
+// (keywords, description, examples). Edits are nested under
+// catEdits[key].vertical_routing[vkey] and deep-merged at publish.
+// Bulk (buyer type) and Doors (location) already sub-route, so they can't
+// also have subcategories.
+function canHaveSubcategories(key) {
+  return !base(key).sector_routing && !base(key).location_routing;
 }
-function verticalLabel(key, vkey) {
-  return (
-    (base(key).vertical_routing || {})[vkey]?.display_name ||
-    vkey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-  );
-}
-function verticalField(key, vkey, name) {
-  const edit = catEdits[key]?.vertical_routing?.[vkey];
-  if (edit && name in edit) return edit[name];
-  return (base(key).vertical_routing || {})[vkey]?.[name];
+function subItems(key) {
+  const baseVr = base(key).vertical_routing || {};
+  const editVr = catEdits[key]?.vertical_routing || {};
+  const keys = [
+    ...Object.keys(baseVr),
+    ...Object.keys(editVr).filter(k => !(k in baseVr)),
+  ];
+  const defaults = props.defaultSubcategories[key] || [];
+  return keys.map(vkey => ({
+    key: vkey,
+    cfg: { ...(baseVr[vkey] || {}), ...(editVr[vkey] || {}) },
+    isNew: !(vkey in baseVr),
+    isDefault: defaults.includes(vkey),
+  }));
 }
 function setVerticalField(key, vkey, name, value) {
   const cur = catEdits[key] || {};
@@ -227,29 +237,45 @@ function setVerticalField(key, vkey, name, value) {
   vr[vkey] = { ...(vr[vkey] || {}), [name]: value };
   catEdits[key] = { ...cur, vertical_routing: vr };
 }
-function verticalCcText(key, vkey) {
-  return (verticalField(key, vkey, 'cc') || []).join(', ');
+function addSubcategory(key, vkey, cfg) {
+  const cur = catEdits[key] || {};
+  catEdits[key] = {
+    ...cur,
+    vertical_routing: { ...(cur.vertical_routing || {}), [vkey]: cfg },
+  };
 }
-function setVerticalCc(key, vkey, text) {
-  setVerticalField(
-    key,
-    vkey,
-    'cc',
-    (text || '')
-      .split(',')
-      .map(e => e.trim())
-      .filter(Boolean)
-  );
+
+// Recursive merge for publish: nested objects merge key-by-key, arrays and
+// scalars replace. A shallow spread here would drop earlier-published
+// subcategory edits whenever a different subcategory is edited.
+function deepMerge(target, src) {
+  const out = { ...(target || {}) };
+  Object.entries(src || {}).forEach(([k, v]) => {
+    const isObj = x => x && typeof x === 'object' && !Array.isArray(x);
+    out[k] = isObj(v) && isObj(out[k]) ? deepMerge(out[k], v) : v;
+  });
+  return out;
 }
-function verticalBool(key, vkey, name, fallback) {
-  const v = verticalField(key, vkey, name);
-  return v == null ? fallback : v;
-}
-// A vertical with no forward_to is a "default" (e.g. Product Enquiry → Retail
-// Furniture), handled by the retail showroom flow, not a forward — shown
-// read-only so it can't be misconfigured into forwarding.
-function verticalHasForward(key, vkey) {
-  return !!(base(key).vertical_routing || {})[vkey]?.forward_to;
+const cleanList = arr => arr.map(x => String(x).trim()).filter(Boolean);
+function cleanEdit(changed) {
+  const out = { ...changed };
+  ['keywords', 'examples', 'vertical_rules'].forEach(f => {
+    if (Array.isArray(out[f])) out[f] = cleanList(out[f]);
+  });
+  if (out.vertical_routing) {
+    out.vertical_routing = Object.fromEntries(
+      Object.entries(out.vertical_routing).map(([vkey, vcfg]) => {
+        const v = { ...vcfg };
+        ['keywords', 'examples'].forEach(f => {
+          if (Array.isArray(v[f])) v[f] = cleanList(v[f]);
+        });
+        if (typeof v.forward_to === 'string')
+          v.forward_to = v.forward_to.trim();
+        return [vkey, v];
+      })
+    );
+  }
+  return out;
 }
 
 function discard() {
@@ -264,14 +290,10 @@ async function publish() {
   const doc = JSON.parse(JSON.stringify(props.override || {}));
   doc.categories = doc.categories || {};
   Object.keys(catEdits).forEach(key => {
-    const changed = { ...catEdits[key] };
-    if (Array.isArray(changed.keywords)) {
-      changed.keywords = changed.keywords.map(k => k.trim()).filter(Boolean);
-    }
-    if (Array.isArray(changed.examples)) {
-      changed.examples = changed.examples.map(e => e.trim()).filter(Boolean);
-    }
-    doc.categories[key] = { ...(doc.categories[key] || {}), ...changed };
+    doc.categories[key] = deepMerge(
+      doc.categories[key],
+      cleanEdit(catEdits[key])
+    );
   });
 
   busy.value = true;
@@ -490,6 +512,12 @@ async function publish() {
           {{ t('ROUTING_CONFIG.CATEGORIES.NEW_BADGE') }}
         </span>
         <span
+          v-if="field(key, 'disabled')"
+          class="px-1.5 py-0.5 text-[0.65rem] font-medium rounded-full bg-n-alpha-2 text-n-slate-11"
+        >
+          {{ t('ROUTING_CONFIG.CATEGORIES.DISABLED_BADGE') }}
+        </span>
+        <span
           class="px-2 py-0.5 text-xs font-medium rounded-full"
           :class="
             field(key, 'action') === 'forward'
@@ -528,6 +556,27 @@ async function publish() {
             @input="setField(key, 'display_name', $event.target.value)"
           />
         </label>
+
+        <label
+          v-if="!coreCategories.includes(key)"
+          class="flex items-center gap-2 cursor-pointer"
+        >
+          <input
+            :checked="!field(key, 'disabled')"
+            type="checkbox"
+            class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
+            @change="setField(key, 'disabled', !$event.target.checked)"
+          />
+          <span class="text-xs font-medium text-n-slate-11">
+            {{ t('ROUTING_CONFIG.CATEGORIES.ENABLED') }}
+          </span>
+          <span class="text-xs text-n-slate-10">
+            {{ t('ROUTING_CONFIG.CATEGORIES.ENABLED_HINT') }}
+          </span>
+        </label>
+        <span v-else class="text-xs text-n-slate-10">
+          {{ t('ROUTING_CONFIG.CATEGORIES.CORE_NOTE') }}
+        </span>
 
         <div class="flex flex-wrap items-start gap-3">
           <label class="flex flex-col gap-1 min-w-[10rem]">
@@ -596,110 +645,18 @@ async function publish() {
           </div>
         </div>
 
-        <!-- Subcategories (vertical_routing): only rendered for categories that
-             route by product line (Complaint / Franchise / Product Enquiry). -->
-        <div v-if="verticalsOf(key).length" class="flex flex-col gap-2">
-          <div class="flex flex-col gap-0.5">
-            <span class="text-xs font-medium text-n-slate-11">
-              {{ t('ROUTING_CONFIG.CATEGORIES.SUBCATEGORIES_LABEL') }}
-            </span>
-            <span class="text-xs text-n-slate-10">
-              {{ t('ROUTING_CONFIG.CATEGORIES.SUBCATEGORIES_HINT') }}
-            </span>
-          </div>
-          <div
-            v-for="vkey in verticalsOf(key)"
-            :key="'vr-' + key + '-' + vkey"
-            class="flex flex-col gap-2 p-2.5 border rounded-lg border-n-weak bg-n-alpha-1"
-          >
-            <span class="text-xs font-semibold text-n-slate-12">
-              {{ verticalLabel(key, vkey) }}
-            </span>
-            <span
-              v-if="!verticalHasForward(key, vkey)"
-              class="text-xs italic text-n-slate-10"
-            >
-              {{ t('ROUTING_CONFIG.CATEGORIES.SUB_DEFAULT_NOTE') }}
-            </span>
-            <template v-else>
-              <div class="flex flex-wrap gap-3">
-                <label class="flex flex-col flex-1 gap-1 min-w-[14rem]">
-                  <span class="text-xs text-n-slate-11">
-                    {{ t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD') }}
-                  </span>
-                  <input
-                    :value="verticalField(key, vkey, 'forward_to') || ''"
-                    type="text"
-                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_FORWARD_PH')"
-                    class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                    @input="
-                      setVerticalField(
-                        key,
-                        vkey,
-                        'forward_to',
-                        $event.target.value
-                      )
-                    "
-                  />
-                </label>
-                <label class="flex flex-col flex-1 gap-1 min-w-[12rem]">
-                  <span class="text-xs text-n-slate-11">
-                    {{ t('ROUTING_CONFIG.CATEGORIES.SUB_CC') }}
-                  </span>
-                  <input
-                    :value="verticalCcText(key, vkey)"
-                    type="text"
-                    :placeholder="t('ROUTING_CONFIG.CATEGORIES.SUB_CC_PH')"
-                    class="w-full px-2.5 py-1.5 text-sm border rounded-lg outline-none border-n-weak bg-n-surface text-n-slate-12 focus:border-n-brand"
-                    @input="setVerticalCc(key, vkey, $event.target.value)"
-                  />
-                </label>
-              </div>
-              <div class="flex flex-wrap items-center gap-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    :checked="
-                      verticalBool(key, vkey, 'include_customer_in_cc', false)
-                    "
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                    @change="
-                      setVerticalField(
-                        key,
-                        vkey,
-                        'include_customer_in_cc',
-                        $event.target.checked
-                      )
-                    "
-                  />
-                  <span class="text-xs font-medium text-n-slate-11">
-                    {{ t('ROUTING_CONFIG.CATEGORIES.INCLUDE_CUSTOMER_CC') }}
-                  </span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    :checked="
-                      verticalBool(key, vkey, 'share_executive_email', false)
-                    "
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-n-weak text-n-brand focus:ring-n-brand"
-                    @change="
-                      setVerticalField(
-                        key,
-                        vkey,
-                        'share_executive_email',
-                        $event.target.checked
-                      )
-                    "
-                  />
-                  <span class="text-xs font-medium text-n-slate-11">
-                    {{ t('ROUTING_CONFIG.CATEGORIES.SHARE_EXEC_EMAIL') }}
-                  </span>
-                </label>
-              </div>
-            </template>
-          </div>
-        </div>
+        <!-- Subcategories (product lines): add / edit / switch off, plus the
+             category's own "how to choose a subcategory" rules. -->
+        <SubcategoriesEditor
+          v-if="canHaveSubcategories(key)"
+          :items="subItems(key)"
+          :rules="field(key, 'vertical_rules') || []"
+          :ambiguous="field(key, 'vertical_ambiguous') || ''"
+          @set="(vkey, name, value) => setVerticalField(key, vkey, name, value)"
+          @add="(vkey, cfg) => addSubcategory(key, vkey, cfg)"
+          @set-rules="value => setField(key, 'vertical_rules', value)"
+          @set-ambiguous="value => setField(key, 'vertical_ambiguous', value)"
+        />
 
         <div class="flex flex-col gap-1">
           <span class="text-xs font-medium text-n-slate-11">{{

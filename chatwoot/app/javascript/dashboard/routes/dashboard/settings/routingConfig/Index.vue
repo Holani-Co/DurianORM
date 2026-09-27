@@ -14,6 +14,7 @@ const CrmOwnersEditor = defineAsyncComponent(
 );
 const HistoryPanel = defineAsyncComponent(() => import('./HistoryPanel.vue'));
 const PreviewPanel = defineAsyncComponent(() => import('./PreviewPanel.vue'));
+const AiRulesEditor = defineAsyncComponent(() => import('./AiRulesEditor.vue'));
 const ThresholdsEditor = defineAsyncComponent(
   () => import('./ThresholdsEditor.vue')
 );
@@ -48,9 +49,14 @@ const effective = computed(() => data.value?.effective || {});
 const override = computed(() => data.value?.override || {});
 const activeVersion = computed(() => data.value?.active_version || null);
 const knownOwners = computed(() => data.value?.known_owners || []);
+const coreCategories = computed(() => data.value?.core_categories || []);
+const defaultSubcategories = computed(
+  () => data.value?.default_subcategories || {}
+);
 
 const tabs = computed(() => [
   { key: 'categories', label: t('ROUTING_CONFIG.TABS.CATEGORIES') },
+  { key: 'ai_rules', label: t('ROUTING_CONFIG.TABS.AI_RULES') },
   { key: 'owners', label: t('ROUTING_CONFIG.TABS.OWNERS') },
   { key: 'settings', label: t('ROUTING_CONFIG.TABS.SETTINGS') },
   { key: 'preview', label: t('ROUTING_CONFIG.TABS.PREVIEW') },
@@ -119,6 +125,16 @@ const tabs = computed(() => [
 
       <div v-if="activeTab === 'categories'">
         <CategoriesEditor
+          :effective="effective"
+          :override="override"
+          :core-categories="coreCategories"
+          :default-subcategories="defaultSubcategories"
+          @published="fetchConfig"
+        />
+      </div>
+
+      <div v-else-if="activeTab === 'ai_rules'">
+        <AiRulesEditor
           :effective="effective"
           :override="override"
           @published="fetchConfig"
