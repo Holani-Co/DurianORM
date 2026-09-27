@@ -13,7 +13,7 @@ import ReportHeader from './components/ReportHeader.vue';
 import ReportFilters from './components/ReportFilters.vue';
 import ReportMetricCard from './components/ReportMetricCard.vue';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
 const { accountScopedRoute } = useAccount();
 const axios = window.axios;
@@ -65,6 +65,56 @@ const download = async kind => {
     downloadCsvFile(`orm-${kind}.csv`, data);
   } catch {
     useAlert(t('ORM_OVERVIEW_REPORTS.DOWNLOAD.ERROR'));
+  } finally {
+    downloading.value = '';
+  }
+};
+
+// Monthly management report (PDF / Excel) for one calendar month, dated by
+// when things happened — independent of the date range picked above. Offers
+// the last 12 months; defaults to the last complete one.
+const monthOptions = computed(() => {
+  const monthName = new Intl.DateTimeFormat(locale.value, {
+    month: 'long',
+    year: 'numeric',
+  });
+  const now = new Date();
+  return Array.from({ length: 12 }, (_, i) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const label = monthName.format(date);
+    return {
+      value,
+      label: i
+        ? label
+        : t('ORM_OVERVIEW_REPORTS.MONTHLY.SO_FAR', { month: label }),
+    };
+  });
+});
+const reportMonth = ref(monthOptions.value[1].value);
+const monthlyFormats = [
+  { format: 'pdf', label: t('ORM_OVERVIEW_REPORTS.MONTHLY.PDF') },
+  { format: 'xlsx', label: t('ORM_OVERVIEW_REPORTS.MONTHLY.EXCEL') },
+];
+
+const downloadMonthly = async fileFormat => {
+  downloading.value = `monthly-${fileFormat}`;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/orm_exports/monthly`,
+      {
+        params: { month: reportMonth.value, file_format: fileFormat },
+        responseType: 'blob',
+      }
+    );
+    const url = URL.createObjectURL(data);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `durian-orm-report-${reportMonth.value}.${fileFormat}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    useAlert(t('ORM_OVERVIEW_REPORTS.MONTHLY.ERROR'));
   } finally {
     downloading.value = '';
   }
@@ -257,6 +307,40 @@ const reviewRows = computed(() => {
             downloading === opt.kind
               ? 'i-lucide-loader-2 animate-spin'
               : 'i-lucide-download'
+          "
+        />
+        {{ opt.label }}
+      </button>
+    </div>
+
+    <!-- Monthly management report (PDF / Excel) for a calendar month. -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm text-n-slate-11">
+        {{ $t('ORM_OVERVIEW_REPORTS.MONTHLY.LABEL') }}
+      </span>
+      <select
+        v-model="reportMonth"
+        :aria-label="$t('ORM_OVERVIEW_REPORTS.MONTHLY.MONTH')"
+        class="!mb-0 !w-auto px-3 py-1.5 text-sm rounded-lg outline-1 outline outline-n-container bg-n-solid-2 text-n-slate-12 cursor-pointer"
+      >
+        <option v-for="m in monthOptions" :key="m.value" :value="m.value">
+          {{ m.label }}
+        </option>
+      </select>
+      <button
+        v-for="opt in monthlyFormats"
+        :key="opt.format"
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg outline-1 outline outline-n-container bg-n-solid-2 text-n-slate-12 hover:bg-n-alpha-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="!!downloading"
+        @click="downloadMonthly(opt.format)"
+      >
+        <span
+          class="size-3.5"
+          :class="
+            downloading === `monthly-${opt.format}`
+              ? 'i-lucide-loader-2 animate-spin'
+              : 'i-lucide-file-down'
           "
         />
         {{ opt.label }}

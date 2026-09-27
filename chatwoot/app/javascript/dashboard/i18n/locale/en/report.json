@@ -86,6 +86,14 @@
       "EMI": "EMI",
       "ERROR": "Couldn't generate that export, please try again."
     },
+    "MONTHLY": {
+      "LABEL": "Monthly report:",
+      "MONTH": "Report month",
+      "SO_FAR": "{month} (so far)",
+      "PDF": "PDF",
+      "EXCEL": "Excel",
+      "ERROR": "Couldn't generate the monthly report, please try again."
+    },
     "TILE": {
       "CONVERSATIONS": "Conversations",
       "CONVERSATIONS_INFO": "Inbound conversations started in this period, across all channels.",

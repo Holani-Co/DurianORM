@@ -114,6 +114,7 @@ Rails.application.routes.draw do
             get :tickets
             get :emi
             get :overview
+            get :monthly
           end
           # Durian — Follow-ups report + its admin-chosen label configuration.
           resource :follow_up_report, controller: 'follow_up_reports', only: [:show, :update]
