@@ -104,7 +104,7 @@
       "ACTION_FORWARD": "Forward",
       "ACTION_IN_CHANNEL": "In channel",
       "NONE": "—",
-      "EDIT_HINT": "Rename a category, switch it on or off, choose whether it stays in the inbox or forwards, edit its keywords, and manage its subcategories. The description, examples and subcategory rules teach the AI — edit those with care.",
+      "EDIT_HINT": "Rename a category, switch it on or off, choose whether it stays in the inbox or forwards, edit its keywords, and manage its subcategories. The description, examples and subcategory rules teach the AI — edit those with care. Publish before switching tabs — unpublished changes are lost.",
       "DISPLAY_NAME": "Display name",
       "FORWARD_TO_PH": "Add email and press Enter",
       "CC_LABEL": "CC",
@@ -235,7 +235,7 @@
       "UNCLEAR_DEFAULT": "Use this category's normal flow"
     },
     "AI_RULES": {
-      "EDIT_HINT": "Rules the AI follows when it routes emails. Changes go live as soon as you publish — try them on the Preview tab first.",
+      "EDIT_HINT": "Rules the AI follows when it routes emails. Changes go live as soon as you publish — then check them on the Preview tab, and undo any change from History. Publish before switching tabs — unpublished changes are lost.",
       "CATEGORY_RULES": "How the AI chooses a category",
       "CATEGORY_RULES_HINT": "One rule per line — for example how to tell two similar categories apart. Each category's own description and examples are on the Categories tab.",
       "EXAMPLES": "Example messages per category",

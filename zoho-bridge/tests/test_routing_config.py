@@ -50,13 +50,17 @@ def test_disabled_category_hidden_from_ai_and_picker():
 
 
 def test_examples_setting_controls_prompt():
-    token = _with_rules({"ai_examples_per_category": 6})
-    try:
-        p = classifier._build_category_system_prompt(classifier.get_routing_rules())
-    finally:
-        classifier.reset_preview_rules(token)
-    block = p.split("- product_enquiry (", 1)[1].split("\n- ", 1)[0]
-    assert block.count('    • "') == 6            # product_enquiry has 6 examples
+    # Own examples, so a future YAML edit can't break this test.
+    examples = [f"sample {i}" for i in range(8)]
+    doc = {"categories": {"product_enquiry": {"examples": examples}}}
+    for cap, expected in ((6, 6), (20, 8)):
+        token = _with_rules({**doc, "ai_examples_per_category": cap})
+        try:
+            p = classifier._build_category_system_prompt(classifier.get_routing_rules())
+        finally:
+            classifier.reset_preview_rules(token)
+        block = p.split("- product_enquiry (", 1)[1].split("\n- ", 1)[0]
+        assert block.count('    • "sample ') == expected
 
 
 def test_subcategory_prompt_has_description_examples_and_skips_disabled():
@@ -217,4 +221,9 @@ def test_default_subcategory_cannot_forward_or_be_disabled():
 def test_malformed_doc_is_rejected_not_crashed():
     r = _v({"categories": {"product_enquiry": {"vertical_routing": ["x"],
                                                "vertical_rules": ["a"]}}})
+    assert not r["ok"] and any("must be an object" in e for e in r["errors"])
+
+
+def test_malformed_subcategory_value_rejected_not_crashed():
+    r = _v({"categories": {"product_enquiry": {"vertical_routing": {"laminate": "x"}}}})
     assert not r["ok"] and any("must be an object" in e for e in r["errors"])

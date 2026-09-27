@@ -6685,7 +6685,10 @@ def _validate_routing_doc(doc) -> dict:
                                                   f"{vf} has an invalid email '{a}'.")
             mcat = merged_cats.get(key) or {}
             mvr = mcat.get("vertical_routing")
-            mvr = mvr if isinstance(mvr, dict) else {}
+            # Malformed entries were already reported above — skip them here
+            # so a bad request gets a clean 422, not a crash.
+            mvr = ({k: v for k, v in mvr.items() if isinstance(v, dict)}
+                   if isinstance(mvr, dict) else {})
             if mvr and (mcat.get("sector_routing") or mcat.get("location_routing")):
                 errors.append(f"Category '{key}' already routes by buyer type / location, "
                               "so it can't also have subcategories.")
