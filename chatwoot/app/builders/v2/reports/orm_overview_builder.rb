@@ -83,7 +83,7 @@ class V2::Reports::OrmOverviewBuilder
   def ai_summary
     auto_reply_messages = account.messages
                                  .where(created_at: range)
-                                 .where("content_attributes ->> 'source' = 'ai_auto_reply'")
+                                 .where("#{message_attr('source')} = 'ai_auto_reply'")
     {
       auto_replies_sent: auto_reply_messages.count,
       auto_handled_conversations: auto_reply_messages.distinct.count(:conversation_id),
@@ -108,7 +108,7 @@ class V2::Reports::OrmOverviewBuilder
   def period_numbers(on_range)
     auto = account.messages.reorder(nil)
                   .where(created_at: on_range)
-                  .where("content_attributes ->> 'source' = 'ai_auto_reply'")
+                  .where("#{message_attr('source')} = 'ai_auto_reply'")
     {
       conversations: account.conversations.where(created_at: on_range).count,
       auto_handled: auto.distinct.count(:conversation_id),

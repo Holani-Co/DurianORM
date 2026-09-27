@@ -2,6 +2,18 @@
 # Performance, CRM funnel, Reviews). Keeps range parsing and label counting in
 # one place so the tiles and their drill-throughs stay consistent.
 module V2::Reports::OrmMetrics
+  # messages.content_attributes is a json column behind a JSON-coded `store`, so
+  # rows hold a JSON *string* ("{\"source\":…}") rather than an object and a
+  # plain `content_attributes ->> 'key'` never matches. This unwraps it (works
+  # for either form).
+  MESSAGE_ATTRS = "(CASE WHEN json_typeof(messages.content_attributes) = 'string' " \
+                  "THEN (messages.content_attributes #>> '{}')::json ELSE messages.content_attributes END)".freeze
+
+  # SQL for one key of a message's content_attributes, e.g. message_attr('source').
+  def message_attr(key)
+    "#{MESSAGE_ATTRS} ->> '#{key}'"
+  end
+
   # since/until arrive as epoch seconds (the report filter emits from/to). Falls
   # back to the last 30 days when a bound is missing.
   def range

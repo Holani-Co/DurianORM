@@ -41,7 +41,7 @@ class V2::Reports::AiPerformanceBuilder
     # otherwise force messages.created_at into GROUP BY (template_usage).
     @auto_replies ||= account.messages.reorder(nil)
                              .where(created_at: range)
-                             .where("content_attributes ->> 'source' = 'ai_auto_reply'")
+                             .where("#{message_attr('source')} = 'ai_auto_reply'")
   end
 
   def summary
@@ -58,16 +58,16 @@ class V2::Reports::AiPerformanceBuilder
   end
 
   def avg_confidence
-    avg = auto_replies.where("content_attributes ->> 'confidence' ~ '^[0-9]+$'")
-                      .average(Arel.sql("(content_attributes ->> 'confidence')::int"))
+    avg = auto_replies.where("#{message_attr('confidence')} ~ '^[0-9]+$'")
+                      .average(Arel.sql("(#{message_attr('confidence')})::int"))
     avg ? avg.to_f.round : 0
   end
 
   # Which Durian templates the auto-sends used, most-used first.
   def template_usage
     auto_replies
-      .where("content_attributes ->> 'short_code' IS NOT NULL")
-      .group("content_attributes ->> 'short_code'")
+      .where("#{message_attr('short_code')} IS NOT NULL")
+      .group(Arel.sql(message_attr('short_code')))
       .count
       .sort_by { |_code, count| -count }
       .first(12)
@@ -77,8 +77,8 @@ class V2::Reports::AiPerformanceBuilder
   # How sure the assistant was on the replies it sent, bucketed.
   def confidence_buckets
     buckets = { '90-100' => 0, '80-89' => 0, '60-79' => 0, 'Below 60' => 0 }
-    auto_replies.where("content_attributes ->> 'confidence' ~ '^[0-9]+$'")
-                .pluck(Arel.sql("(content_attributes ->> 'confidence')::int"))
+    auto_replies.where("#{message_attr('confidence')} ~ '^[0-9]+$'")
+                .pluck(Arel.sql("(#{message_attr('confidence')})::int"))
                 .each do |c|
       key = if c >= 90 then '90-100'
             elsif c >= 80 then '80-89'

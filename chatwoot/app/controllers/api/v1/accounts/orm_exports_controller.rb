@@ -58,6 +58,22 @@ class Api::V1::Accounts::OrmExportsController < Api::V1::Accounts::BaseControlle
     send_csv('orm-overview', %w[Metric Value], rows)
   end
 
+  # Monthly management report for one calendar month (India time), as a PDF
+  # or an Excel workbook: GET …/orm_exports/monthly?month=YYYY-MM&file_format=pdf|xlsx
+  def monthly
+    month = params[:month].to_s
+    return render json: { error: 'month must be in YYYY-MM format' }, status: :unprocessable_entity unless month.match?(/\A\d{4}-(0[1-9]|1[0-2])\z/)
+
+    data = V2::Reports::OrmMonthlyReportBuilder.new(account: Current.account, month: month).build
+    if params[:file_format] == 'xlsx'
+      send_data Reports::OrmMonthlyXlsx.new(data).render, filename: "durian-orm-report-#{month}.xlsx",
+                                                          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    else
+      send_data Reports::OrmMonthlyPdf.new(data).render, filename: "durian-orm-report-#{month}.pdf",
+                                                         type: 'application/pdf'
+    end
+  end
+
   private
 
   def range
