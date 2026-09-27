@@ -603,48 +603,25 @@ async def get_conversation_messages_raw(conversation_id: int,
 
 
 async def get_conversation_messages(conversation_id: int) -> list[dict]:
-    """Fetch the full message list for a conversation, oldest-first.
+    """The conversation's real customer/agent messages, oldest-first — the
+    WHOLE thread, not just the latest page.
 
-    The webhook payloads (especially conversation_status_changed) carry only
-    a sparse `messages` array — often just the single message that triggered
-    the event — so a ticket built from the payload alone reflects the bot's
-    handoff line, not the customer's actual problem. This pulls the real
-    transcript from the API instead.
+    Webhook payloads carry only a sparse `messages` array, so callers pull the
+    transcript here. Chatwoot pages the endpoint at 20 rows (private notes and
+    activity rows included), so a single fetch silently dropped everything
+    older than the last 20 — in a busy ORM thread even the customer's original
+    email — and forwards / ticket / deal context went out partial. This walks
+    every page (get_conversation_messages_raw) and then drops the noise:
+    private notes (the bridge's own cards / "🎫 ticket created" notes) and
+    activity rows (message_type 2), keeping incoming 0 / outgoing 1.
 
     Returns [] on any failure (best-effort — callers fall back to whatever
     the payload had)."""
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(_conv_url(conversation_id, "/messages"),
-                                  headers=_headers())
-            if r.status_code >= 300:
-                print(f"[chatwoot] get messages failed [{r.status_code}] "
-                      f"for conv {conversation_id}")
-                return []
-            body = r.json() or {}
-            # The endpoint returns {payload: [...]} (sometimes {data: {payload}}).
-            payload = body.get("payload")
-            if payload is None:
-                payload = (body.get("data") or {}).get("payload") or []
-            if not payload:
-                return []
-            # Chatwoot returns the payload CHRONOLOGICALLY (oldest-first) —
-            # MessageFinder's default branch is `reorder(created_at desc)
-            # .limit(20).reverse`, i.e. ascending. So DON'T reverse it.
-            #
-            # Drop noise the default endpoint includes: private notes (the
-            # bridge's own "🎫 ticket created" notes etc.) and activity rows
-            # (message_type 2: "Assigned to … by Zoho Bridge"). Keep only
-            # real customer/agent messages (incoming 0 / outgoing 1) so the
-            # transcript and the summary aren't polluted.
-            return [
-                m for m in payload
-                if not m.get("private")
-                and m.get("message_type") in (0, 1, "incoming", "outgoing")
-            ]
-    except Exception as e:  # noqa: BLE001
-        print(f"[chatwoot] get messages error for conv {conversation_id}: {e}")
-        return []
+    return [
+        m for m in await get_conversation_messages_raw(conversation_id)
+        if not m.get("private")
+        and m.get("message_type") in (0, 1, "incoming", "outgoing")
+    ]
 
 
 async def merge_custom_attributes(conversation_id: int, attrs: dict) -> dict:
