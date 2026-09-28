@@ -3,7 +3,7 @@
 # dated by when it happened — the moment a label was applied, a ticket raised,
 # a review posted, a campaign message sent. Mixed into
 # V2::Reports::OrmMonthlyReportBuilder, which turns these into the report.
-module V2::Reports::OrmMonthlyQueries
+module V2::Reports::OrmMonthlyQueries # rubocop:disable Metrics/ModuleLength
   TIME_ZONE = 'Asia/Kolkata'.freeze
   EMAIL_CHANNEL = 'Channel::Email'.freeze
   REVIEW_TYPES = %w[google_review website_review].freeze
@@ -67,6 +67,19 @@ module V2::Reports::OrmMonthlyQueries
                      .preload(:contact, :inbox)
       convs.flat_map { |conv| tickets_of(conv) }.select { |t| on_range.cover?(t[:at]) }.sort_by { |t| t[:at] }
     end
+  end
+
+  def tickets_of(conv)
+    attrs = conv.custom_attributes || {}
+    list = attrs['zoho_tickets'].presence || [attrs['zoho_ticket']].compact
+    Array(list).select { |ticket| ticket.is_a?(Hash) }.map { |ticket| ticket_row(ticket, conv, attrs) }
+  end
+
+  def ticket_row(ticket, conv, attrs)
+    { at: parse_time(ticket['created_at']) || conv.created_at, number: ticket['number'] || ticket['id'],
+      subject: ticket['subject'], status: ticket['status'], source: ticket['source'],
+      category: category_name(attrs['email_category_v2'] || {}),
+      customer: conv.contact&.name, channel: channel_label(conv.inbox&.channel_type) }
   end
 
   # Google + website reviews by their actual posting date.
