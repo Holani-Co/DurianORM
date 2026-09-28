@@ -395,7 +395,7 @@ async def get_deal_number(deal_id: str, field: str) -> str | None:
         return None
     try:
         resp = await _crm_request("GET", f"/Deals/{deal_id}", params={"fields": field})
-    except RuntimeError as e:
+    except Exception as e:  # best-effort: a timeout here must not drop crm_deal_id
         print(f"[crm] get_deal_number error for {deal_id!r}: {e}")
         return None
     value = ((resp.get("data") or [{}])[0]).get(field)
