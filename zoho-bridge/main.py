@@ -7905,9 +7905,14 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
 
     deal_id = str(deal.get("id") or "")
     try:
-        await chatwoot.merge_custom_attributes(
-            int(conv_id), {"crm_deal_id": deal_id,
-                           "crm_deal_url": zoho_crm.deal_url(deal_id)})
+        deal_attrs = {"crm_deal_id": deal_id, "crm_deal_url": zoho_crm.deal_url(deal_id)}
+        # The friendly "D-540071" Deal Number (an auto-number field) for the daily
+        # report's Deal Id column — Zoho's create response doesn't include it, so
+        # fetch it once here. Best-effort: skip silently if unset/unavailable.
+        if config.ZOHO_CRM_DEAL_NUMBER_FIELD:
+            deal_no = await zoho_crm.get_deal_number(deal_id, config.ZOHO_CRM_DEAL_NUMBER_FIELD)
+            deal_attrs["crm_deal_no"] = deal_no if deal_no else None
+        await chatwoot.merge_custom_attributes(int(conv_id), deal_attrs)
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
 

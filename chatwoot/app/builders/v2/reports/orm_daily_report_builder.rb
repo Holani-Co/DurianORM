@@ -57,7 +57,7 @@ class V2::Reports::OrmDailyReportBuilder
       auto_classified: auto_classified(attrs),
       assigned_email: assigned_email,
       deal_method: deal_method(labels, attrs),
-      deal_id: attrs['crm_deal_id']
+      deal_id: attrs['crm_deal_no'].presence || attrs['crm_deal_id']
     }
   end
 
