@@ -95,6 +95,12 @@ ZOHO_CRM_DEAL_DEFAULT_STAGE = os.environ.get(
 # API name is confirmed (Setup → API → API Names → Deals), e.g.
 # ZOHO_CRM_VERTICAL_FIELD=Business_Vertical
 ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
+
+# API name of the Zoho Deals auto-number field shown as "Deal Id" in the daily
+# ORM report (a "D-540071"-style number). Empty -> the report falls back to the
+# internal record id. Find it in Zoho: Setup -> Modules -> Deals -> the field ->
+# API name (discover live with scripts note in the daily-report PR).
+ZOHO_CRM_DEAL_NUMBER_FIELD = os.environ.get("ZOHO_CRM_DEAL_NUMBER_FIELD", "")
 # API name of the MANDATORY "Business Type" picklist on the client's Deals
 # module — their Standard layout requires it at creation (MANDATORY_NOT_FOUND
 # without it). Empty = not sent, for orgs without the field (e.g. the .in

@@ -168,19 +168,6 @@ class V2::Reports::OrmMonthlyReportBuilder
       by_category: tally(rows, :category), rows: rows }
   end
 
-  def tickets_of(conv)
-    attrs = conv.custom_attributes || {}
-    list = attrs['zoho_tickets'].presence || [attrs['zoho_ticket']].compact
-    Array(list).select { |ticket| ticket.is_a?(Hash) }.map { |ticket| ticket_row(ticket, conv, attrs) }
-  end
-
-  def ticket_row(ticket, conv, attrs)
-    { at: parse_time(ticket['created_at']) || conv.created_at, number: ticket['number'] || ticket['id'],
-      subject: ticket['subject'], status: ticket['status'], source: ticket['source'],
-      category: category_name(attrs['email_category_v2'] || {}),
-      customer: conv.contact&.name, channel: channel_label(conv.inbox&.channel_type) }
-  end
-
   # ── Conversations & AI ────────────────────────────────────────────────────
 
   def social_summary

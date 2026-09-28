@@ -32,6 +32,12 @@ send_monthly_google_reviews_report_job:
   class: 'Reports::SendMonthlyGoogleReviewsReportJob'
   queue: scheduled_jobs
 
+# sends the previous day's ORM report to management at 9 AM IST
+send_daily_orm_report_job:
+  cron: '0 9 * * * Asia/Kolkata'
+  class: 'Reports::SendDailyOrmReportJob'
+  queue: scheduled_jobs
+
 # executed hourly for scheduled jobs that do not need minute-level cadence
 trigger_hourly_scheduled_items_job:
   cron: '0 * * * *'

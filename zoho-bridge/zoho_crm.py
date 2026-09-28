@@ -388,6 +388,20 @@ async def get_contact_deals(contact_id: str, limit: int = 5) -> list:
     return resp.get("data") or []
 
 
+async def get_deal_number(deal_id: str, field: str) -> str | None:
+    """The value of `field` (e.g. an auto-number like 'D-540071') on a Deal,
+    or None. Best-effort: swallows errors so it never blocks deal creation."""
+    if not (deal_id and field):
+        return None
+    try:
+        resp = await _crm_request("GET", f"/Deals/{deal_id}", params={"fields": field})
+    except Exception as e:  # best-effort: a timeout here must not drop crm_deal_id
+        print(f"[crm] get_deal_number error for {deal_id!r}: {e}")
+        return None
+    value = ((resp.get("data") or [{}])[0]).get(field)
+    return str(value).strip() if value not in (None, "") else None
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
 def _ui_base() -> str:
     """CRM UI domain derived from the API domain (prod or sandbox aware)."""
