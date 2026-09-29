@@ -101,6 +101,16 @@ ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 # internal record id. Find it in Zoho: Setup -> Modules -> Deals -> the field ->
 # API name (discover live with scripts note in the daily-report PR).
 ZOHO_CRM_DEAL_NUMBER_FIELD = os.environ.get("ZOHO_CRM_DEAL_NUMBER_FIELD", "")
+
+# API name of the client's CUSTOM "Enquiry Source" picklist on Deals, plus the
+# option ORM-created deals should carry so the client can filter by it. The
+# standard Lead_Source is always set to "Chatwoot" too; this stamps their own
+# field. ZOHO_CRM_SOURCE_VALUE MUST already exist as an option on that picklist
+# (add it in Zoho first) or Zoho rejects it and the stamp is skipped (the deal is
+# unaffected — the write is best-effort, post-create). Empty field name = only
+# Lead_Source is set. e.g. ZOHO_CRM_SOURCE_FIELD=Enquiry_Source ZOHO_CRM_SOURCE_VALUE=Chatwoot
+ZOHO_CRM_SOURCE_FIELD = os.environ.get("ZOHO_CRM_SOURCE_FIELD", "")
+ZOHO_CRM_SOURCE_VALUE = os.environ.get("ZOHO_CRM_SOURCE_VALUE", "Chatwoot")
 # API name of the MANDATORY "Business Type" picklist on the client's Deals
 # module — their Standard layout requires it at creation (MANDATORY_NOT_FOUND
 # without it). Empty = not sent, for orgs without the field (e.g. the .in

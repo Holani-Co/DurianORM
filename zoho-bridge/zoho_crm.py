@@ -402,6 +402,25 @@ async def get_deal_number(deal_id: str, field: str) -> str | None:
     return str(value).strip() if value not in (None, "") else None
 
 
+async def update_deal(deal_id: str, fields: dict) -> bool:
+    """Best-effort PUT of `fields` onto an existing Deal (e.g. the client's custom
+    'Enquiry Source' picklist). Swallows every error so it can never undo or block
+    a deal that was already created — a missing field or unlisted picklist option
+    just logs and skips."""
+    if not (deal_id and fields):
+        return False
+    try:
+        resp = await _crm_request("PUT", f"/Deals/{deal_id}", json_body={"data": [fields]})
+    except Exception as e:
+        print(f"[crm] update_deal error for {deal_id!r}: {e}")
+        return False
+    entry = (resp.get("data") or [{}])[0]
+    if entry.get("code") != "SUCCESS":
+        print(f"[crm] update_deal not applied for {deal_id!r}: {entry}")
+        return False
+    return True
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
 def _ui_base() -> str:
     """CRM UI domain derived from the API domain (prod or sandbox aware)."""

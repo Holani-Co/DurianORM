@@ -7916,6 +7916,12 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
 
+    # Stamp the client's custom "Enquiry Source" picklist so ORM deals are
+    # filterable by it (the standard Lead_Source is already set at create).
+    # Best-effort and post-create: a missing field/option never undoes the deal.
+    if config.ZOHO_CRM_SOURCE_FIELD and deal_id:
+        await zoho_crm.update_deal(deal_id, {config.ZOHO_CRM_SOURCE_FIELD: config.ZOHO_CRM_SOURCE_VALUE})
+
     # Manual Create-Deal button only — the auto flows fold the map into their own
     # single ack. Retail showrooms only: the tagged owner must BE the customer's
     # chosen retail showroom (any other owner's `location` is an internal routing
