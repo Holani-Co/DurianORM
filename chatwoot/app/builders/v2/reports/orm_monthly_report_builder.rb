@@ -12,14 +12,9 @@
 class V2::Reports::OrmMonthlyReportBuilder
   include V2::Reports::OrmMonthlyQueries
 
-  PRODUCT_LINES = { 'deal-product' => 'Furniture', 'deal-fhc' => 'Full Home',
-                    'deal-doors' => 'Doors', 'deal-bulk' => 'Project / Bulk',
-                    'deal-franchise' => 'Dealership / Franchise' }.freeze
   FORWARD_LABELS = %w[auto-forwarded manually-sent].freeze
   FILTERED_INTENTS = %w[promotional automated spam].freeze
   SUGGESTION_TYPES = %w[ai_review_suggestion ai_order_reply].freeze
-  # Private note the bridge posts on every deal: "✅ CRM Deal created by <who> — …".
-  DEAL_NOTE = /\A✅ CRM Deal created by (.+?) —/
   AUTOMATIC_AUTHOR = /bridge|agent mode|bot/i
 
   attr_reader :account, :month_start, :range
@@ -123,7 +118,7 @@ class V2::Reports::OrmMonthlyReportBuilder
   def deal_summary
     events = tag_events(%w[deal-created], range)
     convs = conversations_by_id(events.pluck(:conv_id))
-    authors = deal_authors
+    authors = deal_authors(range)
     rows = events.filter_map { |event| convs[event[:conv_id]] && deal_row(event, convs[event[:conv_id]], authors) }
     deal_breakdowns(rows.sort_by { |row| row[:at] })
   end
@@ -140,26 +135,6 @@ class V2::Reports::OrmMonthlyReportBuilder
     { at: event[:at], **deal_contact(conv, attrs), product_line: product_line(conv),
       showroom: (attrs['retail_deal_owner'] || {})['location'], channel: channel_label(conv.inbox&.channel_type),
       created_by: author, automatic: author.to_s.match?(AUTOMATIC_AUTHOR), crm_deal_id: attrs['crm_deal_id'] }
-  end
-
-  def deal_contact(conv, attrs)
-    contact = conv.contact
-    { customer: contact&.name, email: contact&.email,
-      mobile: attrs['retail_customer_phone'].presence || contact&.phone_number }
-  end
-
-  # conversation id → who created its deal, from the bridge's audit note.
-  def deal_authors
-    account.messages.where(private: true, created_at: range)
-           .where('messages.content LIKE ?', '✅ CRM Deal created by %')
-           .pluck(:conversation_id, :content)
-           .each_with_object({}) { |(conv_id, content), out| out[conv_id] ||= content[DEAL_NOTE, 1] }
-  end
-
-  def product_line(conv)
-    tag = (conv.cached_label_list_array & PRODUCT_LINES.keys).first
-    attrs = conv.custom_attributes || {}
-    PRODUCT_LINES[tag] || humanize(attrs['phase2_category'].presence || (attrs['email_category_v2'] || {})['category'])
   end
 
   def ticket_summary
