@@ -1,9 +1,11 @@
 # Durian — ORM Daily Report (emailed to management ~9 AM IST for the previous
-# day). One row per customer conversation that came in that day, in the client's
-# requested layout: date, Chatwoot id, source, channel, first response, how it
-# was assigned/handled, tag, auto-classification, the email it was assigned to,
-# and the deal (method + id). India time; reuses the shared, range-based
-# V2::Reports::OrmMonthlyQueries. No new data capture.
+# day). One row per customer conversation, in the client's requested layout plus
+# the extra columns they asked for (customer, category, showroom, agent, ticket,
+# deal details, ...). Rows are the conversations that ARRIVED that day UNION the
+# conversations where a DEAL was booked that day (the latter may have started
+# earlier — those are the deals the arrival-only view was missing). Deals are
+# counted by the `deal-created` label event, dated by when it was applied, so the
+# count matches the monthly report. India time; reuses V2::Reports::OrmMonthlyQueries.
 class V2::Reports::OrmDailyReportBuilder
   include V2::Reports::OrmMonthlyQueries
 
@@ -25,40 +27,93 @@ class V2::Reports::OrmDailyReportBuilder
   end
 
   def build
-    convs = day_conversations
+    @deal_at = deal_events_by_conv(range)
+    convs = row_conversations
+    authors = deal_authors(range)
     assigned = assigned_emails(convs.map(&:id))
-    rows = convs.map { |conv| row(conv, assigned[conv.id]) }.sort_by { |r| r[:sort_at] }
+    rows = convs.map { |conv| row(conv, assigned[conv.id], authors) }.sort_by { |r| r[:sort_at] }
+    envelope(rows)
+  end
+
+  private
+
+  def envelope(rows)
     { date_key: day_start.strftime('%Y-%m-%d'), date_label: day_start.strftime('%A, %d %B %Y'),
       generated_at: Time.current.in_time_zone(TIME_ZONE), rows: rows, totals: totals(rows) }
   end
 
-  private
+  # Conversations that ARRIVED today, plus those where a deal was booked today
+  # (which may have started earlier — the deals the arrival-only view missed).
+  def row_conversations
+    arrived = day_conversations
+    @arrived_ids = arrived.to_set(&:id)
+    arrived + conversations_by_id(@deal_at.keys - @arrived_ids.to_a).values
+  end
+
+  # conversation_id → the moment its deal was booked (label applied) in the day.
+  def deal_events_by_conv(on_range)
+    tag_events(['deal-created'], on_range).each_with_object({}) do |event, out|
+      out[event[:conv_id]] ||= event[:at]
+    end
+  end
 
   def day_conversations
     conversations(range).joins(:inbox).where(inboxes: { channel_type: CUSTOMER_CHANNELS })
                         .where("conversations.additional_attributes ->> 'type' IS NULL " \
                                "OR conversations.additional_attributes ->> 'type' " \
                                "NOT IN ('google_review', 'website_review')")
-                        .preload(:contact, :inbox).to_a
+                        .preload(:contact, :inbox, :assignee, :team).to_a
   end
 
-  def row(conv, assigned_email)
-    labels = conv.cached_label_list_array
+  def row(conv, assigned_email, authors)
     attrs = conv.custom_attributes || {}
-    {
-      sort_at: conv.created_at,
-      date: local(conv.created_at),
-      chatwoot_id: conv.display_id,
-      source: channel_label(conv.inbox&.channel_type),
-      channel: conv.inbox&.name,
+    labels = conv.cached_label_list_array
+    template_columns(conv, attrs, labels, assigned_email)
+      .merge(deal_columns(conv, attrs, authors))
+      .merge(contact_columns(conv, attrs))
+      .merge(case_columns(conv, attrs))
+  end
+
+  # The client's original template columns.
+  def template_columns(conv, attrs, labels, assigned_email)
+    at = primary_at(conv)
+    { sort_at: at, date: local(at), chatwoot_id: conv.display_id,
+      source: channel_label(conv.inbox&.channel_type), channel: conv.inbox&.name,
       first_response: local(conv.first_reply_created_at),
       handling: labels.include?('agent-needed') ? 'Agent Needed' : 'Auto-Assigned',
-      tagged: tag_label(labels),
-      auto_classified: auto_classified(attrs),
-      assigned_email: assigned_email,
-      deal_method: deal_method(labels, attrs),
-      deal_id: attrs['crm_deal_no'].presence || attrs['crm_deal_id']
-    }
+      tagged: tag_label(labels), auto_classified: auto_classified(attrs), assigned_email: assigned_email }
+  end
+
+  def deal_columns(conv, attrs, authors)
+    has_deal = @deal_at.key?(conv.id) || attrs['crm_deal_id'].present?
+    { deal_method: has_deal ? 'Direct Deals' : 'No CRM Deal',
+      deal_id: attrs['crm_deal_no'].presence || attrs['crm_deal_id'],
+      deal_created_by: authors[conv.id], deal_url: attrs['crm_deal_url'] }
+  end
+
+  def contact_columns(conv, attrs)
+    contact = conv.contact
+    { customer: contact&.name,
+      mobile: attrs['retail_customer_phone'].presence || contact&.phone_number,
+      email: contact&.email, city: contact&.additional_attributes&.dig('city'),
+      subject: conv.additional_attributes&.dig('mail_subject') }
+  end
+
+  def case_columns(conv, attrs)
+    category = attrs['email_category_v2'] || {}
+    ticket = tickets_of(conv).first || {}
+    { category: category_name(category), subcategory: humanize(category['vertical']),
+      product_line: product_line(conv), showroom: showroom_of(attrs),
+      status: humanize(conv.status), agent: conv.assignee&.name, team: conv.team&.name,
+      priority: humanize(conv.priority), ticket_no: ticket[:number], ticket_status: ticket[:status] }
+  end
+
+  # Rows for deals booked on older conversations are dated by the deal moment;
+  # rows for conversations that arrived today are dated by arrival.
+  def primary_at(conv)
+    return conv.created_at if range.cover?(conv.created_at)
+
+    @deal_at[conv.id] || conv.created_at
   end
 
   def tag_label(labels)
@@ -83,8 +138,9 @@ class V2::Reports::OrmDailyReportBuilder
     category_name(category)
   end
 
-  def deal_method(labels, attrs)
-    attrs['crm_deal_id'].present? || labels.include?('deal-created') ? 'Direct Deals' : 'No CRM Deal'
+  def showroom_of(attrs)
+    owner = attrs['retail_deal_owner'] || {}
+    owner['city'].presence || owner['location']
   end
 
   # conversation_id → the address(es) we forwarded/assigned it to: the to_emails
@@ -110,10 +166,10 @@ class V2::Reports::OrmDailyReportBuilder
 
   def totals(rows)
     {
-      conversations: rows.size,
+      conversations: @arrived_ids.size,
       by_source: rows.map { |r| r[:source] }.tally.sort_by { |_, n| -n }.to_h,
       agent_needed: rows.count { |r| r[:handling] == 'Agent Needed' },
-      deals: rows.count { |r| r[:deal_method] != 'No CRM Deal' },
+      deals: @deal_at.size,
       forwarded: rows.count { |r| r[:tagged].present? }
     }
   end

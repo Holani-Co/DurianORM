@@ -9,6 +9,11 @@ module V2::Reports::OrmMonthlyQueries # rubocop:disable Metrics/ModuleLength
   REVIEW_TYPES = %w[google_review website_review].freeze
   # Unwrapped message content_attributes (see V2::Reports::OrmMetrics).
   MESSAGE_ATTRS = V2::Reports::OrmMetrics::MESSAGE_ATTRS
+  PRODUCT_LINES = { 'deal-product' => 'Furniture', 'deal-fhc' => 'Full Home',
+                    'deal-doors' => 'Doors', 'deal-bulk' => 'Project / Bulk',
+                    'deal-franchise' => 'Dealership / Franchise' }.freeze
+  # Private note the bridge posts on every deal: "✅ CRM Deal created by <who> — …".
+  DEAL_NOTE = /\A✅ CRM Deal created by (.+?) —/
 
   private
 
@@ -80,6 +85,26 @@ module V2::Reports::OrmMonthlyQueries # rubocop:disable Metrics/ModuleLength
       subject: ticket['subject'], status: ticket['status'], source: ticket['source'],
       category: category_name(attrs['email_category_v2'] || {}),
       customer: conv.contact&.name, channel: channel_label(conv.inbox&.channel_type) }
+  end
+
+  def deal_contact(conv, attrs)
+    contact = conv.contact
+    { customer: contact&.name, email: contact&.email,
+      mobile: attrs['retail_customer_phone'].presence || contact&.phone_number }
+  end
+
+  def product_line(conv)
+    tag = (conv.cached_label_list_array & PRODUCT_LINES.keys).first
+    attrs = conv.custom_attributes || {}
+    PRODUCT_LINES[tag] || humanize(attrs['phase2_category'].presence || (attrs['email_category_v2'] || {})['category'])
+  end
+
+  # conversation id → who created its deal, from the bridge's audit note.
+  def deal_authors(on_range)
+    account.messages.where(private: true, created_at: on_range)
+           .where('messages.content LIKE ?', '✅ CRM Deal created by %')
+           .pluck(:conversation_id, :content)
+           .each_with_object({}) { |(conv_id, content), out| out[conv_id] ||= content[DEAL_NOTE, 1] }
   end
 
   # Google + website reviews by their actual posting date.
