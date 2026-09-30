@@ -7654,6 +7654,17 @@ async def chatwoot_crm_create_deal(request: Request):
         ignore_existing=bool(body.get("ignore_existing")), send_store_line=True)
 
 
+def _enquiry_source_for(conv) -> str:
+    """The client's Enquiry Source option matching the conversation's channel
+    (config.ZOHO_CRM_SOURCE_MAP), e.g. WhatsApp -> 'Whats App Or SMS'. Falls back
+    to the map's 'default' for anything unrecognised."""
+    raw = str(((conv or {}).get("meta") or {}).get("channel") or "").lower()
+    for key in ("email", "whatsapp", "instagram", "facebook"):
+        if key in raw:
+            return config.ZOHO_CRM_SOURCE_MAP.get(key, "")
+    return config.ZOHO_CRM_SOURCE_MAP.get("default", "")
+
+
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            phone="", ignore_existing=False, owner_id_override="",
                            owner_label="", send_store_line=False):
@@ -7916,11 +7927,14 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     except Exception as e:
         print(f"[crm] merge crm_deal_id failed for conv {conv_id}: {e}")
 
-    # Stamp the client's custom "Enquiry Source" picklist so ORM deals are
-    # filterable by it (the standard Lead_Source is already set at create).
-    # Best-effort and post-create: a missing field/option never undoes the deal.
+    # Stamp the client's custom "Enquiry Source" picklist with the option that
+    # matches this conversation's channel, so ORM deals are filterable by their
+    # existing values (Lead_Source is already set at create). Best-effort and
+    # post-create: a missing field/unmapped option never undoes the deal.
     if config.ZOHO_CRM_SOURCE_FIELD and deal_id:
-        await zoho_crm.update_deal(deal_id, {config.ZOHO_CRM_SOURCE_FIELD: config.ZOHO_CRM_SOURCE_VALUE})
+        source_value = _enquiry_source_for(full_conv)
+        if source_value:
+            await zoho_crm.update_deal(deal_id, {config.ZOHO_CRM_SOURCE_FIELD: source_value})
 
     # Manual Create-Deal button only — the auto flows fold the map into their own
     # single ack. Retail showrooms only: the tagged owner must BE the customer's
