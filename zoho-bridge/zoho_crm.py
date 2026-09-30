@@ -421,6 +421,12 @@ async def update_deal(deal_id: str, fields: dict) -> bool:
     return True
 
 
+async def get_deal_stage(deal_id: str) -> str | None:
+    """The Deal's current Stage, or None. Best-effort (delegates to the same
+    single-field read as get_deal_number)."""
+    return await get_deal_number(deal_id, "Stage")
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
 def _ui_base() -> str:
     """CRM UI domain derived from the API domain (prod or sandbox aware)."""

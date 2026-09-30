@@ -4,16 +4,17 @@
 class Reports::OrmDailyXlsx
   HEADERS = ['Date', 'Chatwoot id', 'Conversation Source', 'Channel', '1st response date and Time',
              'Assignment & Handling Type', 'Tagged', 'Auto Classified', 'Assigned Email id',
-             'Deal Creation Method', 'Deal Id', 'Customer Name', 'Mobile', 'Email', 'City', 'Subject',
-             'Category', 'Subcategory', 'Product Line', 'Showroom / Owner', 'Status', 'Assigned Agent',
-             'Team', 'Priority', 'Ticket No', 'Ticket Status', 'Deal Created By', 'Deal URL'].freeze
-  WIDTHS = [20, 12, 18, 20, 24, 24, 16, 26, 26, 20, 16, 24, 16, 26, 16, 30, 20, 20, 18, 22, 12, 20,
-            18, 12, 14, 16, 22, 40].freeze
+             'Deal Creation Method', 'Deal Id', 'Deal Stage', 'Customer Name', 'Mobile', 'Email', 'City',
+             'Subject', 'Category', 'Subcategory', 'Product Line', 'Showroom / Owner', 'Status',
+             'Assigned Agent', 'Team', 'Priority', 'Ticket No', 'Ticket Status', 'Deal Created By',
+             'Deal URL'].freeze
+  WIDTHS = [20, 12, 18, 20, 24, 24, 16, 26, 26, 20, 16, 18, 24, 16, 26, 16, 30, 20, 20, 18, 22, 12,
+            20, 18, 12, 14, 16, 22, 40].freeze
   # Columns kept as text so long ids/numbers don't render in scientific notation.
-  TEXT_COLUMNS = [10, 12, 24].freeze
+  TEXT_COLUMNS = [10, 13, 25].freeze
   # Row hash keys in the same order as HEADERS.
   ROW_KEYS = %i[date chatwoot_id source channel first_response handling tagged auto_classified
-                assigned_email deal_method deal_id customer mobile email city subject category
+                assigned_email deal_method deal_id deal_stage customer mobile email city subject category
                 subcategory product_line showroom status agent team priority ticket_no ticket_status
                 deal_created_by deal_url].freeze
 

@@ -50,6 +50,7 @@ import zoho
 import zoho_crm
 import google_reviews as gr
 import forwarded_email
+import deal_stage_sync
 import review_reply
 import reviews_poller
 import website_reviews
@@ -77,6 +78,8 @@ async def _start_reviews_poller():
     asyncio.create_task(reviews_poller.run_forever())
     # Website (durian.in) product reviews — independent poller, own inbox.
     asyncio.create_task(website_reviews_poller.run_forever())
+    # Daily refresh of each open deal's current Zoho Stage onto its conversation.
+    asyncio.create_task(deal_stage_sync.run_forever())
 
 
 @app.on_event("shutdown")
@@ -7916,7 +7919,10 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
 
     deal_id = str(deal.get("id") or "")
     try:
-        deal_attrs = {"crm_deal_id": deal_id, "crm_deal_url": zoho_crm.deal_url(deal_id)}
+        deal_attrs = {"crm_deal_id": deal_id, "crm_deal_url": zoho_crm.deal_url(deal_id),
+                      # The stage the deal was created at, so it's visible on the
+                      # conversation immediately; the daily sweep keeps it current.
+                      "crm_deal_stage": deal_stage or config.ZOHO_CRM_DEAL_DEFAULT_STAGE}
         # The friendly "D-540071" Deal Number (an auto-number field) for the daily
         # report's Deal Id column — Zoho's create response doesn't include it, so
         # fetch it once here. Best-effort: skip silently if unset/unavailable.
