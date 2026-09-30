@@ -326,6 +326,24 @@ WEBSITE_REVIEWS_AUTO_REPLY     = _bool("WEBSITE_REVIEWS_AUTO_REPLY")
 WEBSITE_REVIEWS_POSITIVE_MIN_STARS = int(os.environ.get("WEBSITE_REVIEWS_POSITIVE_MIN_STARS", "4"))
 
 
+# ── Deal stage sync ─────────────────────────────────────────────────────────
+# Once-a-day sweep that reads each open ORM deal's CURRENT Zoho Stage and writes
+# it onto its Chatwoot conversation (custom attribute crm_deal_stage), so the
+# stage is visible in the ORM and the daily report. Read-only in Zoho. Dark by
+# default — set DEAL_STAGE_SYNC_ENABLED=true to start it.
+DEAL_STAGE_SYNC_ENABLED = _bool("DEAL_STAGE_SYNC_ENABLED")
+# Local (Asia/Kolkata) time to run the sweep — before the 9 AM daily report.
+DEAL_STAGE_SYNC_HOUR    = int(os.environ.get("DEAL_STAGE_SYNC_HOUR", "8"))
+DEAL_STAGE_SYNC_MINUTE  = int(os.environ.get("DEAL_STAGE_SYNC_MINUTE", "30"))
+# Skip conversations quiet longer than this (their deals are likely done). 0 = no cap.
+DEAL_STAGE_SYNC_MAX_AGE_DAYS = int(os.environ.get("DEAL_STAGE_SYNC_MAX_AGE_DAYS", "90"))
+# Politeness pause between per-deal Zoho reads during the sweep.
+DEAL_STAGE_SYNC_PAUSE_SECONDS = float(os.environ.get("DEAL_STAGE_SYNC_PAUSE_SECONDS", "0.3"))
+# Stored stages treated as terminal — once a deal reaches one, stop re-syncing it.
+ZOHO_CRM_DEAL_CLOSED_STAGES = {s.strip() for s in os.environ.get(
+    "ZOHO_CRM_DEAL_CLOSED_STAGES", "Closed Won,Closed Lost").split(",") if s.strip()}
+
+
 # ── Spam-classifier safeguards ────────────────────────────────────────────
 # Defaults are conservative — the system biases toward NEVER losing a real
 # customer (false-positives cost more than false-negatives).

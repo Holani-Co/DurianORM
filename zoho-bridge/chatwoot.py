@@ -1,6 +1,7 @@
 # Chatwoot Application API client. Add more methods here as needed.
 # Docs: https://www.chatwoot.com/developers/api/
 
+import time
 from typing import Optional
 
 import httpx
@@ -475,6 +476,39 @@ async def search_snoozed_spam_since(since_iso: str = "") -> list[dict]:
                     continue
             out.append(c)
         return out
+
+
+async def list_deal_conversations(max_age_days: int = 90, max_pages: int = 40) -> list[dict]:
+    """Conversations tagged `deal-created` that carry a `crm_deal_id`, active within
+    max_age_days (0 = no cap). Pages across all statuses. Used by the daily deal-
+    stage sweep. Deduped by conversation id."""
+    cutoff = time.time() - max_age_days * 86400 if max_age_days else 0
+    out: list[dict] = []
+    seen: set = set()
+    async with httpx.AsyncClient(timeout=20) as client:
+        for status in ("open", "resolved", "pending", "snoozed"):
+            for page in range(1, max_pages + 1):
+                r = await client.get(
+                    _acct_url("/conversations"), headers=_headers(),
+                    params={"status": status, "labels": "deal-created", "page": page},
+                )
+                if r.status_code >= 300:
+                    print(f"[chatwoot] list_deal_conversations non-200 [{r.status_code}]: {r.text[:200]}")
+                    break
+                payload = r.json().get("data") or {}
+                payload = payload.get("payload") if isinstance(payload, dict) else []
+                if not payload:
+                    break
+                for c in payload:
+                    cid = c.get("id")
+                    attrs = c.get("custom_attributes") or {}
+                    if cid in seen or not attrs.get("crm_deal_id"):
+                        continue
+                    if cutoff and float(c.get("last_activity_at") or 0) < cutoff:
+                        continue
+                    seen.add(cid)
+                    out.append(c)
+    return out
 
 
 # ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk

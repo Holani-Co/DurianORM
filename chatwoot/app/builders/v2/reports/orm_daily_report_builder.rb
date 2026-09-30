@@ -88,6 +88,7 @@ class V2::Reports::OrmDailyReportBuilder
     has_deal = @deal_at.key?(conv.id) || attrs['crm_deal_id'].present?
     { deal_method: has_deal ? 'Direct Deals' : 'No CRM Deal',
       deal_id: attrs['crm_deal_no'].presence || attrs['crm_deal_id'],
+      deal_stage: attrs['crm_deal_stage'],
       deal_created_by: authors[conv.id], deal_url: attrs['crm_deal_url'] }
   end
 
