@@ -102,15 +102,15 @@ ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 # API name (discover live with scripts note in the daily-report PR).
 ZOHO_CRM_DEAL_NUMBER_FIELD = os.environ.get("ZOHO_CRM_DEAL_NUMBER_FIELD", "")
 
-# API name of the client's CUSTOM "Enquiry Source" picklist on Deals, plus the
-# option ORM-created deals should carry so the client can filter by it. The
-# standard Lead_Source is always set to "Chatwoot" too; this stamps their own
-# field. ZOHO_CRM_SOURCE_VALUE MUST already exist as an option on that picklist
-# (add it in Zoho first) or Zoho rejects it and the stamp is skipped (the deal is
-# unaffected — the write is best-effort, post-create). Empty field name = only
-# Lead_Source is set. e.g. ZOHO_CRM_SOURCE_FIELD=Enquiry_Source ZOHO_CRM_SOURCE_VALUE=Chatwoot
+# API name of the client's CUSTOM "Enquiry Source" picklist on Deals. When set,
+# ORM deals are stamped with the option matching the conversation's CHANNEL (see
+# ZOHO_CRM_SOURCE_MAP) so the client can filter by it using their existing values.
+# Empty = field not stamped (only the standard Lead_Source="Chatwoot" is set).
+# The mapped option must exist on that picklist AND be mapped under the deal's
+# Business Type in the layout dependency, or Zoho rejects it (best-effort,
+# post-create: the stamp is skipped, the deal is unaffected).
+# e.g. ZOHO_CRM_SOURCE_FIELD=Enquiry_Source
 ZOHO_CRM_SOURCE_FIELD = os.environ.get("ZOHO_CRM_SOURCE_FIELD", "")
-ZOHO_CRM_SOURCE_VALUE = os.environ.get("ZOHO_CRM_SOURCE_VALUE", "Chatwoot")
 # API name of the MANDATORY "Business Type" picklist on the client's Deals
 # module — their Standard layout requires it at creation (MANDATORY_NOT_FOUND
 # without it). Empty = not sent, for orgs without the field (e.g. the .in
@@ -183,6 +183,23 @@ try:
 except Exception as _e:  # noqa: BLE001
     print(f"[config] ZOHO_CRM_DEAL_EXTRA_FIELDS invalid JSON ({_e}) — ignoring")
     ZOHO_CRM_DEAL_EXTRA_FIELDS = {}
+
+# Conversation channel -> the client's existing "Enquiry Source" option, written
+# to ZOHO_CRM_SOURCE_FIELD so each ORM deal carries its real channel. Keys:
+# email / whatsapp / instagram / facebook, plus `default` for anything else.
+# Defaults use the client's existing (already-mapped) options; override via
+# ZOHO_CRM_SOURCE_MAP as JSON if a value is renamed.
+_SOURCE_MAP_DEFAULT = {"email": "Email", "whatsapp": "Whats App Or SMS",
+                       "instagram": "Instagram", "facebook": "Facebook",
+                       "default": "Web Chatbot"}
+try:
+    ZOHO_CRM_SOURCE_MAP = _json.loads(os.environ.get("ZOHO_CRM_SOURCE_MAP", "") or "{}")
+    if not isinstance(ZOHO_CRM_SOURCE_MAP, dict):
+        raise ValueError("must be a JSON object")
+    ZOHO_CRM_SOURCE_MAP = {**_SOURCE_MAP_DEFAULT, **ZOHO_CRM_SOURCE_MAP}
+except Exception as _e:  # noqa: BLE001
+    print(f"[config] ZOHO_CRM_SOURCE_MAP invalid JSON ({_e}) — using defaults")
+    ZOHO_CRM_SOURCE_MAP = dict(_SOURCE_MAP_DEFAULT)
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
