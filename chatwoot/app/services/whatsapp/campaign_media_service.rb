@@ -52,11 +52,22 @@ class Whatsapp::CampaignMediaService
     # so there is no file to size/type-check.
     return if @blob.nil?
 
-    raise Error, "Upload a #{media_format} file that matches the template header" unless valid_content_type?
+    raise Error, media_mismatch_message unless valid_content_type?
     raise Error, 'Campaign media must be smaller than 16 MB' if @blob.byte_size > MAX_FILE_SIZE
   end
 
   private
+
+  # A WhatsApp template's header type (IMAGE/VIDEO/DOCUMENT) is fixed at approval,
+  # so an image template can't carry a video and vice-versa. Reject up front with a
+  # clear message instead of letting a mismatched file upload to Meta and reach the
+  # customer as a broken "something wrong with the video file" message.
+  def media_mismatch_message
+    allowed = CONTENT_TYPES.fetch(media_format, []).map { |t| t.split('/').last.upcase }.join('/')
+    "This template has a #{media_format.upcase} header — the file you uploaded is " \
+      "not a #{media_format} (#{detected_content_type}). Upload a #{media_format} " \
+      "(#{allowed}), or pick a template whose header matches your file."
+  end
 
   def download_url
     ActiveStorage::Current.url_options ||= Rails.application.routes.default_url_options
@@ -70,7 +81,35 @@ class Whatsapp::CampaignMediaService
                       &.downcase
   end
 
+  # Match BOTH the declared content type AND the type sniffed from the file's own
+  # bytes — a file renamed/mislabelled (e.g. an .mp4 served as image/jpeg) passes
+  # the declared check but is caught by the sniff.
   def valid_content_type?
-    CONTENT_TYPES.fetch(media_format, []).include?(@blob.content_type)
+    allowed = CONTENT_TYPES.fetch(media_format, [])
+    # The declared type must match the header (original rule — unchanged).
+    return false unless allowed.include?(@blob.content_type)
+
+    # Then, only REJECT when the file's own bytes clearly say a different, KNOWN
+    # media type (the mislabelled-video case). Inconclusive sniffing (blank /
+    # octet-stream) or agreement with the declared type is trusted → no new false
+    # negatives for legitimate files.
+    sniffed = detected_content_type
+    return true if sniffed.blank? || sniffed == @blob.content_type || sniffed == 'application/octet-stream'
+
+    allowed.include?(sniffed)
+  end
+
+  # True media type from the first few KB of the file (magic bytes). Cheap: only a
+  # small range is downloaded, so this is safe even on the per-recipient send path.
+  # Falls back to the declared type if sniffing fails (no worse than before).
+  def detected_content_type
+    @detected_content_type ||= begin
+      head = @blob.download(range: 0...(4.kilobytes))
+      Marcel::MimeType.for(StringIO.new(head.to_s),
+                           name: @blob.filename.to_s,
+                           declared_type: @blob.content_type)
+    end
+  rescue StandardError
+    @blob.content_type
   end
 end
