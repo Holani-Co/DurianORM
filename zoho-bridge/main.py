@@ -8021,9 +8021,13 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     # existing values (Lead_Source is already set at create). Best-effort and
     # post-create: a missing field/unmapped option never undoes the deal.
     if config.ZOHO_CRM_SOURCE_FIELD and deal_id:
-        source_value = _enquiry_source_for(full_conv)
-        if source_value:
-            await zoho_crm.update_deal(deal_id, {config.ZOHO_CRM_SOURCE_FIELD: source_value})
+        try:
+            source_value = _enquiry_source_for(conv)
+            if source_value:
+                await zoho_crm.update_deal(
+                    deal_id, {config.ZOHO_CRM_SOURCE_FIELD: source_value})
+        except Exception as e:
+            print(f"[crm] enquiry-source stamp failed for conv {conv_id}: {e}")
 
     # Manual Create-Deal button only — the auto flows fold the map into their own
     # single ack. Retail showrooms only: the tagged owner must BE the customer's
