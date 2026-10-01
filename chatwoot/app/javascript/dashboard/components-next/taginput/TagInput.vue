@@ -107,14 +107,14 @@ const emitDataOnAdd = value => {
     : emit('add', { value: value, action: 'create' });
 };
 
-const updateValueAndFocus = value => {
+const updateValueAndFocus = (value, refocus = true) => {
   tags.value.push(value);
   newTag.value = '';
   modelValue.value = tags.value;
-  tagInputRef.value?.focus();
+  if (refocus) tagInputRef.value?.focus();
 };
 
-const addTag = async () => {
+const addTag = async (refocus = true) => {
   const trimmedTag = newTag.value?.trim();
   if (!trimmedTag) return;
 
@@ -133,7 +133,7 @@ const addTag = async () => {
     if (!(await v$.value.$validate())) return;
     emitDataOnAdd(trimmedTag);
   }
-  updateValueAndFocus(trimmedTag);
+  updateValueAndFocus(trimmedTag, refocus);
 };
 
 const removeTag = index => {
@@ -201,7 +201,16 @@ watch(
 );
 
 const handleInput = e => emit('input', e);
-const handleBlur = e => emit('blur', e);
+const handleBlur = e => {
+  // Commit whatever is still in the input buffer so the last-typed recipient /
+  // tag isn't silently dropped when the user clicks Send (or into another
+  // field) without pressing Enter or comma first. addTag no-ops on empty or
+  // invalid input and on select-only dropdown inputs (those don't allow-create),
+  // so this only rescues valid, creatable values. No refocus — the user is
+  // leaving the field.
+  addTag(false);
+  emit('blur', e);
+};
 </script>
 
 <template>
