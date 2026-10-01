@@ -7654,7 +7654,7 @@ async def chatwoot_crm_create_deal(request: Request):
     return await _create_crm_deal(
         conv_id, agent_name=body.get("agent_name") or "an agent",
         sector=(body.get("sector") or ""), phone=str(body.get("phone") or ""),
-        ignore_existing=bool(body.get("ignore_existing")), send_store_line=True)
+        send_store_line=True)
 
 
 def _enquiry_source_for(conv) -> str:
@@ -7669,13 +7669,14 @@ def _enquiry_source_for(conv) -> str:
 
 
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
-                           phone="", ignore_existing=False, owner_id_override="",
+                           phone="", owner_id_override="",
                            owner_label="", send_store_line=False):
     """Core Create-Deal logic, shared by the manual button endpoint and the
     email-channel auto-create. Raises HTTPException for the cases that need a
-    human decision (409 buyer-type unclear, 422 unresolvable location, 409
-    existing-deal warning) — the auto path catches these and defers to the
-    manual button; the endpoint surfaces them to the panel."""
+    human decision (409 buyer-type unclear, 422 unresolvable location) — the
+    auto path catches these and defers to the manual button; the endpoint
+    surfaces them to the panel. An existing deal for the contact is NOT a
+    blocker: it is surfaced as a note and the new deal is still created."""
     if not config.ZOHO_CRM_ENABLED:
         raise HTTPException(503, "CRM not configured")
     try:
@@ -7762,8 +7763,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
 
     # Contact matching: prefer an agent-supplied phone, else the phone the
     # deal-details gate captured from the customer — so we reuse an existing CRM
-    # contact by number without the agent typing it. `ignore_existing` is the
-    # "Create anyway" override for the duplicate-deal warning below.
+    # contact by number without the agent typing it.
     phone_override  = str(phone or "").strip() or str(_captured.get("phone") or "")
 
     # Remember the agent's sector decision so re-runs / other flows see it.
@@ -7794,20 +7794,29 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     except Exception as e:
         raise HTTPException(500, f"CRM Contact resolve failed: {e}")
 
-    # Similar-deal warning: when we matched an EXISTING contact (not one we
-    # just created) that already has deals, surface them and let the agent
-    # decide — a re-call with ignore_existing=True ("Create anyway") skips this.
-    if contact_id and not contact_created and not ignore_existing:
-        existing_deals = await zoho_crm.get_contact_deals(contact_id)
-        if existing_deals:
-            deals = [{
-                "id":           str(d.get("id") or ""),
-                "name":         d.get("Deal_Name") or "(unnamed deal)",
-                "stage":        d.get("Stage") or "",
-                "created_time": d.get("Created_Time") or "",
-                "url":          zoho_crm.deal_url(str(d.get("id") or "")),
-            } for d in existing_deals]
-            raise HTTPException(409, {"code": "existing_deals", "deals": deals})
+    # Existing-deal info: when we matched an EXISTING contact (not one we just
+    # created) that already has deals, surface them as a note for the team — but
+    # still create the new deal automatically (client: no agent confirmation, no
+    # "create anyway" step). Best-effort: a note failure must not block creation.
+    if contact_id and not contact_created:
+        try:
+            existing_deals = await zoho_crm.get_contact_deals(contact_id)
+            if existing_deals:
+                lines = [
+                    f"• {d.get('Deal_Name') or '(unnamed deal)'}"
+                    + (f" — {d['Stage']}" if d.get('Stage') else '')
+                    + (f" (created {d['Created_Time'][:10]})" if d.get('Created_Time') else '')
+                    + f"\n  {zoho_crm.deal_url(str(d.get('id') or ''))}"
+                    for d in existing_deals[:5]
+                ]
+                if len(existing_deals) > 5:
+                    lines.append(f"…and {len(existing_deals) - 5} more.")
+                await chatwoot.post_private_note(
+                    int(conv_id),
+                    f"ℹ️ This customer already has {len(existing_deals)} existing "
+                    f"CRM deal(s) — creating a new deal anyway:\n" + "\n".join(lines))
+        except Exception as e:
+            print(f"[crm] existing-deals note failed for conv {conv_id}: {e}")
 
     # Record layout — the flow's product sub-type split: full home
     # customization deals go on the "Home Studio" layout (designers),
@@ -8011,8 +8020,9 @@ async def _maybe_auto_create_deal(conv_id: int, channel: str) -> None:
     """EMAIL channel only: an enquiry just became fully qualified, so create the
     CRM deal automatically instead of waiting for an agent to click Create Deal
     (the client validated the flow). Other channels keep the manual button. If
-    the deal needs a human decision (buyer-type unclear, unresolvable location,
-    an existing-deal warning) we leave the manual Create-Deal path in place."""
+    the deal needs a human decision (buyer-type unclear, unresolvable location)
+    we leave the manual Create-Deal path in place. An existing deal is no longer
+    a blocker — it's noted and the new deal is still created."""
     if channel != "email" or not config.AUTO_DEAL_EMAIL_ENABLED:
         return
     if not config.ZOHO_CRM_ENABLED:
