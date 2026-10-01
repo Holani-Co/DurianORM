@@ -201,6 +201,23 @@ except Exception as _e:  # noqa: BLE001
     print(f"[config] ZOHO_CRM_SOURCE_MAP invalid JSON ({_e}) — using defaults")
     ZOHO_CRM_SOURCE_MAP = dict(_SOURCE_MAP_DEFAULT)
 
+# Manual email-forward: the preset internal recipients the agent can pick from
+# in the Forward dialog (they can also type any address). JSON array of
+# {"name": "...", "email": "..."}; empty (default) = free-type only.
+try:
+    FORWARD_PRESET_RECIPIENTS = _json.loads(
+        os.environ.get("FORWARD_PRESET_RECIPIENTS", "") or "[]")
+    if not isinstance(FORWARD_PRESET_RECIPIENTS, list):
+        raise ValueError("must be a JSON array")
+    FORWARD_PRESET_RECIPIENTS = [
+        {"name": str(r.get("name") or r.get("email") or ""),
+         "email": str(r.get("email") or "")}
+        for r in FORWARD_PRESET_RECIPIENTS
+        if isinstance(r, dict) and r.get("email")]
+except Exception as _e:  # noqa: BLE001
+    print(f"[config] FORWARD_PRESET_RECIPIENTS invalid JSON ({_e}) — none set")
+    FORWARD_PRESET_RECIPIENTS = []
+
 # ── Chatwoot ──────────────────────────────────────────────────────────────
 # CHATWOOT_BASE_URL is the address the bridge USES INTERNALLY to call the
 # Chatwoot API. On a single-VM deployment this is `http://localhost:3000`

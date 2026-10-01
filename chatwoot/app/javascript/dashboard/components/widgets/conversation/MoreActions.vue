@@ -6,6 +6,7 @@ import { useAlert } from 'dashboard/composables';
 import { useI18n } from 'vue-i18n';
 import { emitter } from 'shared/helpers/mitt';
 import EmailTranscriptModal from './EmailTranscriptModal.vue';
+import ForwardEmailModal from './ForwardEmailModal.vue';
 import ResolveAction from '../../buttons/ResolveAction.vue';
 import ButtonV4 from 'dashboard/components-next/button/Button.vue';
 import DropdownMenu from 'dashboard/components-next/dropdown-menu/DropdownMenu.vue';
@@ -21,9 +22,17 @@ const store = useStore();
 const { t } = useI18n();
 
 const [showEmailActionsModal, toggleEmailModal] = useToggle(false);
+const [showForwardModal, toggleForwardModal] = useToggle(false);
 const [showActionsDropdown, toggleDropdown] = useToggle(false);
 
 const currentChat = computed(() => store.getters.getSelectedChat);
+
+// Manual forward is only meaningful on an email conversation (it emails the
+// trail onward); hide it everywhere else.
+const isEmailConversation = computed(() => {
+  const inbox = store.getters['inboxes/getInbox'](currentChat.value.inbox_id);
+  return inbox?.channel_type === 'Channel::Email';
+});
 
 const actionMenuItems = computed(() => {
   const items = [];
@@ -51,6 +60,15 @@ const actionMenuItems = computed(() => {
     value: 'send_transcript',
   });
 
+  if (isEmailConversation.value) {
+    items.push({
+      icon: 'i-lucide-forward',
+      label: t('FORWARD_EMAIL.MENU_LABEL'),
+      action: 'forward_email',
+      value: 'forward_email',
+    });
+  }
+
   return items;
 });
 
@@ -65,6 +83,8 @@ const handleActionClick = ({ action }) => {
     useAlert(t('CONTACT_PANEL.UNMUTED_SUCCESS'));
   } else if (action === 'send_transcript') {
     toggleEmailModal();
+  } else if (action === 'forward_email') {
+    toggleForwardModal();
   }
 };
 
@@ -121,6 +141,12 @@ onUnmounted(() => {
       :show="showEmailActionsModal"
       :current-chat="currentChat"
       @cancel="toggleEmailModal"
+    />
+    <ForwardEmailModal
+      v-if="showForwardModal"
+      :show="showForwardModal"
+      :current-chat="currentChat"
+      @cancel="toggleForwardModal"
     />
   </div>
 </template>

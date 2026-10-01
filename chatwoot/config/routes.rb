@@ -413,6 +413,8 @@ Rails.application.routes.draw do
                 post :escalate_review
                 post :draft_ticket
                 post :create_ticket
+                post :forward_recipients
+                post :forward_email
               end
             end
             resource :routing_config, controller: 'routing_config', only: [:show] do

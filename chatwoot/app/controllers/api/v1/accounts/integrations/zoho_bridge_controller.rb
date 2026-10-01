@@ -119,6 +119,21 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
     proxy_to_bridge('/chatwoot/ticket/create', 30)
   end
 
+  # POST .../integrations/zoho_bridge/forward_recipients
+  #   body: { conversation_id }
+  # Preset internal addresses the agent can pick in the Forward dialog.
+  def forward_recipients
+    proxy_to_bridge('/chatwoot/forward-recipients', 15)
+  end
+
+  # POST .../integrations/zoho_bridge/forward_email
+  #   body: { conversation_id, to_emails, cc_emails?, note? }
+  # Manual forward: the bridge emails the conversation's full trail to the
+  # chosen recipient(s) and logs it as an outgoing message on the conversation.
+  def forward_email
+    proxy_to_bridge('/chatwoot/forward-email', 30)
+  end
+
   private
 
   # Shared proxy helper for the CRM endpoints — injects the acting agent's

@@ -7659,6 +7659,78 @@ async def chatwoot_crm_create_deal(request: Request):
         send_store_line=True)
 
 
+@app.post("/chatwoot/forward-recipients")
+async def chatwoot_forward_recipients(request: Request):
+    """Preset internal addresses the agent can pick in the Forward dialog.
+    The agent can also type any address (handled client-side)."""
+    return {"recipients": config.FORWARD_PRESET_RECIPIENTS}
+
+
+@app.post("/chatwoot/forward-email")
+async def chatwoot_forward_email(request: Request):
+    """Manual Forward: email the conversation's COMPLETE trail to the chosen
+    recipient(s). Reuses the same full-trail builder as the auto-forward and
+    logs it as an outgoing message on the same conversation (audit + reports).
+    Body: {conversation_id, to_emails, cc_emails?, note?, agent_name?}."""
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    to_emails = (body.get("to_emails") or "").strip()
+    if not conv_id:
+        raise HTTPException(400, "missing conversation_id")
+    if not to_emails:
+        raise HTTPException(400, "missing to_emails")
+    cc_emails = (body.get("cc_emails") or "").strip()
+    note = (body.get("note") or "").strip()
+    agent_name = body.get("agent_name") or "an agent"
+
+    try:
+        conv = await chatwoot.get_conversation(int(conv_id))
+        messages = await chatwoot.get_conversation_messages(int(conv_id))
+    except Exception as e:
+        raise HTTPException(500, f"could not read conversation: {e}")
+
+    name, email = _conv_sender(conv)
+    subject, _ = _conv_first_incoming_body(messages)
+    trail = _email_thread(messages, name, email)
+    if not trail:
+        raise HTTPException(422, "nothing to forward — no email content in this conversation")
+
+    lines = []
+    if note:
+        lines += [note, ""]
+    lines += [
+        f"From: {name or '(unknown)'} <{email}>",
+        f"Subject: {subject or '(no subject)'}",
+        "",
+        "----------------------------------------",
+        "",
+        trail,
+        "",
+        "----------------------------------------",
+        "Regards,",
+        "Team Durian",
+    ]
+    forward_body = "\n".join(lines)
+
+    try:
+        await chatwoot.send_outgoing_message(
+            int(conv_id), forward_body,
+            to_emails=to_emails, cc_emails=(cc_emails or None))
+    except Exception as e:
+        raise HTTPException(502, f"forward send failed: {e}")
+
+    try:
+        await chatwoot.post_private_note(
+            int(conv_id),
+            f"📨 Email forwarded by {agent_name} to {to_emails}"
+            + (f" (cc {cc_emails})" if cc_emails else "")
+            + " — full trail included.")
+    except Exception:
+        pass
+
+    return {"ok": True, "to": to_emails, "cc": cc_emails}
+
+
 def _enquiry_source_for(conv) -> str:
     """The client's Enquiry Source option matching the conversation's channel
     (config.ZOHO_CRM_SOURCE_MAP), e.g. WhatsApp -> 'Whats App Or SMS'. Falls back

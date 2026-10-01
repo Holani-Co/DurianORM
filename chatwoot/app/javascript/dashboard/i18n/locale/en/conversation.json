@@ -412,6 +412,35 @@
       }
     }
   },
+  "FORWARD_EMAIL": {
+    "MENU_LABEL": "Forward email",
+    "TITLE": "Forward email",
+    "DESC": "Forward the complete email trail of this conversation to someone else.",
+    "SUBMIT": "Forward",
+    "SENDING": "Forwarding…",
+    "CANCEL": "Cancel",
+    "SUCCESS": "Email forwarded successfully.",
+    "ERROR": "Could not forward the email. Please try again.",
+    "FORM": {
+      "PRESET": {
+        "LABEL": "Quick pick",
+        "PLACEHOLDER": "Choose a saved recipient…"
+      },
+      "TO": {
+        "LABEL": "To",
+        "PLACEHOLDER": "Recipient email(s), comma-separated"
+      },
+      "CC": {
+        "LABEL": "Cc",
+        "PLACEHOLDER": "Optional, comma-separated"
+      },
+      "NOTE": {
+        "LABEL": "Note (optional)",
+        "PLACEHOLDER": "A short note to add above the forwarded email"
+      },
+      "TRAIL_HINT": "The complete email trail of this conversation will be included."
+    }
+  },
   "ONBOARDING": {
     "TITLE": "Hey 👋, Welcome to {installationName}!",
     "DESCRIPTION": "Thanks for signing up. We want you to get the most out of {installationName}. Here are a few things you can do in {installationName} to make the experience delightful.",
