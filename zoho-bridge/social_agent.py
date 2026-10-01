@@ -121,6 +121,13 @@ def _inbox_vertical(inbox_name: str) -> str:
     return "furniture"
 
 
+def _is_fhc_account(inbox_name: str) -> bool:
+    """The Full Home Customisation account (durian_fullhomecustomisation) sells
+    CUSTOM interiors, not ready-made catalog SKUs — so the agent must not push
+    product links/prices there (see the FHC rule in the system prompt)."""
+    return "fullhomecustomisation" in (inbox_name or "").lower().replace("_", "")
+
+
 def inr(value) -> str:
     """Indian-notation rupees: 109520 → '₹1,09,520' (last 3 digits, then
     2-digit groups). Skills return prices ONLY in this form, so the model's
@@ -1695,9 +1702,20 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "ours. If it returns looked=false / escalate or is_product=false, hand "
         "off with escalate_to_human — never guess an image you could not view."
         if config.PRODUCT_VISION_ENABLED else "")
+    fhc_rule = (
+        "\n\nFULL HOME CUSTOMISATION ACCOUNT: this account sells CUSTOM-BUILT "
+        "interiors, not the ready-made catalog. Do NOT call search_products and "
+        "do NOT share ready-made product links or prices here — treat every "
+        "furniture / wardrobe / interior mention as a CUSTOMISATION enquiry. "
+        "Acknowledge that we design and build it to the customer's requirement, "
+        "then (per the steps below) capture their full name + contact number + "
+        "city/pincode and route them to the nearest showroom (route_to_showroom) "
+        "so our team takes it forward. share_offer and showroom details are still "
+        "fine; a ready-made SKU or its price is NOT."
+        if _is_fhc_account(inbox) else "")
     return f"""You are Durian's front-of-house agent on Instagram ({inbox} — \
 the {vertical} account). Durian sells premium furniture, doors and modular \
-interiors. Your job: help customers buy, faster — fewest, clearest messages.
+interiors. Your job: help customers buy, faster — fewest, clearest messages.{fhc_rule}
 
 YOU HOLD NO PRODUCT KNOWLEDGE. Prices, products, EMI, offers, showrooms, \
 availability — none of it lives in you. Your skills are your only senses; the \
