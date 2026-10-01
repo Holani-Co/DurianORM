@@ -83,11 +83,6 @@ const sectorChoiceNeeded = ref(false);
 // Optional phone the agent can supply to match an existing CRM contact by
 // number (email-channel enquiries often have no phone on file).
 const phoneInput = ref('');
-// Deals the bridge found already linked to this customer's contact — surfaced
-// as a non-blocking warning so the agent can View them or Create anyway.
-const existingDeals = ref([]);
-// The sector chosen for the in-flight create, so "Create anyway" re-sends it.
-const pendingSector = ref('');
 
 // CRM deep links — prefer the server-derived URLs the bridge stashes
 // alongside the ids (crm_contact_url / crm_deal_url): only the bridge knows
@@ -118,16 +113,14 @@ const mergeConversationCustomAttributes = attrs => {
   });
 };
 
-const createDeal = async (sector = '', ignoreExisting = false) => {
+const createDeal = async (sector = '') => {
   if (isCreatingDeal.value) return;
   isCreatingDeal.value = true;
-  pendingSector.value = sector;
   try {
     const payload = { conversation_id: Number(props.conversationId) };
     if (sector) payload.sector = sector;
     const phone = phoneInput.value.trim();
     if (phone) payload.phone = phone;
-    if (ignoreExisting) payload.ignore_existing = true;
     const { data } = await axios.post(
       `/api/v1/accounts/${accountId.value}/integrations/zoho_bridge/create_crm_deal`,
       payload
@@ -140,7 +133,6 @@ const createDeal = async (sector = '', ignoreExisting = false) => {
       }
       mergeConversationCustomAttributes(updates);
       sectorChoiceNeeded.value = false;
-      existingDeals.value = [];
       useAlert(
         data.contact_created === false
           ? 'Deal created and linked to the existing CRM contact.'
@@ -152,15 +144,7 @@ const createDeal = async (sector = '', ignoreExisting = false) => {
   } catch (e) {
     const status = e?.response?.status;
     const detail = e?.response?.data?.detail;
-    if (
-      status === 409 &&
-      detail &&
-      typeof detail === 'object' &&
-      detail.code === 'existing_deals'
-    ) {
-      // Customer already has a deal — surface it; the agent can Create anyway.
-      existingDeals.value = detail.deals || [];
-    } else if (status === 409) {
+    if (status === 409) {
       // Buyer type ambiguous — surface the Government/Private choice.
       sectorChoiceNeeded.value = true;
       useAlert('Buyer type unclear — choose Government or Private below.');
@@ -176,8 +160,9 @@ const createDeal = async (sector = '', ignoreExisting = false) => {
   }
 };
 
-// One-click create — no confirmation modal (the duplicate-deal warning still
-// guards against accidental dupes, and the button disables once a deal exists).
+// One-click create — no confirmation modal. An existing deal no longer blocks
+// creation (the bridge creates anyway and posts a note); the button still
+// disables once a deal exists so a re-click can't duplicate.
 const requestCreateDeal = () => createDeal();
 
 // Prior deals already linked to this contact in CRM — fetched READ-ONLY on load
@@ -350,56 +335,6 @@ onMounted(loadPriorDeals);
           type="button"
           class="px-2 py-1 text-xs rounded-md text-n-slate-11 hover:text-n-slate-12"
           @click="sectorChoiceNeeded = false"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-
-    <!-- Similar-deal warning — the bridge found existing deal(s) linked to
-         this customer's contact. Non-blocking: the agent can open them or
-         Create anyway (re-sends with ignore_existing). -->
-    <div
-      v-if="existingDeals.length && !dealId"
-      class="flex flex-col gap-1.5 p-2 border rounded-md border-n-weak bg-n-alpha-1"
-    >
-      <span
-        class="flex items-center gap-1.5 text-xs font-medium text-n-slate-12"
-      >
-        <span class="i-lucide-triangle-alert text-n-slate-10" />
-        This customer already has a deal in CRM:
-      </span>
-      <ul class="flex flex-col gap-1">
-        <li
-          v-for="d in existingDeals"
-          :key="d.id"
-          class="flex items-center gap-1.5 text-xs text-n-slate-11"
-        >
-          <span class="i-lucide-target text-n-slate-10" />
-          <a
-            :href="d.url"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-n-brand hover:underline"
-          >
-            {{ d.name }}
-          </a>
-          <span v-if="d.stage" class="text-n-slate-10">· {{ d.stage }}</span>
-        </li>
-      </ul>
-      <div class="flex flex-wrap items-center gap-2 pt-1">
-        <button
-          type="button"
-          class="px-2.5 py-1 text-xs font-medium rounded-md text-white bg-n-brand hover:opacity-90 disabled:opacity-50"
-          :disabled="isCreatingDeal"
-          @click="createDeal(pendingSector, true)"
-        >
-          {{ isCreatingDeal ? 'Creating…' : 'Create anyway' }}
-        </button>
-        <button
-          type="button"
-          class="px-2 py-1 text-xs rounded-md text-n-slate-11 hover:text-n-slate-12"
-          @click="existingDeals = []"
         >
           Cancel
         </button>
