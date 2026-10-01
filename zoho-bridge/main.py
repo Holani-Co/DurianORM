@@ -4131,9 +4131,11 @@ async def handle_message_created(data: dict) -> dict:
         # (carries meta.sender) so non-allowlisted customers never cost the
         # extra full-conversation fetch.
         if conv_id and social_agent.eligible(conv, social_channel):
-            _agent_conv = await chatwoot.get_conversation(conv_id)
-            handled = await social_agent.maybe_handle(
-                _agent_conv, social_channel,
+            # Debounced: a burst of quick DMs settles into ONE turn. The entry
+            # re-fetches the full conversation itself (both when it defers and
+            # when the window is 0), so no pre-fetch here.
+            handled = await social_agent.maybe_handle_debounced(
+                conv, social_channel,
                 latest_message=data.get("content") or "",
                 latest_msg_id=data.get("id"))
             if handled is not None:

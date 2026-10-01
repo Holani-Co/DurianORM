@@ -61,6 +61,13 @@ _locks: dict[int, asyncio.Lock] = {}
 _locks_guard = asyncio.Lock()
 _last_handled_msgid: dict[int, int] = {}
 
+# Debounce state (see maybe_handle_debounced): per-conversation generation
+# counter — every incoming DM bumps it; a scheduled turn only proceeds if its
+# generation is still the latest when the quiet window elapses. Strong refs to
+# the sleeping tasks so the event loop (weak refs only) can't GC them mid-flight.
+_debounce_gen: dict[int, int] = {}
+_debounce_tasks: set = set()
+
 
 async def _responses_with_retry(**kwargs):
     """Responses call with exponential backoff on rate limits / transient
@@ -1730,7 +1737,11 @@ showrooms → ask for their pincode (name at most 2 options). Serve every \
 product on every account — the account's vertical only picks the deal route. \
 A CONTACT NUMBER is required to register an enquiry — if a routing skill \
 returns need_phone, ask the customer for their phone number and do NOT say \
-the enquiry is passed/registered until they share it.
+the enquiry is passed/registered until they share it. When the turn is a \
+lead-capture — a project/builder or trade enquiry, or any "we'll connect you \
+with our team" handoff — ask for EVERY capture detail still missing in ONE \
+message (their name if we don't hold it, their phone number, and their city \
+or pincode), not one at a time across turns.
 4. COMPOSE — you write ONE message, and you write it AS Durian: the brand \
 speaks in plural — "we can arrange this", "our Kirti Nagar showroom" — \
 never "I/me/my". Everything skills and templates hand you is raw material, \
@@ -1741,7 +1752,9 @@ greetings, its sign-offs. However many sources feed one reply, the reply \
 has exactly one opening and exactly one "Regards,\\nTeam Durian", at the \
 very end (skip it on one-liners). Professional and minimal — no emoji, \
 plain text (Instagram renders no markdown), shortest useful answer, one \
-question at a time. EVERY product you quote carries its durian.in link \
+question at a time (EXCEPTION per step 3: a lead-capture handoff asks for all \
+the missing capture details — name, phone, city/pincode — together in that \
+one message). EVERY product you quote carries its durian.in link \
 from search_products — no exception, comparisons included. Instagram \
 delivers at most 1000 characters per message — stay under 900: at most \
 THREE products per reply (best fits first; more exist → say they can ask), \
@@ -1923,6 +1936,58 @@ async def maybe_handle(conv: dict, channel: str, surface: str = "",
             except Exception:
                 pass
             return {"handled": "agent_error", "error": str(e)}
+
+
+async def maybe_handle_debounced(conv: dict, channel: str, surface: str = "",
+                                 latest_message: str = "",
+                                 latest_msg_id=None) -> dict | None:
+    """Coalesce a burst of quick incoming DMs into ONE agent turn.
+
+    Customers commonly fire several short messages back to back; handling each
+    one separately produces a reply per message (spammy). Instead, each incoming
+    message bumps a per-conversation generation counter and schedules a turn that
+    waits `config.SOCIAL_DEBOUNCE_SECONDS`; only the turn whose generation is
+    still current when the window elapses actually runs, on the latest unanswered
+    message (maybe_handle reads the full transcript, so the single reply answers
+    the whole burst). Returns immediately; the turn runs in a background task.
+    With the window at 0 it falls straight through to maybe_handle (unchanged)."""
+    if not eligible(conv, channel):
+        return None
+    conv_id = conv.get("id")
+    if not conv_id:
+        return None
+    if config.SOCIAL_DEBOUNCE_SECONDS <= 0:
+        full = await chatwoot.get_conversation(conv_id)
+        return await maybe_handle(full, channel, surface, latest_message,
+                                  latest_msg_id)
+    gen = _debounce_gen.get(conv_id, 0) + 1
+    _debounce_gen[conv_id] = gen
+    task = asyncio.create_task(_debounced_run(conv_id, channel, surface, gen))
+    _debounce_tasks.add(task)
+    task.add_done_callback(_debounce_tasks.discard)
+    return {"deferred": "debounce", "conv_id": conv_id}
+
+
+async def _debounced_run(conv_id, channel, surface, gen) -> None:
+    await asyncio.sleep(config.SOCIAL_DEBOUNCE_SECONDS)
+    # A newer message arrived during the quiet window — it owns the burst now.
+    if _debounce_gen.get(conv_id) != gen:
+        return
+    try:
+        conv = await chatwoot.get_conversation(conv_id)
+        if not eligible(conv, channel):
+            return
+        # Re-derive the target from live state: a human may have replied during
+        # the window (then there's nothing unanswered to handle).
+        msgs = await chatwoot.get_conversation_messages_raw(conv_id)
+        pending = last_unanswered_incoming(msgs)
+        if not pending:
+            return
+        await maybe_handle(conv, channel, surface=surface,
+                           latest_message=pending.get("content") or "",
+                           latest_msg_id=pending.get("id"))
+    except Exception as e:
+        print(f"[agent] debounced run failed for conv {conv_id}: {e}")
 
 
 async def _handle_locked(conv, conv_id, channel, surface,

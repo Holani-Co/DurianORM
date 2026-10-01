@@ -581,6 +581,15 @@ COMMENT_PRODUCT_REPLY_ENABLED = _bool("COMMENT_PRODUCT_REPLY_ENABLED", "false")
 SOCIAL_AUTO_SEND_ENABLED = _bool("SOCIAL_AUTO_SEND_ENABLED", "true")
 SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFIDENCE", "80"))
 
+# Message-burst debounce: customers on IG/FB DM fire several short messages in a
+# row ("Hi" / "I am X" / "builder from Y"). Without a settle window each one is a
+# separate agent turn → a separate reply, which feels like spam. When an incoming
+# DM arrives the agent waits this many seconds for the burst to finish, then runs
+# ONE turn on the latest message (it reads the whole transcript, so one reply
+# covers them all). A newer message during the window restarts the timer. Set to
+# 0 to disable (revert to a reply per message, no redeploy needed).
+SOCIAL_DEBOUNCE_SECONDS = float(os.environ.get("SOCIAL_DEBOUNCE_SECONDS", "6"))
+
 # ── Agent mode (social_agent.py) — Instagram DMs + comments ────────────────
 # Skills-based loop on gpt-5.6-luna (Responses API, low reasoning). Dark by
 # default; first enablement is per test contact:
