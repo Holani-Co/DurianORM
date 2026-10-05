@@ -714,6 +714,18 @@ WEBSITE_FHC_FLOW_ENABLED = _bool("WEBSITE_FHC_FLOW_ENABLED", "false")
 # being dropped. Empty → out-of-coverage stays a Chatwoot-only handoff (no
 # CRM deal). Client's Customer Support user: 352472000003347003.
 FHC_SUPPORT_OWNER_ID = os.environ.get("FHC_SUPPORT_OWNER_ID", "")
+# WhatsApp FHC "ghost" capture: a customer who gave name + phone + interest but
+# then went quiet WITHOUT sharing their pincode (so we never resolved a studio).
+# A background sweep creates the lead anyway — routed to Customer Support
+# (FHC_SUPPORT_OWNER_ID), since we can't pick a studio without the location — so
+# the lead isn't lost; a human adds the pincode + reassigns. Dark-launched.
+#   GHOST_MINUTES      — quiet-time before we treat it as a ghost (sweep acts once
+#                        the pincode step has sat unanswered this long).
+#   GHOST_SWEEP_SECONDS— how often the background sweep runs.
+WHATSAPP_FHC_GHOST_ENABLED = _bool("WHATSAPP_FHC_GHOST_ENABLED", "false")
+WHATSAPP_FHC_GHOST_MINUTES = int(os.environ.get("WHATSAPP_FHC_GHOST_MINUTES", "30"))
+WHATSAPP_FHC_GHOST_SWEEP_SECONDS = int(
+    os.environ.get("WHATSAPP_FHC_GHOST_SWEEP_SECONDS", "300"))
 # Studio-visit booking in the FHC flow: after showing a studio, offer to book a
 # visit → creates a Zoho Meeting (Events) hosted by the studio owner. Writes to
 # the CRM, so dark-launched separately. Morning/Afternoon/Evening map to these
