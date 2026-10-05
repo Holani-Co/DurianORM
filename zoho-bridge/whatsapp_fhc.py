@@ -425,13 +425,13 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
     if step == "done":
         st.clear()
         await chatwoot.send_interactive_buttons(conv_id, _GREETING, _MENU)
-        await _save(step="menu", tries=0)
+        await _save(step="menu")
         return {"handled": "wa_fhc_reengaged"}
 
     # ── First contact → greet + menu ────────────────────────────────────────
     if not step:
         await chatwoot.send_interactive_buttons(conv_id, _GREETING, _MENU)
-        await _save(step="menu", tries=0)
+        await _save(step="menu")
         return {"handled": "wa_fhc_greeted"}
 
     # ── Menu → route on the tapped/typed choice ─────────────────────────────
@@ -481,22 +481,6 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             await _say("Got it! 📞 Please share your *phone number*.")
             await _save(step="p_phone", interest=interest)
         return {"handled": "wa_fhc_p_interest"}
-
-    if step == "p_phone_confirm":
-        t = text.strip().lower()
-        if any(k in t for k in ("yes", "phone_yes", "use this", "same", "correct")):
-            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
-                       "your nearest studio.")
-            await _save(step="p_pin", phone=st.get("known_phone"))
-        elif any(k in t for k in ("no", "phone_no", "another", "different", "other")):
-            await _say("No problem — please share the *phone number* you'd like us to "
-                       "use. 📞")
-            await _save(step="p_phone")
-        else:
-            await chatwoot.send_interactive_buttons(
-                conv_id, "Just to confirm — which number should we use? 📞",
-                _CONFIRM_PHONE)
-        return {"handled": "wa_fhc_p_phone_confirm"}
 
     if step == "p_phone":
         phone = _extract_phone(text)
