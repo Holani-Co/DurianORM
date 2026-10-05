@@ -304,8 +304,9 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
                "next": "if the customer wants to BUY, this is not registered "
                        "yet — call route_to_showroom with this same "
                        "pincode/city NOW, then reply"}
-        hit = pincode and social_store_templates.resolve_store_reply(
-            ctx.get("vertical", "furniture"), pincode=pincode)
+        hit = social_store_templates.resolve_store_reply(
+            ctx.get("vertical", "furniture"), pincode=pincode or None,
+            city=city or "")
         if hit and hit.get("text"):
             out["address_message"] = social_store_templates.plain(hit["text"])
             out["next"] = ("customer wants the store details → your reply "
@@ -319,6 +320,29 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
         return {"resolved": True, "city": cdata.get("display", ckey),
                 "options": options,
                 "note": "several showrooms — ask for their PINCODE to pick the nearest"}
+    # Not resolved. For doors / fhc this usually means we genuinely have NO
+    # showroom at/near that location (small networks + the coverage cap) — a
+    # normal answer, NOT a reason to hand the conversation to a human. Tell the
+    # agent to say so plainly and keep helping, so it auto-sends instead of
+    # escalating (which was flagging every such chat agent-needed).
+    vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
+    if vert in ("doors", "fhc"):
+        label = ("Durian Doors" if vert == "doors"
+                 else "Durian Full Home Customisation")
+        place = city or (f"pincode {pincode}" if pincode else "that location")
+        near = pincode_resolver.nearest_store(pincode, vert) if pincode else None
+        note = (f"We have NO {label} showroom at/near {place}. This is a normal "
+                "answer — do NOT escalate or hand off for it. In YOUR reply: tell "
+                "the customer plainly we don't have a showroom there yet; never "
+                "name a store from another product line and never invent one; then "
+                "keep helping — offer to assist over chat and ask for their "
+                "requirement + a phone number so our team can follow up. action: "
+                "send.")
+        if near:
+            note += (f" FYI (agent-only context, mention the CITY only if useful, "
+                     f"never as 'your showroom'): nearest {label} showroom is in "
+                     f"{near['city']}, ~{near['distance_km']} km away.")
+        return {"resolved": False, "serviceable": False, "note": note}
     return {"resolved": False, "note": "no Durian showroom for that location"}
 
 
