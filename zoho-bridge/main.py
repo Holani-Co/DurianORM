@@ -7767,7 +7767,11 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         raise HTTPException(500, f"could not read conversation: {e}")
 
     custom = conv.get("custom_attributes") or {}
-    if custom.get("crm_deal_id") and not allow_duplicate:
+    # Idempotent only if the stored deal STILL exists in Zoho — a deal deleted in
+    # CRM must not keep blocking a fresh one. deal_exists is fail-safe (treats
+    # transient errors as "exists"), so this never duplicates on a check hiccup.
+    if (custom.get("crm_deal_id") and not allow_duplicate
+            and await zoho_crm.deal_exists(str(custom["crm_deal_id"]))):
         return {"deal_id": custom["crm_deal_id"], "created": False,
                 "url": zoho_crm.deal_url(str(custom["crm_deal_id"]))}
 

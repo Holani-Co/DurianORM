@@ -21,6 +21,7 @@ import chatwoot
 import config
 import fhc_stores
 import pincode_resolver
+import zoho_crm
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -505,7 +506,8 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             # A deal already exists for THIS SAME studio → don't make a duplicate;
             # flag a human and tell the customer they're already registered (no
             # fresh "registered" ack). A DIFFERENT studio gets its own new deal.
-            if ca.get("crm_deal_id") and ca.get("fhc_studio") == store["location"]:
+            if (ca.get("crm_deal_id") and ca.get("fhc_studio") == store["location"]
+                    and await zoho_crm.deal_exists(str(ca["crm_deal_id"]))):
                 await _flag_agent(
                     conv_id, f"Repeat FHC enquiry for the same studio "
                              f"({store['card_name']}) — a deal already exists; review "
