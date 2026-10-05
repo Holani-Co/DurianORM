@@ -117,6 +117,16 @@ _INBOX_VERTICALS = {"door": "doors", "furniture": "furniture"}
 
 def _inbox_vertical(inbox_name: str) -> str:
     low = (inbox_name or "").lower()
+    # FHC (Full Home Customisation) is its OWN deal route — home-studio owners
+    # (crm_owner_routing_homestudio), NOT the retail showroom network. It must
+    # resolve to "fhc" so the agent registers the enquiry (register_enquiry →
+    # full_home_customization → home-studio owner by location) instead of running
+    # route_to_showroom, which sets a RETAIL owner that then shadows the FHC
+    # routing in _resolve_deal_owner. Checked before the substring map because an
+    # FHC inbox name carries no "furniture"/"door" token and would otherwise fall
+    # through to the furniture default.
+    if _is_fhc_account(inbox_name):
+        return "fhc"
     for key, vert in _INBOX_VERTICALS.items():
         if key in low:
             return vert
