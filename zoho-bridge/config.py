@@ -625,8 +625,15 @@ SOCIAL_AGENT_MODEL = os.environ.get("SOCIAL_AGENT_MODEL", "gpt-5.6-luna")
 SOCIAL_AGENT_BASE_URL = os.environ.get("SOCIAL_AGENT_BASE_URL", "")
 SOCIAL_AGENT_API_KEY = os.environ.get("SOCIAL_AGENT_API_KEY", "") or OPENAI_API_KEY
 SOCIAL_AGENT_REASONING = os.environ.get("SOCIAL_AGENT_REASONING", "low")
+# Channels the LLM skills agent owns end-to-end. A channel listed here is
+# `eligible()` → the agent handles its DMs and the legacy template-drafter +
+# retail/deal/EMI gates stand down for it (handle_template_suggest returns
+# ignored for any eligible channel, and the webhook dispatches the agent before
+# those gates). Instagram + Facebook both run the agent; WhatsApp stays on its
+# own deterministic flows.
 SOCIAL_AGENT_CHANNELS = tuple(
-    c.strip() for c in os.environ.get("SOCIAL_AGENT_CHANNELS", "instagram").split(",")
+    c.strip() for c in os.environ.get(
+        "SOCIAL_AGENT_CHANNELS", "instagram,facebook").split(",")
     if c.strip())
 SOCIAL_AGENT_CONTACT_ALLOWLIST = [
     s.strip() for s in os.environ.get("SOCIAL_AGENT_CONTACT_ALLOWLIST", "").split(",")
