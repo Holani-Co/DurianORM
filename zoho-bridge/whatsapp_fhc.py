@@ -409,16 +409,14 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
                        "team will assist you shortly 😊")
             await _save(step="other", choice="other")
         else:
-            tries = int(st.get("tries") or 0) + 1
-            if tries >= 2:
-                await _flag_agent(conv_id, "WhatsApp FHC: customer didn't pick a menu option")
-                await _say("Let me connect you with our team — they'll assist you shortly 🙏")
-                await _save(step="done", tries=tries)
-                return {"handled": "wa_fhc_menu_handoff"}
-            await chatwoot.send_interactive_buttons(
-                conv_id, "Please choose one of the options below 👇", _MENU)
-            await _save(tries=tries)
-        return {"handled": f"wa_fhc_menu_{choice or 'reprompt'}"}
+            # The customer typed a query instead of tapping a button (often the
+            # same message again). Don't loop the menu or hand off — treat a typed
+            # query as a product enquiry and move the conversation forward:
+            # collect their details + pincode. The menu buttons were already shown
+            # with the greeting, so tappers still get the store/other paths.
+            await _say("Great! To register your enquiry, may I have your *name*? 🙂")
+            await _save(step="p_name", choice="product", tries=0)
+        return {"handled": f"wa_fhc_menu_{choice or 'product'}"}
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
@@ -435,13 +433,12 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         interest = _match_interest(text)
         known = _sender_phone(conv)
         if known:
-            # We already have their number (WhatsApp) — confirm instead of asking.
-            await chatwoot.send_interactive_buttons(
-                conv_id,
-                f"Got it! Can we reach you on this same number ending "
-                f"{known[-4:]}? 📞",
-                _CONFIRM_PHONE)
-            await _save(step="p_phone_confirm", interest=interest, known_phone=known)
+            # WhatsApp already gives us the sender's number — use it directly, no
+            # "is this your number?" round-trip (client asked to cut that extra
+            # message). Only ask when there is no sender number (e.g. web widget).
+            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
+                       "your nearest studio.")
+            await _save(step="p_pin", interest=interest, phone=known)
         else:
             await _say("Got it! 📞 Please share your *phone number*.")
             await _save(step="p_phone", interest=interest)
