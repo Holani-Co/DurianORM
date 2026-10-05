@@ -17,6 +17,7 @@
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -25,6 +26,11 @@ _DATA = Path(__file__).parent / "data"
 # Verticals that use the furniture pincode tags. Anything not doors/fhc (incl.
 # an unknown/blank vertical) defaults to furniture — the largest network.
 _DOORS_FHC = {"doors", "fhc"}
+
+# doors/fhc have only a handful of stores; beyond this great-circle distance the
+# nearest one isn't a real option, so the pincode is "not serviceable" (we don't
+# present a far store as the customer's). Matches the FHC flow's COVERAGE_KM.
+_COVERAGE_KM = float(os.environ.get("STORE_LOCATOR_COVERAGE_KM", "150"))
 
 _geo: dict | None = None          # {pincode: [lat, lon]} — offline geocoder
 _pin_tag: dict | None = None      # {pincode: showroom_tag}
@@ -118,9 +124,13 @@ def resolve(pincode, vertical: str = "furniture") -> dict | None:
         if not cands:
             return None
         best = min(cands, key=lambda s: _haversine(loc[0], loc[1], s["lat"], s["lon"]))
+        dist = _haversine(loc[0], loc[1], best["lat"], best["lon"])
+        # No store within range → not serviceable (don't present a far store as
+        # "yours", and don't let the agent invent one). Caller asks / hands off.
+        if dist > _COVERAGE_KM:
+            return None
         return {"store": best["store"], "city": best["city"], "vertical": vert,
-                "mode": "nearest_store",
-                "distance_km": round(_haversine(loc[0], loc[1], best["lat"], best["lon"]), 1)}
+                "mode": "nearest_store", "distance_km": round(dist, 1)}
 
     # furniture (and any unknown vertical): the client's pincode tags.
     tag = _pin_tag.get(pin)
