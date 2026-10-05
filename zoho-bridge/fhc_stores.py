@@ -15,7 +15,7 @@
 FHC_STORES = [
     {
         "location": "Bengaluru - JP Nagar",
-        "owner_id": "3608871000013515676",
+        "owner_id": "3608871000507413009",
         "city": "Bengaluru",
         "pincode": "560078",
         "manager": "Ms. Nisha Choudhary",
@@ -25,7 +25,7 @@ FHC_STORES = [
     },
     {
         "location": "Delhi - Kirti Nagar",
-        "owner_id": "3608871000000333444",
+        "owner_id": "3608871000410312080",
         "city": "Delhi",
         "pincode": "110015",
         "manager": "Ms. Shubhangi Agarwal",
@@ -35,7 +35,7 @@ FHC_STORES = [
     },
     {
         "location": "Noida - Sector 10",
-        "owner_id": "3608871000001206109",
+        "owner_id": "3608871000484244133",
         "city": "Noida",
         "pincode": "201301",
         "manager": "Ms. Shruti Shrivastav",
@@ -45,7 +45,7 @@ FHC_STORES = [
     },
     {
         "location": "Hyderabad - Kompally",
-        "owner_id": "3608871000433075236",
+        "owner_id": "3608871000476693618",
         "city": "Hyderabad",
         "pincode": "500100",
         "manager": "Mr. Sharath Gaddam",
@@ -65,7 +65,7 @@ FHC_STORES = [
     },
     {
         "location": "Mumbai - Goregaon",
-        "owner_id": "3608871000000804001",
+        "owner_id": "3608871000315511062",
         "city": "Mumbai",
         "pincode": "400063",   # Goregaon (400062 not in pincode_geo; 400063 is)
         "manager": "Pratik Ojha",
