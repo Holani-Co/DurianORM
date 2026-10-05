@@ -1454,10 +1454,27 @@ def _offer_fresh(offer: dict) -> bool:
 
 
 def _resolve_showroom(pincode, city, showroom, vertical):
+    vert = (vertical or "furniture").strip().lower()
     pin = pincode_resolver.normalize_pincode(pincode) if pincode else None
+
+    # doors / fhc have their OWN store network (social_store_templates + the
+    # coverage-capped nearest-store resolver) and NO entry in the furniture
+    # `retail` data. Resolving them against `retail` surfaced a FURNITURE showroom
+    # for a doors/fhc enquiry (e.g. a Vizag doors ask — with no doors store in
+    # range — landed on the Dondaparthy furniture showroom), so keep them off
+    # `retail` entirely and resolve only within their own vertical.
+    if vert in ("doors", "fhc"):
+        hit = social_store_templates.resolve_store_reply(
+            vert, pincode=pin, city=city or "")
+        if not hit:
+            return None, "", {}, []
+        loc = hit.get("location") or hit.get("store") or ""
+        ckey = hit.get("city") or city or ""
+        return {"location": loc}, ckey, {"display": ckey}, []
+
+    # furniture (and any unknown vertical): the client's retail showroom network.
     if pin:
-        hit = social_store_templates.resolve_store_reply(vertical or "furniture",
-                                                         pincode=pin)
+        hit = social_store_templates.resolve_store_reply("furniture", pincode=pin)
         if hit:
             pair = retail.lookup_city(hit.get("city") or "")
             if pair:
