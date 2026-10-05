@@ -102,10 +102,16 @@ ZOHO_CRM_VERTICAL_FIELD = os.environ.get("ZOHO_CRM_VERTICAL_FIELD", "")
 # API name (discover live with scripts note in the daily-report PR).
 ZOHO_CRM_DEAL_NUMBER_FIELD = os.environ.get("ZOHO_CRM_DEAL_NUMBER_FIELD", "")
 
+# The value written to the standard Zoho Lead Source field on contacts + deals.
+# Lead Source is a Zoho PICKLIST — this value must already exist as an option on
+# it, or Zoho rejects the write. Defaults to the ORM's own brand; set to whatever
+# option your Zoho Lead Source picklist actually has.
+ZOHO_CRM_LEAD_SOURCE = os.environ.get("ZOHO_CRM_LEAD_SOURCE", "DurianORM")
+
 # API name of the client's CUSTOM "Enquiry Source" picklist on Deals. When set,
 # ORM deals are stamped with the option matching the conversation's CHANNEL (see
 # ZOHO_CRM_SOURCE_MAP) so the client can filter by it using their existing values.
-# Empty = field not stamped (only the standard Lead_Source="Chatwoot" is set).
+# Empty = field not stamped (only the standard Lead Source above is set).
 # The mapped option must exist on that picklist AND be mapped under the deal's
 # Business Type in the layout dependency, or Zoho rejects it (best-effort,
 # post-create: the stamp is skipped, the deal is unaffected).

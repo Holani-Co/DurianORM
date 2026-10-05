@@ -7731,6 +7731,18 @@ async def chatwoot_forward_email(request: Request):
     return {"ok": True, "to": to_emails, "cc": cc_emails}
 
 
+def _channel_label(conv) -> str:
+    """A clean channel name for the CRM deal title ("WhatsApp", "Instagram", …)
+    so deals are bifurcated by channel right in the name. Falls back to "ORM"."""
+    raw = str(((conv or {}).get("meta") or {}).get("channel") or "").lower()
+    for key, label in (("whatsapp", "WhatsApp"), ("instagram", "Instagram"),
+                       ("facebook", "Facebook"), ("email", "Email"),
+                       ("widget", "Web Chat"), ("web", "Web Chat")):
+        if key in raw:
+            return label
+    return "ORM"
+
+
 def _enquiry_source_for(conv) -> str:
     """The client's Enquiry Source option matching the conversation's channel
     (config.ZOHO_CRM_SOURCE_MAP), e.g. WhatsApp -> 'Whats App Or SMS'. Falls back
@@ -7989,11 +8001,11 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         name=name, email=email, subject=subject,
         category_display=category_display, owner=owner,
         layout_name=layout_name)
-    deal_name = f"{name or email} — {category_display}"[:255]
+    deal_name = f"{name or email} — DurianORM · {_channel_label(conv)}"[:255]
     try:
         deal = await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
-            description=description, source="Chatwoot", owner_id=owner_id,
+            description=description, source=config.ZOHO_CRM_LEAD_SOURCE, owner_id=owner_id,
             vertical=owner.get("vertical", ""), layout_name=layout_name,
             stage=deal_stage, extra_fields=extra_fields,
         )

@@ -132,7 +132,7 @@ async def search_contact_by_phone(phone: str) -> Optional[dict]:
 
 
 async def create_contact(sender_email: str, sender_name: str,
-                         phone: str = "", source: str = "Chatwoot",
+                         phone: str = "", source: str = config.ZOHO_CRM_LEAD_SOURCE,
                          owner_id: str = "") -> dict:
     """Create a new CRM Contact. Returns the created record ({id, …}).
 
@@ -294,7 +294,7 @@ async def get_deal_layout_id(layout_name: str) -> str:
 # ── Deal ──────────────────────────────────────────────────────────────────
 async def create_deal(contact_id: str, deal_name: str,
                       description: str, stage: str = "",
-                      source: str = "Chatwoot", owner_id: str = "",
+                      source: str = config.ZOHO_CRM_LEAD_SOURCE, owner_id: str = "",
                       vertical: str = "", layout_name: str = "",
                       extra_fields: dict | None = None) -> dict:
     """Create a CRM Deal linked to a Contact. Zoho requires Deal_Name + Stage.
