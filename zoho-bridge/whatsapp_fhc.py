@@ -502,9 +502,30 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         name = st.get("name") or "there"
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
-            await _create_fhc_deal(conv_id, st.get("name") or "", st.get("phone") or "",
-                                   pin, store, interest=st.get("interest") or "",
-                                   blueprint="digital")
+            # A deal already exists for THIS SAME studio → don't make a duplicate;
+            # flag a human and tell the customer they're already registered (no
+            # fresh "registered" ack). A DIFFERENT studio gets its own new deal.
+            if ca.get("crm_deal_id") and ca.get("fhc_studio") == store["location"]:
+                await _flag_agent(
+                    conv_id, f"Repeat FHC enquiry for the same studio "
+                             f"({store['card_name']}) — a deal already exists; review "
+                             f"before creating another.")
+                await _say(f"Thanks, {_first_name(name)}! You're already registered "
+                           f"with our *{store['card_name']}* studio — our team will "
+                           f"reach out to you shortly. 🙏")
+                await _save(step="done", pincode=pin, store=store["location"])
+                return {"handled": "wa_fhc_deal_same_studio"}
+            result = await _create_fhc_deal(
+                conv_id, st.get("name") or "", st.get("phone") or "", pin, store,
+                interest=st.get("interest") or "", blueprint="digital")
+            if not (result or {}).get("created"):
+                # Deal was NOT created (a failure _create_fhc_deal already flagged).
+                # Don't claim "registered" — give a neutral acknowledgement only.
+                await _say(f"Thanks, {_first_name(name)}! We've noted your enquiry "
+                           f"and our team will reach out to you shortly. 🙏")
+                await _save(step="done", pincode=pin, store=store["location"])
+                return {"handled": "wa_fhc_deal_not_created"}
+            # Deal created → now send the registration ack.
             _map_line = (f"\n🗺️ {store['map']}"
                          if config.DEAL_ACK_STORE_LINE_ENABLED and store.get("map")
                          else "")
