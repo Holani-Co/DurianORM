@@ -7744,13 +7744,20 @@ def _enquiry_source_for(conv) -> str:
 
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            phone="", owner_id_override="",
-                           owner_label="", send_store_line=False):
+                           owner_label="", send_store_line=False,
+                           allow_duplicate=False):
     """Core Create-Deal logic, shared by the manual button endpoint and the
     email-channel auto-create. Raises HTTPException for the cases that need a
     human decision (409 buyer-type unclear, 422 unresolvable location) — the
     auto path catches these and defers to the manual button; the endpoint
     surfaces them to the panel. An existing deal for the contact is NOT a
-    blocker: it is surfaced as a note and the new deal is still created."""
+    blocker: it is surfaced as a note and the new deal is still created.
+
+    By default a conversation that already has a `crm_deal_id` returns that deal
+    (idempotency — blocks webhook retries / re-clicks from duplicating). Pass
+    `allow_duplicate=True` for a deliberate NEW enquiry in the same conversation
+    (e.g. a second completed FHC flow to a different studio): a fresh deal is
+    created and `crm_deal_id` is updated to it."""
     if not config.ZOHO_CRM_ENABLED:
         raise HTTPException(503, "CRM not configured")
     try:
@@ -7760,7 +7767,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         raise HTTPException(500, f"could not read conversation: {e}")
 
     custom = conv.get("custom_attributes") or {}
-    if custom.get("crm_deal_id"):
+    if custom.get("crm_deal_id") and not allow_duplicate:
         return {"deal_id": custom["crm_deal_id"], "created": False,
                 "url": zoho_crm.deal_url(str(custom["crm_deal_id"]))}
 

@@ -256,7 +256,8 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
         result = await main._create_crm_deal(
             conv_id, agent_name="FHC bot",
             sector="full_home_customization", phone=phone,
-            owner_id_override=store["owner_id"], owner_label=store["location"])
+            owner_id_override=store["owner_id"], owner_label=store["location"],
+            allow_duplicate=True)  # each completed FHC enquiry is its own deal
         await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return result
     except Exception as e:  # noqa: BLE001
@@ -300,7 +301,7 @@ async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str
             conv_id, agent_name="WhatsApp FHC bot",
             sector="full_home_customization", phone=phone,
             owner_id_override=config.FHC_SUPPORT_OWNER_ID,
-            owner_label="Customer Support")
+            owner_label="Customer Support", allow_duplicate=True)
         await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return True
     except Exception as e:  # noqa: BLE001
