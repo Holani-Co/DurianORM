@@ -355,6 +355,46 @@ async def _create_booking(conv_id: int, st: dict) -> bool:
         return False
 
 
+_FHC_INTENTS = {"product", "store", "other"}
+_FHC_INTENT_SYSTEM = (
+    "Classify a WhatsApp message from a customer of Durian (furniture & full-home "
+    "customisation) into exactly ONE word:\n"
+    "product — wants furniture or a customised piece/interiors, a price/quote, or "
+    "more information about a product or customisation.\n"
+    "store — wants a showroom/studio address, location, directions, or to visit a store.\n"
+    "other — anything else: complaint, existing order, delivery, warranty, careers/job, "
+    "dealership, or unclear.\n"
+    "Answer with one word only: product, store, or other. If unsure, answer product."
+)
+
+
+async def _classify_typed_query(text: str) -> str:
+    """Intent of an off-menu typed query → 'product' | 'store' | 'other', so the
+    bot routes a typed/repeated message into the right sub-flow instead of looping
+    the menu. Best-effort: any error or odd output falls back to 'product', so a
+    model hiccup never blocks the flow (the FHC account is product-first anyway)."""
+    if not (text or "").strip():
+        return "product"
+    try:
+        from llm_client import client  # lazy — keeps module import light
+        r = await client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            temperature=0,
+            max_tokens=5,
+            messages=[
+                {"role": "system", "content": _FHC_INTENT_SYSTEM},
+                {"role": "user", "content": text[:600]},
+            ],
+            name="wa-fhc-intent",
+            metadata={"langfuse_tags": ["wa-fhc-intent"]},
+        )
+        raw = (r.choices[0].message.content or "").strip().lower().rstrip(".!?,;:")
+        return raw if raw in _FHC_INTENTS else "product"
+    except Exception as e:  # noqa: BLE001
+        print(f"[wa-fhc] intent classify error ({type(e).__name__}): {e} — default product")
+        return "product"
+
+
 async def handle(conv: dict, conv_id: int, latest_message: str = "",
                  latest_msg_id=None, sync_contact_name: bool = False) -> dict | None:
     """Advance the FHC flow one step. Shared by the WhatsApp and website-widget
@@ -385,22 +425,25 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
     if step == "done":
         st.clear()
         await chatwoot.send_interactive_buttons(conv_id, _GREETING, _MENU)
-        await _save(step="menu", tries=0)
+        await _save(step="menu")
         return {"handled": "wa_fhc_reengaged"}
 
     # ── First contact → greet + menu ────────────────────────────────────────
     if not step:
         await chatwoot.send_interactive_buttons(conv_id, _GREETING, _MENU)
-        await _save(step="menu", tries=0)
+        await _save(step="menu")
         return {"handled": "wa_fhc_greeted"}
 
     # ── Menu → route on the tapped/typed choice ─────────────────────────────
     if step == "menu":
         choice = _choice(text)
-        if choice == "product":
-            await _say("Great! To register your enquiry, may I have your *name*? 🙂")
-            await _save(step="p_name", choice="product")
-        elif choice == "store":
+        typed = choice is None
+        if typed:
+            # Off-menu: the customer typed a query instead of tapping a button
+            # (often repeating it). Classify the intent and route into the matching
+            # sub-flow — no menu loop, no restart. Defaults to product when unsure.
+            choice = await _classify_typed_query(text)
+        if choice == "store":
             await _say("Sure! Please share your *city or area pincode* 📍 and I'll "
                        "send you your nearest Durian studio's details.")
             await _save(step="s_pin", choice="store")
@@ -408,17 +451,10 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             await _say("No problem! Please tell us what you need help with, and our "
                        "team will assist you shortly 😊")
             await _save(step="other", choice="other")
-        else:
-            tries = int(st.get("tries") or 0) + 1
-            if tries >= 2:
-                await _flag_agent(conv_id, "WhatsApp FHC: customer didn't pick a menu option")
-                await _say("Let me connect you with our team — they'll assist you shortly 🙏")
-                await _save(step="done", tries=tries)
-                return {"handled": "wa_fhc_menu_handoff"}
-            await chatwoot.send_interactive_buttons(
-                conv_id, "Please choose one of the options below 👇", _MENU)
-            await _save(tries=tries)
-        return {"handled": f"wa_fhc_menu_{choice or 'reprompt'}"}
+        else:  # product — menu tap or the classifier's default
+            await _say("Great! To register your enquiry, may I have your *name*? 🙂")
+            await _save(step="p_name", choice="product")
+        return {"handled": f"wa_fhc_menu_{'typed_' if typed else ''}{choice}"}
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
@@ -435,33 +471,16 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         interest = _match_interest(text)
         known = _sender_phone(conv)
         if known:
-            # We already have their number (WhatsApp) — confirm instead of asking.
-            await chatwoot.send_interactive_buttons(
-                conv_id,
-                f"Got it! Can we reach you on this same number ending "
-                f"{known[-4:]}? 📞",
-                _CONFIRM_PHONE)
-            await _save(step="p_phone_confirm", interest=interest, known_phone=known)
+            # WhatsApp already gives us the sender's number — use it directly, no
+            # "is this your number?" round-trip (client asked to cut that extra
+            # message). Only ask when there is no sender number (e.g. web widget).
+            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
+                       "your nearest studio.")
+            await _save(step="p_pin", interest=interest, phone=known)
         else:
             await _say("Got it! 📞 Please share your *phone number*.")
             await _save(step="p_phone", interest=interest)
         return {"handled": "wa_fhc_p_interest"}
-
-    if step == "p_phone_confirm":
-        t = text.strip().lower()
-        if any(k in t for k in ("yes", "phone_yes", "use this", "same", "correct")):
-            await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
-                       "your nearest studio.")
-            await _save(step="p_pin", phone=st.get("known_phone"))
-        elif any(k in t for k in ("no", "phone_no", "another", "different", "other")):
-            await _say("No problem — please share the *phone number* you'd like us to "
-                       "use. 📞")
-            await _save(step="p_phone")
-        else:
-            await chatwoot.send_interactive_buttons(
-                conv_id, "Just to confirm — which number should we use? 📞",
-                _CONFIRM_PHONE)
-        return {"handled": "wa_fhc_p_phone_confirm"}
 
     if step == "p_phone":
         phone = _extract_phone(text)
