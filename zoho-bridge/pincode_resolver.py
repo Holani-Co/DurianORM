@@ -143,3 +143,29 @@ def resolve(pincode, vertical: str = "furniture") -> dict | None:
         _tagged_pts, key=lambda p: _haversine(loc[0], loc[1], p[0], p[1]))
     return {"store": btag, "vertical": "furniture", "mode": "nearest_pincode",
             "distance_km": round(_haversine(loc[0], loc[1], blat, blon), 1)}
+
+
+def nearest_store(pincode, vertical: str) -> dict | None:
+    """Nearest doors/fhc store to a pincode, IGNORING the coverage cap.
+
+    `resolve()` returns None beyond coverage (we don't present a far store as the
+    customer's local showroom). This is for the honest "we don't have one near
+    you — the nearest is in <city>" reply: it names the closest store + distance
+    so the agent can be helpful without pretending it's their showroom. None when
+    the pincode can't be placed or the vertical has no stores / isn't doors/fhc.
+    """
+    _load()
+    pin = normalize_pincode(pincode)
+    vert = (vertical or "").strip().lower()
+    if not pin or vert not in _DOORS_FHC:
+        return None
+    loc = _locate(pin)
+    if loc is None:
+        return None
+    cands = [s for s in _nf_stores if s["vertical"] == vert]
+    if not cands:
+        return None
+    best = min(cands, key=lambda s: _haversine(loc[0], loc[1], s["lat"], s["lon"]))
+    dist = _haversine(loc[0], loc[1], best["lat"], best["lon"])
+    return {"store": best["store"], "city": best["city"], "vertical": vert,
+            "distance_km": round(dist, 1)}
