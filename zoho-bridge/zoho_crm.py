@@ -427,6 +427,27 @@ async def get_deal_stage(deal_id: str) -> str | None:
     return await get_deal_number(deal_id, "Stage")
 
 
+async def deal_exists(deal_id: str) -> bool:
+    """Whether a Deal still EXISTS in Zoho — False if it was deleted there. Lets
+    the ORM re-verify a stored crm_deal_id instead of blindly trusting it (a deal
+    deleted in CRM must not keep blocking a fresh one). Fail-SAFE: only a
+    definitive 404 counts as gone; any transient/ambiguous error returns True, so
+    a check hiccup never causes a duplicate deal."""
+    if not deal_id:
+        return False
+    try:
+        resp = await _crm_request("GET", f"/Deals/{deal_id}", params={"fields": "id"})
+        return bool((resp or {}).get("data"))
+    except RuntimeError as e:
+        if "[404]" in str(e):
+            return False
+        print(f"[crm] deal_exists({deal_id}) check failed: {e} — assuming it exists")
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[crm] deal_exists({deal_id}) error: {e} — assuming it exists")
+        return True
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
 def _ui_base() -> str:
     """CRM UI domain derived from the API domain (prod or sandbox aware)."""
