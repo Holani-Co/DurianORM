@@ -588,6 +588,34 @@ async def get_conversation(conversation_id: int) -> dict:
         return r.json() or {}
 
 
+_INBOX_NAMES: dict[int, str] = {}
+
+
+async def get_inbox_name(inbox_id) -> str:
+    """The inbox's display name for an inbox id (cached account-wide). Needed
+    because a conversation payload carries only the channel TYPE ('Instagram'),
+    not the inbox NAME — so without this, IG sub-accounts (doors / furniture /
+    FHC) are indistinguishable. '' on failure (caller falls back)."""
+    try:
+        iid = int(inbox_id)
+    except (TypeError, ValueError):
+        return ""
+    if iid in _INBOX_NAMES:
+        return _INBOX_NAMES[iid]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{config.CHATWOOT_BASE_URL}/api/v1/accounts/"
+                f"{config.CHATWOOT_ACCOUNT_ID}/inboxes", headers=_headers())
+            if r.status_code < 300:
+                for ib in (r.json() or {}).get("payload") or []:
+                    if ib.get("id") is not None:
+                        _INBOX_NAMES[int(ib["id"])] = ib.get("name") or ""
+    except Exception as e:  # noqa: BLE001
+        print(f"[chatwoot] get_inbox_name({inbox_id}) failed: {e}")
+    return _INBOX_NAMES.get(iid, "")
+
+
 async def get_conversation_messages_raw(conversation_id: int,
                                         max_pages: int = 10) -> list[dict]:
     """Like get_conversation_messages but RETAINS private notes — needed by

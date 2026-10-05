@@ -110,7 +110,9 @@ _LOW_VALUE = {"hi", "hii", "hiii", "hello", "hey", "gm", "gn", "good morning",
 
 # Inbox → vertical: decides DEAL ROUTING default, never the customer's
 # treatment (serve fully in place on any account).
-_INBOX_VERTICALS = {"duriandoor": "doors", "durianfurniture_official": "furniture"}
+# Substring → vertical. Broad enough to catch every doors inbox name the client
+# uses (duriandoor, "Durian Ready-Made Doors", durian_readymade_doors, …).
+_INBOX_VERTICALS = {"door": "doors", "furniture": "furniture"}
 
 
 def _inbox_vertical(inbox_name: str) -> str:
@@ -125,7 +127,7 @@ def _is_fhc_account(inbox_name: str) -> bool:
     """The Full Home Customisation account (durian_fullhomecustomisation) sells
     CUSTOM interiors, not ready-made catalog SKUs — so the agent must not push
     product links/prices there (see the FHC rule in the system prompt)."""
-    return "fullhomecustomisation" in (inbox_name or "").lower().replace("_", "")
+    return "fullhomecustomisation" in (inbox_name or "").lower().replace("_", "").replace(" ", "")
 
 
 def inr(value) -> str:
@@ -2028,8 +2030,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     contact = (conv.get("meta") or {}).get("sender") or {}
     contact_id, contact_name = contact.get("id"), contact.get("name") or "there"
-    inbox_name = (conv.get("inbox") or {}).get("name") or \
-        (conv.get("meta") or {}).get("channel") or ""
+    # The conversation payload carries only the channel TYPE ("Instagram"), not
+    # the inbox NAME — so resolve the real inbox name from inbox_id to tell the
+    # IG sub-accounts (doors / furniture / FHC) apart. Falls back to the channel.
+    inbox_id = conv.get("inbox_id") or (conv.get("meta") or {}).get("inbox_id")
+    inbox_name = (conv.get("inbox") or {}).get("name") \
+        or (await chatwoot.get_inbox_name(inbox_id) if inbox_id else "") \
+        or (conv.get("meta") or {}).get("channel") or ""
     vertical = _inbox_vertical(inbox_name)
 
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
