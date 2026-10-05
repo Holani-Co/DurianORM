@@ -491,6 +491,20 @@ async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
 async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
                                 showroom: str = "", phone: str = "",
                                 confirm: bool = False, **_) -> dict:
+    # Vertical-safe: this is the FURNITURE retail path — it resolves a retail
+    # showroom and tags a RETAIL CRM owner. On a doors/FHC inbox it must NOT run,
+    # or an FHC/doors enquiry gets a retail owner (the Kirti Nagar ShowRoom bug).
+    # Those verticals register via register_enquiry (doors desk / FHC home
+    # studio). Refuse here regardless of what the model tried, so a non-furniture
+    # inbox can NEVER fall back to a furniture owner.
+    vert = (ctx.get("vertical") or "furniture").strip().lower()
+    if vert in ("doors", "fhc"):
+        desk = "doors desk" if vert == "doors" else "FHC home studio"
+        return {"routed": False,
+                "note": f"This is the {vert.upper()} account — do NOT route to a "
+                        "retail furniture showroom. Call register_enquiry with "
+                        f"category='{vert}' and the customer's phone + city "
+                        f"instead; it routes to the correct {desk}."}
     conv, conv_id = ctx["conv"], ctx["conv_id"]
     # The enquiry phone: what the agent passes now, else what the agent set
     # in the profile on an earlier turn (its own judgment, just older) —
