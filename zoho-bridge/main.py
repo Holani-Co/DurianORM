@@ -73,6 +73,42 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_campaign_label_ensured = False
+
+
+async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str) -> None:
+    """Tag a WhatsApp conversation whose opening message is a Meta click-to-
+    WhatsApp ad prefill, so campaign leads are trackable: a label (for Chatwoot's
+    native Label report) + lead_source="whatsapp_campaign" (rides into the CRM
+    deal). Chatwoot drops the real ad referral, so the prefill text is the only
+    signal. Best-effort and idempotent — never blocks message handling."""
+    global _campaign_label_ensured
+    if not config.WHATSAPP_CAMPAIGN_TRACKING_ENABLED:
+        return
+    norm = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not norm or not any(norm.startswith(p) for p in config.WHATSAPP_CAMPAIGN_PREFILLS):
+        return
+    if (conv.get("custom_attributes") or {}).get("lead_source") == "whatsapp_campaign":
+        return                                  # already tagged
+    if not _campaign_label_ensured:
+        try:
+            await chatwoot.ensure_label(config.WHATSAPP_CAMPAIGN_LABEL)
+            _campaign_label_ensured = True
+        except Exception as e:
+            print(f"[campaign] ensure_label failed: {e}")
+    try:
+        await chatwoot.add_label(conv_id, config.WHATSAPP_CAMPAIGN_LABEL)
+    except Exception as e:
+        print(f"[campaign] add_label failed for conv {conv_id}: {e}")
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {
+            "lead_source": "whatsapp_campaign",
+            "campaign_detected_at": _now_iso()})
+    except Exception as e:
+        print(f"[campaign] attr merge failed for conv {conv_id}: {e}")
+    print(f"[campaign] conv {conv_id}: tagged Meta WhatsApp campaign lead")
+
+
 @app.on_event("startup")
 async def _start_reviews_poller():
     # Boot-safe: run_forever() no-ops if Google isn't configured yet.
@@ -4052,6 +4088,14 @@ async def handle_message_created(data: dict) -> dict:
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
     print(f"[msg] conv_id={conv_id}")
+
+    # Meta click-to-WhatsApp ad leads: tag the opening prefill so campaign leads
+    # are trackable (label → Chatwoot Label report + lead_source → CRM deal), on
+    # ALL WhatsApp inboxes. Runs before the FHC/agent dispatch so it tags no
+    # matter which flow then handles the message. Best-effort, idempotent.
+    if (social_channel == "whatsapp" and conv_id
+            and data.get("message_type") in (0, "incoming")):
+        await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "")
 
     # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
     # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card
