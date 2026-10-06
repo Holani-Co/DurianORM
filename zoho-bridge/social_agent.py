@@ -118,6 +118,16 @@ _INBOX_VERTICALS = {"door": "doors", "furniture": "furniture"}
 
 def _inbox_vertical(inbox_name: str) -> str:
     low = (inbox_name or "").lower()
+    # FHC (Full Home Customisation) is its OWN deal route — home-studio owners
+    # (crm_owner_routing_homestudio), NOT the retail showroom network. It must
+    # resolve to "fhc" so the agent registers the enquiry (register_enquiry →
+    # full_home_customization → home-studio owner by location) instead of running
+    # route_to_showroom, which sets a RETAIL owner that then shadows the FHC
+    # routing in _resolve_deal_owner. Checked before the substring map because an
+    # FHC inbox name carries no "furniture"/"door" token and would otherwise fall
+    # through to the furniture default.
+    if _is_fhc_account(inbox_name):
+        return "fhc"
     for key, vert in _INBOX_VERTICALS.items():
         if key in low:
             return vert
@@ -537,6 +547,20 @@ async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
 async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
                                 showroom: str = "", phone: str = "",
                                 confirm: bool = False, **_) -> dict:
+    # Vertical-safe: this is the FURNITURE retail path — it resolves a retail
+    # showroom and tags a RETAIL CRM owner. On a doors/FHC inbox it must NOT run,
+    # or an FHC/doors enquiry gets a retail owner (the Kirti Nagar ShowRoom bug).
+    # Those verticals register via register_enquiry (doors desk / FHC home
+    # studio). Refuse here regardless of what the model tried, so a non-furniture
+    # inbox can NEVER fall back to a furniture owner.
+    vert = (ctx.get("vertical") or "furniture").strip().lower()
+    if vert in ("doors", "fhc"):
+        desk = "doors desk" if vert == "doors" else "FHC home studio"
+        return {"routed": False,
+                "note": f"This is the {vert.upper()} account — do NOT route to a "
+                        "retail furniture showroom. Call register_enquiry with "
+                        f"category='{vert}' and the customer's phone + city "
+                        f"instead; it routes to the correct {desk}."}
     conv, conv_id = ctx["conv"], ctx["conv_id"]
     # The enquiry phone: what the agent passes now, else what the agent set
     # in the profile on an earlier turn (its own judgment, just older) —
