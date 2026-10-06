@@ -427,6 +427,15 @@ Rails.application.routes.draw do
                 post :preview
               end
             end
+            resource :stores_config, controller: 'stores_config', only: [:show] do
+              collection do
+                post :validate
+                post :publish
+                get  :versions
+                get  :version
+                post :rollback
+              end
+            end
             resource :shopify, controller: 'shopify', only: [:destroy] do
               collection do
                 post :auth

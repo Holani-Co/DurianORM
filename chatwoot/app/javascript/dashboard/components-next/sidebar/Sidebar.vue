@@ -856,6 +856,12 @@ const menuItems = computed(() => {
           to: accountScopedRoute('routing_config_index'),
         },
         {
+          name: 'Settings Stores Config',
+          label: t('SIDEBAR.STORES_CONFIG'),
+          icon: 'i-lucide-store',
+          to: accountScopedRoute('stores_config_index'),
+        },
+        {
           name: 'Settings Offers',
           label: t('SIDEBAR.OFFERS'),
           icon: 'i-lucide-badge-percent',

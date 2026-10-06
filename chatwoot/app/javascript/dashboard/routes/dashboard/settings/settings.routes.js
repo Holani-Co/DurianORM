@@ -18,6 +18,7 @@ import integrations from './integrations/integrations.routes';
 import labels from './labels/labels.routes';
 import macros from './macros/macros.routes';
 import routingConfig from './routingConfig/routingConfig.routes';
+import storesConfig from './storesConfig/storesConfig.routes';
 import offers from './offers/offers.routes';
 import reports from './reports/reports.routes';
 import store from '../../../store';
@@ -62,6 +63,7 @@ export default {
     ...labels.routes,
     ...macros.routes,
     ...routingConfig.routes,
+    ...storesConfig.routes,
     ...offers.routes,
     ...reports.routes,
     ...sla.routes,
