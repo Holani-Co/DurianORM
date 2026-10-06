@@ -98,8 +98,8 @@ _DETAILS_ASK_RE = re.compile(
     r"(?:full name|zip ?code|pin ?code|contact number|phone number|"
     r"contact details|which city|your city)", re.I)
 _LINK_RE = re.compile(r"https?://([^\s/]+)", re.I)
-_ALLOWED_LINK_HOSTS = ("durian.in", "snapmint.com", "maps.app.goo.gl",
-                       "goo.gl", "maps.google.com", "google.com")
+_ALLOWED_LINK_HOSTS = ("durian.in", "duriandoors.in", "snapmint.com",
+                       "maps.app.goo.gl", "goo.gl", "maps.google.com", "google.com")
 _EMOJI_RE = re.compile(
     "[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U0001F000-\U0001F0FF"
     "\U00002600-\U000026FF\U0001F900-\U0001F9FF]")
