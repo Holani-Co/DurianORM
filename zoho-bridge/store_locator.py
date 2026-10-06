@@ -27,6 +27,12 @@ import pincode_resolver
 _REGISTRY = Path(__file__).parent / "data" / "store_registry.json"
 _floor_cache: list | None = None
 
+# Verticals the locator knows, and the store fields the Settings editor may
+# override (everything the customer can receive, plus coords/owner for routing).
+VERTICALS = ("furniture", "doors", "fhc")
+EDITABLE_FIELDS = ("card_name", "address", "city", "pincode", "manager", "phone",
+                   "email", "timing", "map_url", "crm_owner_id", "lat", "lon")
+
 
 def _floor() -> list:
     global _floor_cache
@@ -43,6 +49,17 @@ def reload() -> None:
     """Drop the floor cache (call after regenerating the registry)."""
     global _floor_cache
     _floor_cache = None
+
+
+def floor_ids() -> set:
+    """Store ids in the registry floor — the valid targets for an override."""
+    return {s["id"] for s in _floor()}
+
+
+def all_stores() -> list:
+    """Floor merged with the active override — the effective store list the
+    Settings editor shows."""
+    return _stores()
 
 
 def _override_doc() -> dict:

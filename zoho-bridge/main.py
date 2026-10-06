@@ -59,6 +59,7 @@ import website_reviews_state
 import reviews_state
 import crm_state
 import config_store
+import store_locator
 
 crm_state.init()     # round-robin counters for govt/bulk owner rotation
 config_store.init()  # routing-config override layer edited from the ORM UI
@@ -6913,6 +6914,133 @@ async def admin_routing_config_preview(request: Request,
         "reason":       result.get("reason"),
         "alternatives": result.get("alternatives") or [],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stores admin API — backs the ORM "Settings → Stores" screen. Same shape and
+# auth as the routing-config API (reuses ROUTING_ADMIN_SECRET). Edits publish to
+# the config_store "stores" domain; store_locator reads the override live, so a
+# change is live with no restart, and a bad/empty override falls back to the
+# registry floor.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _validate_stores_doc(doc) -> dict:
+    """Return {ok, errors, warnings} for a stores override document
+    {stores: {id: {<field edits>, disabled}}, radius_km: {vertical: km}}.
+    Errors block publish; warnings (unknown id/field/vertical → ignored) don't."""
+    errors, warnings = [], []
+    if not isinstance(doc, dict):
+        return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
+    ids = store_locator.floor_ids()
+    stores = doc.get("stores")
+    if stores is not None:
+        if not isinstance(stores, dict):
+            errors.append("`stores` must be an object keyed by store id.")
+        else:
+            for sid, edit in stores.items():
+                if not isinstance(edit, dict):
+                    errors.append(f"stores.{sid}: must be an object of field edits.")
+                    continue
+                if sid not in ids:
+                    warnings.append(f"stores.{sid}: unknown store id — it will be ignored.")
+                if "disabled" in edit and not isinstance(edit["disabled"], bool):
+                    errors.append(f"stores.{sid}: disabled must be true or false.")
+                for field, val in edit.items():
+                    if field == "disabled":
+                        continue
+                    if field not in store_locator.EDITABLE_FIELDS:
+                        warnings.append(f"stores.{sid}: '{field}' is not editable — ignored.")
+                    elif field in ("lat", "lon"):
+                        if isinstance(val, bool) or not isinstance(val, (int, float)):
+                            errors.append(f"stores.{sid}.{field}: must be a number.")
+                    elif not isinstance(val, str):
+                        errors.append(f"stores.{sid}.{field}: must be text.")
+    radius = doc.get("radius_km")
+    if radius is not None:
+        if not isinstance(radius, dict):
+            errors.append("`radius_km` must be an object of vertical → kilometres.")
+        else:
+            for vert, km in radius.items():
+                if vert not in store_locator.VERTICALS:
+                    warnings.append(f"radius_km.{vert}: unknown vertical — ignored.")
+                elif isinstance(km, bool) or not isinstance(km, (int, float)) or km <= 0:
+                    errors.append(f"radius_km.{vert}: must be a positive number of kilometres.")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+@app.get("/admin/stores-config")
+async def admin_stores_config_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Current state for the Stores editor: the effective store list (floor +
+    override), the active override, version metadata, and the pickers."""
+    _require_routing_admin(x_routing_admin_secret)
+    return {
+        "effective":       store_locator.all_stores(),
+        "override":        config_store.get_active_override(config_store.STORES),
+        "active_version":  config_store.active_version(config_store.STORES),
+        "verticals":       list(store_locator.VERTICALS),
+        "editable_fields": list(store_locator.EDITABLE_FIELDS),
+        "radius_defaults": config.STORE_LOCATOR_RADIUS_KM,
+        "enabled":         config.STORE_LOCATOR_ENABLED,
+    }
+
+
+@app.post("/admin/stores-config/validate")
+async def admin_stores_config_validate(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    return _validate_stores_doc((body or {}).get("doc"))
+
+
+@app.post("/admin/stores-config/publish")
+async def admin_stores_config_publish(request: Request,
+                                      x_routing_admin_secret: Optional[str] = Header(None)):
+    """Validate then save `doc` as the new active stores override (live
+    immediately — store_locator reads it per request). Rejects (422) on errors."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    doc = (body or {}).get("doc")
+    v = _validate_stores_doc(doc)
+    if not v["ok"]:
+        raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
+    vid = config_store.publish(doc, note=str((body or {}).get("note") or ""),
+                               actor=str((body or {}).get("actor") or ""),
+                               domain=config_store.STORES)
+    return {"ok": True, "version_id": vid, "warnings": v["warnings"]}
+
+
+@app.get("/admin/stores-config/versions")
+async def admin_stores_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return {"versions": config_store.list_versions(config_store.STORES),
+            "audit": config_store.list_audit(50)}
+
+
+@app.get("/admin/stores-config/versions/{version_id}")
+async def admin_stores_config_version(version_id: int,
+                                      x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    row = config_store.get_version(version_id)
+    if not row or row.get("domain") != config_store.STORES:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        row["doc"] = json.loads(row.get("doc_json") or "{}")
+    except Exception:
+        row["doc"] = {}
+    return row
+
+
+@app.post("/admin/stores-config/rollback")
+async def admin_stores_config_rollback(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    vid = (body or {}).get("version_id")
+    row = config_store.get_version(int(vid)) if vid is not None else None
+    if not row or row.get("domain") != config_store.STORES \
+            or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
+        raise HTTPException(status_code=404, detail="version not found")
+    return {"ok": True, "version_id": int(vid)}
 
 
 @app.post("/reviews/regenerate")
