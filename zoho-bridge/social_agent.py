@@ -40,6 +40,7 @@ import retail_showrooms as retail
 import review_reply
 import snapmint
 import social_store_templates
+import store_locator
 import website_search
 import zoho_crm
 
@@ -276,22 +277,48 @@ async def _sk_get_emi_plans(ctx, sku: str = "", price=None, **_) -> dict:
 
 @_skill(
     "find_showrooms",
-    "Resolve the customer's location to Durian showrooms. PINCODE FIRST — a "
-    "pincode resolves to exactly ONE nearest showroom (never ask for a city "
-    "while holding a pincode; when a city gives several options, ask for their "
-    "pincode instead of reciting the list). address_message carries the store "
-    "FACTS — showroom name, manager, 📞 phone, 🗺️ map link: copy those exactly "
-    "into your own message when they want the store details; its letter "
-    "dressing (Dear Customer / Regards) is not content and never pastes in.",
+    "Nearest Durian showroom for THIS account's vertical — pass the customer's "
+    "pincode (preferred) or city. resolved=true → `address_message` holds the "
+    "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
+    "paste them verbatim in your own single message, never invent or edit them. "
+    "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
+    "offer to note their details. A city matching several returns `options` — ask "
+    "for their pincode.",
     {"pincode": {"type": "string"}, "city": {"type": "string"}},
     {"resolved": "bool", "showroom": "str", "city": "str",
-     "options": "list[str] when city has several — ask for pincode",
-     "address_message": "store facts (manager, phone, map link) — copy the "
-                        "facts exactly, the framing is yours",
-     "note": "guidance when not resolved"},
-    ({"pincode": "110054"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
+     "options": "list[str] when a city matches several — ask for pincode",
+     "address_message": "store facts to paste verbatim; the framing is yours",
+     "note": "what to do when resolved=false"},
+    ({"pincode": "110015"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
 )
+def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
+    """find_showrooms over the unified store_locator (STORE_LOCATOR_ENABLED).
+    Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
+    r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+    if r is None:
+        label = {"doors": "Durian Doors",
+                 "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
+        place = city or (f"pincode {pincode}" if pincode else "that location")
+        return {"resolved": False, "serviceable": False,
+                "note": (f"No {label} showroom near {place}. This is a normal answer "
+                         "— do NOT escalate. Tell the customer plainly there's none "
+                         "nearby yet, never name another product line's store or invent "
+                         "one, then keep helping: ask their requirement + a phone number "
+                         "for our team. action: send.")}
+    if r.get("ambiguous"):
+        return {"resolved": True, "options": r["options"],
+                "note": "several showrooms in that city — ask for their PINCODE to pick the nearest"}
+    return {"resolved": True, "showroom": r["card_name"], "city": r.get("city") or "",
+            "address_message": store_locator.format_card(r),
+            "next": ("customer wants the store details → paste the card's facts EXACTLY "
+                     "(name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map) in your own "
+                     "single message. If they also want to buy, call route_to_showroom first.")}
+
+
 def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
+    if config.STORE_LOCATOR_ENABLED:
+        vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
+        return _find_showrooms_locator(vert, pincode, city)
     if pincode and not pincode_resolver.is_known_pincode(pincode):
         return {"resolved": False,
                 "note": f"pincode {pincode} is not served — ask for a nearby "
