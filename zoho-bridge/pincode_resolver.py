@@ -169,3 +169,18 @@ def nearest_store(pincode, vertical: str) -> dict | None:
     dist = _haversine(loc[0], loc[1], best["lat"], best["lon"])
     return {"store": best["store"], "city": best["city"], "vertical": vert,
             "distance_km": round(dist, 1)}
+
+
+# ── Public geo helpers (one geocoder + one haversine for the whole codebase;
+#    store_locator reuses these instead of duplicating the maths) ────────────
+
+def coords(pincode) -> tuple[float, float] | None:
+    """(lat, lon) for a known pincode, else None."""
+    _load()
+    pin = normalize_pincode(pincode)
+    return _locate(pin) if pin else None
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometres."""
+    return _haversine(lat1, lon1, lat2, lon2)
