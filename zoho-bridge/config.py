@@ -705,6 +705,26 @@ PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
 # / hand to a human. Dark-launched OFF; turn on once the deal owner-routing is
 # verified against the CRM. Separate from the IG/FB LLM agent.
 WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
+
+# Meta click-to-WhatsApp (CTWA) ad-lead tracking. Chatwoot drops the ad referral
+# metadata, so the only signal we have is the ad's prefilled opening message. A
+# WhatsApp conversation whose first inbound message matches a known prefill is
+# tagged with WHATSAPP_CAMPAIGN_LABEL + lead_source="whatsapp_campaign", which
+# makes it trackable in Chatwoot's native Label report (Reports → Labels, CSV)
+# and flows into the CRM deal. Prefills are lower-cased, whitespace-collapsed and
+# matched as a prefix; override via env JSON array when a campaign uses another.
+WHATSAPP_CAMPAIGN_TRACKING_ENABLED = _bool("WHATSAPP_CAMPAIGN_TRACKING_ENABLED", "true")
+WHATSAPP_CAMPAIGN_LABEL = os.environ.get("WHATSAPP_CAMPAIGN_LABEL", "whatsapp-campaign")
+try:
+    _wcp = _json.loads(os.environ.get("WHATSAPP_CAMPAIGN_PREFILLS", "") or "[]")
+    WHATSAPP_CAMPAIGN_PREFILLS = [str(s).strip().lower() for s in _wcp
+                                  if isinstance(_wcp, list) and str(s).strip()]
+except Exception as _e:
+    print(f"[config] WHATSAPP_CAMPAIGN_PREFILLS invalid JSON ({_e}) — using default")
+    WHATSAPP_CAMPAIGN_PREFILLS = []
+if not WHATSAPP_CAMPAIGN_PREFILLS:
+    WHATSAPP_CAMPAIGN_PREFILLS = ["hello! can i get more information on this?"]
+
 # The same FHC flow on the Chatwoot website widget (FHC section of durian.in) —
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.
