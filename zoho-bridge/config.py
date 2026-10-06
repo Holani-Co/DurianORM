@@ -706,6 +706,24 @@ PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
 # verified against the CRM. Separate from the IG/FB LLM agent.
 WHATSAPP_FHC_FLOW_ENABLED = _bool("WHATSAPP_FHC_FLOW_ENABLED", "false")
 
+# Unified store/showroom locator (store_locator.py over data/store_registry.json,
+# editable in Settings via config_store domain "stores"). THE toggle the client
+# flips to switch the whole store-address experience onto the new vertical-scoped
+# engine; off → the legacy per-channel resolvers run as before. Dark-launched.
+STORE_LOCATOR_ENABLED = _bool("STORE_LOCATOR_ENABLED", "false")
+# Per-vertical serviceable radius (km): within it we send that store; beyond it
+# we tell the customer there's none nearby and capture the lead (never a far
+# store). Doors/FHC are sparse, so wider. Client-tunable (env JSON, or live in
+# the Settings override under "radius_km").
+_STORE_RADIUS_DEFAULT = {"furniture": 60.0, "doors": 250.0, "fhc": 300.0}
+try:
+    _sr = _json.loads(os.environ.get("STORE_LOCATOR_RADIUS_KM", "") or "{}")
+    STORE_LOCATOR_RADIUS_KM = {**_STORE_RADIUS_DEFAULT,
+                               **{k: float(v) for k, v in (_sr or {}).items()}}
+except Exception as _e:
+    print(f"[config] STORE_LOCATOR_RADIUS_KM invalid ({_e}) — using defaults")
+    STORE_LOCATOR_RADIUS_KM = dict(_STORE_RADIUS_DEFAULT)
+
 # Meta click-to-WhatsApp (CTWA) ad-lead tracking. Chatwoot drops the ad referral
 # metadata, so the only signal we have is the ad's prefilled opening message. A
 # WhatsApp conversation whose first inbound message matches a known prefill is

@@ -30,6 +30,70 @@
       "CANCEL": "Cancel"
     }
   },
+  "STORES_CONFIG": {
+    "HEADER": "Stores",
+    "DESCRIPTION": "The store and showroom details sent to customers — address, manager, phone, map link and more. Edit any store here and it updates live; defaults come from the store registry on the zoho-bridge.",
+    "LOADING": "Loading stores…",
+    "BRIDGE_UNAVAILABLE": "Could not reach the store bridge. Make sure the zoho-bridge is running and ROUTING_ADMIN_SECRET is set on both services.",
+    "LIVE_BADGE": "Live",
+    "DISABLED_BADGE": "Locator off",
+    "VERSION_INFO": "Active edits: version {version} by {actor} · {when}",
+    "NO_OVERRIDE": "No edits published — running the registry defaults.",
+    "TABS": {
+      "STORES": "Stores",
+      "HISTORY": "History"
+    },
+    "SEARCH_PLACEHOLDER": "Search by store name or city…",
+    "ALL": "All",
+    "EMPTY": "No stores match.",
+    "EDIT": "Edit",
+    "HIDE": "Hide",
+    "DISABLED": "Disabled",
+    "DISABLE_LABEL": "Disable this store (hide it from the locator)",
+    "FIELD_HINT": "Leave a field blank to keep the registry value. Only what you fill in is saved.",
+    "SAVE": "Save changes",
+    "SAVING": "Saving…",
+    "SAVED": "Saved — your store edits are live now.",
+    "SAVE_FAILED": "Couldn't save your changes. Please try again.",
+    "PUBLISH_NOTE": "Store details updated from the UI",
+    "RADIUS": {
+      "TITLE": "Serviceable radius",
+      "HINT": "How far from the customer a store of each vertical counts as 'near'. Beyond this we tell the customer there's none nearby and capture their details."
+    },
+    "FIELDS": {
+      "card_name": "Display name",
+      "address": "Address",
+      "city": "City",
+      "pincode": "Pincode",
+      "manager": "Manager",
+      "phone": "Phone",
+      "email": "Email",
+      "timing": "Timing",
+      "map_url": "Map link",
+      "crm_owner_id": "CRM owner ID"
+    },
+    "HISTORY": {
+      "SUBTITLE": "Every save is a version. Restore any earlier one to undo a change — it goes live in seconds, and the restore itself is recorded.",
+      "LOADING": "Loading history…",
+      "EMPTY": "No versions yet. Saving a change will create the first one.",
+      "ERROR": "Couldn't load history. Check the bridge is reachable.",
+      "ACTIVE": "live now",
+      "RESTORE": "Restore",
+      "CONFIRM_RESTORE": "Confirm restore",
+      "CONFIRM_HINT": "This replaces the live store edits with this version.",
+      "CANCEL": "Cancel",
+      "RESTORED": "Restored — that version is live now.",
+      "RESTORE_FAILED": "Couldn't restore that version. Please try again.",
+      "VIEW": "View changes",
+      "HIDE": "Hide",
+      "NO_CHANGES": "This version publishes no edits — the registry defaults apply.",
+      "VERSION": "Version",
+      "BY": "by",
+      "AUDIT_TITLE": "Activity log",
+      "AUDIT_PUBLISH": "published",
+      "AUDIT_ROLLBACK": "restored"
+    }
+  },
   "ROUTING_CONFIG": {
     "HEADER": "Routing Config",
     "DESCRIPTION": "How inbound emails are categorised, forwarded, and assigned to CRM owners. These rules run on the zoho-bridge; the defaults come from routing_rules.yaml.",
@@ -584,6 +648,7 @@
     "CANNED_RESPONSES": "Canned Responses",
     "INTEGRATIONS": "Integrations",
     "ROUTING_CONFIG": "Routing Config",
+    "STORES_CONFIG": "Stores",
     "OFFERS": "Offers",
     "PROFILE_SETTINGS": "Profile Settings",
     "ACCOUNT_SETTINGS": "Account Settings",

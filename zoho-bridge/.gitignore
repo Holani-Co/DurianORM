@@ -3,3 +3,6 @@
 # Allows redirecting forwards to test emails without touching the
 # committed routing_rules.yaml. Merged on top of the base YAML.
 routing_rules.local.yaml
+
+# raw store-locator export (processed into data/store_registry.json)
+data/*.xlsx

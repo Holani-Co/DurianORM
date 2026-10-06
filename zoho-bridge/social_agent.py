@@ -40,6 +40,7 @@ import retail_showrooms as retail
 import review_reply
 import snapmint
 import social_store_templates
+import store_locator
 import website_search
 import zoho_crm
 
@@ -286,22 +287,48 @@ async def _sk_get_emi_plans(ctx, sku: str = "", price=None, **_) -> dict:
 
 @_skill(
     "find_showrooms",
-    "Resolve the customer's location to Durian showrooms. PINCODE FIRST — a "
-    "pincode resolves to exactly ONE nearest showroom (never ask for a city "
-    "while holding a pincode; when a city gives several options, ask for their "
-    "pincode instead of reciting the list). address_message carries the store "
-    "FACTS — showroom name, manager, 📞 phone, 🗺️ map link: copy those exactly "
-    "into your own message when they want the store details; its letter "
-    "dressing (Dear Customer / Regards) is not content and never pastes in.",
+    "Nearest Durian showroom for THIS account's vertical — pass the customer's "
+    "pincode (preferred) or city. resolved=true → `address_message` holds the "
+    "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
+    "paste them verbatim in your own single message, never invent or edit them. "
+    "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
+    "offer to note their details. A city matching several returns `options` — ask "
+    "for their pincode.",
     {"pincode": {"type": "string"}, "city": {"type": "string"}},
     {"resolved": "bool", "showroom": "str", "city": "str",
-     "options": "list[str] when city has several — ask for pincode",
-     "address_message": "store facts (manager, phone, map link) — copy the "
-                        "facts exactly, the framing is yours",
-     "note": "guidance when not resolved"},
-    ({"pincode": "110054"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
+     "options": "list[str] when a city matches several — ask for pincode",
+     "address_message": "store facts to paste verbatim; the framing is yours",
+     "note": "what to do when resolved=false"},
+    ({"pincode": "110015"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
 )
+def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
+    """find_showrooms over the unified store_locator (STORE_LOCATOR_ENABLED).
+    Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
+    r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+    if r is None:
+        label = {"doors": "Durian Doors",
+                 "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
+        place = city or (f"pincode {pincode}" if pincode else "that location")
+        return {"resolved": False, "serviceable": False,
+                "note": (f"No {label} showroom near {place}. This is a normal answer "
+                         "— do NOT escalate. Tell the customer plainly there's none "
+                         "nearby yet, never name another product line's store or invent "
+                         "one, then keep helping: ask their requirement + a phone number "
+                         "for our team. action: send.")}
+    if r.get("ambiguous"):
+        return {"resolved": True, "options": r["options"],
+                "note": "several showrooms in that city — ask for their PINCODE to pick the nearest"}
+    return {"resolved": True, "showroom": r["card_name"], "city": r.get("city") or "",
+            "address_message": store_locator.format_card(r),
+            "next": ("customer wants the store details → paste the card's facts EXACTLY "
+                     "(name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map) in your own "
+                     "single message. If they also want to buy, call route_to_showroom first.")}
+
+
 def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
+    if config.STORE_LOCATOR_ENABLED:
+        vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
+        return _find_showrooms_locator(vert, pincode, city)
     if pincode and not pincode_resolver.is_known_pincode(pincode):
         return {"resolved": False,
                 "note": f"pincode {pincode} is not served — ask for a nearby "
@@ -419,8 +446,13 @@ async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
     pending = ca.get("pending_showroom_choice") or {}
     new_loc = ""
     if pincode or city or showroom:
-        room = _resolve_showroom(pincode, city, showroom, "furniture")[0]
-        new_loc = (room or {}).get("location") or ""
+        if config.STORE_LOCATOR_ENABLED:
+            vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
+            r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+            new_loc = (r or {}).get("card_name") or "" if r and not r.get("ambiguous") else ""
+        else:
+            room = _resolve_showroom(pincode, city, showroom, "furniture")[0]
+            new_loc = (room or {}).get("location") or ""
 
     if new_loc and new_loc != cur_loc:
         if ca.get("crm_deal_id"):
@@ -541,30 +573,45 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
                                               city, showroom, bool(confirm))
         if result is not None:
             return result
-    room, ckey, cdata, options = _resolve_showroom(pincode, city, showroom, "furniture")
-    if not room:
-        return {"routed": False, "options": options,
-                "note": "ambiguous — need a pincode or an explicit showroom choice"}
+    # Resolve the showroom + its CRM owner. STORE_LOCATOR_ENABLED → the unified,
+    # vertical-scoped registry (the SAME source as find_showrooms, so the address
+    # we showed and the owner we route to can't diverge); else the legacy resolver.
+    if config.STORE_LOCATOR_ENABLED:
+        vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
+        r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+        if r is None:
+            return {"routed": False,
+                    "note": "no serviceable showroom for that location — ask for a "
+                            "nearby pincode, or capture their details for the team"}
+        if r.get("ambiguous"):
+            return {"routed": False, "options": r["options"],
+                    "note": "several showrooms in that city — ask for their PINCODE"}
+        owner = {"owner_id": str(r.get("crm_owner_id") or ""),
+                 "owner_name": r.get("card_name") or "", "crm_email": r.get("email") or "",
+                 "location": r.get("card_name") or "", "city": r.get("city") or ""}
+    else:
+        room, ckey, cdata, options = _resolve_showroom(pincode, city, showroom, "furniture")
+        if not room:
+            return {"routed": False, "options": options,
+                    "note": "ambiguous — need a pincode or an explicit showroom choice"}
+        owner = {"owner_id": str(room.get("owner_id") or ""),
+                 "owner_name": room.get("owner_name") or "",
+                 "crm_email": room.get("crm_email") or "",
+                 "location": room.get("location") or "",
+                 "city": cdata.get("display", ckey)}
     # No contact number from the AGENT (the `phone` argument it passed, or a
-    # profile phone it set on an earlier turn) → do NOT route, confirm, or
-    # create yet. A deal can't be keyed without a phone (IG carries no email),
-    # and the customer must never be told the enquiry is passed/registered
-    # without one. Ask first; once they share it, this skill is called again
-    # with phone= and proceeds. Nothing here scans the thread for digits.
+    # profile phone it set on an earlier turn) → do NOT route, confirm, or create
+    # yet. A deal can't be keyed without a phone (IG carries no email), and the
+    # customer must never be told the enquiry is passed without one. Ask first.
     phone = phone or ca.get("retail_customer_phone") or \
         ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
     if not phone:
         return {"routed": False, "need_phone": True,
-                "showroom": room.get("location") or "",
+                "showroom": owner["location"],
                 "note": "Purchase intent + showroom are clear, but we have NO "
                         "contact number for this customer. ASK for their phone "
                         "number now — do NOT say the enquiry is registered or "
                         "passed. Call route_to_showroom again once they share it."}
-    owner = {"owner_id": str(room.get("owner_id") or ""),
-             "owner_name": room.get("owner_name") or "",
-             "crm_email": room.get("crm_email") or "",
-             "location": room.get("location") or "",
-             "city": cdata.get("display", ckey)}
     # Persist the phone onto the conversation too, so the deal core and the
     # manual Create Deal button (which don't read the profile) can key a contact.
     await chatwoot.merge_custom_attributes(conv_id, {
