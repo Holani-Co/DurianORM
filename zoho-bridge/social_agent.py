@@ -309,6 +309,17 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
         label = {"doors": "Durian Doors",
                  "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
         place = city or (f"pincode {pincode}" if pincode else "that location")
+        # Client-flagged "opening soon" location → tell the customer it's coming
+        # and capture them for launch, instead of a flat "none nearby".
+        up = store_locator.upcoming(vert, pincode=pincode or None, city=city or None)
+        if up:
+            return {"resolved": False, "upcoming": True, "area": up["area"],
+                    "note": (f"A {label} store is OPENING SOON in {up['area']}"
+                             + (f" ({up['note']})" if up.get("note") else "") + ". Tell "
+                             "the customer we don't have one there YET but one is coming "
+                             "soon — invite them to stay tuned, and ask for their name + "
+                             "phone so our team can notify them at launch. Do NOT say a "
+                             "store exists there now. action: send.")}
         return {"resolved": False, "serviceable": False,
                 "note": (f"No {label} showroom near {place}. This is a normal answer "
                          "— do NOT escalate. Tell the customer plainly there's none "

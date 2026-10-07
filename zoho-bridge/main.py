@@ -7009,6 +7009,23 @@ def _validate_stores_doc(doc) -> dict:
                     warnings.append(f"radius_km.{vert}: unknown vertical — ignored.")
                 elif isinstance(km, bool) or not isinstance(km, (int, float)) or km <= 0:
                     errors.append(f"radius_km.{vert}: must be a positive number of kilometres.")
+    upcoming = doc.get("upcoming")
+    if upcoming is not None:
+        if not isinstance(upcoming, list):
+            errors.append("`upcoming` must be a list of {vertical, area, …} entries.")
+        else:
+            for i, e in enumerate(upcoming):
+                if not isinstance(e, dict):
+                    errors.append(f"upcoming[{i}]: must be an object.")
+                    continue
+                if (e.get("vertical") or "") not in store_locator.VERTICALS:
+                    errors.append(f"upcoming[{i}]: vertical must be one of {store_locator.VERTICALS}.")
+                if not (str(e.get("area") or "").strip() or e.get("pincodes")):
+                    errors.append(f"upcoming[{i}]: needs an area name or at least one pincode.")
+                if "pincodes" in e and not _is_str_list(e.get("pincodes")):
+                    errors.append(f"upcoming[{i}].pincodes: must be a list of pincodes.")
+                if "enabled" in e and not isinstance(e["enabled"], bool):
+                    errors.append(f"upcoming[{i}].enabled: must be true or false.")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
