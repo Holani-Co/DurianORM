@@ -174,6 +174,23 @@ def _skill(name, description, params, returns, example):
     return deco
 
 
+def _coerce_skill_args(args: dict, params: dict) -> dict:
+    """Models occasionally pass a dict/number where a skill declares a STRING
+    param (e.g. find_showrooms city={"name":"Kolkata"}, register_enquiry
+    category={...}). Left as-is these crash the skill ('dict' has no attribute
+    'strip', or 'unhashable type: dict' when used as a key). Coerce every
+    declared-string arg to a clean string so a malformed tool call degrades to
+    'not given' instead — once, at dispatch, so EVERY skill is protected."""
+    out = {}
+    for k, v in (args or {}).items():
+        spec = params.get(k) or {}
+        if spec.get("type") == "string" and not isinstance(v, str):
+            out[k] = ""
+        else:
+            out[k] = v
+    return out
+
+
 @_skill(
     "search_products",
     "Look up Durian products on the LIVE durian.in storefront — the website's "
@@ -2382,7 +2399,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
                 result = {"error": f"unknown tool {call.name}"}
             else:
                 try:
-                    out = skill["handler"](ctx, **args)
+                    safe_args = _coerce_skill_args(args, skill.get("params") or {})
+                    out = skill["handler"](ctx, **safe_args)
                     result = await out if asyncio.iscoroutine(out) else out
                 except Exception as e:
                     result = {"error": f"{type(e).__name__}: {e}"}
