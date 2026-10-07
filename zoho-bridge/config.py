@@ -659,7 +659,11 @@ SOCIAL_AGENT_BOT_AGENT_NAMES = tuple(
     if s)
 SOCIAL_AGENT_MAX_STEPS = int(os.environ.get("SOCIAL_AGENT_MAX_STEPS", "6"))
 SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", "5"))
-SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "8"))
+# Hard handoff after this many customer messages — a LOOP-SAFETY backstop, not
+# the primary handoff. Genuine "can't help / no context" handoffs are case-based
+# (escalate_to_human, no-reply). Kept high so a healthy longer enquiry (or a
+# returning customer with history) isn't cut off mid-conversation.
+SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "25"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
 SOCIAL_AGENT_HANDOFF_TEAM_ID = int(os.environ.get("SOCIAL_AGENT_HANDOFF_TEAM_ID", "0") or 0)
 
