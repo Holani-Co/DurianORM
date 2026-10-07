@@ -326,6 +326,10 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
 
 
 def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
+    # The model occasionally hands a dict/number for pincode or city — keep only
+    # real strings so a malformed arg reads as "not given" instead of crashing.
+    pincode = pincode if isinstance(pincode, str) else ""
+    city = city if isinstance(city, str) else ""
     if config.STORE_LOCATOR_ENABLED:
         vert = (ctx.get("vertical", "furniture") or "furniture").strip().lower()
         return _find_showrooms_locator(vert, pincode, city)

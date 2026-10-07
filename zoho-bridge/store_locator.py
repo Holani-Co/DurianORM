@@ -131,7 +131,12 @@ def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
     "Services" the vertical (a dedicated FHC studio beats a doors store that also
     does FHC); the services-it stores are the fallback when no dedicated one is
     in range."""
-    vert = (vertical or "").strip().lower()
+    # The model sometimes passes a dict/number for pincode or city — coerce to a
+    # safe string so a malformed tool arg degrades to "not given", never crashes.
+    vertical = vertical if isinstance(vertical, str) else ""
+    pincode = pincode if isinstance(pincode, str) else ""
+    city = city if isinstance(city, str) else ""
+    vert = vertical.strip().lower()
     candidates = [s for s in _stores() if vert in (s.get("verticals") or [])]
     if not candidates:
         return None
