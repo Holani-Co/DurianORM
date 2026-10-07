@@ -60,6 +60,17 @@
       "TITLE": "Serviceable radius",
       "HINT": "How far from the customer a store of each vertical counts as 'near'. Beyond this we tell the customer there's none nearby and capture their details."
     },
+    "UPCOMING": {
+      "TITLE": "Upcoming stores",
+      "ADD": "Add",
+      "HINT": "Locations with no store yet but one opening soon. When a customer mentions one, the bot says a store is coming soon and captures their contact to notify them at launch.",
+      "EMPTY": "No upcoming stores. Add one to announce a coming location.",
+      "AREA_PH": "City / area (e.g. Visakhapatnam)",
+      "PINCODES_PH": "Pincodes (optional, comma-separated)",
+      "NOTE_PH": "Note (optional, e.g. opening Dec 2026)",
+      "ENABLED": "Live",
+      "REMOVE": "Remove"
+    },
     "FIELDS": {
       "card_name": "Display name",
       "address": "Address",

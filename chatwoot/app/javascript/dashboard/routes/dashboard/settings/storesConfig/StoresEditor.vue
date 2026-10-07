@@ -46,6 +46,28 @@ const radius = reactive(
   )
 );
 
+// "Upcoming stores": locations with no store yet but one opening soon. When a
+// customer mentions one, the bot says it's coming soon + captures them.
+const upcomingList = ref(
+  (props.override.upcoming || []).map(e => ({
+    vertical: e.vertical || props.verticals[0] || 'furniture',
+    area: e.area || '',
+    pincodes: (e.pincodes || []).join(', '),
+    note: e.note || '',
+    enabled: e.enabled !== false,
+  }))
+);
+const addUpcoming = () => {
+  upcomingList.value.push({
+    vertical: props.verticals[0] || 'furniture',
+    area: '',
+    pincodes: '',
+    note: '',
+    enabled: true,
+  });
+};
+const removeUpcoming = i => upcomingList.value.splice(i, 1);
+
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   return props.effective.filter(s => {
@@ -90,9 +112,25 @@ const buildDoc = () => {
     const n = Number(km);
     if (km !== '' && !Number.isNaN(n) && n > 0) radiusKm[v] = n;
   });
+  const upcoming = upcomingList.value
+    .map(e => {
+      const area = (e.area || '').trim();
+      const pincodes = (e.pincodes || '')
+        .split(',')
+        .map(p => p.trim())
+        .filter(Boolean);
+      if (!area && !pincodes.length) return null;
+      const entry = { vertical: e.vertical, enabled: e.enabled !== false };
+      if (area) entry.area = area;
+      if (pincodes.length) entry.pincodes = pincodes;
+      if ((e.note || '').trim()) entry.note = e.note.trim();
+      return entry;
+    })
+    .filter(Boolean);
   const doc = {};
   if (Object.keys(stores).length) doc.stores = stores;
   if (Object.keys(radiusKm).length) doc.radius_km = radiusKm;
+  if (upcoming.length) doc.upcoming = upcoming;
   return doc;
 };
 
@@ -147,6 +185,71 @@ async function save() {
           />
           <span class="text-xs text-n-slate-10">km</span>
         </label>
+      </div>
+    </div>
+
+    <!-- upcoming stores -->
+    <div class="p-4 mb-5 border rounded-xl border-n-weak">
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-sm font-medium text-n-slate-12">
+          {{ t('STORES_CONFIG.UPCOMING.TITLE') }}
+        </div>
+        <button
+          type="button"
+          class="px-2 py-1 text-xs font-medium border rounded-lg border-n-weak text-n-brand hover:bg-n-alpha-1"
+          @click="addUpcoming"
+        >
+          {{ t('STORES_CONFIG.UPCOMING.ADD') }}
+        </button>
+      </div>
+      <p class="mb-3 text-xs text-n-slate-11">
+        {{ t('STORES_CONFIG.UPCOMING.HINT') }}
+      </p>
+      <p v-if="!upcomingList.length" class="text-xs text-n-slate-10">
+        {{ t('STORES_CONFIG.UPCOMING.EMPTY') }}
+      </p>
+      <div
+        v-for="(u, i) in upcomingList"
+        :key="i"
+        class="grid grid-cols-1 gap-2 py-2 border-t sm:grid-cols-5 border-n-weak"
+      >
+        <select
+          v-model="u.vertical"
+          class="px-2 py-1 text-sm capitalize border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+        >
+          <option v-for="v in verticals" :key="v" :value="v">{{ v }}</option>
+        </select>
+        <input
+          v-model="u.area"
+          type="text"
+          :placeholder="t('STORES_CONFIG.UPCOMING.AREA_PH')"
+          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+        />
+        <input
+          v-model="u.pincodes"
+          type="text"
+          :placeholder="t('STORES_CONFIG.UPCOMING.PINCODES_PH')"
+          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+        />
+        <input
+          v-model="u.note"
+          type="text"
+          :placeholder="t('STORES_CONFIG.UPCOMING.NOTE_PH')"
+          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+        />
+        <div class="flex items-center justify-between gap-2">
+          <label class="flex items-center gap-1 text-xs text-n-slate-11">
+            <input v-model="u.enabled" type="checkbox" />
+            {{ t('STORES_CONFIG.UPCOMING.ENABLED') }}
+          </label>
+          <button
+            type="button"
+            class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:opacity-80"
+            @click="removeUpcoming(i)"
+          >
+            {{ t('STORES_CONFIG.UPCOMING.REMOVE') }}
+          </button>
+        </div>
       </div>
     </div>
 

@@ -62,6 +62,30 @@ def all_stores() -> list:
     return _stores()
 
 
+def upcoming(vertical: str, pincode=None, city: str = None) -> dict | None:
+    """An enabled 'upcoming store' entry matching the customer's location for this
+    vertical, or None. Client-managed in the stores override under `upcoming`:
+    [{vertical, area, pincodes?, note?, enabled}]. Matched by area name
+    (case-insensitive, either direction) or an exact pincode in the entry's list.
+    Lets the bot answer 'a store is opening soon there' instead of 'none nearby'."""
+    vert = (vertical or "").strip().lower()
+    pin = pincode_resolver.normalize_pincode(pincode) if pincode else None
+    c = (city or "").strip().lower()
+    for e in _override_doc().get("upcoming") or []:
+        if not isinstance(e, dict) or not e.get("enabled", True):
+            continue
+        if (e.get("vertical") or "").strip().lower() != vert:
+            continue
+        area = (e.get("area") or "").strip().lower()
+        matched = (c and area and (area in c or c in area)) or (
+            pin and pin in [pincode_resolver.normalize_pincode(p)
+                            for p in (e.get("pincodes") or [])])
+        if matched:
+            return {"area": e.get("area") or "", "note": e.get("note") or "",
+                    "vertical": vert}
+    return None
+
+
 def _override_doc() -> dict:
     return config_store.get_active_override(config_store.STORES) or {}
 
