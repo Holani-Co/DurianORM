@@ -28,6 +28,7 @@ import AiPerformanceReports from './AiPerformanceReports.vue';
 import CrmFunnelReports from './CrmFunnelReports.vue';
 import ReviewsReports from './ReviewsReports.vue';
 import FollowUpReports from './FollowUpReports.vue';
+import ForwardedEmailReports from './ForwardedEmailReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -170,6 +171,12 @@ export default {
           name: 'follow_up_reports',
           meta,
           component: FollowUpReports,
+        },
+        {
+          path: 'forwarded-emails',
+          name: 'forwarded_email_reports',
+          meta,
+          component: ForwardedEmailReports,
         },
         {
           path: 'overview',

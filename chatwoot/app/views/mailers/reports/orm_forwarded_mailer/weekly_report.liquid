@@ -1,0 +1,11 @@
+<tr>
+  <td>
+    <h1 style="color: #0F172A; font-size: 22px; line-height: 30px; margin: 0 0 6px;">{{ category_name | escape }} — emails forwarded</h1>
+    <p style="color: #64748B; font-size: 14px; line-height: 20px; margin: 0 0 4px;">Week of {{ week_label }}</p>
+    <p style="color: #334155; font-size: 15px; line-height: 24px; margin: 12px 0;">Hello,</p>
+    <p style="color: #334155; font-size: 15px; line-height: 24px; margin: 0 0 4px;">
+      Here are the {{ category_name | escape }} emails the ORM forwarded in the week of {{ week_label }}, and what came of them. The attached Excel has the full details.
+    </p>
+    {{ summary_html }}
+  </td>
+</tr>
