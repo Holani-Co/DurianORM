@@ -144,14 +144,24 @@ def _result(store: dict, distance_km) -> dict:
     }
 
 
+def _store_coords(s: dict):
+    """A store's (lat, lon). Falls back to geocoding its pincode when it has no
+    coordinates — so a store added from the Master list (or fixed in Settings →
+    Stores) becomes fully routable just by entering its pincode."""
+    if s.get("lat") is not None and s.get("lon") is not None:
+        return s["lat"], s["lon"]
+    return pincode_resolver.coords(s.get("pincode")) if s.get("pincode") else None
+
+
 def _nearest_in_range(stores: list, loc, radius: float):
     """(store, distance_km) of the nearest store with coords within `radius`, or
     (None, None)."""
     best = best_d = None
     for s in stores:
-        if s.get("lat") is None or s.get("lon") is None:
+        c = _store_coords(s)
+        if not c:
             continue
-        d = pincode_resolver.haversine_km(loc[0], loc[1], s["lat"], s["lon"])
+        d = pincode_resolver.haversine_km(loc[0], loc[1], c[0], c[1])
         if best_d is None or d < best_d:
             best, best_d = s, d
     if best is None or best_d > radius:
