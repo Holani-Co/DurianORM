@@ -7045,6 +7045,30 @@ async def admin_stores_config_get(x_routing_admin_secret: Optional[str] = Header
     }
 
 
+# Active Zoho CRM users for the Stores editor's deal-owner picker. Cached briefly
+# so opening Settings doesn't hit Zoho on every load. Never 5xx: on any CRM error
+# (most likely the CRM token lacks the ZohoCRM.users.READ scope) it returns an
+# empty list + the reason, and the editor falls back to the plain owner-ID field.
+_ZOHO_OWNERS_TTL = 600.0
+_zoho_owners_cache: dict = {"at": None, "owners": []}
+
+
+@app.get("/admin/stores-config/zoho-owners")
+async def admin_stores_config_zoho_owners(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    now = asyncio.get_running_loop().time()
+    at = _zoho_owners_cache["at"]
+    if at is not None and now - at < _ZOHO_OWNERS_TTL and _zoho_owners_cache["owners"]:
+        return {"owners": _zoho_owners_cache["owners"], "error": None}
+    try:
+        owners = await zoho_crm.list_active_users()
+    except Exception as e:  # noqa: BLE001
+        print(f"[stores-config] zoho owners unavailable: {e}")
+        return {"owners": [], "error": str(e)[:300]}
+    _zoho_owners_cache.update(at=now, owners=owners)
+    return {"owners": owners, "error": None}
+
+
 @app.post("/admin/stores-config/validate")
 async def admin_stores_config_validate(request: Request,
                                        x_routing_admin_secret: Optional[str] = Header(None)):
@@ -7102,30 +7126,6 @@ async def admin_stores_config_rollback(request: Request,
             or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
         raise HTTPException(status_code=404, detail="version not found")
     return {"ok": True, "version_id": int(vid)}
-
-
-# Active Zoho CRM users for the Stores editor's deal-owner picker. Cached briefly
-# so opening Settings doesn't hit Zoho on every load. Never 5xx: on any CRM error
-# (most likely the CRM token lacks the ZohoCRM.users.READ scope) it returns an
-# empty list + the reason, and the editor falls back to the plain owner-ID field.
-_ZOHO_OWNERS_TTL = 600.0
-_zoho_owners_cache: dict = {"at": None, "owners": []}
-
-
-@app.get("/admin/stores-config/zoho-owners")
-async def admin_stores_config_zoho_owners(x_routing_admin_secret: Optional[str] = Header(None)):
-    _require_routing_admin(x_routing_admin_secret)
-    now = asyncio.get_running_loop().time()
-    at = _zoho_owners_cache["at"]
-    if at is not None and now - at < _ZOHO_OWNERS_TTL and _zoho_owners_cache["owners"]:
-        return {"owners": _zoho_owners_cache["owners"], "error": None}
-    try:
-        owners = await zoho_crm.list_active_users()
-    except Exception as e:  # noqa: BLE001
-        print(f"[stores-config] zoho owners unavailable: {e}")
-        return {"owners": [], "error": str(e)[:300]}
-    _zoho_owners_cache.update(at=now, owners=owners)
-    return {"owners": owners, "error": None}
 
 
 @app.post("/reviews/regenerate")
