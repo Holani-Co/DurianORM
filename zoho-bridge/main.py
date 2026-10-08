@@ -6890,7 +6890,8 @@ async def admin_routing_config_publish(request: Request,
 @app.get("/admin/routing-config/versions")
 async def admin_routing_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
-    return {"versions": config_store.list_versions(), "audit": config_store.list_audit(50)}
+    return {"versions": config_store.list_versions(),
+            "audit": config_store.list_audit(50, config_store.ROUTING)}
 
 
 @app.get("/admin/routing-config/versions/{version_id}")
@@ -7074,7 +7075,7 @@ async def admin_stores_config_publish(request: Request,
 async def admin_stores_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
     return {"versions": config_store.list_versions(config_store.STORES),
-            "audit": config_store.list_audit(50)}
+            "audit": config_store.list_audit(50, config_store.STORES)}
 
 
 @app.get("/admin/stores-config/versions/{version_id}")
@@ -7099,6 +7100,110 @@ async def admin_stores_config_rollback(request: Request,
     vid = (body or {}).get("version_id")
     row = config_store.get_version(int(vid)) if vid is not None else None
     if not row or row.get("domain") != config_store.STORES \
+            or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
+        raise HTTPException(status_code=404, detail="version not found")
+    return {"ok": True, "version_id": int(vid)}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Agent-prompts admin API — backs "Settings → Agent Prompts"; mirrors the stores
+# API above, on the config_store "agent_prompts" domain.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _invisible_control(c: str) -> bool:
+    """C0/C1 control chars (incl. DEL, but not newline/tab) and bidi overrides."""
+    return (((ord(c) < 32 or 127 <= ord(c) < 160) and c not in "\n\t")
+            or "‪" <= c <= "‮" or "⁦" <= c <= "⁩")
+
+
+def _validate_agent_prompts_doc(doc) -> dict:
+    """Return {ok, errors, warnings} for an agent-prompts document
+    {vertical: "<free text>"}. Errors block publish; an unknown vertical only warns."""
+    errors, warnings = [], []
+    if not isinstance(doc, dict):
+        return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
+    cap = config.SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS
+    for vert, text in doc.items():
+        if vert not in store_locator.VERTICALS:
+            warnings.append(f"{vert}: unknown vertical — it will be ignored.")
+        if not isinstance(text, str):
+            errors.append(f"{vert}: guidance must be text.")
+            continue
+        if len(text) > cap:
+            errors.append(f"{vert}: guidance is too long ({len(text)}/{cap} characters).")
+        if any(_invisible_control(c) for c in text):
+            errors.append(f"{vert}: remove control characters.")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+@app.get("/admin/agent-prompts-config")
+async def admin_agent_prompts_config_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Current state for the Agent Prompts editor: the active per-vertical
+    guidance, version metadata, the vertical list, and whether the feature is live."""
+    _require_routing_admin(x_routing_admin_secret)
+    return {
+        "override":       config_store.get_active_override(config_store.AGENT_PROMPTS),
+        "active_version": config_store.active_version(config_store.AGENT_PROMPTS),
+        "verticals":      list(store_locator.VERTICALS),
+        "max_chars":      config.SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS,
+        "enabled":        config.SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED,
+    }
+
+
+@app.post("/admin/agent-prompts-config/validate")
+async def admin_agent_prompts_config_validate(request: Request,
+                                              x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    return _validate_agent_prompts_doc((body or {}).get("doc"))
+
+
+@app.post("/admin/agent-prompts-config/publish")
+async def admin_agent_prompts_config_publish(request: Request,
+                                             x_routing_admin_secret: Optional[str] = Header(None)):
+    """Validate then save `doc` as the new active agent-prompts override (live
+    next turn — social_agent reads it per request). Rejects (422) on errors."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    doc = (body or {}).get("doc")
+    v = _validate_agent_prompts_doc(doc)
+    if not v["ok"]:
+        raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
+    vid = config_store.publish(doc, note=str((body or {}).get("note") or ""),
+                               actor=str((body or {}).get("actor") or ""),
+                               domain=config_store.AGENT_PROMPTS)
+    return {"ok": True, "version_id": vid, "warnings": v["warnings"]}
+
+
+@app.get("/admin/agent-prompts-config/versions")
+async def admin_agent_prompts_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return {"versions": config_store.list_versions(config_store.AGENT_PROMPTS),
+            "audit": config_store.list_audit(50, config_store.AGENT_PROMPTS)}
+
+
+@app.get("/admin/agent-prompts-config/versions/{version_id}")
+async def admin_agent_prompts_config_version(version_id: int,
+                                             x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    row = config_store.get_version(version_id)
+    if not row or row.get("domain") != config_store.AGENT_PROMPTS:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        row["doc"] = json.loads(row.get("doc_json") or "{}")
+    except Exception:
+        row["doc"] = {}
+    return row
+
+
+@app.post("/admin/agent-prompts-config/rollback")
+async def admin_agent_prompts_config_rollback(request: Request,
+                                              x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    vid = (body or {}).get("version_id")
+    row = config_store.get_version(int(vid)) if vid is not None else None
+    if not row or row.get("domain") != config_store.AGENT_PROMPTS \
             or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
         raise HTTPException(status_code=404, detail="version not found")
     return {"ok": True, "version_id": int(vid)}

@@ -704,3 +704,56 @@ def test_vision_verdict_cached_one_call(monkeypatch):
     assert asyncio.run(sa._vision_verdict("u1")) == {"is_product": False}
     assert len(calls) == 1
     assert "while asking about a product" not in calls[0][1]["text"]
+
+
+# ── Per-vertical client guidance (Settings → Agent Prompts) ──────────────────
+
+def _guidance_store(monkeypatch, doc):
+    import tempfile
+    import config_store
+    monkeypatch.setattr(config_store, "_DB_PATH", tempfile.mkdtemp() + "/cs.db")
+    config_store.init()
+    config_store.publish(doc, domain=config_store.AGENT_PROMPTS)
+
+
+def _dm_prompt(vertical, guidance):
+    from datetime import datetime
+    return sa._system_prompt("dm", "inbox", vertical, datetime(2026, 1, 1),
+                             "PROFILE", "TPL", 1, "", guidance)
+
+
+def test_agent_guidance_flag_off_is_noop(monkeypatch):
+    _guidance_store(monkeypatch, {"furniture": "Lead with the map link."})
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED", False)
+    assert sa._client_guidance("furniture") == ""
+    assert _dm_prompt("furniture", sa._client_guidance("furniture")) == _dm_prompt("furniture", "")
+
+
+def test_agent_guidance_own_vertical_only(monkeypatch):
+    _guidance_store(monkeypatch, {"furniture": "F-NOTE", "fhc": "H-NOTE"})
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED", True)
+    dm = _dm_prompt("furniture", sa._client_guidance("furniture"))
+    assert "F-NOTE" in dm and "H-NOTE" not in dm
+    assert dm.index("CLIENT GUIDANCE") < dm.index("APPROVED TEMPLATES")   # below the rules
+    from datetime import datetime
+    cm = sa._system_prompt("comment", "inbox", "fhc", datetime(2026, 1, 1), "P", "T", 0,
+                           "", sa._client_guidance("fhc"))
+    assert "H-NOTE" in cm and "F-NOTE" not in cm
+    assert sa._client_guidance("doors") == ""                       # nothing published
+    assert "CLIENT GUIDANCE" not in _dm_prompt("doors", "")
+
+
+def test_agent_prompts_validator():
+    import main
+    v = main._validate_agent_prompts_doc
+    # Ordinary furniture-business wording must pass cleanly (no false alarms).
+    ok = v({"furniture": "Mention inventory availability and always send the map link.",
+            "fhc": "Our wardrobes are made up of BWP ply."})
+    assert ok["ok"] and not ok["warnings"]
+    assert not v({"fhc": "x" * (sa.config.SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS + 1)})["ok"]
+    assert not v({"doors": 42})["ok"]
+    assert not v({"doors": "hidden\x7ftext"})["ok"]                  # DEL
+    assert not v({"doors": "hidden‮text"})["ok"]                # bidi override
+    assert v({"doors": "line one\nline two\ttabbed"})["ok"]          # newline/tab fine
+    unknown = v({"garden": "hi"})
+    assert unknown["ok"] and unknown["warnings"]                     # warns, doesn't block

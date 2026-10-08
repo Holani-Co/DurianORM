@@ -665,6 +665,13 @@ SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", 
 # returning customer with history) isn't cut off mid-conversation.
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "25"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
+# Per-vertical client guidance (Settings → Agent Prompts) the social agent reads
+# each turn. Advisory: injected below the hard rules, and the send-time guardrails
+# still apply. Off by default until the client has reviewed what they wrote; the
+# cap keeps the per-turn prompt size in check.
+SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED = _bool("SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED", "false")
+SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS = int(
+    os.environ.get("SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS", "1500"))
 SOCIAL_AGENT_HANDOFF_TEAM_ID = int(os.environ.get("SOCIAL_AGENT_HANDOFF_TEAM_ID", "0") or 0)
 
 # ── Room visualizer (visualize_in_room skill) ──────────────────────────────

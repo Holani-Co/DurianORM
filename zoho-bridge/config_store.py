@@ -7,6 +7,8 @@
 #                 overrides; classifier.get_routing_rules() deep-merges them.
 #   - "stores"  : data/store_registry.json stays the FLOOR; the UI publishes
 #                 per-store overrides; store_locator merges them.
+#   - "agent_prompts" : per-vertical free-text guidance the client writes in
+#                 Settings → Agent Prompts; social_agent injects it (advisory).
 # An absent, empty, or broken override => the FLOOR wins, so a bad edit can never
 # crash the store or routing path. Every publish is a new version → one-click
 # rollback; domains never touch each other's active row.
@@ -29,6 +31,7 @@ _lock = threading.Lock()
 
 ROUTING = "routing"
 STORES = "stores"
+AGENT_PROMPTS = "agent_prompts"
 
 
 @contextmanager
@@ -176,11 +179,15 @@ def rollback(version_id: int, actor: str = "") -> bool:
     return True
 
 
-def list_audit(limit: int = 100) -> list:
-    """Recent audit entries (newest first)."""
+def list_audit(limit: int = 100, domain: str | None = None) -> list:
+    """Recent audit entries (newest first) — only `domain`'s when given, so each
+    settings screen's activity log shows its own publishes/rollbacks."""
+    sql = ("SELECT a.id, a.version_id, a.actor, a.action, a.diff_json, a.created_at "
+           "FROM config_audit a")
+    args: list = []
+    if domain:
+        sql += " JOIN config_versions v ON v.id = a.version_id WHERE v.domain = ?"
+        args.append(domain)
     with _lock, _conn() as c:
-        rows = c.execute(
-            "SELECT id, version_id, actor, action, diff_json, created_at "
-            "FROM config_audit ORDER BY id DESC LIMIT ?", (int(limit),)
-        ).fetchall()
+        rows = c.execute(sql + " ORDER BY a.id DESC LIMIT ?", (*args, int(limit))).fetchall()
     return [dict(r) for r in rows]

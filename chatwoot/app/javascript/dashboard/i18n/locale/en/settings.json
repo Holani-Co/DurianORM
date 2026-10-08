@@ -105,6 +105,54 @@
       "AUDIT_ROLLBACK": "restored"
     }
   },
+  "AGENT_PROMPTS_CONFIG": {
+    "HEADER": "Agent Prompts",
+    "DESCRIPTION": "Tell the Instagram and Facebook agent, for each vertical, which store details to lead with and how to come across. It reads this before every reply.",
+    "LOADING": "Loading agent prompts…",
+    "BRIDGE_UNAVAILABLE": "Could not reach the agent bridge. Make sure the zoho-bridge is running and ROUTING_ADMIN_SECRET is set on both services.",
+    "LIVE_BADGE": "Live",
+    "DISABLED_BADGE": "Not live yet",
+    "VERSION_INFO": "Active guidance: version {version} by {actor} · {when}",
+    "NO_OVERRIDE": "No guidance published — the agent runs on its built-in rules only.",
+    "TABS": {
+      "PROMPTS": "Prompts",
+      "HISTORY": "History"
+    },
+    "ADVISORY_HINT": "This is guidance, not a rulebook — the agent uses it only where it fits its built-in rules. It won't quote a price or offer it hasn't looked up, share unapproved links or personal numbers, or stop handing complaints to your team. Write it like a note to a colleague.",
+    "DISABLED_HINT": "Not live yet — you can write and save guidance now; it starts shaping replies once it's switched on.",
+    "PLACEHOLDER": "Guidance for the {vertical} account — e.g. which store details to lead with, what to emphasise, the tone to use.",
+    "VERTICALS": {
+      "FURNITURE": "Furniture",
+      "DOORS": "Doors",
+      "FHC": "Full Home Customisation"
+    },
+    "SAVE": "Save changes",
+    "SAVING": "Saving…",
+    "SAVED": "Saved — the agent uses this guidance from the next reply.",
+    "SAVE_FAILED": "Couldn't save your changes. Please try again.",
+    "PUBLISH_NOTE": "Agent guidance updated from the UI",
+    "HISTORY": {
+      "SUBTITLE": "Every save is a version. Restore any earlier one to undo a change — it goes live in seconds, and the restore itself is recorded.",
+      "LOADING": "Loading history…",
+      "EMPTY": "No versions yet. Saving a change will create the first one.",
+      "ERROR": "Couldn't load history. Check the bridge is reachable.",
+      "ACTIVE": "live now",
+      "RESTORE": "Restore",
+      "CONFIRM_RESTORE": "Confirm restore",
+      "CONFIRM_HINT": "This replaces the live agent guidance with this version.",
+      "CANCEL": "Cancel",
+      "RESTORED": "Restored — that version is live now.",
+      "RESTORE_FAILED": "Couldn't restore that version. Please try again.",
+      "VIEW": "View changes",
+      "HIDE": "Hide",
+      "NO_CHANGES": "This version publishes no guidance — the agent runs on its built-in rules.",
+      "VERSION": "Version",
+      "BY": "by",
+      "AUDIT_TITLE": "Activity log",
+      "AUDIT_PUBLISH": "published",
+      "AUDIT_ROLLBACK": "restored"
+    }
+  },
   "ROUTING_CONFIG": {
     "HEADER": "Routing Config",
     "DESCRIPTION": "How inbound emails are categorised, forwarded, and assigned to CRM owners. These rules run on the zoho-bridge; the defaults come from routing_rules.yaml.",
@@ -660,6 +708,7 @@
     "INTEGRATIONS": "Integrations",
     "ROUTING_CONFIG": "Routing Config",
     "STORES_CONFIG": "Stores",
+    "AGENT_PROMPTS_CONFIG": "Agent Prompts",
     "OFFERS": "Offers",
     "PROFILE_SETTINGS": "Profile Settings",
     "ACCOUNT_SETTINGS": "Account Settings",
