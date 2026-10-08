@@ -436,6 +436,15 @@ Rails.application.routes.draw do
                 post :rollback
               end
             end
+            resource :agent_prompts_config, controller: 'agent_prompts_config', only: [:show] do
+              collection do
+                post :validate
+                post :publish
+                get  :versions
+                get  :version
+                post :rollback
+              end
+            end
             resource :shopify, controller: 'shopify', only: [:destroy] do
               collection do
                 post :auth

@@ -7,6 +7,8 @@
 #                 overrides; classifier.get_routing_rules() deep-merges them.
 #   - "stores"  : data/store_registry.json stays the FLOOR; the UI publishes
 #                 per-store overrides; store_locator merges them.
+#   - "agent_prompts" : per-vertical free-text guidance the client writes in
+#                 Settings → Agent Prompts; social_agent injects it (advisory).
 # An absent, empty, or broken override => the FLOOR wins, so a bad edit can never
 # crash the store or routing path. Every publish is a new version → one-click
 # rollback; domains never touch each other's active row.
@@ -29,6 +31,7 @@ _lock = threading.Lock()
 
 ROUTING = "routing"
 STORES = "stores"
+AGENT_PROMPTS = "agent_prompts"
 
 
 @contextmanager

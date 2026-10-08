@@ -665,6 +665,16 @@ SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", 
 # returning customer with history) isn't cut off mid-conversation.
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "25"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
+# Per-vertical client guidance (Settings → Agent Prompts): free text the client
+# writes per vertical that the agent reads each turn when deciding which store
+# details to surface and how to behave. DARK-LAUNCHED (default off): the guidance
+# is ADVISORY and injected below the hard rules, and the post-generation guardrails
+# (link allowlist, PII masking, confidence gate) still bind regardless — but a
+# careless prompt can still steer tone/emphasis, so it ships behind its own flag
+# until the client has reviewed what they wrote. Cap keeps per-turn tokens sane.
+SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED = _bool("SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED", "false")
+SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS = int(
+    os.environ.get("SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS", "1500"))
 SOCIAL_AGENT_HANDOFF_TEAM_ID = int(os.environ.get("SOCIAL_AGENT_HANDOFF_TEAM_ID", "0") or 0)
 
 # ── Room visualizer (visualize_in_room skill) ──────────────────────────────
