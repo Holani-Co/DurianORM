@@ -27,15 +27,15 @@ class Api::V1::Accounts::ForwardedEmailReportsController < Api::V1::Accounts::Ba
     render json: { error: 'bridge unavailable' }, status: :bad_gateway
   end
 
-  # POST …/forwarded_email_report/deliver  { category, week, recipients: 'a@x.com, b@y.com' }
+  # POST …/forwarded_email_report/deliver  { category, category_name, week, recipients: 'a@x.com, b@y.com' }
   def deliver
-    recipients = params[:recipients].to_s.split(/[\s,;]+/).compact_blank.uniq
     if recipients.empty? || recipients.any? { |email| !email.match?(URI::MailTo::EMAIL_REGEXP) }
       return render json: { error: 'invalid recipients' }, status: :unprocessable_entity
     end
 
     Reports::OrmForwardedMailer.with(account: Current.account)
-                               .weekly_report(Current.account, recipients, category: params[:category], week: week)
+                               .weekly_report(Current.account, recipients,
+                                              category: params[:category], category_name: category_name, week: week)
                                .deliver_later
     render json: { recipients: recipients }
   end
@@ -45,7 +45,7 @@ class Api::V1::Accounts::ForwardedEmailReportsController < Api::V1::Accounts::Ba
   # A category that emails a team: it forwards, or one of its subcategories
   # does. Bulk orders (suppress_forward) and disabled categories never forward.
   def forwarding_category(key, rule)
-    return unless rule.is_a?(Hash) && forwards?(rule)
+    return unless forwards?(rule)
 
     { key: key, name: rule['display_name'].presence || key.humanize, forward_to: rule['forward_to'].to_s.strip }
   end
@@ -53,11 +53,23 @@ class Api::V1::Accounts::ForwardedEmailReportsController < Api::V1::Accounts::Ba
   def forwards?(rule)
     return false if rule['disabled'] || rule['suppress_forward']
 
-    rule['action'] == 'forward' || (rule['vertical_routing'] || {}).values.grep(Hash).any? { |route| route['forward_to'].present? }
+    rule['action'] == 'forward' || (rule['vertical_routing'] || {}).values.any? { |route| route&.dig('forward_to').present? }
   end
 
+  def recipients
+    @recipients ||= params[:recipients].to_s.split(/[\s,;]+/).compact_blank.uniq
+  end
+
+  # The name the admin picked it by (the bridge's display name).
+  def category_name
+    params[:category_name].to_s.squish.presence || params[:category].humanize
+  end
+
+  # Any day of the week as YYYY-MM-DD; anything else means last week.
   def week
-    params[:week].presence if params[:week].to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+    Date.iso8601(params[:week].to_s).iso8601
+  rescue Date::Error
+    nil
   end
 
   def check_category

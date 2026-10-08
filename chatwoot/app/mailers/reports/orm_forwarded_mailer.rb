@@ -2,12 +2,11 @@
 # from Reports → Forwarded Emails to whoever the admin picks.
 class Reports::OrmForwardedMailer < ApplicationMailer
   # week: 'YYYY-MM-DD', any day of the Mon–Sun week (nil → last week, India time).
-  def weekly_report(account, recipients, category:, week: nil)
+  def weekly_report(account, recipients, category:, category_name:, week: nil)
     return unless smtp_config_set_or_development?
-    return if recipients.blank?
 
     data = V2::Reports::OrmForwardedReportBuilder.new(account: account, category: category, week: week).build
-    @category_name = data[:category_name]
+    @category_name = category_name
     @week_label = data[:week_label]
     @summary_html = Reports::OrmForwardedEmailSummary.new(data).html
     attachments["durian-forwarded-#{category.dasherize}-#{data[:week_key]}.xlsx"] = {

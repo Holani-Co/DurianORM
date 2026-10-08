@@ -1,16 +1,9 @@
-# Durian — HTML body of the Forwarded Emails weekly report email: the headline
-# numbers, who received the emails, and the emails themselves (the attached
-# Excel has every column). Email-safe inline styles; customer text is escaped.
-class Reports::OrmForwardedEmailSummary
-  INK = '#0F172A'.freeze
-  MUTED = '#64748B'.freeze
-  LINE = '#E2E8F0'.freeze
+# Durian — HTML body of the Forwarded Emails weekly report email: the daily
+# report's tiles, who received the emails, and the emails themselves (the
+# attached Excel has every column). Customer text is escaped.
+class Reports::OrmForwardedEmailSummary < Reports::OrmDailyEmailSummary
   CELL = "padding:6px 8px;font-size:13px;border-bottom:1px solid #{LINE};vertical-align:top;text-align:left;".freeze
   ROW_LIMIT = 50
-
-  def initialize(data)
-    @data = data
-  end
 
   def html
     t = @data[:totals]
@@ -20,15 +13,6 @@ class Reports::OrmForwardedEmailSummary
   end
 
   private
-
-  def tiles(cells)
-    inner = cells.map do |label, value|
-      "<td style='padding:10px 14px;background:#F8FAFC;border:1px solid #{LINE};border-radius:8px;'>" \
-        "<div style='font-size:22px;font-weight:700;color:#{INK};'>#{value}</div>" \
-        "<div style='font-size:12px;color:#{MUTED};'>#{label}</div></td><td style='width:8px;'></td>"
-    end.join
-    "#{heading('At a glance')}<table role='presentation' cellpadding='0' cellspacing='0'><tr>#{inner}</tr></table>"
-  end
 
   def recipients(by_recipient)
     return '' if by_recipient.blank?

@@ -35,7 +35,7 @@
     "CATEGORIES_ERROR": "Couldn't load the email categories, please try again.",
     "SEND": {
       "LABEL": "Send this report to",
-      "PLACEHOLDER": "name@durian.in, another@durian.in",
+      "PLACEHOLDER": "name{'@'}durian.in, another{'@'}durian.in",
       "BUTTON": "Send",
       "SUCCESS": "Report is on its way to {recipients}.",
       "INVALID": "Enter valid email addresses, separated by commas.",

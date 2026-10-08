@@ -14,6 +14,10 @@ module V2::Reports::OrmMonthlyQueries # rubocop:disable Metrics/ModuleLength
                     'deal-franchise' => 'Dealership / Franchise' }.freeze
   # Private note the bridge posts on every deal: "✅ CRM Deal created by <who> — …".
   DEAL_NOTE = /\A✅ CRM Deal created by (.+?) —/
+  # The bridge's private note on a customer email a colleague forwarded in (the
+  # contact is then the colleague): "… forwarded this on behalf of **Name**
+  # (email · phone)."
+  ON_BEHALF = /forwarded this on behalf of \*\*(?<name>.+?)\*\* \((?<email>[^\s·)]+)(?: · (?<phone>[^)]+))?\)/
 
   private
 
@@ -85,6 +89,43 @@ module V2::Reports::OrmMonthlyQueries # rubocop:disable Metrics/ModuleLength
       subject: ticket['subject'], status: ticket['status'], source: ticket['source'],
       category: category_name(attrs['email_category_v2'] || {}),
       customer: conv.contact&.name, channel: channel_label(conv.inbox&.channel_type) }
+  end
+
+  # conversation_id → { at: first forward, to: [addresses], customer: } for the
+  # outgoing emails in `messages` (oldest first) sent to anyone but the customer:
+  # the team forward or the ⋮ Forward button. A plain reply stores an empty
+  # `to_emails`, and an ack to the customer never counts — on a colleague-
+  # forwarded email that's the real customer, returned as `customer`.
+  def forwards(messages)
+    sent = messages.where(message_type: :outgoing, private: false)
+                   .where("#{MESSAGE_ATTRS} -> 'to_emails' ->> 0 IS NOT NULL")
+                   .pluck(:conversation_id, :created_at, Arel.sql("#{MESSAGE_ATTRS} -> 'to_emails'"))
+    on_behalf = on_behalf_customers(sent.map(&:first).uniq)
+    customer = customer_emails(on_behalf)
+    sent.each_with_object({}) do |(conv_id, at, to_emails), out|
+      to = to_emails.map { |email| email.to_s.strip.downcase }.compact_blank - customer[conv_id].to_a
+      (out[conv_id] ||= { at: at, to: [], customer: on_behalf[conv_id] })[:to] |= to if to.any?
+    end
+  end
+
+  # conversation_id → { name:, email:, phone: } of the real customer on a
+  # colleague-forwarded email; every id is a key (nil when there is none).
+  def on_behalf_customers(ids)
+    found = account.messages.where(conversation_id: ids, private: true)
+                   .where('messages.content LIKE ?', '%forwarded this on behalf of%')
+                   .pluck(:conversation_id, :content)
+                   .each_with_object({}) do |(conv_id, content), out|
+                     match = content.match(ON_BEHALF)
+                     out[conv_id] ||= { name: match[:name], email: match[:email], phone: match[:phone] } if match
+                   end
+    ids.index_with { |id| found[id] }
+  end
+
+  # conversation_id → the customer's own address(es), lowercased: the contact's
+  # and, on a colleague-forwarded email, the real customer's.
+  def customer_emails(on_behalf)
+    Conversation.where(id: on_behalf.keys).joins(:contact).pluck(:id, 'contacts.email')
+                .to_h { |id, email| [id, [email, on_behalf[id]&.dig(:email)].compact.map(&:downcase)] }
   end
 
   def deal_contact(conv, attrs)

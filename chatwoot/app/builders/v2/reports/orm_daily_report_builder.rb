@@ -144,25 +144,9 @@ class V2::Reports::OrmDailyReportBuilder
     owner['city'].presence || owner['location']
   end
 
-  # conversation_id → the address(es) we forwarded/assigned it to: the to_emails
-  # of our outgoing emails, minus the customer's own address.
+  # conversation_id → the address(es) we forwarded/assigned it to.
   def assigned_emails(ids)
-    return {} if ids.empty?
-
-    customer = Conversation.where(id: ids).joins(:contact).pluck(:id, 'contacts.email').to_h
-    out = Hash.new { |hash, key| hash[key] = [] }
-    forwarded_messages(ids).find_each do |msg|
-      to = Array(msg.content_attributes['to_emails']).reject do |email|
-        email.blank? || email.casecmp?(customer[msg.conversation_id].to_s)
-      end
-      out[msg.conversation_id].concat(to)
-    end
-    out.transform_values { |emails| emails.uniq.join(', ') }
-  end
-
-  def forwarded_messages(ids)
-    account.messages.where(conversation_id: ids, message_type: :outgoing, private: false)
-           .where("#{MESSAGE_ATTRS} -> 'to_emails' IS NOT NULL")
+    forwards(account.messages.where(conversation_id: ids)).transform_values { |fwd| fwd[:to].join(', ') }
   end
 
   def totals(rows)

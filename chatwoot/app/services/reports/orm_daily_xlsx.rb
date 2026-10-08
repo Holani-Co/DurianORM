@@ -2,6 +2,7 @@
 # requested layout: a single sheet, one row per conversation, matching the
 # "Chatwoot Report Pointer" template columns exactly.
 class Reports::OrmDailyXlsx
+  SHEET = 'Report'.freeze
   HEADERS = ['Date', 'Chatwoot id', 'Conversation Source', 'Channel', '1st response date and Time',
              'Assignment & Handling Type', 'Tagged', 'Auto Classified', 'Assigned Email id',
              'Deal Creation Method', 'Deal Id', 'Deal Stage', 'Customer Name', 'Mobile', 'Email', 'City',
@@ -27,18 +28,20 @@ class Reports::OrmDailyXlsx
     workbook = package.workbook
     header = workbook.styles.add_style(b: true, fg_color: 'FFFFFF', bg_color: '1F3864',
                                        alignment: { wrap_text: true, vertical: :center })
-    workbook.add_worksheet(name: 'Report') { |sheet| fill(sheet, header) }
+    workbook.add_worksheet(name: self.class::SHEET) { |sheet| fill(sheet, header) }
     package.to_stream.read
   end
 
   private
 
+  # Constants via self.class so a report with the same layout can subclass this.
   def fill(sheet, header)
-    sheet.add_row HEADERS, style: header
-    types = HEADERS.each_index.map { |i| TEXT_COLUMNS.include?(i) ? :string : nil }
+    headers = self.class::HEADERS
+    sheet.add_row headers, style: header
+    types = headers.each_index.map { |i| self.class::TEXT_COLUMNS.include?(i) ? :string : nil }
     @data[:rows].each { |row| sheet.add_row row_values(row), types: types }
-    sheet.column_widths(*WIDTHS)
-    sheet.auto_filter = "A1:#{Axlsx.col_ref(HEADERS.size - 1)}#{@data[:rows].size + 1}" if @data[:rows].any?
+    sheet.column_widths(*self.class::WIDTHS)
+    sheet.auto_filter = "A1:#{Axlsx.col_ref(headers.size - 1)}#{@data[:rows].size + 1}" if @data[:rows].any?
     freeze_header(sheet)
   end
 
@@ -51,6 +54,6 @@ class Reports::OrmDailyXlsx
   end
 
   def row_values(row)
-    row.values_at(*ROW_KEYS)
+    row.values_at(*self.class::ROW_KEYS)
   end
 end

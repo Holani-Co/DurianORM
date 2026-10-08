@@ -53,9 +53,12 @@ const fetchReport = async () => {
   }
 };
 
+const selectedCategory = computed(() =>
+  categories.value.find(c => c.key === category.value)
+);
+
 const onCategoryChange = () => {
-  recipients.value =
-    categories.value.find(c => c.key === category.value)?.forward_to || '';
+  recipients.value = selectedCategory.value?.forward_to || '';
   fetchReport();
 };
 
@@ -75,6 +78,7 @@ const send = async () => {
   try {
     const { data } = await axios.post(`${baseUrl()}/deliver`, {
       category: category.value,
+      category_name: selectedCategory.value?.name,
       week: week.value,
       recipients: recipients.value,
     });
