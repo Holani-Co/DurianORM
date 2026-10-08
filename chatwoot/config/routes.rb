@@ -434,6 +434,7 @@ Rails.application.routes.draw do
                 get  :versions
                 get  :version
                 post :rollback
+                get  :zoho_owners
               end
             end
             resource :shopify, controller: 'shopify', only: [:destroy] do

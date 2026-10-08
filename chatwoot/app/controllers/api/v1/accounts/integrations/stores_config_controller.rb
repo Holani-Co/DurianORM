@@ -39,6 +39,12 @@ class Api::V1::Accounts::Integrations::StoresConfigController < Api::V1::Account
     proxy_post('/admin/stores-config/rollback', body_with_actor)
   end
 
+  # GET .../stores_config/zoho_owners — active Zoho CRM users for the
+  # deal-owner picker (falls back to the raw ID field when unavailable).
+  def zoho_owners
+    proxy_get('/admin/stores-config/zoho-owners')
+  end
+
   private
 
   def check_admin_authorization

@@ -1,11 +1,13 @@
 <script setup>
 // Store editor. Lists the registry's stores (search + vertical filter); each row
 // expands to edit the details a customer receives — display name, address,
-// manager, phone, email, timing, map link, CRM owner — or disable the store. An
-// empty field means "use the registry value"; only changed fields are saved, so
-// the override stays minimal. A per-vertical serviceable radius is edited too.
-// Saves publish to the bridge's stores override (validate -> publish).
-import { ref, reactive, computed } from 'vue';
+// manager, phone, email, timing, map link, holiday, parking and the other Master
+// list details — or disable the store. Deal routing (the CRM owner) is its own
+// block with a Zoho user picker. An empty field means "use the registry value";
+// only changed fields are saved, so the override stays minimal. A per-vertical
+// serviceable radius is edited too. Saves publish to the bridge's stores
+// override (validate -> publish).
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
@@ -23,11 +25,50 @@ const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
 const axios = window.axios;
 
-// Fields shown in the form (coords are intentionally left out of the UI).
+// Display fields shown in the form (coords are intentionally left out of the
+// UI; the CRM owner has its own "Deal routing" block below).
 const FORM_FIELDS = [
-  'card_name', 'address', 'city', 'pincode', 'manager',
-  'phone', 'email', 'timing', 'map_url', 'crm_owner_id',
+  'card_name',
+  'address',
+  'city',
+  'pincode',
+  'manager',
+  'phone',
+  'email',
+  'timing',
+  'map_url',
+  'holiday',
+  'parking',
+  'store_type',
+  'area',
+  'floors',
+  'escalator',
 ].filter(f => props.editableFields.includes(f));
+const canEditOwner = props.editableFields.includes('crm_owner_id');
+
+// Active Zoho CRM users for the deal-owner picker. If the list can't load (e.g.
+// the CRM token lacks the users scope) we fall back to the raw owner-ID field.
+const owners = ref([]);
+const ownersError = ref('');
+
+onMounted(async () => {
+  if (!canEditOwner) return;
+  try {
+    const { data } = await axios.get(
+      `/api/v1/accounts/${accountId.value}/integrations/stores_config/zoho_owners`
+    );
+    owners.value = data.owners || [];
+    ownersError.value = data.error || '';
+  } catch (e) {
+    ownersError.value = e?.message || 'unavailable';
+  }
+});
+
+const ownerLabel = id => {
+  const o = owners.value.find(u => u.id === id);
+  if (!o) return id || '';
+  return o.email ? `${o.name || o.email} (${o.email})` : o.name;
+};
 
 const search = ref('');
 const verticalFilter = ref('all');
@@ -329,6 +370,45 @@ async function save() {
               />
             </label>
           </div>
+
+          <div v-if="canEditOwner" class="pt-3 mt-4 border-t border-n-weak">
+            <div class="mb-1 text-xs font-medium text-n-slate-12">
+              {{ t('STORES_CONFIG.DEAL_ROUTING.TITLE') }}
+            </div>
+            <p class="mb-2 text-xs text-n-slate-10">
+              {{ t('STORES_CONFIG.DEAL_ROUTING.HINT') }}
+            </p>
+            <select
+              v-if="owners.length"
+              v-model="editsFor(s.id).crm_owner_id"
+              class="w-full px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+            >
+              <option value="">
+                {{
+                  s.crm_owner_id
+                    ? t('STORES_CONFIG.DEAL_ROUTING.KEEP', {
+                        owner: ownerLabel(s.crm_owner_id),
+                      })
+                    : t('STORES_CONFIG.DEAL_ROUTING.NONE')
+                }}
+              </option>
+              <option v-for="o in owners" :key="o.id" :value="o.id">
+                {{ ownerLabel(o.id) }}
+              </option>
+            </select>
+            <template v-else>
+              <input
+                v-model="editsFor(s.id).crm_owner_id"
+                type="text"
+                :placeholder="s.crm_owner_id || ''"
+                class="w-full px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              />
+              <p v-if="ownersError" class="mt-1 text-xs text-n-amber-11">
+                {{ t('STORES_CONFIG.DEAL_ROUTING.UNAVAILABLE') }}
+              </p>
+            </template>
+          </div>
+
           <label class="flex items-center gap-2 mt-4 text-sm text-n-slate-11">
             <input type="checkbox" :checked="isDisabled(s.id)" @change="toggleDisabled(s.id)" />
             {{ t('STORES_CONFIG.DISABLE_LABEL') }}

@@ -81,7 +81,20 @@
       "email": "Email",
       "timing": "Timing",
       "map_url": "Map link",
-      "crm_owner_id": "CRM owner ID"
+      "crm_owner_id": "CRM owner ID",
+      "holiday": "Holiday / closed days",
+      "parking": "Parking available",
+      "store_type": "Store type (FOFO/COCO)",
+      "area": "Area (sq ft)",
+      "floors": "Floors",
+      "escalator": "Escalator / elevator"
+    },
+    "DEAL_ROUTING": {
+      "TITLE": "Deal routing",
+      "HINT": "The CRM owner new deals for this store are assigned to. This is separate from the details customers see.",
+      "KEEP": "Keep current owner — {owner}",
+      "NONE": "No owner set — pick one",
+      "UNAVAILABLE": "Couldn't load the Zoho user list, so enter the owner ID directly. (The CRM connection may need the users-read permission.)"
     },
     "HISTORY": {
       "SUBTITLE": "Every save is a version. Restore any earlier one to undo a change — it goes live in seconds, and the restore itself is recorded.",
