@@ -6890,7 +6890,8 @@ async def admin_routing_config_publish(request: Request,
 @app.get("/admin/routing-config/versions")
 async def admin_routing_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
-    return {"versions": config_store.list_versions(), "audit": config_store.list_audit(50)}
+    return {"versions": config_store.list_versions(),
+            "audit": config_store.list_audit(50, config_store.ROUTING)}
 
 
 @app.get("/admin/routing-config/versions/{version_id}")
@@ -7074,7 +7075,7 @@ async def admin_stores_config_publish(request: Request,
 async def admin_stores_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
     return {"versions": config_store.list_versions(config_store.STORES),
-            "audit": config_store.list_audit(50)}
+            "audit": config_store.list_audit(50, config_store.STORES)}
 
 
 @app.get("/admin/stores-config/versions/{version_id}")
@@ -7105,30 +7106,19 @@ async def admin_stores_config_rollback(request: Request,
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Agent-prompts admin API — backs "Settings → Agent Prompts". Same shape/auth as
-# the stores API (reuses ROUTING_ADMIN_SECRET). Edits publish to the config_store
-# "agent_prompts" domain; social_agent reads the override live per turn and
-# injects it as ADVISORY, per-vertical guidance BELOW the hard rules. Absent/empty/
-# broken override → the agent runs exactly as before. Dark-launched behind
-# SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED.
+# Agent-prompts admin API — backs "Settings → Agent Prompts"; mirrors the stores
+# API above, on the config_store "agent_prompts" domain.
 # ─────────────────────────────────────────────────────────────────────────
 
-# Phrases that read as an attempt to override the agent's hard rules. We never
-# BLOCK on them (the text is free-form client guidance and the post-generation
-# guardrails bind regardless) — we WARN so the author sees the agent will ignore
-# any line that fights its safety/fetch/escalation rules.
-_AGENT_PROMPT_RED_FLAGS = (
-    "ignore the", "ignore all", "ignore your", "disregard", "system prompt",
-    "these instructions", "the rules above", "never escalate", "don't escalate",
-    "do not escalate", "never card", "always send", "confidence", "from memory",
-    "without checking", "without fetching", "make up", "made up", "invent",
-)
+def _invisible_control(c: str) -> bool:
+    """C0/C1 control chars (incl. DEL, but not newline/tab) and bidi overrides."""
+    return (((ord(c) < 32 or 127 <= ord(c) < 160) and c not in "\n\t")
+            or "‪" <= c <= "‮" or "⁦" <= c <= "⁩")
 
 
 def _validate_agent_prompts_doc(doc) -> dict:
     """Return {ok, errors, warnings} for an agent-prompts document
-    {vertical: "<free text>"}. Errors block publish; warnings (unknown vertical,
-    override-attempt phrasing) don't."""
+    {vertical: "<free text>"}. Errors block publish; an unknown vertical only warns."""
     errors, warnings = [], []
     if not isinstance(doc, dict):
         return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
@@ -7141,16 +7131,8 @@ def _validate_agent_prompts_doc(doc) -> dict:
             continue
         if len(text) > cap:
             errors.append(f"{vert}: guidance is too long ({len(text)}/{cap} characters).")
-        if any(ord(c) < 32 and c not in "\n\t" for c in text):
+        if any(_invisible_control(c) for c in text):
             errors.append(f"{vert}: remove control characters.")
-        low = text.lower()
-        hit = [p for p in _AGENT_PROMPT_RED_FLAGS if p in low]
-        if hit:
-            warnings.append(
-                f"{vert}: this guidance looks like it tries to change the agent's "
-                "built-in rules (" + ", ".join(sorted(set(hit))[:3]) + "…). The agent "
-                "treats your notes as advice and always follows its safety, "
-                "fetch-before-quote and escalation rules — reword as a preference.")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -7197,7 +7179,7 @@ async def admin_agent_prompts_config_publish(request: Request,
 async def admin_agent_prompts_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
     return {"versions": config_store.list_versions(config_store.AGENT_PROMPTS),
-            "audit": config_store.list_audit(50)}
+            "audit": config_store.list_audit(50, config_store.AGENT_PROMPTS)}
 
 
 @app.get("/admin/agent-prompts-config/versions/{version_id}")

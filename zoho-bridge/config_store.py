@@ -179,11 +179,15 @@ def rollback(version_id: int, actor: str = "") -> bool:
     return True
 
 
-def list_audit(limit: int = 100) -> list:
-    """Recent audit entries (newest first)."""
+def list_audit(limit: int = 100, domain: str | None = None) -> list:
+    """Recent audit entries (newest first) — only `domain`'s when given, so each
+    settings screen's activity log shows its own publishes/rollbacks."""
+    sql = ("SELECT a.id, a.version_id, a.actor, a.action, a.diff_json, a.created_at "
+           "FROM config_audit a")
+    args: list = []
+    if domain:
+        sql += " JOIN config_versions v ON v.id = a.version_id WHERE v.domain = ?"
+        args.append(domain)
     with _lock, _conn() as c:
-        rows = c.execute(
-            "SELECT id, version_id, actor, action, diff_json, created_at "
-            "FROM config_audit ORDER BY id DESC LIMIT ?", (int(limit),)
-        ).fetchall()
+        rows = c.execute(sql + " ORDER BY a.id DESC LIMIT ?", (*args, int(limit))).fetchall()
     return [dict(r) for r in rows]
