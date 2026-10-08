@@ -1,9 +1,6 @@
 <script setup>
-// History / rollback for the agent-prompts config. Every save creates a version
-// on the bridge; this lists them newest-first and lets an admin restore an
-// earlier one, so a bad edit is a one-click fix. Restoring is itself audited.
-// Backed by the bridge's agent-prompts-config /versions and /rollback endpoints
-// via the Rails proxy.
+// Version history + one-click rollback for the agent-prompts config (restores
+// are audited). Backed by the bridge's /versions and /rollback via the proxy.
 import { ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
@@ -22,7 +19,12 @@ const audit = ref([]);
 const busy = ref(false);
 const confirmingId = ref(null);
 const expandedId = ref(null);
-const expandedDoc = ref('');
+const expandedDoc = ref({});
+const LABELS = {
+  furniture: t('AGENT_PROMPTS_CONFIG.VERTICALS.FURNITURE'),
+  doors: t('AGENT_PROMPTS_CONFIG.VERTICALS.DOORS'),
+  fhc: t('AGENT_PROMPTS_CONFIG.VERTICALS.FHC'),
+};
 
 const base = () =>
   `/api/v1/accounts/${accountId.value}/integrations/agent_prompts_config`;
@@ -52,21 +54,18 @@ onMounted(load);
 async function toggleView(id) {
   if (expandedId.value === id) {
     expandedId.value = null;
-    expandedDoc.value = '';
+    expandedDoc.value = {};
     return;
   }
   expandedId.value = id;
-  expandedDoc.value = '';
+  expandedDoc.value = {};
   try {
     const { data } = await axios.get(`${base()}/version`, {
       params: { version_id: id },
     });
-    const doc = data.doc || {};
-    expandedDoc.value = Object.keys(doc).length
-      ? JSON.stringify(doc, null, 2)
-      : '';
+    expandedDoc.value = data.doc || {};
   } catch (e) {
-    expandedDoc.value = '';
+    expandedDoc.value = {};
   }
 }
 
@@ -195,11 +194,19 @@ const auditVerb = action =>
         </div>
 
         <div v-if="expandedId === v.id" class="px-4 pb-3">
-          <pre
-            v-if="expandedDoc"
-            class="p-3 overflow-x-auto text-xs rounded-lg bg-n-alpha-1 text-n-slate-12"
-            >{{ expandedDoc }}</pre
+          <div
+            v-if="Object.keys(expandedDoc).length"
+            class="flex flex-col gap-2"
           >
+            <div
+              v-for="(text, vert) in expandedDoc"
+              :key="vert"
+              class="p-3 text-xs rounded-lg bg-n-alpha-1 text-n-slate-12"
+            >
+              <div class="mb-1 font-medium">{{ LABELS[vert] || vert }}</div>
+              <div class="whitespace-pre-wrap">{{ text }}</div>
+            </div>
+          </div>
           <div v-else class="text-xs text-n-slate-10">
             {{ t('AGENT_PROMPTS_CONFIG.HISTORY.NO_CHANGES') }}
           </div>

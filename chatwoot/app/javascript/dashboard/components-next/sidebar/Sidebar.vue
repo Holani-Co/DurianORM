@@ -864,7 +864,7 @@ const menuItems = computed(() => {
         {
           name: 'Settings Agent Prompts Config',
           label: t('SIDEBAR.AGENT_PROMPTS_CONFIG'),
-          icon: 'i-lucide-bot',
+          icon: 'i-lucide-file-pen-line',
           to: accountScopedRoute('agent_prompts_config_index'),
         },
         {

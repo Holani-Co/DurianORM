@@ -1,10 +1,6 @@
 <script setup>
-// Per-vertical guidance editor. One textarea per vertical (furniture / doors /
-// fhc): free text telling the social agent which store details to lead with and
-// how to behave for that vertical. The agent reads it live each turn as ADVISORY
-// guidance — its safety, fetch-before-quote and escalation rules always win.
-// Empty box = no guidance for that vertical. Saves publish to the bridge's
-// agent-prompts override (validate -> publish); publish warnings are shown.
+// One guidance box per vertical; an empty box means no guidance for it.
+// Saves validate then publish to the bridge's agent-prompts override.
 import { ref, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
@@ -22,6 +18,13 @@ const { t } = useI18n();
 const accountId = useMapGetter('getCurrentAccountId');
 const axios = window.axios;
 
+const LABELS = {
+  furniture: t('AGENT_PROMPTS_CONFIG.VERTICALS.FURNITURE'),
+  doors: t('AGENT_PROMPTS_CONFIG.VERTICALS.DOORS'),
+  fhc: t('AGENT_PROMPTS_CONFIG.VERTICALS.FHC'),
+};
+const label = v => LABELS[v] || v;
+
 // Working copy, one string per vertical, seeded from what's live.
 const edits = reactive(
   Object.fromEntries(props.verticals.map(v => [v, props.override[v] || '']))
@@ -29,7 +32,6 @@ const edits = reactive(
 
 const busy = ref(false);
 const errors = ref([]);
-const warnings = ref([]);
 
 const remaining = v => props.maxChars - (edits[v] || '').length;
 const overLimit = computed(() => props.verticals.some(v => remaining(v) < 0));
@@ -47,7 +49,6 @@ async function save() {
   if (busy.value || overLimit.value) return;
   busy.value = true;
   errors.value = [];
-  warnings.value = [];
   const base = `/api/v1/accounts/${accountId.value}/integrations/agent_prompts_config`;
   const doc = buildDoc();
   try {
@@ -60,7 +61,6 @@ async function save() {
       doc,
       note: t('AGENT_PROMPTS_CONFIG.PUBLISH_NOTE'),
     });
-    warnings.value = v.warnings || [];
     useAlert(t('AGENT_PROMPTS_CONFIG.SAVED'));
     emit('published');
   } catch (e) {
@@ -95,23 +95,14 @@ async function save() {
       </ul>
     </div>
 
-    <div
-      v-if="warnings.length"
-      class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-amber-2 text-n-amber-11"
-    >
-      <ul class="list-disc list-inside">
-        <li v-for="(w, i) in warnings" :key="i">{{ w }}</li>
-      </ul>
-    </div>
-
     <div class="flex flex-col gap-5">
       <div v-for="v in verticals" :key="v">
         <div class="flex items-baseline justify-between mb-1">
           <label
             :for="`guidance-${v}`"
-            class="text-sm font-medium capitalize text-n-slate-12"
+            class="text-sm font-medium text-n-slate-12"
           >
-            {{ v }}
+            {{ label(v) }}
           </label>
           <span
             class="text-xs"
@@ -124,7 +115,9 @@ async function save() {
           :id="`guidance-${v}`"
           v-model="edits[v]"
           rows="5"
-          :placeholder="t('AGENT_PROMPTS_CONFIG.PLACEHOLDER', { vertical: v })"
+          :placeholder="
+            t('AGENT_PROMPTS_CONFIG.PLACEHOLDER', { vertical: label(v) })
+          "
           class="w-full px-3 py-2 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
         />
       </div>

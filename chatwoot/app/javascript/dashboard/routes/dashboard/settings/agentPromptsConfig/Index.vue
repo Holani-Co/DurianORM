@@ -1,8 +1,6 @@
 <script setup>
-// Agent Prompts settings screen. Reads the live per-vertical guidance from the
-// zoho-bridge (via the admin Rails proxy) and lets administrators tune, per
-// vertical, which store details the social agent surfaces and how it behaves —
-// with version history + rollback. Two tabs: Prompts, History.
+// Agent Prompts settings screen (via the admin Rails proxy): per-vertical
+// guidance for the social agent. Two tabs: Prompts, History.
 import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
@@ -39,7 +37,7 @@ onMounted(fetchConfig);
 const override = computed(() => data.value?.override || {});
 const activeVersion = computed(() => data.value?.active_version || null);
 const verticals = computed(() => data.value?.verticals || []);
-const maxChars = computed(() => data.value?.max_chars || 1500);
+const maxChars = computed(() => data.value?.max_chars);
 const enabled = computed(() => Boolean(data.value?.enabled));
 
 const tabs = computed(() => [

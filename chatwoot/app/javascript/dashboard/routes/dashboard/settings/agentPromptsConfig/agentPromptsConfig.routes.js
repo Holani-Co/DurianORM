@@ -3,11 +3,7 @@ import SettingsWrapper from '../SettingsWrapper.vue';
 
 const Index = () => import('./Index.vue');
 
-// Admin-only "Agent Prompts" settings section. Reads the live per-vertical
-// guidance from the zoho-bridge (via the admin Rails proxy) so administrators
-// can tune — per vertical — which store details the social agent leads with and
-// how it behaves, without a developer or a redeploy. The guidance is advisory;
-// the agent's safety rules always win.
+// Admin-only "Agent Prompts" settings section (per-vertical agent guidance).
 export default {
   routes: [
     {

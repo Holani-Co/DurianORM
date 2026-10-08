@@ -1,11 +1,6 @@
-# Admin-only proxy from the Chatwoot dashboard to the zoho-bridge
-# agent-prompts-config API. The bridge owns the per-vertical guidance the social
-# agent reads each turn; this lets an account ADMINISTRATOR view and edit that
-# guidance from Settings, without exposing the bridge.
-#
-# Every call is authenticated as a Chatwoot admin here, then forwarded over
-# loopback to the sidecar with the shared secret the bridge requires. The acting
-# admin's email is stamped onto writes for the bridge audit log.
+# Admin-only proxy to the zoho-bridge agent-prompts-config API — same auth and
+# shape as StoresConfigController (admin check here, shared secret to the bridge,
+# acting admin's email stamped on writes for the audit log).
 class Api::V1::Accounts::Integrations::AgentPromptsConfigController < Api::V1::Accounts::BaseController
   before_action :check_admin_authorization
 
