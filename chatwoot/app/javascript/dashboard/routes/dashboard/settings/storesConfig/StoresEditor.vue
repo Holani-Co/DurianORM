@@ -49,7 +49,7 @@ const canEditOwner = props.editableFields.includes('crm_owner_id');
 // Active Zoho CRM users for the deal-owner picker. If the list can't load (e.g.
 // the CRM token lacks the users scope) we fall back to the raw owner-ID field.
 const owners = ref([]);
-const ownersError = ref('');
+const ownersFailed = ref(false);
 
 onMounted(async () => {
   if (!canEditOwner) return;
@@ -58,11 +58,16 @@ onMounted(async () => {
       `/api/v1/accounts/${accountId.value}/integrations/stores_config/zoho_owners`
     );
     owners.value = data.owners || [];
-    ownersError.value = data.error || '';
+    ownersFailed.value = Boolean(data.error);
   } catch (e) {
-    ownersError.value = e?.message || 'unavailable';
+    ownersFailed.value = true;
   }
 });
+
+// A store whose owner is already overridden: the empty option removes that
+// override, so the store falls back to its registry owner.
+const ownerOverridden = id =>
+  Boolean(props.override.stores?.[id]?.crm_owner_id);
 
 const ownerLabel = id => {
   const o = owners.value.find(u => u.id === id);
@@ -380,17 +385,24 @@ async function save() {
             </p>
             <select
               v-if="owners.length"
-              v-model="editsFor(s.id).crm_owner_id"
+              :value="editsFor(s.id).crm_owner_id || ''"
               class="w-full px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              @change="editsFor(s.id).crm_owner_id = $event.target.value"
             >
               <option value="">
-                {{
-                  s.crm_owner_id
-                    ? t('STORES_CONFIG.DEAL_ROUTING.KEEP', {
-                        owner: ownerLabel(s.crm_owner_id),
-                      })
-                    : t('STORES_CONFIG.DEAL_ROUTING.NONE')
-                }}
+                <template v-if="ownerOverridden(s.id)">
+                  {{ t('STORES_CONFIG.DEAL_ROUTING.DEFAULT') }}
+                </template>
+                <template v-else-if="s.crm_owner_id">
+                  {{
+                    t('STORES_CONFIG.DEAL_ROUTING.KEEP', {
+                      owner: ownerLabel(s.crm_owner_id),
+                    })
+                  }}
+                </template>
+                <template v-else>
+                  {{ t('STORES_CONFIG.DEAL_ROUTING.NONE') }}
+                </template>
               </option>
               <option v-for="o in owners" :key="o.id" :value="o.id">
                 {{ ownerLabel(o.id) }}
@@ -403,7 +415,7 @@ async function save() {
                 :placeholder="s.crm_owner_id || ''"
                 class="w-full px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
               />
-              <p v-if="ownersError" class="mt-1 text-xs text-n-amber-11">
+              <p v-if="ownersFailed" class="mt-1 text-xs text-n-amber-11">
                 {{ t('STORES_CONFIG.DEAL_ROUTING.UNAVAILABLE') }}
               </p>
             </template>
