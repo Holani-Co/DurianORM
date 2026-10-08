@@ -639,6 +639,11 @@ const menuItems = computed(() => {
           to: accountScopedRoute('follow_up_reports'),
         },
         {
+          name: 'Report Forwarded Emails',
+          label: t('SIDEBAR.REPORTS_FORWARDED_EMAILS'),
+          to: accountScopedRoute('forwarded_email_reports'),
+        },
+        {
           name: 'Report Overview',
           label: t('SIDEBAR.REPORTS_OVERVIEW'),
           to: accountScopedRoute('account_overview_reports'),

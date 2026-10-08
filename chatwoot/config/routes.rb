@@ -116,6 +116,11 @@ Rails.application.routes.draw do
             get :overview
             get :monthly
           end
+          # Durian — weekly Forwarded Emails report per email category (preview + send).
+          resource :forwarded_email_report, controller: 'forwarded_email_reports', only: [:show] do
+            get :categories
+            post :deliver
+          end
           # Durian — Follow-ups report + its admin-chosen label configuration.
           resource :follow_up_report, controller: 'follow_up_reports', only: [:show, :update]
           resources :callbacks, only: [] do
