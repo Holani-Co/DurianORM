@@ -448,6 +448,30 @@ async def deal_exists(deal_id: str) -> bool:
         return True
 
 
+# ── Users ─────────────────────────────────────────────────────────────────
+async def list_active_users() -> list[dict]:
+    """Active CRM users as [{id, name, email}], sorted by name — lets an admin
+    pick a store's deal owner by NAME in Settings → Stores instead of pasting a
+    raw Zoho id. Paginates (200/page). Note the /users endpoint wraps results in
+    "users", not "data". Needs the ZohoCRM.users.READ scope on the CRM refresh
+    token; raises RuntimeError (e.g. OAUTH_SCOPE_MISMATCH) when it's missing."""
+    out, page = [], 1
+    while page <= 20:                                   # safety bound: 4000 users
+        resp = await _crm_request("GET", "/users",
+                                  params={"type": "ActiveUsers", "page": page,
+                                          "per_page": 200})
+        for u in resp.get("users") or []:
+            uid = str(u.get("id") or "").strip()
+            if uid:
+                out.append({"id": uid,
+                            "name": (u.get("full_name") or "").strip(),
+                            "email": (u.get("email") or "").strip()})
+        if not (resp.get("info") or {}).get("more_records"):
+            break
+        page += 1
+    return sorted(out, key=lambda u: (u["name"] or u["email"]).lower())
+
+
 # ── URL helpers ───────────────────────────────────────────────────────────
 def _ui_base() -> str:
     """CRM UI domain derived from the API domain (prod or sandbox aware)."""
