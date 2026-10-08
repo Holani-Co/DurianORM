@@ -18,6 +18,7 @@
 # never a far store presented as theirs.
 
 import json
+import re
 from pathlib import Path
 
 import config
@@ -26,6 +27,53 @@ import pincode_resolver
 
 _REGISTRY = Path(__file__).parent / "data" / "store_registry.json"
 _floor_cache: list | None = None
+
+# Place matching. Customers name a LOCALITY ("Goregaon", "Kirti Nagar", "JP
+# Nagar") as often as a city, so a place term is matched against a store's
+# name + location + city, not the city field alone. Matching is exact on whole
+# words (every word of the place must appear in the store's words) — never fuzzy,
+# so "Goregaon" can't drift to "Gurgaon". Old/alternate city names are folded to
+# the registry's spelling on both sides.
+_PLACE_ALIASES = {
+    "bangalore": "bengaluru", "gurgaon": "gurugram", "bombay": "mumbai",
+    "calcutta": "kolkata", "madras": "chennai", "allahabad": "prayagraj",
+    "poona": "pune", "baroda": "vadodara", "mysore": "mysuru",
+    "trivandrum": "thiruvananthapuram", "vizag": "visakhapatnam",
+    "cochin": "kochi", "pondicherry": "puducherry", "benares": "varanasi",
+    "banaras": "varanasi", "bhubaneshwar": "bhubaneswar", "bhubaneshwer": "bhubaneswar",
+}
+# Words that describe the brand/store, not the place.
+_PLACE_STOPWORDS = {
+    "durian", "furniture", "door", "doors", "fhc", "full", "home", "customisation",
+    "customization", "showroom", "showrooms", "store", "stores", "studio", "outlet",
+    "experience", "centre", "center", "any", "a", "an", "the", "in", "near", "at",
+    "of", "and", "new", "city",
+}
+
+
+def _place_words(text) -> set:
+    words = set()
+    for w in re.findall(r"[a-z0-9]+", str(text or "").lower()):
+        w = _PLACE_ALIASES.get(w, w)
+        if w not in _PLACE_STOPWORDS:
+            words.add(w)
+    return words
+
+
+def _store_words(s: dict) -> set:
+    return _place_words(" ".join(str(s.get(k) or "") for k in
+                                 ("name", "card_name", "location", "city")))
+
+
+def _match_place(candidates: list, place: str, vert: str) -> list:
+    """Stores (of this vertical) whose name/location/city contain every word of
+    `place`. A store whose PRIMARY vertical matches is preferred over one that
+    only services it."""
+    q = _place_words(place)
+    if not q:
+        return []
+    hits = [s for s in candidates if q <= _store_words(s)]
+    return [s for s in hits if s.get("primary_vertical") == vert] or hits
 
 # Verticals the locator knows, and the store fields the Settings editor may
 # override (everything the customer can receive, plus coords/owner for routing).
@@ -191,6 +239,13 @@ def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
     primary = [s for s in candidates if s.get("primary_vertical") == vert]
     service = [s for s in candidates if s.get("primary_vertical") != vert]
 
+    # A place the customer NAMED — a locality ("Goregaon") or a city. When it pins
+    # exactly ONE store it is their explicit ask this turn, so it wins even over a
+    # pincode (which may be a stale one carried in their profile).
+    place_hits = _match_place(candidates, city, vert) if city.strip() else []
+    if len(place_hits) == 1:
+        return _result(place_hits[0], None)
+
     pin = pincode_resolver.normalize_pincode(pincode) if pincode else None
     if pin:
         # Exact-pincode match first — the customer is literally at a store's
@@ -200,25 +255,18 @@ def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
         if exact:
             return _result(exact[0], 0.0)
         loc = pincode_resolver.coords(pin)
-        if not loc:
-            return None                       # can't place the pincode → caller asks
-        radius = _radius_km(vert)
-        for tier in (primary, service):       # dedicated-vertical stores win
-            best, dist = _nearest_in_range(tier, loc, radius)
-            if best:
-                return _result(best, dist)
-        return None                           # none in range → not serviceable
+        if loc:
+            radius = _radius_km(vert)
+            for tier in (primary, service):   # dedicated-vertical stores win
+                best, dist = _nearest_in_range(tier, loc, radius)
+                if best:
+                    return _result(best, dist)
+        # The pincode found nothing in range (or can't be placed) → fall through
+        # to the place they named, so a stale pincode never masks it.
 
-    if city:
-        key = city.strip().lower()
-        matches = [s for s in candidates if key and key in (s.get("city") or "").lower()]
-        if not matches:
-            return None
-        matches = [s for s in matches if s.get("primary_vertical") == vert] or matches
-        if len(matches) == 1:
-            return _result(matches[0], None)
+    if len(place_hits) > 1:                   # e.g. "Mumbai" → ask for a pincode
         return {"ambiguous": True, "vertical": vert,
-                "options": [m.get("card_name") or m["name"] for m in matches]}
+                "options": [m.get("card_name") or m["name"] for m in place_hits]}
     return None
 
 

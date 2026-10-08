@@ -97,6 +97,11 @@ _DETAILS_ASK_RE = re.compile(
     r"(?:share|provide|send|tell us|let us know)[^.?!]{0,80}"
     r"(?:full name|zip ?code|pin ?code|contact number|phone number|"
     r"contact details|which city|your city)", re.I)
+# The identity half of the above — used when a location ask is legitimate (the
+# store lookup asked for a pincode for a newly named place).
+_IDENTITY_ASK_RE = re.compile(
+    r"(?:share|provide|send|tell us|let us know)[^.?!]{0,80}"
+    r"(?:full name|contact number|phone number|contact details)", re.I)
 _LINK_RE = re.compile(r"https?://([^\s/]+)", re.I)
 _ALLOWED_LINK_HOSTS = ("durian.in", "duriandoors.in", "snapmint.com",
                        "maps.app.goo.gl", "goo.gl", "maps.google.com", "google.com")
@@ -302,25 +307,11 @@ async def _sk_get_emi_plans(ctx, sku: str = "", price=None, **_) -> dict:
                        "interest": inr(p["interest"])} for p in emi.get("plans") or []]}
 
 
-@_skill(
-    "find_showrooms",
-    "Nearest Durian showroom for THIS account's vertical — pass the customer's "
-    "pincode (preferred) or city. resolved=true → `address_message` holds the "
-    "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
-    "paste them verbatim in your own single message, never invent or edit them. "
-    "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
-    "offer to note their details. A city matching several returns `options` — ask "
-    "for their pincode.",
-    {"pincode": {"type": "string"}, "city": {"type": "string"}},
-    {"resolved": "bool", "showroom": "str", "city": "str",
-     "options": "list[str] when a city matches several — ask for pincode",
-     "address_message": "store facts to paste verbatim; the framing is yours",
-     "store_extras": "optional facts (holiday/closed days, parking, store type, "
-                     "area, floors, escalator) — mention one ONLY if the customer "
-                     "asks about it or the client guidance says to; never pad the card",
-     "note": "what to do when resolved=false"},
-    ({"pincode": "110015"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
-)
+# NOTE: a plain helper, deliberately NOT under the @_skill decorator below. The
+# dispatcher calls a skill as handler(ctx, **args); when this function sat between
+# the decorator and _sk_find_showrooms it stole the registration, so `ctx` (a dict)
+# landed in `vert` and every find_showrooms call crashed with
+# "unhashable type: 'dict'". test_skill_registry_handlers guards against this.
 def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     """find_showrooms over the unified store_locator (STORE_LOCATOR_ENABLED).
     Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
@@ -364,6 +355,28 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     return out
 
 
+@_skill(
+    "find_showrooms",
+    "Nearest Durian showroom for THIS account's vertical — pass the place the "
+    "customer is asking about THIS turn: the city OR area they named as `city` "
+    "(e.g. 'Goregaon', 'Kirti Nagar', 'Mumbai') and/or their pincode. A place they "
+    "name now beats an older pincode from their profile — pass it, don't swap in "
+    "the stored one. resolved=true → `address_message` holds the "
+    "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
+    "paste them verbatim in your own single message, never invent or edit them. "
+    "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
+    "offer to note their details. A city matching several returns `options` — ask "
+    "for their pincode.",
+    {"pincode": {"type": "string"}, "city": {"type": "string"}},
+    {"resolved": "bool", "showroom": "str", "city": "str",
+     "options": "list[str] when a city matches several — ask for pincode",
+     "address_message": "store facts to paste verbatim; the framing is yours",
+     "store_extras": "optional facts (holiday/closed days, parking, store type, "
+                     "area, floors, escalator) — mention one ONLY if the customer "
+                     "asks about it or the client guidance says to; never pad the card",
+     "note": "what to do when resolved=false"},
+    ({"pincode": "110015"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
+)
 def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", **_) -> dict:
     # The model occasionally hands a dict/number for pincode or city — keep only
     # real strings so a malformed arg reads as "not given" instead of crashing.
@@ -1695,12 +1708,17 @@ def mask_stored_phone(reply: str, stored: str, typed_this_thread: bool) -> str:
     return re.sub(r"\+?\d[\d\s\-()]{8,16}\d", _sub, reply)
 
 
-def reasks_known_details(reply: str, prof: dict) -> bool:
+def reasks_known_details(reply: str, prof: dict, location_ask_ok: bool = False) -> bool:
+    """True when the reply asks again for contact/location details the profile
+    already holds. `location_ask_ok` — the store lookup THIS turn itself asked for
+    a pincode (the customer named a new place with several showrooms) — exempts a
+    location ask; re-asking their name/phone still counts."""
     ident, loc = prof.get("identity") or {}, prof.get("location") or {}
     have_loc = (loc.get("city") or {}).get("value") or (loc.get("pincode") or {}).get("value")
     if not ((ident.get("phone") or {}).get("value") and have_loc):
         return False
-    return bool(_DETAILS_ASK_RE.search(reply or ""))
+    pattern = _IDENTITY_ASK_RE if location_ask_ok else _DETAILS_ASK_RE
+    return bool(pattern.search(reply or ""))
 
 
 def link_violation(reply: str) -> bool:
@@ -2540,6 +2558,12 @@ async def _handle_locked(conv, conv_id, channel, surface,
         for t in incoming_texts if t)
     reply = mask_stored_phone(reply, phone_val or "", typed)
 
+    # A pincode ask is legitimate (not a re-ask) when this turn's store lookup
+    # itself said "several showrooms there — ask for their pincode".
+    location_ask_ok = any(
+        tr.get("name") in ("find_showrooms", "route_to_showroom")
+        and isinstance(tr.get("result"), dict) and tr["result"].get("options")
+        for tr in tool_results)
     hold = ""
     if over_budget:
         hold = "turn budget exhausted — human takes over"
@@ -2547,7 +2571,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         hold = finish.get("reasoning") or "agent chose review"
     elif surface == "comment" and comment_violation(reply):
         hold = comment_violation(reply)
-    elif reasks_known_details(reply, prof):
+    elif reasks_known_details(reply, prof, location_ask_ok):
         hold = "reply re-asks for details we already hold"
     elif link_violation(reply):
         hold = "reply contains a non-allowlisted link"
