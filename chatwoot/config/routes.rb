@@ -434,6 +434,7 @@ Rails.application.routes.draw do
                 get  :versions
                 get  :version
                 post :rollback
+                get  :zoho_owners
               end
             end
             resource :agent_prompts_config, controller: 'agent_prompts_config', only: [:show] do

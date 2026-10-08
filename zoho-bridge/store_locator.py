@@ -79,7 +79,11 @@ def _match_place(candidates: list, place: str, vert: str) -> list:
 # override (everything the customer can receive, plus coords/owner for routing).
 VERTICALS = ("furniture", "doors", "fhc")
 EDITABLE_FIELDS = ("card_name", "address", "city", "pincode", "manager", "phone",
-                   "email", "timing", "map_url", "crm_owner_id", "lat", "lon")
+                   "email", "timing", "map_url", "crm_owner_id", "lat", "lon",
+                   # Master ORM list extras: not printed on the card; the agent
+                   # mentions one when the customer asks or client guidance says to.
+                   "holiday", "parking", "store_type", "area", "floors",
+                   "escalator")
 
 
 def _floor() -> list:
@@ -175,12 +179,21 @@ def _result(store: dict, distance_km) -> dict:
         "timing": store.get("timing") or "",
         "map_url": store.get("map_url") or "",
         "crm_owner_id": store.get("crm_owner_id") or "",
+        # Extras (see EDITABLE_FIELDS) — format_card never prints them.
+        "holiday": store.get("holiday") or "",
+        "parking": store.get("parking") or "",
+        "store_type": store.get("store_type") or "",
+        "area": store.get("area") or "",
+        "floors": store.get("floors") or "",
+        "escalator": store.get("escalator") or "",
     }
 
 
 def _nearest_in_range(stores: list, loc, radius: float):
     """(store, distance_km) of the nearest store with coords within `radius`, or
-    (None, None)."""
+    (None, None). A store without real coordinates is skipped here (it still
+    matches its exact pincode and its name) — never placed at a pincode centroid,
+    which for a metro is one point shared by most of its pincodes."""
     best = best_d = None
     for s in stores:
         if s.get("lat") is None or s.get("lon") is None:

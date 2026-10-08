@@ -7046,6 +7046,29 @@ async def admin_stores_config_get(x_routing_admin_secret: Optional[str] = Header
     }
 
 
+# Active Zoho CRM users for the Stores editor's deal-owner picker. Cached briefly
+# so opening Settings doesn't hit Zoho on every load. Never 5xx: on any CRM error
+# (most likely the CRM token lacks the ZohoCRM.users.READ scope) it returns an
+# empty list + the reason, and the editor falls back to the plain owner-ID field.
+_ZOHO_OWNERS_TTL = 600.0
+_zoho_owners_cache: dict = {"at": None, "owners": [], "error": None}
+
+
+@app.get("/admin/stores-config/zoho-owners")
+async def admin_stores_config_zoho_owners(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    now = asyncio.get_running_loop().time()
+    at = _zoho_owners_cache["at"]
+    if at is None or now - at >= _ZOHO_OWNERS_TTL:   # failures are cached too
+        try:
+            owners, error = await zoho_crm.list_active_users(), None
+        except Exception as e:  # noqa: BLE001
+            print(f"[stores-config] zoho owners unavailable: {e}")
+            owners, error = [], str(e)[:300]
+        _zoho_owners_cache.update(at=now, owners=owners, error=error)
+    return {"owners": _zoho_owners_cache["owners"], "error": _zoho_owners_cache["error"]}
+
+
 @app.post("/admin/stores-config/validate")
 async def admin_stores_config_validate(request: Request,
                                        x_routing_admin_secret: Optional[str] = Header(None)):

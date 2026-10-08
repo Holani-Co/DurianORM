@@ -341,11 +341,19 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     if r.get("ambiguous"):
         return {"resolved": True, "options": r["options"],
                 "note": "several showrooms in that city — ask for their PINCODE to pick the nearest"}
-    return {"resolved": True, "showroom": r["card_name"], "city": r.get("city") or "",
-            "address_message": store_locator.format_card(r),
-            "next": ("customer wants the store details → paste the card's facts EXACTLY "
-                     "(name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map) in your own "
-                     "single message. If they also want to buy, call route_to_showroom first.")}
+    out = {"resolved": True, "showroom": r["card_name"], "city": r.get("city") or "",
+           "address_message": store_locator.format_card(r),
+           "next": ("customer wants the store details → paste the card's facts EXACTLY "
+                    "(name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map) in your own "
+                    "single message. If they also want to buy, call route_to_showroom first.")}
+    # Optional store facts (from the Master ORM list) — NOT part of the card.
+    # Mention one only when the customer asks about it (e.g. parking, which day
+    # it's closed) or the client guidance for this vertical says to.
+    extras = {k: r[k] for k in ("holiday", "parking", "store_type", "area",
+                                "floors", "escalator") if r.get(k)}
+    if extras:
+        out["store_extras"] = extras
+    return out
 
 
 @_skill(
@@ -364,6 +372,9 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     {"resolved": "bool", "showroom": "str", "city": "str",
      "options": "list[str] when a city matches several — ask for pincode",
      "address_message": "store facts to paste verbatim; the framing is yours",
+     "store_extras": "optional facts (holiday/closed days, parking, store type, "
+                     "area, floors, escalator) — mention one ONLY if the customer "
+                     "asks about it or the client guidance says to; never pad the card",
      "note": "what to do when resolved=false"},
     ({"pincode": "110015"}, {"resolved": True, "showroom": "Delhi - Kirti Nagar"}),
 )

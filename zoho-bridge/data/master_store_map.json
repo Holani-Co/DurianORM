@@ -1,0 +1,103 @@
+{
+  "_comment": "Reviewed join for build_store_registry.py pass 2. mapping: sheet name -> registry id (display overlay; vertical-checked). new_stores: sheet-only stores with a reviewed card name and CRM owner (owners from routing_rules.yaml crm_owner_routing where it has one). coming_soon: sheet rows marked 'Coming soon!' -> registry id to take off the floor. card_names: registry id -> reviewed display-name correction.",
+  "mapping": {
+    "Bhubaneshwer - Patia Showroom": "furniture-store-in-bhubaneswar-patia",
+    "Durian Door - Delhi - Kirti Nagar": "door-store-in-kirti-nagar",
+    "Durian Doors - Coimbatore": "door-store-coimbatore",
+    "Durian Doors - Coimbatore - RS Puram": "furniture-store-in-coimbatore",
+    "Durian Doors - Hyderabad - Kukatpally": "durian-experience-center-for-doors-wall-panels-and",
+    "Durian Doors - Indore": "indore",
+    "Durian Doors - Lucknow": "furniture-store-in-gomtinagar",
+    "Durian Doors - Mumbai - Goregaon": "mumbai-goregaon",
+    "Durian Doors- Gurgaon": "door-experience-centre-in-gurgaon",
+    "Durian Full Home Customisation - Bengaluru - JP Nagar": "full-home-customisation-studio-in-bengaluru-jp-nagar",
+    "Durian Full Home Customisation - Hyderabad - Kompally": "full-home-customisation-studio-in-hyderabad-kompally",
+    "Durian Full Home Customisation - Noida - Sector 10": "full-home-customisation-studio-in-noida-sector-10",
+    "Durian Full Home Customisation - Thane - Subhash Nagar": "full-home-customisation-studio-in-thane-subhash-nagar",
+    "Durian Full Home Customisation- Delhi- Kirti Nagar": "fhc-store-in-new-delhi-kirti-nagar",
+    "Durian Full Home Customisation- Mumbai- Goregaon": "full-home-customisation-studio-in-mumbai-goregaon",
+    "Durian Furniture - Agra - Sikandra": "furniture-store-in-agra",
+    "Durian Furniture - Ahmedabad - Bodakev": "furniture-store-in-ahmedabad",
+    "Durian Furniture - Aizawl": "furniture-store-in-aizawl",
+    "Durian Furniture - Ajmer - Vaishali Nagar": "furniture-store-in-ajmer",
+    "Durian Furniture - Bengaluru - JP Nagar": "furniture-store-in-bengaluru-jp-nagar",
+    "Durian Furniture - Bengaluru - Marathahalli": "furniture-store-in-bengaluru-marathahalli",
+    "Durian Furniture - Bengaluru - Shivaji Nagar": "furniture-store-in-bengaluru",
+    "Durian Furniture - Bhilai - Supela": "furniture-store-in-bhilai",
+    "Durian Furniture - Bhubaneshwar - Samantarapur": "furniture-store-in-bhubaneshwar",
+    "Durian Furniture - Chandigarh - Panchkula": "furniture-store-in-chandigarh",
+    "Durian Furniture - Chennai - Nungambakkam - KNK": "furniture-store-in-chennai",
+    "Durian Furniture - Chennai - OMR": "furniture-store-in-chennai-omr",
+    "Durian Furniture - Chhatrapati Sambhajinagar(Aurangabad)": "furniture-store-in-aurangabad",
+    "Durian Furniture - Delhi - Ghitorni": "furniture-store-in-new-delhi-ghitorni",
+    "Durian Furniture - Delhi - Kirti Nagar": "furniture-store-in-new-delhi-kirti-nagar",
+    "Durian Furniture - Delhi - Sohna Road": "furniture-store-in-sohna-road",
+    "Durian Furniture - Dhanbad - Hirapur": "furniture-store-in-dhanbad",
+    "Durian Furniture - Faridabad - Mewla Maharajpur": "furniture-store-in-faridabad-mewla-maharajpur",
+    "Durian Furniture - Gorakhpur": "furniture-store-in-gorakhpur-hanuman-mandir-road",
+    "Durian Furniture - Gurgaon - JMD": "furniture-store-in-gurgaon",
+    "Durian Furniture - Guwahati - Lachitnagar": "furniture-store-in-guwahati-lachitnagar",
+    "Durian Furniture - Hyderabad - Banjara Hills": "furniture-store-in-telangana",
+    "Durian Furniture - Hyderabad - Kompally": "furniture-store-in-hyderabad-kompally",
+    "Durian Furniture - Hyderabad - Sarath City": "furniture-store-in-hyderabad-sarath-city",
+    "Durian Furniture - Indore - Vijay Nagar": "furniture-store-in-indore",
+    "Durian Furniture - Jaipur - Vaishali Nagar": "furniture-store-in-jaipur-vaishali",
+    "Durian Furniture - Jammu - Kunjwani": "furniture-store-in-jammu",
+    "Durian Furniture - Jamshedpur - Adityapur": "furniture-store-in-jamshedpur",
+    "Durian Furniture - Kanpur - Acharya Nagar": "furniture-store-in-kanpur",
+    "Durian Furniture - Kolkata - Topsia": "furniture-store-in-kolkata-topsia",
+    "Durian Furniture - Lucknow - Arjunganj": "furniture-store-in-lucknow-arjunganj",
+    "Durian Furniture - Lucknow - Indira Nagar": "furniture-store-in-lucknow-indira-nagar",
+    "Durian Furniture - Ludhiana - Daad Village": "furniture-store-in-ludhiana",
+    "Durian Furniture - Mohali": "furniture-store-in-mohali",
+    "Durian Furniture - Motihari": "furniture-store-in-motihari",
+    "Durian Furniture - Mumbai - Goregaon": "furniture-store-in-mumbai-goregaon",
+    "Durian Furniture - Mumbai - Worli": "furniture-store-in-mumbai-worli",
+    "Durian Furniture - Noida - Sector 10": "durian-furniture-new-delhi-noida",
+    "Durian Furniture - Noida - Sector 49": "furniture-store-in-noida-sector-49",
+    "Durian Furniture - Odisha - Sambalpur": "furniture-store-in-sambalpur",
+    "Durian Furniture - Patna - Danapur": "furniture-store-in-patna",
+    "Durian Furniture - Prayagraj - Lal Bahadur Shastri Marg": "furniture-store-in-allahabad",
+    "Durian Furniture - Pune - Baner": "furniture-store-in-pune-baner",
+    "Durian Furniture - Pune - Creaticity": "furniture-store-in-pune-creaticity",
+    "Durian Furniture - Raipur - Telibandha": "durian-furniture-in-raipur-great-eastern-road",
+    "Durian Furniture - Ranchi - Ashok Nagar": "furniture-store-in-ranchi",
+    "Durian Furniture - Shillong - Demseiniong": "furniture-store-in-demseiniong-shillong",
+    "Durian Furniture - Siliguri - Sevoke Road": "furniture-store-in-siliguri",
+    "Durian Furniture - Surat - Dumas": "furniture-store-in-surat",
+    "Durian Furniture - Thane - Subhash Nagar": "furniture-store-in-mumbai-thane",
+    "Durian Furniture - Tirupati - Avilala": "furniture-store-in-tirupati",
+    "Durian Furniture - Vadodara - Centre Square Mall": "furniture-store-in-vadodara",
+    "Durian Furniture - Varanasi - Shivpur Bypass Rd": "furniture-store-in-varanasi",
+    "Durian Furniture - Visakhapatnam - Dondaparthy": "furniture-store-in-visakhapatnam"
+  },
+  "new_stores": {
+    "Durian Furniture - Bengaluru - Banaswadi": {
+      "card_name": "Furniture - Bengaluru - Banaswadi",
+      "owner_id": "3608871000564447689"
+    },
+    "Durian Furniture - Prayagraj - Phaphamau": {
+      "card_name": "Furniture - Prayagraj - Phaphamau"
+    },
+    "Durian Doors - Bengaluru - JP Nagar": {
+      "card_name": "Doors - Bengaluru - JP Nagar"
+    },
+    "Durian Furniture - Bikaner - Rani Bazar": {
+      "card_name": "Furniture - Bikaner - Rani Bazar",
+      "owner_id": "3608871000560226015"
+    },
+    "Dehradun Showroom- Jag Raj Associates": {
+      "card_name": "Furniture - Dehradun"
+    }
+  },
+  "coming_soon": {
+    "Durian Full Home Customisation - Bikaner - Jaisalmer Road": "full-home-customisation-studio-in-bikaner",
+    "Durian Full Home Customisation - Prayagraj - Lal Bahadur Shastri Marg": null,
+    "Durian Furniture - Srinagar": null
+  },
+  "card_names": {
+    "door-store-in-kirti-nagar": "Doors - Delhi - Kirti Nagar",
+    "durian-furniture-in-raipur-great-eastern-road": "Furniture - Raipur - Telibandha",
+    "furniture-store-in-ajmer": "Furniture - Ajmer - Vaishali Nagar"
+  }
+}
