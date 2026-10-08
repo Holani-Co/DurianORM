@@ -81,7 +81,8 @@ async function restore(id) {
     emit('restored');
   } catch (e) {
     useAlert(
-      e?.response?.data?.error || t('AGENT_PROMPTS_CONFIG.HISTORY.RESTORE_FAILED')
+      e?.response?.data?.error ||
+        t('AGENT_PROMPTS_CONFIG.HISTORY.RESTORE_FAILED')
     );
   } finally {
     busy.value = false;
@@ -132,11 +133,15 @@ const auditVerb = action =>
           >
             {{ t('AGENT_PROMPTS_CONFIG.HISTORY.ACTIVE') }}
           </span>
-          <span v-if="v.note" class="text-sm text-n-slate-11">{{ v.note }}</span>
+          <span v-if="v.note" class="text-sm text-n-slate-11">{{
+            v.note
+          }}</span>
           <span class="text-xs text-n-slate-10">
             {{ t('AGENT_PROMPTS_CONFIG.HISTORY.BY') }} {{ v.created_by || '—' }}
           </span>
-          <span class="text-xs text-n-slate-10">{{ formatWhen(v.created_at) }}</span>
+          <span class="text-xs text-n-slate-10">{{
+            formatWhen(v.created_at)
+          }}</span>
 
           <span class="flex items-center gap-2 ml-auto">
             <button
@@ -215,7 +220,8 @@ const auditVerb = action =>
           <span class="text-n-slate-12">{{ a.actor || '—' }}</span>
           <span>{{ auditVerb(a.action) }}</span>
           <span class="text-n-slate-12"
-            >{{ t('AGENT_PROMPTS_CONFIG.HISTORY.VERSION') }} {{ a.version_id }}</span
+            >{{ t('AGENT_PROMPTS_CONFIG.HISTORY.VERSION') }}
+            {{ a.version_id }}</span
           >
           <span class="text-n-slate-10">{{ formatWhen(a.created_at) }}</span>
         </li>

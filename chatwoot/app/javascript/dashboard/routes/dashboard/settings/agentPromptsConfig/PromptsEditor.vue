@@ -24,9 +24,7 @@ const axios = window.axios;
 
 // Working copy, one string per vertical, seeded from what's live.
 const edits = reactive(
-  Object.fromEntries(
-    props.verticals.map(v => [v, props.override[v] || ''])
-  )
+  Object.fromEntries(props.verticals.map(v => [v, props.override[v] || '']))
 );
 
 const busy = ref(false);
@@ -88,13 +86,19 @@ async function save() {
       {{ t('AGENT_PROMPTS_CONFIG.DISABLED_HINT') }}
     </div>
 
-    <div v-if="errors.length" class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-ruby-2 text-n-ruby-11">
+    <div
+      v-if="errors.length"
+      class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-ruby-2 text-n-ruby-11"
+    >
       <ul class="list-disc list-inside">
         <li v-for="(e, i) in errors" :key="i">{{ e }}</li>
       </ul>
     </div>
 
-    <div v-if="warnings.length" class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-amber-2 text-n-amber-11">
+    <div
+      v-if="warnings.length"
+      class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-amber-2 text-n-amber-11"
+    >
       <ul class="list-disc list-inside">
         <li v-for="(w, i) in warnings" :key="i">{{ w }}</li>
       </ul>
@@ -103,7 +107,10 @@ async function save() {
     <div class="flex flex-col gap-5">
       <div v-for="v in verticals" :key="v">
         <div class="flex items-baseline justify-between mb-1">
-          <label :for="`guidance-${v}`" class="text-sm font-medium capitalize text-n-slate-12">
+          <label
+            :for="`guidance-${v}`"
+            class="text-sm font-medium capitalize text-n-slate-12"
+          >
             {{ v }}
           </label>
           <span
@@ -130,7 +137,11 @@ async function save() {
         :disabled="busy || overLimit"
         @click="save"
       >
-        {{ busy ? t('AGENT_PROMPTS_CONFIG.SAVING') : t('AGENT_PROMPTS_CONFIG.SAVE') }}
+        {{
+          busy
+            ? t('AGENT_PROMPTS_CONFIG.SAVING')
+            : t('AGENT_PROMPTS_CONFIG.SAVE')
+        }}
       </button>
     </div>
   </div>
