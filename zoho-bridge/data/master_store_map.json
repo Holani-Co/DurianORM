@@ -1,5 +1,5 @@
 {
-  "_comment": "Reviewed, VERTICAL-AWARE mapping: master Showroom Name -> registry store id (display overlay). A Doors row never overlays a Furniture/FHC store. Unlisted names are NEW stores (geocoded from the address pincode where present).",
+  "_comment": "Reviewed join for build_store_registry.py pass 2. mapping: sheet name -> registry id (display overlay; vertical-checked). new_stores: sheet-only stores with a reviewed card name and CRM owner (owners from routing_rules.yaml crm_owner_routing where it has one). coming_soon: sheet rows marked 'Coming soon!' -> registry id to take off the floor. card_names: registry id -> reviewed display-name correction.",
   "mapping": {
     "Bhubaneshwer - Patia Showroom": "furniture-store-in-bhubaneswar-patia",
     "Durian Door - Delhi - Kirti Nagar": "door-store-in-kirti-nagar",
@@ -71,11 +71,33 @@
     "Durian Furniture - Varanasi - Shivpur Bypass Rd": "furniture-store-in-varanasi",
     "Durian Furniture - Visakhapatnam - Dondaparthy": "furniture-store-in-visakhapatnam"
   },
-  "new_stores": [
-    "Dehradun Showroom- Jag Raj Associates",
-    "Durian Doors - Bengaluru - JP Nagar",
-    "Durian Furniture - Bengaluru - Banaswadi",
-    "Durian Furniture - Bikaner - Rani Bazar",
-    "Durian Furniture - Prayagraj - Phaphamau"
-  ]
+  "new_stores": {
+    "Durian Furniture - Bengaluru - Banaswadi": {
+      "card_name": "Furniture - Bengaluru - Banaswadi",
+      "owner_id": "3608871000564447689"
+    },
+    "Durian Furniture - Prayagraj - Phaphamau": {
+      "card_name": "Furniture - Prayagraj - Phaphamau"
+    },
+    "Durian Doors - Bengaluru - JP Nagar": {
+      "card_name": "Doors - Bengaluru - JP Nagar"
+    },
+    "Durian Furniture - Bikaner - Rani Bazar": {
+      "card_name": "Furniture - Bikaner - Rani Bazar",
+      "owner_id": "3608871000560226015"
+    },
+    "Dehradun Showroom- Jag Raj Associates": {
+      "card_name": "Furniture - Dehradun"
+    }
+  },
+  "coming_soon": {
+    "Durian Full Home Customisation - Bikaner - Jaisalmer Road": "full-home-customisation-studio-in-bikaner",
+    "Durian Full Home Customisation - Prayagraj - Lal Bahadur Shastri Marg": null,
+    "Durian Furniture - Srinagar": null
+  },
+  "card_names": {
+    "door-store-in-kirti-nagar": "Doors - Delhi - Kirti Nagar",
+    "durian-furniture-in-raipur-great-eastern-road": "Furniture - Raipur - Telibandha",
+    "furniture-store-in-ajmer": "Furniture - Ajmer - Vaishali Nagar"
+  }
 }

@@ -80,10 +80,8 @@ def _match_place(candidates: list, place: str, vert: str) -> list:
 VERTICALS = ("furniture", "doors", "fhc")
 EDITABLE_FIELDS = ("card_name", "address", "city", "pincode", "manager", "phone",
                    "email", "timing", "map_url", "crm_owner_id", "lat", "lon",
-                   # Richer display fields from the Master ORM list. holiday +
-                   # parking are customer-facing; store_type/area/floors/escalator
-                   # are editable record-keeping the agent surfaces only when the
-                   # per-vertical guidance tells it to.
+                   # Master ORM list extras: not printed on the card; the agent
+                   # mentions one when the customer asks or client guidance says to.
                    "holiday", "parking", "store_type", "area", "floors",
                    "escalator")
 
@@ -181,8 +179,7 @@ def _result(store: dict, distance_km) -> dict:
         "timing": store.get("timing") or "",
         "map_url": store.get("map_url") or "",
         "crm_owner_id": store.get("crm_owner_id") or "",
-        # Optional extras — the agent surfaces these only when the per-vertical
-        # guidance asks (format_card never auto-prints them).
+        # Extras (see EDITABLE_FIELDS) — format_card never prints them.
         "holiday": store.get("holiday") or "",
         "parking": store.get("parking") or "",
         "store_type": store.get("store_type") or "",
@@ -192,24 +189,16 @@ def _result(store: dict, distance_km) -> dict:
     }
 
 
-def _store_coords(s: dict):
-    """A store's (lat, lon). Falls back to geocoding its pincode when it has no
-    coordinates — so a store added from the Master list (or fixed in Settings →
-    Stores) becomes fully routable just by entering its pincode."""
-    if s.get("lat") is not None and s.get("lon") is not None:
-        return s["lat"], s["lon"]
-    return pincode_resolver.coords(s.get("pincode")) if s.get("pincode") else None
-
-
 def _nearest_in_range(stores: list, loc, radius: float):
     """(store, distance_km) of the nearest store with coords within `radius`, or
-    (None, None)."""
+    (None, None). A store without real coordinates is skipped here (it still
+    matches its exact pincode and its name) — never placed at a pincode centroid,
+    which for a metro is one point shared by most of its pincodes."""
     best = best_d = None
     for s in stores:
-        c = _store_coords(s)
-        if not c:
+        if s.get("lat") is None or s.get("lon") is None:
             continue
-        d = pincode_resolver.haversine_km(loc[0], loc[1], c[0], c[1])
+        d = pincode_resolver.haversine_km(loc[0], loc[1], s["lat"], s["lon"])
         if best_d is None or d < best_d:
             best, best_d = s, d
     if best is None or best_d > radius:
