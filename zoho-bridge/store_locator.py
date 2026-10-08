@@ -31,7 +31,13 @@ _floor_cache: list | None = None
 # override (everything the customer can receive, plus coords/owner for routing).
 VERTICALS = ("furniture", "doors", "fhc")
 EDITABLE_FIELDS = ("card_name", "address", "city", "pincode", "manager", "phone",
-                   "email", "timing", "map_url", "crm_owner_id", "lat", "lon")
+                   "email", "timing", "map_url", "crm_owner_id", "lat", "lon",
+                   # Richer display fields from the Master ORM list. holiday +
+                   # parking are customer-facing; store_type/area/floors/escalator
+                   # are editable record-keeping the agent surfaces only when the
+                   # per-vertical guidance tells it to.
+                   "holiday", "parking", "store_type", "area", "floors",
+                   "escalator")
 
 
 def _floor() -> list:
@@ -127,6 +133,14 @@ def _result(store: dict, distance_km) -> dict:
         "timing": store.get("timing") or "",
         "map_url": store.get("map_url") or "",
         "crm_owner_id": store.get("crm_owner_id") or "",
+        # Optional extras — the agent surfaces these only when the per-vertical
+        # guidance asks (format_card never auto-prints them).
+        "holiday": store.get("holiday") or "",
+        "parking": store.get("parking") or "",
+        "store_type": store.get("store_type") or "",
+        "area": store.get("area") or "",
+        "floors": store.get("floors") or "",
+        "escalator": store.get("escalator") or "",
     }
 
 
