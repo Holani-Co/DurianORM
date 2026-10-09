@@ -757,3 +757,39 @@ def test_agent_prompts_validator():
     assert v({"doors": "line one\nline two\ttabbed"})["ok"]          # newline/tab fine
     unknown = v({"garden": "hi"})
     assert unknown["ok"] and unknown["warnings"]                     # warns, doesn't block
+
+
+# ── Doors/FHC lead capture where there's no store (conv 9492, Varanasi) ──────
+
+def test_fhc_prompt_registers_enquiry_not_route():
+    from datetime import datetime
+    p = sa._system_prompt("dm", "durian_fullhomecustomisation", "fhc", datetime(2026, 1, 1),
+                          "PROFILE", "TPL", 1, "", "")
+    assert "register_enquiry (category fhc)" in p
+    assert "(route_to_showroom) so our" not in p          # it refuses on FHC
+
+
+def test_no_store_doors_fhc_points_to_register_enquiry(monkeypatch):
+    monkeypatch.setattr(sa.config, "STORE_LOCATOR_ENABLED", True)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "upcoming",
+                        lambda vert, **k: {"area": "Varanasi"} if vert == "fhc" else None)
+    find = sa.SKILLS["find_showrooms"]["handler"]
+    soon = find({"vertical": "fhc"}, city="Varanasi")
+    assert soon["upcoming"] and "register_enquiry (category 'fhc', city: Varanasi)" in soon["note"]
+    assert "not a yes/no question" in soon["note"]
+    none = find({"vertical": "doors"}, city="Patna")
+    assert none["serviceable"] is False and "register_enquiry (category 'doors'" in none["note"]
+    assert "register_enquiry" not in find({"vertical": "furniture"}, city="Patna")["note"]
+
+
+def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
+    import asyncio
+    writes = []
+
+    async def merge(*a, **k):
+        writes.append(a)
+    monkeypatch.setattr(sa.chatwoot, "merge_custom_attributes", merge)
+    ctx = {"conv_id": 1, "conv": {"custom_attributes": {}}, "profile": {}, "incoming_all": ["Yes sure"]}
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Varanasi"))
+    assert r["registered"] is False and r["need_phone"] and not writes
