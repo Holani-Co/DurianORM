@@ -322,22 +322,33 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
                  "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
         place = city or (f"pincode {pincode}" if pincode else "that location")
         # Client-flagged "opening soon" location → tell the customer it's coming
-        # and capture them for launch, instead of a flat "none nearby".
+        # and pass their details to the team as a note. No enquiry/deal until the
+        # store is real — then resolve() finds it and the normal flow applies.
         up = store_locator.upcoming(vert, pincode=pincode or None, city=city or None)
         if up:
             return {"resolved": False, "upcoming": True, "area": up["area"],
                     "note": (f"A {label} store is OPENING SOON in {up['area']}"
                              + (f" ({up['note']})" if up.get("note") else "") + ". Tell "
                              "the customer we don't have one there YET but one is coming "
-                             "soon — invite them to stay tuned, and ask for their name + "
-                             "phone so our team can notify them at launch. Do NOT say a "
-                             "store exists there now. action: send.")}
+                             "soon, and in THIS reply ask for their name + phone if we "
+                             "don't hold them yet (not a yes/no question) so our team can "
+                             "keep them posted and help meanwhile. Once we hold their "
+                             "phone, call "
+                             f"note_upcoming_store_lead (city: {city or up['area']}) — it "
+                             "passes their details to our team; NO enquiry or deal is "
+                             "created for an opening-soon location. Do NOT say a store "
+                             "exists there now. action: send.")}
+        # Doors/FHC enquiries register with a city alone (register_enquiry), so
+        # "no store there" still has a next step: capture the lead.
+        register = (f" Once they share their phone, call register_enquiry (category "
+                    f"'{vert}', city: {city or 'their city'}) so our team takes it "
+                    "forward — that needs no store there." if vert in ("doors", "fhc") else "")
         return {"resolved": False, "serviceable": False,
                 "note": (f"No {label} showroom near {place}. This is a normal answer "
                          "— do NOT escalate. Tell the customer plainly there's none "
                          "nearby yet, never name another product line's store or invent "
                          "one, then keep helping: ask their requirement + a phone number "
-                         "for our team. action: send.")}
+                         "for our team." + register + " action: send.")}
     if r.get("ambiguous"):
         return {"resolved": True, "options": r["options"],
                 "note": "several showrooms in that city — ask for their PINCODE to pick the nearest"}
@@ -702,7 +713,7 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     "Register a DOORS or FULL-HOME (FHC) purchase enquiry (bounded write — "
     "marks the deal category + customer details for your team's Create Deal). "
     "USE ONCE when the vertical is doors/FHC and you hold BOTH phone and city "
-    "(a known pincode's city counts).",
+    "(a known pincode's city counts). No store in that city is needed.",
     {"category": {"type": "string", "enum": ["doors", "fhc"]},
      "phone": {"type": "string"}, "city": {"type": "string"}},
     {"registered": "bool", "note": "str"},
@@ -712,10 +723,21 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
 async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                                city: str = "", **_) -> dict:
     conv_id = ctx["conv_id"]
+    if store_locator.upcoming(category, city=city or None) and \
+            not store_locator.resolve(category, city=city or None):
+        return {"registered": False, "upcoming": True,
+                "note": f"Our store in {city} is only OPENING SOON — call "
+                        "note_upcoming_store_lead instead; no enquiry or deal there."}
     phone = await _record_enquiry_phone(ctx, phone) or \
         ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
-    if not (phone and city):
-        return {"registered": False, "note": "need the customer's OWN phone AND city first"}
+    if not phone:
+        return {"registered": False, "need_phone": True,
+                "note": "We have NO contact number for this customer. ASK for their "
+                        "phone number now (and their name if we don't hold it) — do NOT "
+                        "say the enquiry is registered or passed. Call register_enquiry "
+                        "again once they share it."}
+    if not city:
+        return {"registered": False, "note": "need the customer's city first — ask for it"}
     cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
         category, "doors_veneer_plywood")
     await chatwoot.merge_custom_attributes(conv_id, {
@@ -730,6 +752,51 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
             "next": "details are captured for our team, who will raise the "
                     "enquiry and reach out — say that; do NOT say the enquiry "
                     "is already created"}
+
+
+@_skill(
+    "note_upcoming_store_lead",
+    "Pass a customer who wants a store that is only OPENING SOON (find_showrooms "
+    "returned upcoming) to our team: posts their details as a private note and "
+    "labels the conversation upcoming-store-lead. Creates NO enquiry or deal. "
+    "USE ONCE, when you hold their phone number.",
+    {"phone": {"type": "string"}, "name": {"type": "string"},
+     "city": {"type": "string", "description": "the opening-soon place they asked about"},
+     "pincode": {"type": "string"},
+     "requirement": {"type": "string", "description": "what they want, in a few words"}},
+    {"noted": "bool", "note": "str"},
+    ({"phone": "9876543210", "name": "Rahul", "city": "Varanasi",
+      "requirement": "modular kitchen"}, {"noted": True}),
+)
+async def _sk_note_upcoming_store_lead(ctx, phone: str = "", name: str = "", city: str = "",
+                                       pincode: str = "", requirement: str = "", **_) -> dict:
+    vert = (ctx.get("vertical") or "furniture").strip().lower()
+    where = {"pincode": pincode or None, "city": city or None}
+    up = store_locator.upcoming(vert, **where)
+    if not up or store_locator.resolve(vert, **where):
+        return {"noted": False, "note": "not an opening-soon location — use the normal "
+                                        "flow (route_to_showroom / register_enquiry)"}
+    phone = await _record_enquiry_phone(ctx, phone) or \
+        ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
+    if not phone:
+        return {"noted": False, "need_phone": True,
+                "note": "ASK for their phone number (and name) first, then call again"}
+    line = {"doors": "Durian Doors", "fhc": "Full Home Customisation"}.get(vert, "Furniture")
+    await chatwoot.post_private_note(ctx["conv_id"], "\n".join([
+        f"📝 **Opening-soon store lead — {up['area']}** ({line})",
+        "",
+        "The customer wants our store there, which is opening soon. No deal was "
+        "created — decide the next step.",
+        f"Name: {name or '—'}",
+        f"Phone: {phone}",
+        f"Requirement: {requirement or '—'}"]))
+    try:
+        await chatwoot.add_label(ctx["conv_id"], "upcoming-store-lead")
+    except Exception:
+        pass
+    return {"noted": True,
+            "next": "tell the customer our team has their details and will keep them "
+                    "posted about the launch — do NOT say an enquiry or deal is created"}
 
 
 # Words that carry no category signal in an offer tag or a product name.
@@ -1908,9 +1975,10 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "furniture / wardrobe / interior mention as a CUSTOMISATION enquiry. "
         "Acknowledge that we design and build it to the customer's requirement, "
         "then (per the steps below) capture their full name + contact number + "
-        "city/pincode and route them to the nearest showroom (route_to_showroom) "
-        "so our team takes it forward. share_offer and showroom details are still "
-        "fine; a ready-made SKU or its price is NOT."
+        "city/pincode and register it with register_enquiry (category fhc) so our "
+        "FHC team takes it forward — that needs no studio in their city. "
+        "share_offer and showroom details are still fine; a ready-made SKU or its "
+        "price is NOT."
         if _is_fhc_account(inbox) else "")
     return f"""You are Durian's front-of-house agent on Instagram ({inbox} — \
 the {vertical} account). Durian sells premium furniture, doors and modular \
@@ -1948,8 +2016,9 @@ profile's old quotes are history, not current truth. Not fetched → cannot \
 appear in the reply. Nothing after one rephrased retry → say so honestly and \
 offer the showroom.
 3. ACT on state: purchase intent + unambiguous location → route_to_showroom \
-(furniture) or register_enquiry (doors/FHC). find_showrooms alone registers \
-nothing. A pincode alone is a complete location; a city with several \
+(furniture) or register_enquiry (doors/FHC); an OPENING-SOON location \
+(find_showrooms upcoming) → note_upcoming_store_lead instead, no deal. \
+find_showrooms alone registers nothing. A pincode alone is a complete location; a city with several \
 showrooms → ask for their pincode (name at most 2 options). Serve every \
 product on every account — the account's vertical only picks the deal route. \
 A CONTACT NUMBER is required to register an enquiry — if a routing skill \
