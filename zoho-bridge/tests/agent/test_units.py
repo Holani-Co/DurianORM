@@ -769,18 +769,54 @@ def test_fhc_prompt_registers_enquiry_not_route():
     assert "(route_to_showroom) so our" not in p          # it refuses on FHC
 
 
-def test_no_store_doors_fhc_points_to_register_enquiry(monkeypatch):
+def _varanasi_upcoming(monkeypatch):
+    """No real store anywhere; an FHC (and furniture) store opening in Varanasi."""
     monkeypatch.setattr(sa.config, "STORE_LOCATOR_ENABLED", True)
     monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: None)
     monkeypatch.setattr(sa.store_locator, "upcoming",
-                        lambda vert, **k: {"area": "Varanasi"} if vert == "fhc" else None)
+                        lambda vert, pincode=None, city=None:
+                        {"area": "Varanasi"} if vert in ("fhc", "furniture") and city == "Varanasi" else None)
+
+
+def test_no_store_notes_point_to_the_right_next_step(monkeypatch):
+    _varanasi_upcoming(monkeypatch)
     find = sa.SKILLS["find_showrooms"]["handler"]
-    soon = find({"vertical": "fhc"}, city="Varanasi")
-    assert soon["upcoming"] and "register_enquiry (category 'fhc', city: Varanasi)" in soon["note"]
-    assert "not a yes/no question" in soon["note"]
-    none = find({"vertical": "doors"}, city="Patna")
+    for vert in ("fhc", "furniture"):                      # opening soon → a note, no deal
+        soon = find({"vertical": vert}, city="Varanasi")
+        assert soon["upcoming"] and "note_upcoming_store_lead (city: Varanasi)" in soon["note"]
+        assert "register_enquiry" not in soon["note"] and "not a yes/no question" in soon["note"]
+    none = find({"vertical": "doors"}, city="Patna")      # no store at all → register
     assert none["serviceable"] is False and "register_enquiry (category 'doors'" in none["note"]
     assert "register_enquiry" not in find({"vertical": "furniture"}, city="Patna")["note"]
+
+
+def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
+    import asyncio
+    _varanasi_upcoming(monkeypatch)
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    note = sa.SKILLS["note_upcoming_store_lead"]["handler"]
+    ctx = {"vertical": "fhc", "conv_id": 1, "conv": {"custom_attributes": {}}, "profile": {},
+           "incoming_all": ["Sid, 9876543210"]}
+    assert asyncio.run(note(ctx, city="Patna", phone="9876543210"))["noted"] is False
+    assert asyncio.run(note(dict(ctx, incoming_all=["Yes sure"]), city="Varanasi",
+                            phone="9876543210"))["need_phone"]       # not typed → not trusted
+    assert not fake.notes
+    r = asyncio.run(note(ctx, city="Varanasi", phone="9876543210", name="Sid"))
+    assert r["noted"] and len(fake.notes) == 1 and fake.labels == ["upcoming-store-lead"]
+    assert "Varanasi" in fake.notes[0] and "9876543210" in fake.notes[0] and "Sid" in fake.notes[0]
+    assert all("phase2_category" not in m and "deal_customer_details" not in m for m in fake.merged)
+    reg = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+        ctx, category="fhc", city="Varanasi", phone="9876543210"))
+    assert reg["registered"] is False and reg["upcoming"] and len(fake.notes) == 1
+    # The store opens (added as a real store — even if the upcoming entry lingers):
+    # the normal enquiry/deal flow takes over.
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda vert, pincode=None, city=None:
+                        {"card_name": "FHC - Varanasi"} if city == "Varanasi" else None)
+    assert asyncio.run(note(ctx, city="Varanasi", phone="9876543210"))["noted"] is False
+    assert asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+        ctx, category="fhc", city="Varanasi", phone="9876543210"))["registered"]
+    assert "deal-ready" in fake.labels
 
 
 def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
