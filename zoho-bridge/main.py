@@ -117,6 +117,8 @@ async def _start_reviews_poller():
     asyncio.create_task(website_reviews_poller.run_forever())
     # Daily refresh of each open deal's current Zoho Stage onto its conversation.
     asyncio.create_task(deal_stage_sync.run_forever())
+    # Capture WhatsApp FHC leads whose customer went quiet before the pincode.
+    asyncio.create_task(whatsapp_fhc.run_ghost_sweep_forever())
 
 
 @app.on_event("shutdown")

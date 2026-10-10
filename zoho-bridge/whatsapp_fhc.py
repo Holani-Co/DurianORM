@@ -14,6 +14,7 @@
 # in main.handle_message_created only calls this for the WhatsApp inbox when the
 # conversation isn't owned by a human.
 
+import asyncio
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -24,6 +25,19 @@ import pincode_resolver
 import zoho_crm
 
 _IST = timezone(timedelta(hours=5, minutes=30))
+
+# Label put on a product-enquiry conversation that is sitting at the pincode step
+# (we have name + phone + interest, waiting on the location). The ghost sweep
+# filters on it; it's removed the moment the customer answers or the flow ends.
+_GHOST_LABEL = "fhc-awaiting-location"
+_GHOST_LOG = "[wa-fhc-ghost]"
+
+# Words that mean a p_name reply is really a product/interest, not a name — the
+# customer answered "your name?" with "modular kitchen tv panel". Such a reply is
+# never stored as the name (and never clears the ghost quality bar).
+_NOT_NAME_KW = ("kitchen", "wardrobe", "closet", "almirah", "entertainment",
+                "tv", "media", "lifestyle", "panel", "modular", "full home",
+                "interior", "sofa", "furniture", "product", "enquir", "customi")
 
 _GREETING = (
     "Hello Sir/Ma'am 👋 Thank you for your interest in *Durian Full Home "
@@ -76,6 +90,53 @@ def _sender_phone(conv: dict) -> str:
     on the website widget it's usually blank (so we ask)."""
     raw = ((conv.get("meta") or {}).get("sender") or {}).get("phone_number") or ""
     return _extract_phone(raw)
+
+
+def _looks_like_name(text: str) -> bool:
+    """A plausible customer NAME — not a product/interest answer, a pincode, or a
+    menu word. Keeps a junk 'name' (e.g. 'modular kitchen tv panel') out of the
+    deal, and is the quality gate for auto-capturing a ghosted lead."""
+    t = (text or "").strip()
+    if not t or len(t) > 40:
+        return False
+    low = t.lower()
+    if any(ch.isdigit() for ch in t):          # names don't carry digits
+        return False
+    if any(k in low for k in _NOT_NAME_KW):
+        return False
+    if _choice(t):                              # a menu term ("product"/"store"…)
+        return False
+    return True
+
+
+def _older_than(iso: str, minutes: int) -> bool:
+    """True when the ISO timestamp is at least `minutes` in the past."""
+    if not iso:
+        return False
+    try:
+        t = datetime.fromisoformat(iso)
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - t) >= timedelta(minutes=minutes)
+
+
+async def _mark_awaiting_location(conv_id: int) -> None:
+    """Label a conversation that's sitting at the pincode step so the ghost sweep
+    can find it. Best-effort — never blocks the flow."""
+    try:
+        await chatwoot.add_label(conv_id, _GHOST_LABEL)
+    except Exception:
+        pass
+
+
+async def _clear_awaiting_location(conv_id: int) -> None:
+    """Drop the ghost marker once the customer answers or the flow ends."""
+    try:
+        await chatwoot.remove_label(conv_id, _GHOST_LABEL)
+    except Exception:
+        pass
 
 
 async def _sync_widget_contact_name(conv: dict, name: str) -> None:
@@ -460,6 +521,15 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
 
     # ── Product enquiry: name → phone → pincode → deal ──────────────────────
     if step == "p_name":
+        # The customer answered "your name?" with a product ("modular kitchen tv
+        # panel") — don't store that as their name. Re-ask once; if they still
+        # don't give a name we move on, but the ghost sweep won't auto-create a
+        # deal with a junk name (it re-checks _looks_like_name).
+        if not _looks_like_name(text) and not st.get("name_reasked"):
+            await _say("Sorry — I just need your *name* to register the enquiry 🙂 "
+                       "Could you please share your name?")
+            await _save(name_reasked=True)      # stay on p_name for one retry
+            return {"handled": "wa_fhc_p_name_reask"}
         if sync_contact_name:
             await _sync_widget_contact_name(conv, text)
         await chatwoot.send_interactive_buttons(
@@ -478,7 +548,9 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             # message). Only ask when there is no sender number (e.g. web widget).
             await _say("Great! 📍 Finally, your *area pincode* — so we connect you to "
                        "your nearest studio.")
-            await _save(step="p_pin", interest=interest, phone=known)
+            await _save(step="p_pin", interest=interest, phone=known,
+                        pin_asked_at=_now_iso())
+            await _mark_awaiting_location(conv_id)
         else:
             await _say("Got it! 📞 Please share your *phone number*.")
             await _save(step="p_phone", interest=interest)
@@ -492,7 +564,8 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
             return {"handled": "wa_fhc_p_phone_retry"}
         await _say("Thanks! 📍 Finally, your *area pincode* — so we connect you to "
                    "your nearest studio.")
-        await _save(step="p_pin", phone=phone)
+        await _save(step="p_pin", phone=phone, pin_asked_at=_now_iso())
+        await _mark_awaiting_location(conv_id)
         return {"handled": "wa_fhc_p_phone"}
 
     if step == "p_pin":
@@ -500,6 +573,9 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         if not pin:
             await _say("Please share a valid 6-digit *pincode* 📍")
             return {"handled": "wa_fhc_p_pin_retry"}
+        # Valid pincode in hand → the customer answered, not a ghost. Drop the
+        # ghost marker so the sweep never double-creates this lead.
+        await _clear_awaiting_location(conv_id)
         name = st.get("name") or "there"
         store, dist = fhc_stores.nearest_store(pin)
         if store and dist is not None and dist <= fhc_stores.COVERAGE_KM:
@@ -704,3 +780,100 @@ async def handle(conv: dict, conv_id: int, latest_message: str = "",
         return {"handled": "wa_fhc_other"}
 
     return {"ignored": True, "reason": "wa_fhc_no_step"}
+
+
+# ── Ghost capture ───────────────────────────────────────────────────────────
+# A product-enquiry customer who gave name + interest (and whose phone we have —
+# the WhatsApp sender number, or one they typed) but then went quiet WITHOUT
+# sharing their pincode leaves us a lead we can't route to a studio (no location).
+# Rather than lose it, a background sweep creates the deal to Customer Support
+# once the pincode step has sat unanswered past the ghost window — so a human
+# gets the pincode and reassigns to the right home studio. We never guess a
+# studio, and we never ship a junk lead: the name must look real and we must have
+# a phone + interest, else the conversation is just handed to a human.
+
+async def _mark_ghost_handled(conv_id: int, st: dict) -> None:
+    """End the flow for a swept conversation: step=done (so a later message
+    re-opens the menu), a once-guard flag, and the ghost marker removed."""
+    new_st = dict(st)
+    new_st.update(step="done", ghost_captured=True)
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {"wa_fhc": new_st})
+    except Exception:
+        pass
+    await _clear_awaiting_location(conv_id)
+
+
+async def ghost_sweep_once() -> dict:
+    """One pass: find FHC conversations parked at the pincode step past the ghost
+    window and capture or hand them off. Returns a small stats dict."""
+    convs = await chatwoot.list_conversations_by_label(_GHOST_LABEL)
+    created = flagged = pending = cleaned = 0
+    for c in convs:
+        conv_id = c.get("id")
+        if not conv_id:
+            continue
+        ca = c.get("custom_attributes") or {}
+        st = ca.get("wa_fhc") or {}
+        # Stale marker: already moved past the pincode step, or a deal exists →
+        # just clear the label and move on.
+        if st.get("step") != "p_pin" or ca.get("crm_deal_id"):
+            await _clear_awaiting_location(conv_id)
+            cleaned += 1
+            continue
+        if not _older_than(st.get("pin_asked_at"), config.WHATSAPP_FHC_GHOST_MINUTES):
+            pending += 1                      # still within the grace window
+            continue
+        name = (st.get("name") or "").strip()
+        phone = (st.get("phone") or "").strip()
+        interest = (st.get("interest") or "").strip()
+        # Quality bar: a real-looking name + a usable phone + the interest. Short
+        # of that we don't ship a deal — a human picks it up instead.
+        if phone and interest and _looks_like_name(name):
+            ok = await _create_support_deal(conv_id, name, phone, "", interest)
+            if ok:
+                try:
+                    await chatwoot.post_private_note(
+                        conv_id,
+                        f"🕗 Customer went quiet before sharing their pincode. "
+                        f"Captured {name} ({phone}) for {interest or 'FHC'} and "
+                        "routed to Customer Support — please get their location and "
+                        "reassign to the correct home studio.")
+                except Exception:
+                    pass
+                created += 1
+            else:
+                # FHC_SUPPORT_OWNER_ID not configured → no CRM deal; hand to a human.
+                await _flag_agent(
+                    conv_id, f"FHC customer went quiet before their pincode — capture "
+                             f"{name} ({phone}) for {interest or 'FHC'}", support=True)
+                flagged += 1
+        else:
+            await _flag_agent(
+                conv_id, "FHC customer went quiet before completing the enquiry "
+                         "(name/phone/interest incomplete)")
+            flagged += 1
+        await _mark_ghost_handled(conv_id, st)
+    return {"scanned": len(convs), "created": created, "flagged": flagged,
+            "pending": pending, "cleaned": cleaned}
+
+
+async def run_ghost_sweep_forever() -> None:
+    """Background loop. Dark-launched behind WHATSAPP_FHC_GHOST_ENABLED."""
+    if not config.WHATSAPP_FHC_GHOST_ENABLED:
+        print(f"{_GHOST_LOG} disabled (WHATSAPP_FHC_GHOST_ENABLED not true) — not started")
+        return
+    try:
+        await chatwoot.ensure_label(_GHOST_LABEL, show_on_sidebar=False)
+    except Exception as e:  # noqa: BLE001
+        print(f"{_GHOST_LOG} ensure_label failed: {e}")
+    print(f"{_GHOST_LOG} started — window {config.WHATSAPP_FHC_GHOST_MINUTES}m, "
+          f"every {config.WHATSAPP_FHC_GHOST_SWEEP_SECONDS}s")
+    while True:
+        try:
+            r = await ghost_sweep_once()
+            if r.get("created") or r.get("flagged"):
+                print(f"{_GHOST_LOG} {r}")
+        except Exception as e:  # noqa: BLE001
+            print(f"{_GHOST_LOG} sweep error: {e}")
+        await asyncio.sleep(config.WHATSAPP_FHC_GHOST_SWEEP_SECONDS)
