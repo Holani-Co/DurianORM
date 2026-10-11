@@ -403,6 +403,16 @@ NEVER_SPAM_INBOXES = _csv(
     "legal-notices,complaints,abuse-reports,escalations",
 )
 
+# Inbox NAMES or NUMERIC IDS (comma-separated) the bridge leaves completely
+# ALONE: no classification card, customer ack, auto-forward or Zoho ticket —
+# mail still lands in Chatwoot for agents to read, but zero automation runs.
+# Use to connect a new email inbox for OBSERVATION (e.g. to study its mail
+# before defining categories) without starting hello@-style handling. Set by
+# name (matched case-insensitively against the Chatwoot inbox name) so it can be
+# in place BEFORE the inbox is connected; numeric entries match the inbox id.
+SILENT_EMAIL_INBOXES = _csv("SILENT_EMAIL_INBOXES")
+
+
 # Minimum classifier confidence (1-10) required to AUTO-SNOOZE a spam
 # conversation. Below this, the message gets the "spam" label but stays in
 # the open queue so an agent can verify. Default 8 = high bar.

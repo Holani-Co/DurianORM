@@ -4047,6 +4047,19 @@ async def _maybe_extract_documents(data: dict) -> None:
 
 
 # ── Handler: first incoming message → spam pipeline + classify + assign ───
+def _is_silent_inbox(inbox: dict) -> bool:
+    """True when this inbox is in SILENT_EMAIL_INBOXES — connected for observation
+    only, so the bridge runs none of the email pipeline on it. Matched by inbox
+    NAME (case-insensitive) so it can be set BEFORE the inbox is connected (no
+    first-email race), or by numeric inbox id."""
+    silent = config.SILENT_EMAIL_INBOXES
+    if not silent:
+        return False
+    name = (inbox.get("name") or "").strip().lower()
+    inbox_id = inbox.get("id")
+    return (bool(name) and name in silent) or (inbox_id is not None and str(inbox_id) in silent)
+
+
 async def handle_message_created(data: dict) -> dict:
     msg_type = data.get("message_type")
     print(f"[msg] message_type={msg_type!r}")
@@ -4076,6 +4089,13 @@ async def handle_message_created(data: dict) -> dict:
     if config.WEBSITE_REVIEWS_INBOX_ID and inbox_id == config.WEBSITE_REVIEWS_INBOX_ID:
         print(f"[msg] ignoring — website reviews inbox (handled by website reviews poller)")
         return {"ignored": True, "reason": "website_reviews_inbox"}
+
+    # Operator-silenced inbox (SILENT_EMAIL_INBOXES): connected for OBSERVATION
+    # only — mail is visible in Chatwoot but the bridge runs none of the email
+    # pipeline (no card, ack, forward or ticket).
+    if _is_silent_inbox(inbox):
+        print(f"[msg] ignoring — silent inbox '{inbox.get('name')}' (observation only)")
+        return {"ignored": True, "reason": "silent_inbox"}
 
     # WhatsApp / Instagram / Facebook DMs. We still let the categorizer LABEL
     # the intent (the "Auto-classified as …" note + team), but the email action
