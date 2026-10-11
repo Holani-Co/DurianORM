@@ -121,6 +121,17 @@ _LOW_VALUE = {"hi", "hii", "hiii", "hello", "hey", "gm", "gn", "good morning",
 # uses (duriandoor, "Durian Ready-Made Doors", durian_readymade_doors, …).
 _INBOX_VERTICALS = {"door": "doors", "furniture": "furniture"}
 
+# One place that maps a store vertical to its deal category and its customer-
+# facing label, so the agent never re-hardcodes these names. Adding a vertical =
+# add it to store_locator.VERTICALS, give it a row in BOTH dicts below, and add
+# its owner branch in main._resolve_deal_owner (+ a crm_owner_routing_* list in
+# routing_rules.yaml). Those are the only spots; see store_locator.VERTICALS.
+_VERTICAL_DEAL_CATEGORY = {"furniture": "product_enquiry",
+                           "doors": "doors_veneer_plywood",
+                           "fhc": "full_home_customization"}
+_VERTICAL_LABEL = {"furniture": "Durian Furniture", "doors": "Durian Doors",
+                   "fhc": "Durian Full Home Customisation"}
+
 
 def _inbox_vertical(inbox_name: str) -> str:
     low = (inbox_name or "").lower()
@@ -318,8 +329,7 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
     r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
     if r is None:
-        label = {"doors": "Durian Doors",
-                 "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
+        label = _VERTICAL_LABEL.get(vert, "Durian")
         place = city or (f"pincode {pincode}" if pincode else "that location")
         # Client-flagged "opening soon" location → tell the customer it's coming
         # and pass their details to the team as a note. No enquiry/deal until the
@@ -738,8 +748,7 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                         "again once they share it."}
     if not city:
         return {"registered": False, "note": "need the customer's city first — ask for it"}
-    cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
-        category, "doors_veneer_plywood")
+    cat = _VERTICAL_DEAL_CATEGORY.get(category, "doors_veneer_plywood")
     await chatwoot.merge_custom_attributes(conv_id, {
         "phase2_category": cat,
         "deal_customer_details": {"phone": phone, "city": city,
@@ -781,7 +790,7 @@ async def _sk_note_upcoming_store_lead(ctx, phone: str = "", name: str = "", cit
     if not phone:
         return {"noted": False, "need_phone": True,
                 "note": "ASK for their phone number (and name) first, then call again"}
-    line = {"doors": "Durian Doors", "fhc": "Full Home Customisation"}.get(vert, "Furniture")
+    line = _VERTICAL_LABEL.get(vert, "Durian")
     await chatwoot.post_private_note(ctx["conv_id"], "\n".join([
         f"📝 **Opening-soon store lead — {up['area']}** ({line})",
         "",

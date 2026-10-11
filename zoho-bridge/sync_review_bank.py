@@ -37,8 +37,7 @@ import httpx
 import yaml
 
 import config
-
-VERTICALS = ("furniture", "fhc", "doors")
+from store_locator import VERTICALS  # the one canonical vertical set
 _BANK_PATH = Path(__file__).parent / "review_reply_bank.yaml"
 
 

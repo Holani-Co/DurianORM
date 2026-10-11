@@ -829,3 +829,18 @@ def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
     ctx = {"conv_id": 1, "conv": {"custom_attributes": {}}, "profile": {}, "incoming_all": ["Yes sure"]}
     r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Varanasi"))
     assert r["registered"] is False and r["need_phone"] and not writes
+
+
+# ── Vertical wiring stays in lock-step (guards a future vertical) ───────────
+
+def test_agent_vertical_maps_cover_every_vertical():
+    # Add a vertical to store_locator.VERTICALS and forget the agent's maps →
+    # this fails here instead of silently misrouting its deal / label.
+    verts = set(sa.store_locator.VERTICALS)
+    assert set(sa._VERTICAL_DEAL_CATEGORY) == verts
+    assert set(sa._VERTICAL_LABEL) == verts
+
+
+def test_review_bank_uses_canonical_vertical_set():
+    import sync_review_bank
+    assert sync_review_bank.VERTICALS is sa.store_locator.VERTICALS

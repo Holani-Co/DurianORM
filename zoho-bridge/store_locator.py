@@ -75,8 +75,21 @@ def _match_place(candidates: list, place: str, vert: str) -> list:
     hits = [s for s in candidates if q <= _store_words(s)]
     return [s for s in hits if s.get("primary_vertical") == vert] or hits
 
-# Verticals the locator knows, and the store fields the Settings editor may
-# override (everything the customer can receive, plus coords/owner for routing).
+# The canonical set of Durian business verticals — the one source of truth.
+# Everything that needs the SET imports THIS (store registry build, the Stores /
+# Routing / Agent-Prompts validators and editors, sync_review_bank). Adding a
+# vertical is a code change, in these spots only:
+#   1. this tuple;
+#   2. build_store_registry._VERT  (sheet "Verticle"/"Service" label → token);
+#   3. social_agent._VERTICAL_DEAL_CATEGORY + _VERTICAL_LABEL (and, if its inbox
+#      name carries a new token, _INBOX_VERTICALS / _is_fhc_account);
+#   4. main._resolve_deal_owner — a branch for its deal category, plus a
+#      crm_owner_routing_* owner list in routing_rules.yaml, and the store-enquiry
+#      triage `vertical` enum in main (its strict JSON schema lists the tokens);
+#   5. config._STORE_RADIUS_DEFAULT (optional — unlisted verticals fall back to
+#      150 km) and the en.json AGENT_PROMPTS_CONFIG.VERTICALS label (optional —
+#      the UI falls back to the raw token).
+# Store data (which stores, owners, radii, guidance) stays client-editable.
 VERTICALS = ("furniture", "doors", "fhc")
 EDITABLE_FIELDS = ("card_name", "address", "city", "pincode", "manager", "phone",
                    "email", "timing", "map_url", "crm_owner_id", "lat", "lon",
