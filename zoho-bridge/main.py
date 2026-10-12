@@ -4122,7 +4122,11 @@ async def handle_message_created(data: dict) -> dict:
     # / handoff). It owns the conversation while the flow runs, unless a human
     # has taken it over. Dark-launched behind WHATSAPP_FHC_FLOW_ENABLED; when
     # off, whatsapp_fhc.handle returns None and we fall through as before.
-    if social_channel == "whatsapp" and config.WHATSAPP_FHC_FLOW_ENABLED and conv_id:
+    # …unless the LLM agent owns this WhatsApp inbox (SOCIAL_AGENT_WHATSAPP_INBOXES,
+    # e.g. the FHC number): then the agent REPLACES the menu bot and we fall
+    # through to the agent dispatch below. Other WhatsApp inboxes keep the bot.
+    if (social_channel == "whatsapp" and config.WHATSAPP_FHC_FLOW_ENABLED and conv_id
+            and not social_agent.eligible(conv, "whatsapp")):
         full_conv = await chatwoot.get_conversation(conv_id)
         assignee = (full_conv.get("meta") or {}).get("assignee") or {}
         if not assignee or social_agent.is_bot_agent(assignee):

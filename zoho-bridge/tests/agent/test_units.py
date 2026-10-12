@@ -831,6 +831,105 @@ def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
     assert r["registered"] is False and r["need_phone"] and not writes
 
 
+# ── FHC WhatsApp → agent (PR: feat/whatsapp-fhc-agent) ───────────────────────
+
+def _wa_conv(inbox_id=25, name="Durian FHC WhatsApp", phone="+919876543210"):
+    return {"inbox_id": inbox_id, "inbox": {"name": name},
+            "meta": {"sender": {"id": "s1", "name": "Asha", "phone_number": phone}},
+            "custom_attributes": {}}
+
+
+def test_eligible_whatsapp_only_on_designated_inbox(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_ENABLED", True)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_CONTACT_ALLOWLIST", [])
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {"25": "fhc"})
+    assert sa.eligible(_wa_conv(25), "whatsapp") is True
+    assert sa.eligible(_wa_conv(99), "whatsapp") is False          # other WhatsApp inbox
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {})
+    assert sa.eligible(_wa_conv(25), "whatsapp") is False          # map empty → off
+    # Instagram path is unchanged by the WhatsApp gate
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_CHANNELS", ("instagram",))
+    assert sa.eligible({"meta": {"sender": {}}}, "instagram") is True
+
+
+def test_whatsapp_agent_vertical_by_id_and_name(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {"25": "fhc"})
+    assert sa._whatsapp_agent_vertical(_wa_conv(25)) == "fhc"
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {"durian fhc whatsapp": "fhc"})
+    assert sa._whatsapp_agent_vertical(_wa_conv(99, name="Durian FHC WhatsApp")) == "fhc"
+    assert sa._whatsapp_agent_vertical(_wa_conv(99, name="Other")) is None
+
+
+def test_seed_whatsapp_phone():
+    prof = {"identity": {}}
+    sa._seed_whatsapp_phone(prof, {"phone_number": "+91 98765 43210"})
+    assert prof["identity"]["phone"]["value"] == "9876543210"
+    # does not overwrite an existing profile phone
+    prof2 = {"identity": {"phone": {"value": "9000000000"}}}
+    sa._seed_whatsapp_phone(prof2, {"phone_number": "+919876543210"})
+    assert prof2["identity"]["phone"]["value"] == "9000000000"
+    # junk number → nothing seeded
+    prof3 = {"identity": {}}
+    sa._seed_whatsapp_phone(prof3, {"phone_number": "12345"})
+    assert not prof3["identity"].get("phone")
+
+
+def _register_ctx():
+    return {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+            "conv": {"custom_attributes": {}},
+            "profile": {"identity": {"phone": {"value": "9876543210"}}},
+            "incoming_all": ["9876543210"]}
+
+
+def test_register_enquiry_fhc_auto_creates_deal(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {"card_name": "Studio"})
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    calls = []
+
+    async def creator(conv_id, agent_name=""):
+        calls.append(conv_id)
+        return {"deal_id": "D9", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+        _register_ctx(), category="fhc", city="Mumbai"))
+    assert r["registered"] is True and r.get("deal_created") is True and calls == [1]
+    assert "deal-ready" in fake.labels
+
+
+def test_register_enquiry_doors_stays_deal_ready(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {"card_name": "Doors"})
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    called = []
+
+    async def creator(conv_id, agent_name=""):
+        called.append(conv_id)
+        return {"deal_id": "D9", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+        dict(_register_ctx(), vertical="doors"), category="doors", city="Patna"))
+    assert r["registered"] is True and not r.get("deal_created") and called == []
+
+
+def test_system_prompt_is_channel_aware():
+    from datetime import datetime
+    wa = sa._system_prompt("dm", "Durian FHC WhatsApp", "fhc", datetime(2026, 1, 1),
+                           "P", "T", 1, channel="whatsapp")
+    assert "agent on WhatsApp" in wa and "NEVER ask for a phone" in wa and "4096 characters" in wa
+    ig = sa._system_prompt("dm", "durian_furniture", "furniture", datetime(2026, 1, 1),
+                           "P", "T", 1, channel="instagram")
+    assert "agent on Instagram" in ig and "1000 characters" in ig and "NEVER ask for a phone" not in ig
+
+
 # ── book_store_visit (store-visit appointment, all verticals) ────────────────
 
 class _VisitFakeChatwoot:
