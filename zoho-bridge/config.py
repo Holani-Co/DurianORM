@@ -639,8 +639,8 @@ SOCIAL_AGENT_REASONING = os.environ.get("SOCIAL_AGENT_REASONING", "low")
 # `eligible()` → the agent handles its DMs and the legacy template-drafter +
 # retail/deal/EMI gates stand down for it (handle_template_suggest returns
 # ignored for any eligible channel, and the webhook dispatches the agent before
-# those gates). Instagram + Facebook both run the agent; WhatsApp stays on its
-# own deterministic flows.
+# those gates). Instagram + Facebook both run the agent; WhatsApp runs it only
+# on the inboxes named in SOCIAL_AGENT_WHATSAPP_INBOXES.
 SOCIAL_AGENT_CHANNELS = tuple(
     c.strip() for c in os.environ.get(
         "SOCIAL_AGENT_CHANNELS", "instagram,facebook").split(",")
@@ -648,6 +648,31 @@ SOCIAL_AGENT_CHANNELS = tuple(
 SOCIAL_AGENT_CONTACT_ALLOWLIST = [
     s.strip() for s in os.environ.get("SOCIAL_AGENT_CONTACT_ALLOWLIST", "").split(",")
     if s.strip()]
+
+
+def _inbox_vertical_map(name: str) -> dict:
+    """Parse "25:fhc, Durian Furniture WA:furniture" → {"25":"fhc", ...}: the
+    WhatsApp inboxes the LLM agent runs on, each with its vertical. Keyed by
+    inbox id or lowercased name; a bare entry with no ":" defaults to furniture.
+    Empty → the agent never runs on WhatsApp (every inbox keeps today's flow)."""
+    out = {}
+    for part in os.environ.get(name, "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        key, _, vert = part.partition(":")
+        key = key.strip().lower()
+        if key:
+            out[key] = (vert.strip().lower() or "furniture")
+    return out
+
+
+# WhatsApp inboxes the agent owns, inbox→vertical. FHC WhatsApp first:
+#   SOCIAL_AGENT_WHATSAPP_INBOXES=25:fhc
+# Scopes the agent to just those inboxes and tells it the vertical (a WhatsApp
+# inbox name isn't detected by _inbox_vertical). Empty = WhatsApp stays on its
+# deterministic flows. SOCIAL_AGENT_ENABLED must also be on.
+SOCIAL_AGENT_WHATSAPP_INBOXES = _inbox_vertical_map("SOCIAL_AGENT_WHATSAPP_INBOXES")
 # Live durian.in product search (Unbxd — the storefront's own search
 # service; see website_search.py). These are the site's PUBLIC client-side
 # keys, visible in durian.in's frontend JS — env-overridable if rotated.
