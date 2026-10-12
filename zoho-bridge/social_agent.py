@@ -155,6 +155,22 @@ def _handoff_over_budget(n_customer: int) -> bool:
     return cap > 0 and n_customer > cap
 
 
+def _engagement_incoming_count(all_messages) -> int:
+    """Customer messages in the CURRENT engagement — those since the conversation
+    was last resolved (a resolve ends an engagement; a later message starts a
+    fresh one). Used for the 'converge' nudge and the optional handoff cap, so a
+    returning customer or a long-resolved/reused thread isn't treated as 'running
+    long' from message one. Counts the whole history when never resolved."""
+    start = 0
+    for i, m in enumerate(all_messages or []):
+        if m.get("message_type") in (2, "activity") \
+                and "resolved" in (m.get("content") or "").lower():
+            start = i + 1
+    incoming = [m for m in (all_messages or [])[start:]
+                if m.get("message_type") in (0, "incoming")]
+    return len(incoming) or 1
+
+
 def inr(value) -> str:
     """Indian-notation rupees: 109520 → '₹1,09,520' (last 3 digits, then
     2-digit groups). Skills return prices ONLY in this form, so the model's
@@ -2652,8 +2668,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         incoming_texts.append(latest)
     if not transcript:
         return {"ignored": True, "reason": "no_customer_message"}
-    n_customer = len([m for m in all_messages
-                      if m.get("message_type") in (0, "incoming")]) or 1
+    n_customer = _engagement_incoming_count(all_messages)
 
     # Handoff budget: past the cap → cards only (one courteous send happens at
     # the moment the cap is crossed, marked in attrs so it happens once).

@@ -1057,3 +1057,36 @@ def test_handoff_budget_enabled_when_positive(monkeypatch):
     monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", 25)
     assert sa._handoff_over_budget(25) is False
     assert sa._handoff_over_budget(26) is True
+
+
+# ── Engagement-scoped message count (converge + optional handoff) ────────────
+
+def _inc(text="hi"):
+    return {"message_type": 0, "content": text}
+
+
+def _resolved_activity():
+    return {"message_type": 2, "content": "Conversation was marked resolved by Aditya"}
+
+
+def test_engagement_count_resets_after_resolve():
+    # 6 old messages, resolved, then 1 new "Hii" → the current engagement is 1,
+    # not 7, so converge/handoff see a fresh conversation.
+    msgs = [_inc() for _ in range(6)] + [_resolved_activity()] + [_inc("Hii")]
+    assert sa._engagement_incoming_count(msgs) == 1
+
+
+def test_engagement_count_whole_history_when_never_resolved():
+    msgs = [_inc() for _ in range(4)]
+    assert sa._engagement_incoming_count(msgs) == 4
+
+
+def test_engagement_count_counts_after_the_LAST_resolve():
+    msgs = ([_inc()] + [_resolved_activity()] + [_inc(), _inc()]
+            + [_resolved_activity()] + [_inc("latest")])
+    assert sa._engagement_incoming_count(msgs) == 1
+
+
+def test_engagement_count_never_zero():
+    assert sa._engagement_incoming_count([_resolved_activity()]) == 1
+    assert sa._engagement_incoming_count([]) == 1
