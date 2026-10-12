@@ -748,14 +748,28 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
         return {"registered": False, "note": "need the customer's city first — ask for it"}
     cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
         category, "doors_veneer_plywood")
+    conv = ctx["conv"]
+    conv.setdefault("custom_attributes", {}).update({
+        "phase2_category": cat, "retail_customer_phone": phone})
     await chatwoot.merge_custom_attributes(conv_id, {
-        "phase2_category": cat,
+        "phase2_category": cat, "retail_customer_phone": phone,
         "deal_customer_details": {"phone": phone, "city": city,
                                   "captured_at": profile_mod._iso(profile_mod.now())}})
     try:
         await chatwoot.add_label(conv_id, "deal-ready")
     except Exception:
         pass
+    # FHC: auto-create the Home Studio deal now (the owner resolves by category +
+    # city in the deal core) — parity with furniture's route_to_showroom and the
+    # old WhatsApp FHC bot. Doors stays deal-ready for a human. An ambiguity/CRM
+    # error falls back to deal-ready + the button inside _create_deal_or_defer.
+    if category == "fhc" and config.SOCIAL_AGENT_AUTO_DEAL and _deal_creator:
+        created = await _create_deal_or_defer(ctx)
+        if created:
+            return {"registered": True, "category": cat, "deal_created": True,
+                    "next": "the deal is created and routed to the Home Studio team; tell "
+                            "the customer our team will reach out — do NOT share internal "
+                            "owner/studio names"}
     return {"registered": True, "category": cat,
             "next": "details are captured for our team, who will raise the "
                     "enquiry and reach out — say that; do NOT say the enquiry "
@@ -1876,6 +1890,16 @@ async def _maybe_auto_deal(ctx) -> bool:
         return False
     if ca.get("pending_showroom_choice"):   # customer hasn't picked ONE location yet
         return False
+    return await _create_deal_or_defer(ctx)
+
+
+async def _create_deal_or_defer(ctx) -> bool:
+    """Create the deal via the same core as the Create Deal button; on an
+    ambiguity/CRM error (409/422) fall back to deal-ready + a private note so a
+    human finishes it. Shared by the furniture auto-deal (retail owner) and the
+    FHC register_enquiry path (home-studio owner resolved by category + city)."""
+    conv = ctx["conv"]
+    ca = conv.setdefault("custom_attributes", {})
     try:
         result = await _deal_creator(ctx["conv_id"], agent_name="Durian agent mode")
         deal_id = (result or {}).get("deal_id")
@@ -2090,11 +2114,24 @@ to the comment, never paste the framing):
 
 def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
                    profile_block: str, templates: str, n_customer_msgs: int,
-                   post_caption: str = "", client_guidance: str = "") -> str:
+                   post_caption: str = "", client_guidance: str = "",
+                   channel: str = "instagram") -> str:
     if surface == "comment":
         return _comment_prompt(inbox, vertical, now, profile_block, templates,
                                post_caption, client_guidance)
     guidance_block = _guidance_block(vertical, client_guidance)
+    chan = _CHANNEL_LABEL.get(channel, "Instagram")
+    char_cap = _CHANNEL_CHAR_LIMITS.get(channel, 1000)
+    char_soft = char_cap - 100
+    # WhatsApp carries the customer's phone as their number — never ask for it.
+    whatsapp_rule = (
+        "\n\nWHATSAPP: the customer's phone number IS their WhatsApp number and "
+        "we already hold it (shown in the profile) — NEVER ask for a phone "
+        "number. Ask their name only if the profile doesn't carry it. For a "
+        "store or customisation enquiry, ask for their pincode (city is a nice "
+        "extra). The deal is created against their WhatsApp number."
+        if channel == "whatsapp" else "")
+    guidance_block = whatsapp_rule + guidance_block
     converge = ""
     if n_customer_msgs >= config.SOCIAL_AGENT_CONVERGE_AFTER:
         converge = ("\nCONVERGE NOW: this conversation is running long. Complete "
@@ -2132,7 +2169,7 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "and a time (morning / afternoon / evening), then call book_store_visit; "
         "it books the appointment at their store. Never promise a specific person."
         if config.SOCIAL_AGENT_STORE_VISIT_ENABLED else "")
-    return f"""You are Durian's front-of-house agent on Instagram ({inbox} — \
+    return f"""You are Durian's front-of-house agent on {chan} ({inbox} — \
 the {vertical} account). Durian sells premium furniture, doors and modular \
 interiors. Your job: help customers buy, faster — fewest, clearest messages.{fhc_rule}
 
@@ -2189,12 +2226,12 @@ reformatted) and discard the material's FRAMING — its "Dear Customer", its \
 greetings, its sign-offs. However many sources feed one reply, the reply \
 has exactly one opening and exactly one "Regards,\\nTeam Durian", at the \
 very end (skip it on one-liners). Professional and minimal — no emoji, \
-plain text (Instagram renders no markdown), shortest useful answer, one \
+plain text (keep formatting minimal), shortest useful answer, one \
 question at a time (EXCEPTION per step 3: a lead-capture handoff asks for all \
 the missing capture details — name, phone, city/pincode — together in that \
 one message). EVERY product you quote carries its durian.in link \
-from search_products — no exception, comparisons included. Instagram \
-delivers at most 1000 characters per message — stay under 900: at most \
+from search_products — no exception, comparisons included. {chan} \
+delivers at most {char_cap} characters per message — stay under {char_soft}: at most \
 THREE products per reply (best fits first; more exist → say they can ask), \
 one short line + link each. Add one line "EMI options available" where \
 useful. Reply in ENGLISH ONLY: understand Hindi/Hinglish/Devanagari input fully, but \
@@ -2281,10 +2318,43 @@ ADAPT ones follow intent and skip satisfied steps):
 
 # ── Eligibility + entry ─────────────────────────────────────────────────────
 
+def _seed_whatsapp_phone(prof: dict, contact: dict) -> None:
+    """Put the customer's WhatsApp number on the profile as their phone, if the
+    profile doesn't already hold one — so the agent treats it as known (never
+    asks) and the deal keys on it. Only a valid Indian mobile is accepted."""
+    if ((prof.get("identity") or {}).get("phone") or {}).get("value"):
+        return
+    m = _PHONE_DIGITS.search(re.sub(r"[\s-]", "", str(contact.get("phone_number") or "")))
+    if not m:
+        return
+    prof.setdefault("identity", {})["phone"] = {
+        "value": m.group(1), "quote": "", "note": "WhatsApp number"}
+
+
+def _whatsapp_agent_vertical(conv: dict):
+    """The vertical for a WhatsApp conversation whose inbox the agent is
+    switched on for (SOCIAL_AGENT_WHATSAPP_INBOXES, e.g. {"25": "fhc"}), matched
+    by inbox id or name. None → the agent does NOT run on this WhatsApp inbox
+    (it keeps its current behaviour)."""
+    mapping = config.SOCIAL_AGENT_WHATSAPP_INBOXES
+    if not mapping:
+        return None
+    inbox_id = conv.get("inbox_id") or (conv.get("meta") or {}).get("inbox_id")
+    name = ((conv.get("inbox") or {}).get("name") or "").strip().lower()
+    if inbox_id is not None and str(inbox_id) in mapping:
+        return mapping[str(inbox_id)]
+    return mapping.get(name)
+
+
 def eligible(conv: dict, channel: str) -> bool:
     if not config.SOCIAL_AGENT_ENABLED:
         return False
-    if channel not in config.SOCIAL_AGENT_CHANNELS:
+    if channel == "whatsapp":
+        # WhatsApp is agentic only on explicitly designated inboxes (e.g. the
+        # FHC number); every other WhatsApp inbox keeps its current behaviour.
+        if _whatsapp_agent_vertical(conv) is None:
+            return False
+    elif channel not in config.SOCIAL_AGENT_CHANNELS:
         return False
     allow = config.SOCIAL_AGENT_CONTACT_ALLOWLIST
     if not allow:
@@ -2456,6 +2526,12 @@ async def _handle_locked(conv, conv_id, channel, surface,
         or (await chatwoot.get_inbox_name(inbox_id) if inbox_id else "") \
         or (conv.get("meta") or {}).get("channel") or ""
     vertical = _inbox_vertical(inbox_name)
+    if channel == "whatsapp":
+        # The designated WhatsApp inbox carries its vertical in the config map
+        # (an FHC WhatsApp inbox name wouldn't be detected by _inbox_vertical).
+        wa_vert = _whatsapp_agent_vertical(conv)
+        if wa_vert:
+            vertical = wa_vert
 
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
     ca = conv.get("custom_attributes") or {}
@@ -2510,6 +2586,10 @@ async def _handle_locked(conv, conv_id, channel, surface,
     await profile_mod.crm_lookup(prof, conv_id, inbox_name,
                                  zoho_crm.search_contact_by_phone,
                                  zoho_crm.get_contact_deals)
+    if channel == "whatsapp":
+        # The WhatsApp number IS the customer's phone — seed it so the agent
+        # never asks for one and the deal can auto-create against it.
+        _seed_whatsapp_phone(prof, contact)
     phone_val = ((prof.get("identity") or {}).get("phone") or {}).get("value")
     # The phone the AGENT set in the profile on an earlier turn — mirror it
     # onto the conversation so the deal core and the manual Create Deal button
@@ -2602,7 +2682,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
                         .get("caption") or "").strip()
     client_guidance = _client_guidance(vertical)
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
-                            templates, n_customer, post_caption, client_guidance)
+                            templates, n_customer, post_caption, client_guidance,
+                            channel=channel)
     viz_pass = ""
     if config.VISUALIZER_ENABLED and surface != "comment" \
             and _viz_allowed(conv):
@@ -2905,7 +2986,8 @@ async def _mark_agent_owned(conv, conv_id, channel) -> None:
 # Meta's Send API rejects longer texts outright (error 100: "message sent is
 # over 1000 characters") — and the failure is invisible here: Chatwoot stores
 # the message, Instagram just never delivers it.
-_CHANNEL_CHAR_LIMITS = {"instagram": 1000, "facebook": 2000}
+_CHANNEL_CHAR_LIMITS = {"instagram": 1000, "facebook": 2000, "whatsapp": 4096}
+_CHANNEL_LABEL = {"instagram": "Instagram", "facebook": "Facebook", "whatsapp": "WhatsApp"}
 
 
 def split_for_channel(text: str, channel: str) -> list[str]:
