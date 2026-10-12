@@ -511,6 +511,41 @@ async def list_deal_conversations(max_age_days: int = 90, max_pages: int = 40) -
     return out
 
 
+async def list_conversations_by_label(label: str, max_pages: int = 20,
+                                      statuses=("open", "pending", "snoozed")
+                                      ) -> list[dict]:
+    """Conversations carrying `label`, across `statuses`, deduped by id.
+
+    Generic sibling of list_deal_conversations. Defaults to the LIVE statuses
+    (resolved is excluded on purpose — a conversation a human already resolved
+    is not a pending/ghosted one). Each item carries custom_attributes, so the
+    caller can read flow state (e.g. wa_fhc) without a second fetch."""
+    out: list[dict] = []
+    seen: set = set()
+    async with httpx.AsyncClient(timeout=20) as client:
+        for status in statuses:
+            for page in range(1, max_pages + 1):
+                r = await client.get(
+                    _acct_url("/conversations"), headers=_headers(),
+                    params={"status": status, "labels": label, "page": page},
+                )
+                if r.status_code >= 300:
+                    print(f"[chatwoot] list_conversations_by_label({label}) non-200 "
+                          f"[{r.status_code}]: {r.text[:200]}")
+                    break
+                payload = r.json().get("data") or {}
+                payload = payload.get("payload") if isinstance(payload, dict) else []
+                if not payload:
+                    break
+                for c in payload:
+                    cid = c.get("id")
+                    if cid in seen:
+                        continue
+                    seen.add(cid)
+                    out.append(c)
+    return out
+
+
 # ── Zoho-ticket surfacing helpers (used by the bridge to make Zoho Desk
 #    tickets visible in the Chatwoot dashboard after creation) ────────────
 async def post_private_note(conversation_id: int, content: str) -> dict:
