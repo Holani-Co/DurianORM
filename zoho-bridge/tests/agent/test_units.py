@@ -1151,3 +1151,55 @@ def test_wrote_this_turn_forces_a_send():
     assert sa._wrote_this_turn("", reg) is False                    # no reply → can't send
     assert sa._wrote_this_turn("hi", [{"name": "find_showrooms", "result": {"resolved": True}}]) is False
     assert sa._wrote_this_turn("booked", [{"name": "book_store_visit", "result": {"booked": True}}]) is True
+
+
+# ── FHC deal confirmation sends the studio address (PR: feat/fhc-deal-store-ack) ──
+
+def _fhc_reg_ctx():
+    return {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+            "conv": {"custom_attributes": {}},
+            "profile": {"identity": {"phone": {"value": "9876543210"}}},
+            "incoming_all": ["my pincode is 110015"],
+            "all_messages": [{"message_type": 0, "content": "my pincode is 110015"}]}
+
+
+def test_fhc_deal_confirmation_includes_studio_card(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {
+        "card_name": "Durian FHC — Delhi - Kirti Nagar", "address": "A-1 Kirti Nagar, New Delhi",
+        "timing": "10am-8pm", "map_url": "https://maps.app.goo.gl/xyz"})
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+
+    async def creator(conv_id, agent_name=""):
+        return {"deal_id": "D9", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+        _fhc_reg_ctx(), category="fhc", city="New Delhi"))
+    assert r["deal_created"] is True
+    assert "Kirti Nagar" in r["store_card"] and "maps.app.goo.gl" in r["store_card"]
+    assert "share the studio" in r["next"]
+
+
+def test_fhc_deal_no_studio_in_range_stays_plain(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    # no FHC studio for this city (out of coverage → Customer Support)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: None)
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+
+    async def creator(conv_id, agent_name=""):
+        return {"deal_id": "D9", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    # city given this chat (confirm gate) but resolve→None means no studio card
+    ctx = dict(_fhc_reg_ctx(), all_messages=[{"message_type": 0, "content": "Imphal"}],
+               incoming_all=["Imphal"])
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Imphal"))
+    assert r["deal_created"] is True and "store_card" not in r
+    assert "our team will reach out" in r["next"]
