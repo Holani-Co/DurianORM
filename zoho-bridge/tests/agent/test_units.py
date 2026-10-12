@@ -814,8 +814,9 @@ def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
     monkeypatch.setattr(sa.store_locator, "resolve", lambda vert, pincode=None, city=None:
                         {"card_name": "FHC - Varanasi"} if city == "Varanasi" else None)
     assert asyncio.run(note(ctx, city="Varanasi", phone="9876543210"))["noted"] is False
+    # Varanasi wasn't typed this chat, so registering needs the agent to confirm it.
     assert asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
-        ctx, category="fhc", city="Varanasi", phone="9876543210"))["registered"]
+        ctx, category="fhc", city="Varanasi", phone="9876543210", confirm=True))["registered"]
     assert "deal-ready" in fake.labels
 
 
@@ -875,10 +876,13 @@ def test_seed_whatsapp_phone():
 
 
 def _register_ctx():
+    # The customer gave a pincode THIS chat → location is confirmed-in-chat, so
+    # register_enquiry may auto-create without a separate confirm step.
     return {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
             "conv": {"custom_attributes": {}},
             "profile": {"identity": {"phone": {"value": "9876543210"}}},
-            "incoming_all": ["9876543210"]}
+            "incoming_all": ["9876543210"],
+            "all_messages": [{"message_type": 0, "content": "my pincode is 560001"}]}
 
 
 def test_register_enquiry_fhc_auto_creates_deal(monkeypatch):
@@ -1041,3 +1045,109 @@ def test_book_store_visit_no_deal_possible_defers(monkeypatch):
     r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
         _visit_ctx(ca={}), date="2099-10-17"))
     assert r["booked"] is False and "register the enquiry first" in r["note"] and not events
+
+
+# ── Turn-budget handoff is opt-in (default off) ──────────────────────────────
+
+def test_handoff_budget_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", 0)
+    assert sa._handoff_over_budget(1) is False
+    assert sa._handoff_over_budget(500) is False          # long/returning convo keeps engaging
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", -5)
+    assert sa._handoff_over_budget(500) is False
+
+
+def test_handoff_budget_enabled_when_positive(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", 25)
+    assert sa._handoff_over_budget(25) is False
+    assert sa._handoff_over_budget(26) is True
+
+
+# ── Engagement-scoped message count (converge + optional handoff) ────────────
+
+def _inc(text="hi"):
+    return {"message_type": 0, "content": text}
+
+
+def _resolved_activity():
+    return {"message_type": 2, "content": "Conversation was marked resolved by Aditya"}
+
+
+def test_engagement_count_resets_after_resolve():
+    # 6 old messages, resolved, then 1 new "Hii" → the current engagement is 1,
+    # not 7, so converge/handoff see a fresh conversation.
+    msgs = [_inc() for _ in range(6)] + [_resolved_activity()] + [_inc("Hii")]
+    assert sa._engagement_incoming_count(msgs) == 1
+
+
+def test_engagement_count_whole_history_when_never_resolved():
+    msgs = [_inc() for _ in range(4)]
+    assert sa._engagement_incoming_count(msgs) == 4
+
+
+def test_engagement_count_counts_after_the_LAST_resolve():
+    msgs = ([_inc()] + [_resolved_activity()] + [_inc(), _inc()]
+            + [_resolved_activity()] + [_inc("latest")])
+    assert sa._engagement_incoming_count(msgs) == 1
+
+
+def test_engagement_count_never_zero():
+    assert sa._engagement_incoming_count([_resolved_activity()]) == 1
+    assert sa._engagement_incoming_count([]) == 1
+
+
+# ── Engage-first + confirm-city + never-silent-after-write (PR #263) ─────────
+
+def _conv_msgs(*texts, resolved_before=False):
+    msgs = []
+    if resolved_before:
+        msgs += [{"message_type": 0, "content": "old enquiry"},
+                 {"message_type": 2, "content": "Conversation was marked resolved by X"}]
+    msgs += [{"message_type": 0, "content": t} for t in texts]
+    return msgs
+
+
+def test_location_given_this_chat():
+    ctx = lambda msgs: {"all_messages": msgs}
+    assert sa._location_given_this_chat(ctx(_conv_msgs("I'm in 560001")), "Bengaluru") is True
+    assert sa._location_given_this_chat(ctx(_conv_msgs("I'm in New Delhi")), "New Delhi") is True
+    # city only from records (never typed this chat) → must be confirmed
+    assert sa._location_given_this_chat(ctx(_conv_msgs("Hello", "modular kitchen")), "New Delhi") is False
+    # a pincode given BEFORE a resolve doesn't count for the new engagement
+    assert sa._location_given_this_chat(
+        {"all_messages": _conv_msgs("hi", resolved_before=True) + []}, "Delhi") is False
+
+
+def test_register_enquiry_confirms_a_records_only_city(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {"card_name": "Studio"})
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    created = []
+
+    async def creator(conv_id, agent_name=""):
+        created.append(conv_id)
+        return {"deal_id": "D9", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    # City only from records (customer said just "Hello" + opener this chat)
+    ctx = {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+           "conv": {"custom_attributes": {}},
+           "profile": {"identity": {"phone": {"value": "9876543210"}}},
+           "incoming_all": ["Hello", "modular kitchen"],
+           "all_messages": _conv_msgs("Hello", "I want to ask about modular kitchen")}
+    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="New Delhi"))
+    assert r["registered"] is False and r["confirm_location"] is True
+    assert not created and "deal-ready" not in fake.labels          # nothing written yet
+    # after the customer confirms → confirm=true proceeds and creates
+    r2 = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="New Delhi", confirm=True))
+    assert r2["registered"] is True and r2.get("deal_created") is True and created == [1]
+
+
+def test_wrote_this_turn_forces_a_send():
+    reg = [{"name": "register_enquiry", "result": {"registered": True, "deal_created": True}}]
+    assert sa._wrote_this_turn("Your enquiry is registered.", reg) is True
+    assert sa._wrote_this_turn("", reg) is False                    # no reply → can't send
+    assert sa._wrote_this_turn("hi", [{"name": "find_showrooms", "result": {"resolved": True}}]) is False
+    assert sa._wrote_this_turn("booked", [{"name": "book_store_visit", "result": {"booked": True}}]) is True

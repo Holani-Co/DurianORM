@@ -147,6 +147,60 @@ def _is_fhc_account(inbox_name: str) -> bool:
     return "fullhomecustomisation" in (inbox_name or "").lower().replace("_", "").replace(" ", "")
 
 
+def _handoff_over_budget(n_customer: int) -> bool:
+    """The optional loop-safety cap: hand off once a conversation has had more
+    than SOCIAL_AGENT_HANDOFF_AFTER customer messages. Cap <= 0 (the default)
+    disables it — the agent keeps engaging and hands off only case-based."""
+    cap = config.SOCIAL_AGENT_HANDOFF_AFTER
+    return cap > 0 and n_customer > cap
+
+
+def _engagement_incoming(all_messages) -> list:
+    """Customer messages in the CURRENT engagement — those since the conversation
+    was last resolved (a resolve ends an engagement; a later message starts a
+    fresh one). The whole history when never resolved."""
+    start = 0
+    for i, m in enumerate(all_messages or []):
+        if m.get("message_type") in (2, "activity") \
+                and "resolved" in (m.get("content") or "").lower():
+            start = i + 1
+    return [m for m in (all_messages or [])[start:]
+            if m.get("message_type") in (0, "incoming")]
+
+
+def _engagement_incoming_count(all_messages) -> int:
+    """How many customer messages in the current engagement (min 1). Used for the
+    'converge' nudge and the optional handoff cap, so a returning customer or a
+    long-resolved/reused thread isn't treated as 'running long' from message one."""
+    return len(_engagement_incoming(all_messages)) or 1
+
+
+def _wrote_this_turn(reply: str, tool_results: list) -> bool:
+    """True when a skill this turn created/registered a deal, routed a showroom,
+    or booked a visit AND the agent has a reply to send — the customer must then
+    hear the confirmation even if confidence is low (a side effect must never
+    leave them silent)."""
+    return bool(reply and reply.strip()) and any(
+        isinstance(tr.get("result"), dict)
+        and (tr["result"].get("deal_created") or tr["result"].get("registered")
+             or tr["result"].get("routed") or tr["result"].get("booked"))
+        for tr in (tool_results or []))
+
+
+def _location_given_this_chat(ctx, city: str) -> bool:
+    """True when the customer themselves gave their location in THIS engagement
+    (a 6-digit pincode, or the city's name) — as opposed to a city we only know
+    from their earlier records/CRM. A profile-sourced city must be confirmed with
+    the customer before we register a deal against it (a stale address shouldn't
+    silently book a new enquiry)."""
+    msgs = " ".join((m.get("content") or "")
+                    for m in _engagement_incoming(ctx.get("all_messages") or [])).lower()
+    if re.search(r"\b[1-9]\d{5}\b", msgs):   # a pincode they typed
+        return True
+    tokens = [t for t in re.split(r"[^a-z]+", (city or "").lower()) if len(t) >= 4]
+    return any(t in msgs for t in tokens)
+
+
 def inr(value) -> str:
     """Indian-notation rupees: 109520 → '₹1,09,520' (last 3 digits, then
     2-digit groups). Skills return prices ONLY in this form, so the model's
@@ -711,17 +765,24 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
 @_skill(
     "register_enquiry",
     "Register a DOORS or FULL-HOME (FHC) purchase enquiry (bounded write — "
-    "marks the deal category + customer details for your team's Create Deal). "
-    "USE ONCE when the vertical is doors/FHC and you hold BOTH phone and city "
-    "(a known pincode's city counts). No store in that city is needed.",
+    "marks the deal category + customer details and, for FHC, creates the deal). "
+    "USE ONCE, and NOT on the customer's opening line: first ENGAGE — understand "
+    "what they actually want (room / scope / requirement) — then register when "
+    "they've described it or want to proceed. You need BOTH phone and city (a "
+    "pincode counts). If the city comes only from our records and they didn't "
+    "give it THIS chat, confirm it with them first, then call again with "
+    "confirm=true. No store in that city is needed.",
     {"category": {"type": "string", "enum": ["doors", "fhc"]},
-     "phone": {"type": "string"}, "city": {"type": "string"}},
+     "phone": {"type": "string"}, "city": {"type": "string"},
+     "confirm": {"type": "boolean",
+                 "description": "true ONLY after the customer confirmed a city we "
+                                "knew only from their records"}},
     {"registered": "bool", "note": "str"},
     ({"category": "doors", "phone": "9560150835", "city": "Delhi"},
      {"registered": True}),
 )
 async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
-                               city: str = "", **_) -> dict:
+                               city: str = "", confirm: bool = False, **_) -> dict:
     conv_id = ctx["conv_id"]
     if store_locator.upcoming(category, city=city or None) and \
             not store_locator.resolve(category, city=city or None):
@@ -738,6 +799,15 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                         "again once they share it."}
     if not city:
         return {"registered": False, "note": "need the customer's city first — ask for it"}
+    # A city we only know from their records must be confirmed before we book a
+    # deal against it — a stale address shouldn't silently register a new enquiry.
+    if not (confirm or _location_given_this_chat(ctx, city)):
+        return {"registered": False, "confirm_location": True,
+                "note": f"The customer didn't give their location in THIS chat — we only "
+                        f"have '{city}' from their earlier records. First understand their "
+                        f"requirement, then confirm the location (e.g. \"shall I set this up "
+                        f"for our {city} area?\"); once they confirm, call register_enquiry "
+                        f"again with confirm=true. Do NOT say it's registered yet."}
     cat = {"doors": "doors_veneer_plywood", "fhc": "full_home_customization"}.get(
         category, "doors_veneer_plywood")
     conv = ctx["conv"]
@@ -2148,10 +2218,14 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "interiors, not the ready-made catalog. Do NOT call search_products and "
         "do NOT share ready-made product links or prices here — treat every "
         "furniture / wardrobe / interior mention as a CUSTOMISATION enquiry. "
-        "Acknowledge that we design and build it to the customer's requirement, "
-        "then (per the steps below) capture their full name + contact number + "
-        "city/pincode and register it with register_enquiry (category fhc) so our "
-        "FHC team takes it forward — that needs no studio in their city. "
+        "ENGAGE first: on their opening line (e.g. 'I want to ask about a modular "
+        "kitchen') ask what they're planning — room, scope, requirement — like a "
+        "person would. Do NOT call register_enquiry or create a deal on that first "
+        "message. Acknowledge that we design and build it to their requirement, and "
+        "only once they've described it (or want to proceed) capture their name + "
+        "contact + city/pincode and register it with register_enquiry (category "
+        "fhc) — that needs no studio in their city. If you only know their city "
+        "from past records, confirm it with them before registering. "
         "share_offer and showroom details are still fine; a ready-made SKU or its "
         "price is NOT."
         if _is_fhc_account(inbox) else "")
@@ -2644,12 +2718,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
         incoming_texts.append(latest)
     if not transcript:
         return {"ignored": True, "reason": "no_customer_message"}
-    n_customer = len([m for m in all_messages
-                      if m.get("message_type") in (0, "incoming")]) or 1
+    n_customer = _engagement_incoming_count(all_messages)
 
     # Handoff budget: past the cap → cards only (one courteous send happens at
     # the moment the cap is crossed, marked in attrs so it happens once).
-    over_budget = n_customer > config.SOCIAL_AGENT_HANDOFF_AFTER
+    # Disabled (cap <= 0, the default) → never force a handoff on message count;
+    # the agent keeps engaging and hands off only case-based (escalate_to_human).
+    over_budget = _handoff_over_budget(n_customer)
     profile_block = profile_mod.render(prof, contact_name, inbox_name)
     if prior_block:
         profile_block += ("\n\nFIRST TIME WE HOLD A PROFILE FOR THIS CONTACT — "
@@ -2888,11 +2963,15 @@ async def _handle_locked(conv, conv_id, channel, surface,
         tr.get("name") in ("find_showrooms", "route_to_showroom")
         and isinstance(tr.get("result"), dict) and tr["result"].get("options")
         for tr in tool_results)
+    # A write happened this turn (deal created / enquiry registered / showroom
+    # routed / visit booked) → the customer MUST hear the confirmation, so the
+    # soft holds (low confidence, model chose "card") are bypassed. The hard
+    # safety holds (violations, auto-send master switch, budget) still apply — a
+    # side effect must never leave the customer silent.
+    wrote_this_turn = _wrote_this_turn(reply, tool_results)
     hold = ""
     if over_budget:
         hold = "turn budget exhausted — human takes over"
-    elif (finish.get("action") or "card") != "send":
-        hold = finish.get("reasoning") or "agent chose review"
     elif surface == "comment" and comment_violation(reply):
         hold = comment_violation(reply)
     elif reasks_known_details(reply, prof, location_ask_ok):
@@ -2901,6 +2980,10 @@ async def _handle_locked(conv, conv_id, channel, surface,
         hold = "reply contains a non-allowlisted link"
     elif not config.SOCIAL_AUTO_SEND_ENABLED:
         hold = "auto-send is switched off"
+    elif wrote_this_turn:
+        hold = ""   # confirm the action we just took, regardless of confidence
+    elif (finish.get("action") or "card") != "send":
+        hold = finish.get("reasoning") or "agent chose review"
     elif confidence < config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE:
         hold = (f"confidence {confidence}% below the "
                 f"{config.SOCIAL_AUTO_SEND_MIN_CONFIDENCE}% bar")
