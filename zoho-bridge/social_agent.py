@@ -175,6 +175,20 @@ def _engagement_incoming_count(all_messages) -> int:
     return len(_engagement_incoming(all_messages)) or 1
 
 
+def _fhc_studio_card(city: str, pincode: str = "") -> str:
+    """The customer-facing address card of the FHC studio serving `city` (the
+    same store find_showrooms would show), or "" when the city has no studio in
+    range (out-of-coverage → the deal went to Customer Support, so no card).
+    Used to send the studio details alongside an FHC deal-created confirmation."""
+    try:
+        store = store_locator.resolve("fhc", pincode=pincode or None, city=city or None)
+    except Exception:
+        return ""
+    if not store or store.get("ambiguous") or not store.get("address"):
+        return ""
+    return store_locator.format_card(store)
+
+
 def _wrote_this_turn(reply: str, tool_results: list) -> bool:
     """True when a skill this turn created/registered a deal, routed a showroom,
     or booked a visit AND the agent has a reply to send — the customer must then
@@ -828,10 +842,23 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
     if category == "fhc" and config.SOCIAL_AGENT_AUTO_DEAL and _deal_creator:
         created = await _create_deal_or_defer(ctx)
         if created:
+            # Tell the customer the deal is created AND, when their city has a
+            # real FHC studio, send that studio's address card (the one
+            # find_showrooms would show — NOT the internal owner key). A city
+            # with no studio in range routed to Customer Support → no card,
+            # the plain "our team will reach out" line.
+            studio = _fhc_studio_card(city)
+            if studio:
+                return {"registered": True, "category": cat, "deal_created": True,
+                        "store_card": studio,
+                        "next": "tell the customer their full-home enquiry is registered / "
+                                "deal created, AND in the SAME message share the studio "
+                                "handling it — paste the facts from store_card EXACTLY (name, "
+                                "📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map). Do NOT "
+                                "invent or reformat them; do NOT name internal owners."}
             return {"registered": True, "category": cat, "deal_created": True,
-                    "next": "the deal is created and routed to the Home Studio team; tell "
-                            "the customer our team will reach out — do NOT share internal "
-                            "owner/studio names"}
+                    "next": "the deal is created and routed to our team; tell the customer "
+                            "our team will reach out — do NOT share internal owner/studio names"}
     return {"registered": True, "category": cat,
             "next": "details are captured for our team, who will raise the "
                     "enquiry and reach out — say that; do NOT say the enquiry "
