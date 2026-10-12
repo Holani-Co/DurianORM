@@ -26,7 +26,7 @@ import asyncio
 import base64
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 
 from openai import AsyncOpenAI
 
@@ -811,6 +811,144 @@ async def _sk_note_upcoming_store_lead(ctx, phone: str = "", name: str = "", cit
     return {"noted": True,
             "next": "tell the customer our team has their details and will keep them "
                     "posted about the launch — do NOT say an enquiry or deal is created"}
+
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _visit_slot_times(day: date, slot: str):
+    """(start_iso, end_iso, start_dt) for a 1-hour store visit at the slot's
+    hour. Mirrors whatsapp_fhc so both channels book the same way."""
+    hour = config.FHC_SLOT_HOURS.get(slot, 11)
+    start = datetime(day.year, day.month, day.day, hour, 0, tzinfo=_IST)
+    return start.isoformat(), (start + timedelta(hours=1)).isoformat(), start
+
+
+def _visit_date(value: str) -> date:
+    """Parse the agent's YYYY-MM-DD (tolerating a datetime string / spaces)."""
+    return date.fromisoformat(str(value or "").strip()[:10])
+
+
+@_skill(
+    "book_store_visit",
+    "Book an in-person visit to the customer's nearest Durian store/studio and "
+    "put it on the team's calendar — any vertical. USE when the customer agrees "
+    "to come in AND you already registered their enquiry this conversation "
+    "(route_to_showroom for furniture, or register_enquiry for doors/FHC), so a "
+    "deal exists to attach the visit to. Pass the DATE they chose as YYYY-MM-DD "
+    "(work it out from CURRENT TIME — e.g. 'this Saturday') and a time slot; pass "
+    "their pincode/city so the right store is picked. Needs their phone (on "
+    "WhatsApp it is already known). Creates the appointment; do NOT promise a "
+    "specific person will be there.",
+    {"date": {"type": "string", "description": "visit date, YYYY-MM-DD"},
+     "slot": {"type": "string", "enum": ["morning", "afternoon", "evening"]},
+     "people": {"type": "string", "description": "how many will visit, if they said"},
+     "pincode": {"type": "string"}, "city": {"type": "string"}},
+    {"booked": "bool", "when": "str", "store": "str", "note": "str"},
+    ({"date": "2026-10-18", "slot": "morning", "pincode": "560001"},
+     {"booked": True, "when": "Saturday 18 Oct, 11:00 AM", "store": "Furniture - Bengaluru - Indiranagar"}),
+)
+async def _sk_book_store_visit(ctx, date: str = "", slot: str = "morning", people: str = "",
+                               pincode: str = "", city: str = "", **_) -> dict:
+    if not config.SOCIAL_AGENT_STORE_VISIT_ENABLED:
+        return {"booked": False, "note": "store-visit booking is not enabled — do not offer it"}
+    conv, conv_id = ctx["conv"], ctx["conv_id"]
+    vert = (ctx.get("vertical") or "furniture").strip().lower()
+
+    # The store to visit: the SAME locator find_showrooms uses, so the store we
+    # booked is the store we showed. Its owner owns the calendar event.
+    store = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+    if store is None:
+        return {"booked": False, "note": "no serviceable store for that location — "
+                                         "ask for their pincode, or capture the lead instead"}
+    if store.get("ambiguous"):
+        return {"booked": False, "options": store["options"],
+                "note": "several stores in that city — ask for their PINCODE to pick one"}
+    if not store.get("crm_owner_id"):
+        return {"booked": False, "note": "this store has no assigned owner yet — can't put the "
+                                         "visit on a calendar; capture the enquiry and let a human book it"}
+
+    try:
+        day = _visit_date(date)
+    except Exception:
+        return {"booked": False, "need_date": True,
+                "note": "ask the customer which DAY they'd like to visit (then pass it as YYYY-MM-DD)"}
+    if day < datetime.now(_IST).date():
+        return {"booked": False, "note": "that date is in the past — ask for a day from today onward"}
+    if slot not in config.FHC_SLOT_HOURS:
+        slot = "morning"
+
+    phone = await _record_enquiry_phone(ctx, "") or \
+        ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or \
+        str((conv.get("custom_attributes") or {}).get("retail_customer_phone") or "")
+    if not phone:
+        return {"booked": False, "need_phone": True,
+                "note": "ASK for their phone number first, then book"}
+
+    # A deal must exist to attach the visit to. The agent registers the enquiry
+    # BEFORE booking (prompt step 3), so this usually just reads the id; if the
+    # deal hasn't been created yet, create it now via the same core the button uses.
+    ca = conv.get("custom_attributes") or {}
+    deal_id = str(ca.get("crm_deal_id") or "")
+    if not deal_id and _deal_creator:
+        try:
+            result = await _deal_creator(conv_id, agent_name="Durian agent mode")
+            deal_id = str((result or {}).get("deal_id") or "")
+        except Exception as e:
+            print(f"[agent] store-visit deal-ensure failed for conv {conv_id}: {e}")
+    if not deal_id:
+        return {"booked": False, "note": "register the enquiry first (route_to_showroom / "
+                                         "register_enquiry) so there's a deal to attach the visit to"}
+    conv = await chatwoot.get_conversation(conv_id)
+    ca = conv.get("custom_attributes") or {}
+    contact_id = str(ca.get("crm_contact_id") or "")
+
+    name = ((ctx["profile"].get("identity") or {}).get("name") or {}).get("value") \
+        or ((conv.get("meta") or {}).get("sender") or {}).get("name") or "Customer"
+    start_iso, end_iso, start_dt = _visit_slot_times(day, slot)
+    when = f"{start_dt:%A %d %b, %-I:%M %p}"
+    card = store.get("card_name") or ""
+    desc = (f"Store visit booked via ORM agent.\nCustomer: {name} · {phone}\n"
+            f"People: {people or '—'}\nStore: {card}")
+    try:
+        result = await zoho_crm.create_event(
+            f"Store Visit — {name} — {card}", start_iso, end_iso,
+            owner_id=store["crm_owner_id"], host_id=store["crm_owner_id"],
+            location=f"Durian — {card}", description=desc,
+            what_id=deal_id, who_id=contact_id)
+    except Exception as e:
+        print(f"[agent] store-visit event create failed for conv {conv_id}: {e}")
+        try:
+            await chatwoot.post_private_note(
+                conv_id, f"⚠️ Store visit could NOT be booked automatically ({e}) — "
+                         f"please confirm with the customer and add it manually.")
+            await chatwoot.add_label(conv_id, "agent-needed")
+            if ctx.get("channel"):
+                await chatwoot.add_label(conv_id, f"agent-needed-{ctx['channel']}")
+        except Exception:
+            pass
+        return {"booked": False, "note": "couldn't create the visit — a human will confirm it; "
+                                         "tell the customer our team will confirm the appointment"}
+
+    event_id = str((result or {}).get("id") or "")
+    link = zoho_crm.event_url(event_id) if event_id else ""
+    try:
+        await chatwoot.post_private_note(
+            conv_id, f"🗓️ Store visit booked — {name} · {phone} · {when} · {card}"
+                     + (f" · {people} ppl" if people else "")
+                     + (f"\n🔗 Open the meeting in Zoho: {link}" if link else ""))
+        await chatwoot.add_label(conv_id, "store-visit-booked")
+        await chatwoot.merge_custom_attributes(conv_id, {"store_visit": {
+            "store": card, "date": day.isoformat(), "slot": slot, "people": people,
+            "event_id": event_id, "deal_id": deal_id,
+            "at": profile_mod._iso(profile_mod.now())}})
+    except Exception as e:
+        print(f"[agent] store-visit surfacing failed for conv {conv_id}: {e}")
+
+    return {"booked": True, "when": when, "store": card,
+            "next": "confirm the visit to the customer in ONE message — the day + time, the "
+                    "store name and its address (from the store card) — and that our team will "
+                    "be expecting them. Do NOT name a specific staff member."}
 
 
 # Words that carry no category signal in an offer tag or a product name.
@@ -2017,6 +2155,12 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "share_offer and showroom details are still fine; a ready-made SKU or its "
         "price is NOT."
         if _is_fhc_account(inbox) else "")
+    visit_rule = (
+        " When the customer wants to VISIT a store in person — AFTER you have "
+        "registered their enquiry this turn (so a deal exists) — ask for the DAY "
+        "and a time (morning / afternoon / evening), then call book_store_visit; "
+        "it books the appointment at their store. Never promise a specific person."
+        if config.SOCIAL_AGENT_STORE_VISIT_ENABLED else "")
     return f"""You are Durian's front-of-house agent on {chan} ({inbox} — \
 the {vertical} account). Durian sells premium furniture, doors and modular \
 interiors. Your job: help customers buy, faster — fewest, clearest messages.{fhc_rule}
@@ -2055,7 +2199,7 @@ offer the showroom.
 3. ACT on state: purchase intent + unambiguous location → route_to_showroom \
 (furniture) or register_enquiry (doors/FHC); an OPENING-SOON location \
 (find_showrooms upcoming) → note_upcoming_store_lead instead, no deal. \
-find_showrooms alone registers nothing. A pincode alone is a complete location; a city with several \
+find_showrooms alone registers nothing.{visit_rule} A pincode alone is a complete location; a city with several \
 showrooms → ask for their pincode (name at most 2 options). Serve every \
 product on every account — the account's vertical only picks the deal route. \
 A CONTACT NUMBER is required to register an enquiry — if a routing skill \
@@ -2540,7 +2684,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
             f"── REPLY NOW TO ──\n{latest or (incoming_texts[-1] if incoming_texts else '')}")
 
     ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
-           "vertical": vertical, "surface": surface, "escalate": None,
+           "vertical": vertical, "channel": channel, "surface": surface, "escalate": None,
            "all_messages": all_messages, "incoming_all": incoming_texts}
     trace = [{"type": "policy", "source": "system", "visibility": "internal",
               "label": "Flow",
