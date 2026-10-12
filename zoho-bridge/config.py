@@ -675,6 +675,12 @@ SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", 
 # returning customer with history) isn't cut off mid-conversation.
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "25"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
+# Store-visit booking (book_store_visit skill): when a customer agrees to come
+# in, the agent books an appointment at their nearest store/studio — creating a
+# Zoho Meeting owned by that store, linked to the deal — across all verticals
+# (the WhatsApp FHC bot had this FHC-only; this brings it to the LLM agent).
+# Dark-launched OFF. Reuses FHC_SLOT_HOURS for the slot → hour mapping.
+SOCIAL_AGENT_STORE_VISIT_ENABLED = _bool("SOCIAL_AGENT_STORE_VISIT_ENABLED", "false")
 # Per-vertical client guidance (Settings → Agent Prompts) the social agent reads
 # each turn. Advisory: injected below the hard rules, and the send-time guardrails
 # still apply. Off by default until the client has reviewed what they wrote; the

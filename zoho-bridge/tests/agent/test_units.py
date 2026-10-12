@@ -829,3 +829,116 @@ def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
     ctx = {"conv_id": 1, "conv": {"custom_attributes": {}}, "profile": {}, "incoming_all": ["Yes sure"]}
     r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Varanasi"))
     assert r["registered"] is False and r["need_phone"] and not writes
+
+
+# ── book_store_visit (store-visit appointment, all verticals) ────────────────
+
+class _VisitFakeChatwoot:
+    def __init__(self, conv_after):
+        self.labels, self.notes, self.merged = [], [], []
+        self._conv_after = conv_after
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merged.append(attrs)
+
+    async def add_label(self, conv_id, label):
+        self.labels.append(label)
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+    async def get_conversation(self, conv_id):
+        return self._conv_after
+
+
+def _visit_env(monkeypatch, *, enabled=True, store=None, deal_in_ca=True,
+               contact_id="C7", creator_deal="D9"):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_STORE_VISIT_ENABLED", enabled)
+    resolved = store if store is not None else {
+        "card_name": "Furniture - Bengaluru - Indiranagar", "crm_owner_id": "OWN1", "city": "Bengaluru"}
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: resolved)
+    ca_now = {"crm_deal_id": "D1", "crm_contact_id": contact_id} if deal_in_ca \
+        else {"crm_contact_id": contact_id}
+    fake = _VisitFakeChatwoot({"custom_attributes": ca_now})
+    monkeypatch.setattr(sa, "chatwoot", fake)
+
+    events = []
+
+    async def create_event(title, start, end, **kw):
+        events.append({"title": title, "start": start, "end": end, **kw})
+        return {"id": "E1"}
+    monkeypatch.setattr(sa.zoho_crm, "create_event", create_event)
+    monkeypatch.setattr(sa.zoho_crm, "event_url", lambda eid: f"https://crm/ev/{eid}")
+
+    async def creator(conv_id, agent_name=""):
+        return {"deal_id": creator_deal, "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    return fake, events
+
+
+def _visit_ctx(ca=None):
+    return {"conv_id": 1, "channel": "instagram", "vertical": "furniture",
+            "conv": {"custom_attributes": ca if ca is not None else {"crm_deal_id": "D1"},
+                     "meta": {"sender": {"name": "Asha"}}},
+            "profile": {"identity": {"phone": {"value": "9876543210"},
+                                     "name": {"value": "Asha"}}},
+            "incoming_all": ["yes book it"]}
+
+
+def test_book_store_visit_happy_path(monkeypatch):
+    import asyncio
+    fake, events = _visit_env(monkeypatch)
+    r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
+        _visit_ctx(), date="2099-10-17", slot="morning", people="2", pincode="560038"))
+    assert r["booked"] is True and r["store"] == "Furniture - Bengaluru - Indiranagar"
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["owner_id"] == "OWN1" and ev["host_id"] == "OWN1"       # the store owns the meeting
+    assert ev["what_id"] == "D1" and ev["who_id"] == "C7"             # linked to deal + contact
+    assert ev["start"].startswith("2099-10-17T11:00")                # morning = 11:00 IST
+    assert "store-visit-booked" in fake.labels
+    assert any("store_visit" in m for m in fake.merged)
+    assert fake.notes and "Store visit booked" in fake.notes[0] and "9876543210" in fake.notes[0]
+
+
+def test_book_store_visit_disabled_is_inert(monkeypatch):
+    import asyncio
+    fake, events = _visit_env(monkeypatch, enabled=False)
+    r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](_visit_ctx(), date="2099-10-17"))
+    assert r["booked"] is False and "not enabled" in r["note"] and not events and not fake.notes
+
+
+def test_book_store_visit_needs_a_valid_future_date(monkeypatch):
+    import asyncio
+    _, events = _visit_env(monkeypatch)
+    assert asyncio.run(sa.SKILLS["book_store_visit"]["handler"](_visit_ctx(), date=""))["need_date"]
+    assert asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
+        _visit_ctx(), date="2000-01-01"))["booked"] is False          # past
+    assert not events
+
+
+def test_book_store_visit_no_owner_cannot_calendar(monkeypatch):
+    import asyncio
+    _, events = _visit_env(monkeypatch, store={"card_name": "X", "crm_owner_id": ""})
+    r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](_visit_ctx(), date="2099-10-17"))
+    assert r["booked"] is False and "owner" in r["note"] and not events
+
+
+def test_book_store_visit_creates_deal_when_missing(monkeypatch):
+    import asyncio
+    # No crm_deal_id in ca → the skill calls the deal creator; the refreshed
+    # conversation then carries the new id for the event link.
+    fake, events = _visit_env(monkeypatch, deal_in_ca=False)
+    fake._conv_after = {"custom_attributes": {"crm_deal_id": "D9", "crm_contact_id": "C7"}}
+    r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
+        _visit_ctx(ca={}), date="2099-10-17"))
+    assert r["booked"] is True and events[0]["what_id"] == "D9"
+
+
+def test_book_store_visit_no_deal_possible_defers(monkeypatch):
+    import asyncio
+    fake, events = _visit_env(monkeypatch, deal_in_ca=False, creator_deal="")
+    fake._conv_after = {"custom_attributes": {}}
+    r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
+        _visit_ctx(ca={}), date="2099-10-17"))
+    assert r["booked"] is False and "register the enquiry first" in r["note"] and not events
