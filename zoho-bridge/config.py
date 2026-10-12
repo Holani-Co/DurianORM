@@ -669,11 +669,14 @@ SOCIAL_AGENT_BOT_AGENT_NAMES = tuple(
     if s)
 SOCIAL_AGENT_MAX_STEPS = int(os.environ.get("SOCIAL_AGENT_MAX_STEPS", "6"))
 SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", "5"))
-# Hard handoff after this many customer messages — a LOOP-SAFETY backstop, not
-# the primary handoff. Genuine "can't help / no context" handoffs are case-based
-# (escalate_to_human, no-reply). Kept high so a healthy longer enquiry (or a
-# returning customer with history) isn't cut off mid-conversation.
-SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "25"))
+# OPTIONAL loop-safety backstop: hard-hand off after this many customer messages
+# in a conversation. 0 (the default) = OFF — the agent keeps engaging like a
+# person for as long as the customer talks, and hands off only case-based
+# (escalate_to_human when it genuinely can't help, or no-reply). It was counting
+# the conversation's WHOLE history, so a long/reused thread or a returning
+# customer who just said "Hi" was handed to a human on the first message — not
+# what we want. Set a positive number to re-enable the blunt cap.
+SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "0"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
 # Store-visit booking (book_store_visit skill): when a customer agrees to come
 # in, the agent books an appointment at their nearest store/studio — creating a

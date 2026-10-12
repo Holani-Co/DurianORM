@@ -147,6 +147,14 @@ def _is_fhc_account(inbox_name: str) -> bool:
     return "fullhomecustomisation" in (inbox_name or "").lower().replace("_", "").replace(" ", "")
 
 
+def _handoff_over_budget(n_customer: int) -> bool:
+    """The optional loop-safety cap: hand off once a conversation has had more
+    than SOCIAL_AGENT_HANDOFF_AFTER customer messages. Cap <= 0 (the default)
+    disables it — the agent keeps engaging and hands off only case-based."""
+    cap = config.SOCIAL_AGENT_HANDOFF_AFTER
+    return cap > 0 and n_customer > cap
+
+
 def inr(value) -> str:
     """Indian-notation rupees: 109520 → '₹1,09,520' (last 3 digits, then
     2-digit groups). Skills return prices ONLY in this form, so the model's
@@ -2569,7 +2577,9 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     # Handoff budget: past the cap → cards only (one courteous send happens at
     # the moment the cap is crossed, marked in attrs so it happens once).
-    over_budget = n_customer > config.SOCIAL_AGENT_HANDOFF_AFTER
+    # Disabled (cap <= 0, the default) → never force a handoff on message count;
+    # the agent keeps engaging and hands off only case-based (escalate_to_human).
+    over_budget = _handoff_over_budget(n_customer)
     profile_block = profile_mod.render(prof, contact_name, inbox_name)
     if prior_block:
         profile_block += ("\n\nFIRST TIME WE HOLD A PROFILE FOR THIS CONTACT — "

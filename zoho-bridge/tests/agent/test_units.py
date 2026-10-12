@@ -942,3 +942,19 @@ def test_book_store_visit_no_deal_possible_defers(monkeypatch):
     r = asyncio.run(sa.SKILLS["book_store_visit"]["handler"](
         _visit_ctx(ca={}), date="2099-10-17"))
     assert r["booked"] is False and "register the enquiry first" in r["note"] and not events
+
+
+# ── Turn-budget handoff is opt-in (default off) ──────────────────────────────
+
+def test_handoff_budget_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", 0)
+    assert sa._handoff_over_budget(1) is False
+    assert sa._handoff_over_budget(500) is False          # long/returning convo keeps engaging
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", -5)
+    assert sa._handoff_over_budget(500) is False
+
+
+def test_handoff_budget_enabled_when_positive(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_AFTER", 25)
+    assert sa._handoff_over_budget(25) is False
+    assert sa._handoff_over_budget(26) is True
