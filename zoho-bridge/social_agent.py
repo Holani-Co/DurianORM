@@ -175,13 +175,14 @@ def _engagement_incoming_count(all_messages) -> int:
     return len(_engagement_incoming(all_messages)) or 1
 
 
-def _fhc_studio_card(city: str, pincode: str = "") -> str:
-    """The customer-facing address card of the FHC studio serving `city` (the
-    same store find_showrooms would show), or "" when the city has no studio in
-    range (out-of-coverage → the deal went to Customer Support, so no card).
-    Used to send the studio details alongside an FHC deal-created confirmation."""
+def _deal_store_card(vertical: str, city: str, pincode: str = "") -> str:
+    """The customer-facing address card of the store/studio serving `city` for
+    this vertical (the same one find_showrooms would show), or "" when the city
+    has no store in range (out-of-coverage → the deal went to Customer Support /
+    the central desk, so no card). Sent alongside an FHC/doors deal-created
+    confirmation."""
     try:
-        store = store_locator.resolve("fhc", pincode=pincode or None, city=city or None)
+        store = store_locator.resolve(vertical, pincode=pincode or None, city=city or None)
     except Exception:
         return ""
     if not store or store.get("ambiguous") or not store.get("address"):
@@ -835,27 +836,28 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
         await chatwoot.add_label(conv_id, "deal-ready")
     except Exception:
         pass
-    # FHC: auto-create the Home Studio deal now (the owner resolves by category +
-    # city in the deal core) — parity with furniture's route_to_showroom and the
-    # old WhatsApp FHC bot. Doors stays deal-ready for a human. An ambiguity/CRM
-    # error falls back to deal-ready + the button inside _create_deal_or_defer.
-    if category == "fhc" and config.SOCIAL_AGENT_AUTO_DEAL and _deal_creator:
+    # FHC & Doors: auto-create the deal now (the owner resolves by category +
+    # city in the deal core — Home Studio for FHC, doors desk for doors) — parity
+    # with furniture's route_to_showroom and the old WhatsApp FHC bot. An
+    # ambiguity/CRM error falls back to deal-ready + the button inside
+    # _create_deal_or_defer.
+    if category in ("fhc", "doors") and config.SOCIAL_AGENT_AUTO_DEAL and _deal_creator:
         created = await _create_deal_or_defer(ctx)
         if created:
             # Tell the customer the deal is created AND, when their city has a
-            # real FHC studio, send that studio's address card (the one
-            # find_showrooms would show — NOT the internal owner key). A city
-            # with no studio in range routed to Customer Support → no card,
+            # real store/studio for this vertical, send its address card (the one
+            # find_showrooms would show — NOT the internal owner key). A city with
+            # no store in range routed to Customer Support / central → no card,
             # the plain "our team will reach out" line.
-            studio = _fhc_studio_card(city)
-            if studio:
+            store_card = _deal_store_card(category, city)
+            if store_card:
                 return {"registered": True, "category": cat, "deal_created": True,
-                        "store_card": studio,
-                        "next": "tell the customer their full-home enquiry is registered / "
-                                "deal created, AND in the SAME message share the studio "
-                                "handling it — paste the facts from store_card EXACTLY (name, "
-                                "📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map). Do NOT "
-                                "invent or reformat them; do NOT name internal owners."}
+                        "store_card": store_card,
+                        "next": "tell the customer their enquiry is registered / deal created, "
+                                "AND in the SAME message share the store/studio handling it — "
+                                "paste the facts from store_card EXACTLY (name, 📍 address, "
+                                "🕒 timing, 👤 manager, 📞 phone, 🗺️ map). Do NOT invent or "
+                                "reformat them; do NOT name internal owners."}
             return {"registered": True, "category": cat, "deal_created": True,
                     "next": "the deal is created and routed to our team; tell the customer "
                             "our team will reach out — do NOT share internal owner/studio names"}
