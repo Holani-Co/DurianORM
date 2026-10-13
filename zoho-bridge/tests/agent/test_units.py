@@ -905,11 +905,13 @@ def test_register_enquiry_fhc_auto_creates_deal(monkeypatch):
     assert "deal-ready" in fake.labels
 
 
-def test_register_enquiry_doors_stays_deal_ready(monkeypatch):
+def test_register_enquiry_doors_auto_creates_with_store_card(monkeypatch):
     import asyncio
     monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
     monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
-    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {"card_name": "Doors"})
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda vert, **k: {
+        "card_name": "Durian Doors — Bengaluru", "address": "MG Road, Bengaluru",
+        "map_url": "https://maps.app.goo.gl/d"} if vert == "doors" else None)
     fake = _DealFakeChatwoot()
     monkeypatch.setattr(sa, "chatwoot", fake)
     called = []
@@ -920,8 +922,9 @@ def test_register_enquiry_doors_stays_deal_ready(monkeypatch):
     monkeypatch.setattr(sa, "_deal_creator", creator)
 
     r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
-        dict(_register_ctx(), vertical="doors"), category="doors", city="Patna"))
-    assert r["registered"] is True and not r.get("deal_created") and called == []
+        dict(_register_ctx(), vertical="doors"), category="doors", city="Bengaluru"))
+    assert r["registered"] is True and r.get("deal_created") is True and called == [1]
+    assert "Durian Doors" in r["store_card"] and "maps.app.goo.gl" in r["store_card"]
 
 
 def test_system_prompt_is_channel_aware():
@@ -1181,7 +1184,7 @@ def test_fhc_deal_confirmation_includes_studio_card(monkeypatch):
         _fhc_reg_ctx(), category="fhc", city="New Delhi"))
     assert r["deal_created"] is True
     assert "Kirti Nagar" in r["store_card"] and "maps.app.goo.gl" in r["store_card"]
-    assert "share the studio" in r["next"]
+    assert "share the store/studio" in r["next"]
 
 
 def test_fhc_deal_no_studio_in_range_stays_plain(monkeypatch):
