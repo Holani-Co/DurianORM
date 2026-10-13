@@ -1,10 +1,10 @@
 - id: full_retail_close
   script:
     - {at: "0m", text: "I want to buy the Benjamin corner sofa"}
-    - {at: "3m", text: "9560150835"}
+    - {at: "3m", text: "Rahul Verma, 9560150835"}
     - {at: "5m", text: "110054"}
   expect:
-    tools_called: ["route_to_showroom"]
+    tools_called: ["register_enquiry"]
     attrs: {retail_deal_owner.location: "Delhi - Kirti Nagar", phase2_category: product_enquiry, crm_deal_id: TEST-DEAL-1}
     labels: ["retail-routed"]
     deal_created: true
@@ -16,7 +16,7 @@
   script:
     - {at: "0m", text: "I want the esmeralda marble dining set, my pincode is 110054"}
   expect:
-    tools_called: ["route_to_showroom|find_showrooms"]
+    tools_called: ["register_enquiry|find_showrooms"]
     deal_not_created: true
     judge: {min: 3}
 
@@ -52,7 +52,7 @@
   script:
     - {at: "0m", text: "110054"}
   expect:
-    tools_called: ["route_to_showroom"]
+    tools_called: ["register_enquiry"]
     deal_not_created: true
     sent_not_contains: ["(?i)enquiry (is |has been |was )?(registered|created)"]
     judge: {min: 3}
@@ -64,7 +64,7 @@
   script:
     - {at: "0m", text: "I want to buy the benjamin corner sofa. My pincode is 110054"}
   expect:
-    tools_called: ["route_to_showroom"]
+    tools_called: ["register_enquiry"]
     deal_not_created: true
     sent_contains: ["(?i)(phone|number|contact)"]
     sent_not_contains: ["(?i)enquiry (is |has been |was )?(registered|created|passed)"]
@@ -75,9 +75,9 @@
 - id: retail_creates_after_phone_shared
   script:
     - {at: "0m", text: "I want to buy the benjamin corner sofa. My pincode is 110054"}
-    - {at: "2m", text: "sure, my number is 9560150835"}
+    - {at: "2m", text: "sure, I am Rahul Verma and my number is 9560150835"}
   expect:
-    tools_called: ["route_to_showroom"]
+    tools_called: ["register_enquiry"]
     attrs: {retail_customer_phone: "9560150835"}
     deal_created: true
     deal_created_max: 1

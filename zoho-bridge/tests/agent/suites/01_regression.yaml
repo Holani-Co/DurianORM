@@ -5,10 +5,12 @@
   script:
     - {at: "0m", text: "110054"}
   expect:
-    tools_called: ["find_showrooms|route_to_showroom"]
+    tools_called: ["find_showrooms|register_enquiry"]
     sent_not_contains: ["which city", "let us know which city"]
-    attrs: {retail_deal_owner.location: "Delhi - Kirti Nagar"}
-    labels: ["retail-routed"]
+    # A pincode alone no longer registers anything: the enquiry needs a contact
+    # number and a name too, and the reply asks for both.
+    sent_contains: ["contact number|phone number|mobile number", "name"]
+    deal_not_created: true
     judge: {min: 3}
 
 - id: phantom_product_smalltalk

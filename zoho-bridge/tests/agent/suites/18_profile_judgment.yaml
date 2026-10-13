@@ -58,7 +58,7 @@
     - {at: "0m", text: "I want to buy the lewis corner sofa. my pincode is 110054"}
   expect:
     profile_field: {location.pincode: "110054"}
-    tools_called: ["find_showrooms|route_to_showroom"]
+    tools_called: ["find_showrooms|register_enquiry"]
 
 - id: someone_elses_pincode_not_set
   script:
@@ -121,7 +121,7 @@
 # ── Phone: theirs — or someone else's ─────────────────────────────────────
 - id: own_phone_is_set
   script:
-    - {at: "0m", text: "I want to buy the lewis corner sofa. my number is 9560150835, pincode 110054"}
+    - {at: "0m", text: "I am Rahul Verma. I want to buy the lewis corner sofa. my number is 9560150835, pincode 110054"}
   expect:
     profile_field: {identity.phone: "9560150835"}
     attrs: {retail_customer_phone: "9560150835"}
@@ -163,9 +163,9 @@
 # ── Routing and deals: learned from tool evidence, never invented ──────────
 - id: routed_learned_with_tool_evidence
   script:
-    - {at: "0m", text: "I want to buy the lewis corner sofa. 9560150835, pincode 110054"}
+    - {at: "0m", text: "I am Rahul Verma, I want to buy the lewis corner sofa. 9560150835, pincode 110054"}
   expect:
-    tools_called: ["route_to_showroom"]
+    tools_called: ["register_enquiry"]
     profile_field: {commercial.showroom: "Delhi - Kirti Nagar"}
     profile_has_event: [{kind: routed, what_contains: "Kirti Nagar"}]
 
@@ -173,7 +173,7 @@
   script:
     - {at: "0m", text: "which showrooms do you have in Delhi?"}
   expect:
-    tools_not_called: ["route_to_showroom"]
+    tools_not_called: ["register_enquiry"]
     profile_field_absent: [commercial.showroom]
 
 # ── Non-customer intent writes what it IS, never a product ────────────────

@@ -703,6 +703,9 @@ SOCIAL_AGENT_CONVERGE_AFTER = int(os.environ.get("SOCIAL_AGENT_CONVERGE_AFTER", 
 # what we want. Set a positive number to re-enable the blunt cap.
 SOCIAL_AGENT_HANDOFF_AFTER = int(os.environ.get("SOCIAL_AGENT_HANDOFF_AFTER", "0"))
 SOCIAL_AGENT_AUTO_DEAL = _bool("SOCIAL_AGENT_AUTO_DEAL", "true")
+# What a customer tells the agent AFTER their deal exists (which product, a
+# budget, a change) is posted onto that deal in Zoho as a note. Kill switch.
+SOCIAL_AGENT_DEAL_NOTES = _bool("SOCIAL_AGENT_DEAL_NOTES", "true")
 # Store-visit booking (book_store_visit skill): when a customer agrees to come
 # in, the agent books an appointment at their nearest store/studio — creating a
 # Zoho Meeting owned by that store, linked to the deal — across all verticals

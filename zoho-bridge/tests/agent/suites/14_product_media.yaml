@@ -83,7 +83,7 @@
     - {at: "0m", text: "", reel: true}
   expect:
     sent_contains: ["(?i)screenshot"]
-    tools_not_called: ["route_to_showroom", "register_enquiry"]
+    tools_not_called: ["register_enquiry"]
     judge: {min: 3}
 
 # A reel WITH a vague question still can't be interpreted → still ask for a screenshot.

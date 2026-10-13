@@ -22,6 +22,87 @@ def test_reask_detector():
     assert sa.reasks_known_details("could you let us know which city you are in", prof)
     assert not sa.reasks_known_details("our team will reach out shortly", prof)
     assert not sa.reasks_known_details("please share your Full Name", {"identity": {}, "location": {}})
+    # A name is never held in the profile, so asking for it is not a re-ask
+    # (conv 9725: "share your full name and what you are planning" was held).
+    assert not sa.reasks_known_details(
+        "Could you please share your full name and what you are planning?", prof)
+    assert sa.reasks_known_details("please share your contact number", prof)
+    # The store lookup itself asked for a pincode → a location ask is fine,
+    # and the name riding along with it must not trip the detector either.
+    assert not sa.reasks_known_details(
+        "Please share your full name and area pincode", prof, location_ask_ok=True)
+    assert sa.reasks_known_details("please share your phone number and pincode", prof,
+                                   location_ask_ok=True)
+    # We answering is not us asking: "share" here is ours, the pincode is in hand.
+    assert not sa.reasks_known_details(
+        "We'll then share the nearest showroom for pincode 201304.", prof)
+    assert not sa.reasks_known_details("Our team will send the details to your phone.", prof)
+
+
+def test_ungrounded_facts():
+    """The send/hold test: only a price, number or link found nowhere in what
+    the turn could quote is a reason to hold."""
+    src = ('{"price": "₹59,800", "link": "https://www.durian.in/product/elentra-high-back"} '
+           '📞 8657960901/ 18002093242 🗺️ https://maps.app.goo.gl/viuUEuHPAETCHTiq6 '
+           'customer: my number is 9560150835, pincode 110021. template: call 1800 209 3242. '
+           'price ₹1,09,520')
+    for clean in (
+            "Could you tell us what you are planning — a modular kitchen or a wardrobe?",
+            "Please share your full name, contact number and city so we can register this.",
+            "Elentra — ₹59,800 each\nhttps://www.durian.in/product/elentra-high-back",
+            "Kirti Nagar studio, 11.00 AM - 8.00 PM\n📞 8657960901/ 18002093242\n"
+            "https://maps.app.goo.gl/viuUEuHPAETCHTiq6",
+            "Reach us on 1800 209 3242. More at https://www.durian.in/",
+            "Noted: pincode 110021, number 9560150835. Lewis is ₹1,09,520 (Rs 109520)."):
+        assert sa.ungrounded_facts(clean, src) == [], clean
+    assert sa.ungrounded_facts("Elentra is ₹49,800 today.", src) == ["price ₹49,800"]
+    assert sa.ungrounded_facts("Call our manager on 98765 43210.", src) == ["number 98765 43210"]
+    assert sa.ungrounded_facts("See https://www.durian.in/product/made-up-sofa", src) == \
+        ["link https://www.durian.in/product/made-up-sofa"]
+    assert len(sa.ungrounded_facts("₹49,800, or EMI from Rs. 3,499; call 98765 43210", src)) == 3
+    # Checked arithmetic on quoted prices is grounded; wrong arithmetic is not.
+    assert sa.ungrounded_facts("Elentra ₹59,800 vs Lewis ₹1,09,520 — ₹49,720 more.", src) == []
+    assert sa.ungrounded_facts("10 Elentra chairs at ₹59,800 each: ₹5,98,000.", src) == []
+    assert sa.ungrounded_facts("10 Elentra chairs at ₹59,800 each: ₹5,50,000.", src) == \
+        ["price ₹5,50,000"]
+
+
+def test_hold_reason_needs_a_checkable_problem(monkeypatch):
+    """Send vs hold is code's call. The model's opinion of its own reply is not
+    even an input — asking for missing details or a clarifying question always
+    goes out (convs 9868, 9928 were held for exactly that)."""
+    monkeypatch.setattr(sa.config, "SOCIAL_AUTO_SEND_ENABLED", True)
+    monkeypatch.setattr(sa.config, "SOCIAL_AUTO_SEND_MIN_CONFIDENCE", 80)
+    src = '{"price": "₹59,800", "link": "https://www.durian.in/product/elentra"} 📞 8657960901'
+    empty = {"identity": {}, "location": {}}
+    held = {"identity": {"phone": {"value": "9560150835"}},
+            "location": {"city": {"value": "Delhi"}}}
+
+    def why(reply, prof=empty, **kw):
+        return sa.hold_reason(reply, surface=kw.pop("surface", ""), prof=prof, sources=src, **kw)
+
+    # asks and clarifying questions: sent, confidence 92
+    assert why("To register your enquiry, please share your contact number.") == ("", 92)
+    assert why("Could you tell us what you are planning — a kitchen or a wardrobe?") == ("", 92)
+    assert why("Elentra — ₹59,800\nhttps://www.durian.in/product/elentra\n"
+               "Please share your full name, contact number and city.") == ("", 92)
+    # one invented fact → 72 → held, and the reason names it
+    reason, conf = why("Elentra is ₹49,800 today.")
+    assert conf == 72 and "price ₹49,800" in reason
+    reason, conf = why("₹49,800 — call 98765 43210")
+    assert conf == 52 and "number 98765 43210" in reason
+    # a write this turn is always confirmed to the customer
+    assert why("Your enquiry is registered. Call 98765 43210.", wrote_this_turn=True)[0] == ""
+    # the hard holds are unchanged, and outrank a write
+    assert why("please share your phone number", prof=held)[0] == \
+        "reply re-asks for details we already hold"
+    assert why("Could you share your full name?", prof=held) == ("", 92)
+    assert "non-allowlisted link" in why("see https://evil.example.com/x", wrote_this_turn=True)[0]
+    assert why("It is ₹59,800", surface="comment")[0] == "price in a public comment"
+    assert why("Thank you!", over_budget=True)[0].startswith("turn budget exhausted")
+    assert "finish step" in why("Hello there", no_finish=True)[0]
+    monkeypatch.setattr(sa.config, "SOCIAL_AUTO_SEND_ENABLED", False)
+    assert why("Thank you!")[0] == "auto-send is switched off"
 
 
 def test_link_allowlist():
@@ -444,6 +525,28 @@ def test_verify_updates_tool_evidence():
     assert cp.verify_updates([
         _upd(kind="routed", what="Delhi - Kirti Nagar", quote="Delhi - Kirti Nagar"),
     ], ["pincode 110054 please"], [], conv_id=1, inbox="ig") == []
+    # The agent often re-types the result as COMPACT json; spacing must not
+    # decide whether a real quote is accepted.
+    assert len(cp.verify_updates([
+        _upd(kind="routed", what="Delhi - Kirti Nagar",
+             quote='{"routed":true,"showroom":"Delhi - Kirti Nagar"}'),
+    ], ["pincode 110054 please"], tools, conv_id=1, inbox="ig")) == 1
+    assert cp.verify_updates([
+        _upd(kind="routed", what="Mumbai - Worli",
+             quote='{"routed":true,"showroom":"Mumbai - Worli"}'),
+    ], ["pincode 110054 please"], tools, conv_id=1, inbox="ig") == []
+    # ...and it abridges: the leading key/value pair exact, the rest paraphrased.
+    full = [{"name": "route_to_showroom",
+             "result": {"routed": True, "showroom": "Delhi - Kirti Nagar", "city": "Delhi",
+                        "deal_created": True}}]
+    assert len(cp.verify_updates([
+        _upd(field="commercial.showroom", value="Delhi - Kirti Nagar",
+             quote='"showroom": "Delhi - Kirti Nagar", "deal_created": true'),
+    ], ["pincode 110054 please"], full, conv_id=1, inbox="ig")) == 1
+    assert cp.verify_updates([
+        _upd(field="commercial.showroom", value="Mumbai - Worli",
+             quote='"showroom": "Mumbai - Worli", "deal_created": true'),
+    ], ["pincode 110054 please"], full, conv_id=1, inbox="ig") == []
 
 
 def test_verify_updates_closed_lists():
@@ -765,8 +868,8 @@ def test_fhc_prompt_registers_enquiry_not_route():
     from datetime import datetime
     p = sa._system_prompt("dm", "durian_fullhomecustomisation", "fhc", datetime(2026, 1, 1),
                           "PROFILE", "TPL", 1, "", "")
-    assert "register_enquiry (category fhc)" in p
-    assert "(route_to_showroom) so our" not in p          # it refuses on FHC
+    assert "register_enquiry" in p and "route_to_showroom" not in p   # one enquiry skill
+    assert "the account does not decide the line" in p
 
 
 def _varanasi_upcoming(monkeypatch):
@@ -782,12 +885,14 @@ def test_no_store_notes_point_to_the_right_next_step(monkeypatch):
     _varanasi_upcoming(monkeypatch)
     find = sa.SKILLS["find_showrooms"]["handler"]
     for vert in ("fhc", "furniture"):                      # opening soon → a note, no deal
-        soon = find({"vertical": vert}, city="Varanasi")
+        soon = find({}, line=vert, city="Varanasi")
         assert soon["upcoming"] and "note_upcoming_store_lead (city: Varanasi)" in soon["note"]
         assert "register_enquiry" not in soon["note"] and "not a yes/no question" in soon["note"]
-    none = find({"vertical": "doors"}, city="Patna")      # no store at all → register
-    assert none["serviceable"] is False and "register_enquiry (category 'doors'" in none["note"]
-    assert "register_enquiry" not in find({"vertical": "furniture"}, city="Patna")["note"]
+    none = find({}, line="doors", city="Patna")           # no store at all → register
+    assert none["serviceable"] is False and "register_enquiry (line 'doors'" in none["note"]
+    assert "register_enquiry" not in find({}, line="furniture", city="Patna")["note"]
+    # no line → no store is named: the agent must find out what they want first
+    assert find({"vertical": "doors"}, city="Patna")["need_line"] is True
 
 
 def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
@@ -806,7 +911,7 @@ def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
     assert r["noted"] and len(fake.notes) == 1 and fake.labels == ["upcoming-store-lead"]
     assert "Varanasi" in fake.notes[0] and "9876543210" in fake.notes[0] and "Sid" in fake.notes[0]
     assert all("phase2_category" not in m and "deal_customer_details" not in m for m in fake.merged)
-    reg = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+    reg = asyncio.run(sa._sk_register_enquiry(
         ctx, category="fhc", city="Varanasi", phone="9876543210"))
     assert reg["registered"] is False and reg["upcoming"] and len(fake.notes) == 1
     # The store opens (added as a real store — even if the upcoming entry lingers):
@@ -815,7 +920,7 @@ def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
                         {"card_name": "FHC - Varanasi"} if city == "Varanasi" else None)
     assert asyncio.run(note(ctx, city="Varanasi", phone="9876543210"))["noted"] is False
     # Varanasi wasn't typed this chat, so registering needs the agent to confirm it.
-    assert asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+    assert asyncio.run(sa._sk_register_enquiry(
         ctx, category="fhc", city="Varanasi", phone="9876543210", confirm=True))["registered"]
     assert "deal-ready" in fake.labels
 
@@ -828,7 +933,7 @@ def test_register_enquiry_without_phone_asks_for_it(monkeypatch):
         writes.append(a)
     monkeypatch.setattr(sa.chatwoot, "merge_custom_attributes", merge)
     ctx = {"conv_id": 1, "conv": {"custom_attributes": {}}, "profile": {}, "incoming_all": ["Yes sure"]}
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Varanasi"))
+    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Varanasi"))
     assert r["registered"] is False and r["need_phone"] and not writes
 
 
@@ -899,7 +1004,7 @@ def test_register_enquiry_fhc_auto_creates_deal(monkeypatch):
         return {"deal_id": "D9", "created": True}
     monkeypatch.setattr(sa, "_deal_creator", creator)
 
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+    r = asyncio.run(sa._sk_register_enquiry(
         _register_ctx(), category="fhc", city="Mumbai"))
     assert r["registered"] is True and r.get("deal_created") is True and calls == [1]
     assert "deal-ready" in fake.labels
@@ -921,7 +1026,7 @@ def test_register_enquiry_doors_auto_creates_with_store_card(monkeypatch):
         return {"deal_id": "D9", "created": True}
     monkeypatch.setattr(sa, "_deal_creator", creator)
 
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+    r = asyncio.run(sa._sk_register_enquiry(
         dict(_register_ctx(), vertical="doors"), category="doors", city="Bengaluru"))
     assert r["registered"] is True and r.get("deal_created") is True and called == [1]
     assert "Durian Doors" in r["store_card"] and "maps.app.goo.gl" in r["store_card"]
@@ -1140,11 +1245,11 @@ def test_register_enquiry_confirms_a_records_only_city(monkeypatch):
            "profile": {"identity": {"phone": {"value": "9876543210"}}},
            "incoming_all": ["Hello", "modular kitchen"],
            "all_messages": _conv_msgs("Hello", "I want to ask about modular kitchen")}
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="New Delhi"))
+    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="New Delhi"))
     assert r["registered"] is False and r["confirm_location"] is True
     assert not created and "deal-ready" not in fake.labels          # nothing written yet
     # after the customer confirms → confirm=true proceeds and creates
-    r2 = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="New Delhi", confirm=True))
+    r2 = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="New Delhi", confirm=True))
     assert r2["registered"] is True and r2.get("deal_created") is True and created == [1]
 
 
@@ -1180,7 +1285,7 @@ def test_fhc_deal_confirmation_includes_studio_card(monkeypatch):
         return {"deal_id": "D9", "created": True}
     monkeypatch.setattr(sa, "_deal_creator", creator)
 
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](
+    r = asyncio.run(sa._sk_register_enquiry(
         _fhc_reg_ctx(), category="fhc", city="New Delhi"))
     assert r["deal_created"] is True
     assert "Kirti Nagar" in r["store_card"] and "maps.app.goo.gl" in r["store_card"]
@@ -1203,7 +1308,7 @@ def test_fhc_deal_no_studio_in_range_stays_plain(monkeypatch):
     # city given this chat (confirm gate) but resolve→None means no studio card
     ctx = dict(_fhc_reg_ctx(), all_messages=[{"message_type": 0, "content": "Imphal"}],
                incoming_all=["Imphal"])
-    r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Imphal"))
+    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Imphal"))
     assert r["deal_created"] is True and "store_card" not in r
     assert "our team will reach out" in r["next"]
 
@@ -1218,9 +1323,252 @@ def test_fhc_rule_present_on_whatsapp_fhc_inbox_despite_name():
     p = sa._system_prompt("dm", "Whatsapp FHC", "fhc", datetime(2026, 1, 1),
                           "P", "T", 1, channel="whatsapp")
     assert "FULL HOME CUSTOMISATION ACCOUNT" in p
-    assert "NEVER call route_to_showroom here" in p
+    assert "route_to_showroom" not in p
     assert "ALREADY HAVE it in full" in p                 # phone clarity
     # a furniture inbox gets neither
     f = sa._system_prompt("dm", "Durian Furniture", "furniture", datetime(2026, 1, 1),
                           "P", "T", 1, channel="instagram")
     assert "FULL HOME CUSTOMISATION ACCOUNT" not in f
+
+
+# ── Part 2: one enquiry skill, the product line comes from the conversation ──
+
+def test_norm_line():
+    assert [sa._norm_line(x) for x in ("FHC", "full home", "Full_Home_Customization", "interiors")] \
+        == ["fhc"] * 4
+    assert [sa._norm_line(x) for x in ("doors", "Door", "veneer")] == ["doors"] * 3
+    assert [sa._norm_line(x) for x in ("furniture", "product_enquiry")] == ["furniture"] * 2
+    assert sa._norm_line("") == "" and sa._norm_line("something") == "" and sa._norm_line(None) == ""
+
+
+def test_person_name_vs_handle():
+    for real in ("Rajeshri Patil", "Ms. Rajeshri", "Shilpa", "Aman singh"):
+        assert sa._looks_like_person_name(real), real
+    for not_name in ("house_of_holani", "rv_1990", "Test Customer", "Durian Furniture",
+                     "n.m.singh_rajput", "", "x" * 50, "S.Kumar99"):
+        assert not sa._looks_like_person_name(not_name), not_name
+
+
+def _front_ctx(incoming, contact="Test Customer", profile=None, ca=None, msg_id=10):
+    return {"conv_id": 1, "channel": "instagram", "vertical": "furniture",
+            "conv": {"custom_attributes": dict(ca or {}),
+                     "meta": {"sender": {"id": 5, "name": contact}}},
+            "profile": profile or {"identity": {}, "location": {}},
+            "incoming_all": list(incoming),
+            "all_messages": [{"message_type": 0, "content": t} for t in incoming],
+            "latest_msg_id": msg_id}
+
+
+def _front_setup(monkeypatch):
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_DEAL_NOTES", True)
+    monkeypatch.setattr(sa.config, "STORE_LOCATOR_ENABLED", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda vert, pincode=None, city=None: {
+        "card_name": f"{vert} store", "city": "Delhi", "crm_owner_id": "77",
+        "address": "A-1 Kirti Nagar", "email": "s@d.in"})
+    fake = _RouteFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    deals, notes = [], []
+
+    async def creator(conv_id, agent_name="", allow_duplicate=False):
+        deals.append(allow_duplicate)
+        return {"deal_id": f"D{len(deals)}", "created": True}
+
+    async def note(module, record_id, title, body):
+        notes.append((record_id, body))
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    monkeypatch.setattr(sa.zoho_crm, "create_note", note)
+    return fake, deals, notes
+
+
+def test_register_says_exactly_what_is_missing(monkeypatch):
+    import asyncio
+    fake, deals, _ = _front_setup(monkeypatch)
+    reg = sa.SKILLS["register_enquiry"]["handler"]
+    # nothing known: all four pieces come back in one list, nothing is written
+    r = asyncio.run(reg(_front_ctx(["I want to buy a sofa"])))
+    assert r["registered"] is False and r["need_phone"] and len(r["missing"]) == 4
+    assert "ONE message" in r["note"] and not deals and not fake.merged
+    # line + phone + name typed: only the location is asked for
+    ctx = _front_ctx(["I need 5 veneer doors. I am Rahul Verma, my number is 9560150835"])
+    r = asyncio.run(reg(ctx, line="doors", name="Rahul Verma", phone="9560150835"))
+    assert r["missing"] == ["their city or pincode"] and "need_phone" not in r and not deals
+
+
+def test_register_creates_for_every_line_with_one_message(monkeypatch):
+    import asyncio
+    reg = sa.SKILLS["register_enquiry"]["handler"]
+    for line, cat in (("furniture", "product_enquiry"), ("doors", "doors_veneer_plywood"),
+                      ("fhc", "full_home_customization")):
+        fake, deals, _ = _front_setup(monkeypatch)
+        ctx = _front_ctx(["I am Rahul Verma, 9560150835, pincode 110054"])
+        r = asyncio.run(reg(ctx, line=line, name="Rahul Verma", phone="9560150835",
+                            pincode="110054"))
+        ca = ctx["conv"]["custom_attributes"]
+        assert r["registered"] is True and r["deal_created"] is True and deals == [False], line
+        assert ca["phase2_category"] == cat and ca["crm_deals"] == {line: "D1"}
+        assert ca["enquiry_customer_name"] == "Rahul Verma" and ca["enquiry_line"] == line
+        # furniture tags the showroom owner; doors / FHC never do
+        assert bool(ca.get("retail_deal_owner")) == (line == "furniture")
+
+
+def test_profile_name_is_confirmed_in_a_later_message(monkeypatch):
+    import asyncio
+    fake, deals, _ = _front_setup(monkeypatch)
+    reg = sa.SKILLS["register_enquiry"]["handler"]
+    ctx = _front_ctx(["buy the lewis sofa. 9560150835, pincode 110054"], contact="Rajeshri Patil")
+    args = dict(line="furniture", phone="9560150835", pincode="110054")
+    r = asyncio.run(reg(ctx, **args))
+    assert r["registered"] is False and r["confirm_name"] == "Rajeshri Patil" and not r["missing"]
+    assert "Shall we register this under the name Rajeshri Patil?" in r["note"] and not deals
+    # the agent cannot confirm it for itself in the same turn
+    r = asyncio.run(reg(ctx, name="Rajeshri Patil", name_confirmed=True, **args))
+    assert r["registered"] is False and r["confirm_name"] and not deals
+    # the customer's next message is the yes → the deal goes ahead under that name
+    ctx["latest_msg_id"] = 11
+    ctx["incoming_all"].append("Yes")
+    r = asyncio.run(reg(ctx, name="Rajeshri Patil", name_confirmed=True, **args))
+    assert r["deal_created"] is True and deals == [False]
+    assert ctx["conv"]["custom_attributes"]["enquiry_customer_name"] == "Rajeshri Patil"
+
+
+def test_name_typed_handle_or_corrected(monkeypatch):
+    import asyncio
+    fake, deals, _ = _front_setup(monkeypatch)
+    reg = sa.SKILLS["register_enquiry"]["handler"]
+    args = dict(line="furniture", phone="9560150835", pincode="110054")
+    # a handle is not a name → ask, never confirm, never use it
+    r = asyncio.run(reg(_front_ctx(["sofa 9560150835 110054"], contact="house_of_holani"), **args))
+    assert r["missing"] == ["their full name"] and "confirm_name" not in r and not deals
+    # an invented name (not typed, not the profile's) is not accepted either
+    r = asyncio.run(reg(_front_ctx(["sofa 9560150835 110054"], contact="house_of_holani"),
+                        name="Rahul Verma", **args))
+    assert r["missing"] == ["their full name"] and not deals
+    # typed by the customer → no question, even when the profile shows another name
+    ctx = _front_ctx(["No, register it under Anita Patil. 9560150835, 110054"],
+                     contact="Rajeshri Patil")
+    r = asyncio.run(reg(ctx, name="Anita Patil", **args))
+    assert r["deal_created"] is True and deals == [False]
+    assert ctx["conv"]["custom_attributes"]["enquiry_customer_name"] == "Anita Patil"
+
+
+def test_one_deal_per_line(monkeypatch):
+    import asyncio
+    fake, deals, notes = _front_setup(monkeypatch)
+    reg = sa.SKILLS["register_enquiry"]["handler"]
+    ctx = _front_ctx(["I am Rahul Verma, 9560150835, pincode 110054"])
+    who = dict(name="Rahul Verma", phone="9560150835", pincode="110054")
+    assert asyncio.run(reg(ctx, line="furniture", **who))["deal_created"] is True
+    ca = ctx["conv"]["custom_attributes"]
+    # same line again (a chair after the sofa): no second deal; the detail is noted on it
+    r = asyncio.run(reg(ctx, line="furniture", requirement="also 4 dining chairs", **who))
+    assert deals == [False] and notes == [("D1", "also 4 dining chairs")]
+    # a different line is a new enquiry: a second deal, asked for explicitly
+    r = asyncio.run(reg(ctx, line="doors", requirement="5 veneer doors", **who))
+    assert r["deal_created"] is True and deals == [False, True]
+    assert ca["crm_deals"] == {"furniture": "D1", "doors": "D2"} and ca["crm_deal_id"] == "D2"
+    assert ca["phase2_category"] == "doors_veneer_plywood"
+    # doors again: already registered, nothing new created, the detail goes onto D2
+    r = asyncio.run(reg(ctx, line="doors", requirement="make it 6 doors", **who))
+    assert r["already_registered"] and deals == [False, True] and notes[-1] == ("D2", "make it 6 doors")
+    # and a third line still gets its own
+    assert asyncio.run(reg(ctx, line="fhc", **who))["deal_created"] is True
+    assert deals == [False, True, True] and set(ca["crm_deals"]) == {"furniture", "doors", "fhc"}
+
+
+def test_old_conversation_deal_line_is_read_from_its_category():
+    assert sa._deal_lines({"crm_deal_id": "X", "phase2_category": "doors_veneer_plywood"}) == \
+        {"doors": "X"}
+    assert sa._deal_lines({"crm_deal_id": "X"}) == {"furniture": "X"}
+    assert sa._deal_lines({"crm_deal_id": "X", "crm_deals": {"fhc": "Y"}}) == {"fhc": "Y"}
+    assert sa._deal_lines({}) == {}
+
+
+def test_later_details_become_a_note_on_the_deal(monkeypatch):
+    import asyncio
+    fake, deals, notes = _front_setup(monkeypatch)
+    learn = [{"op": "learn", "kind": "interest", "what": "modular kitchen", "quote": "a kitchen"},
+             {"op": "learn", "kind": "budget", "what": "around 6 lakh", "quote": "6 lakh"},
+             {"op": "learn", "kind": "routed", "what": "Delhi"},          # not a customer detail
+             {"op": "set", "field": "location.city", "value": "Delhi"}]
+    ctx = _front_ctx(["..."], ca={"crm_deal_id": "D7"})
+    asyncio.run(sa._note_deal_updates(ctx, learn, []))
+    assert len(notes) == 1 and notes[0][0] == "D7"
+    assert "modular kitchen" in notes[0][1] and "6 lakh" in notes[0][1] and "routed" not in notes[0][1]
+    asyncio.run(sa._note_deal_updates(ctx, learn, []))                    # one note per turn
+    assert len(notes) == 1
+    # not on the turn the deal is created, not without a deal, not for nothing
+    created = [{"name": "register_enquiry", "result": {"deal_created": True}}]
+    asyncio.run(sa._note_deal_updates(_front_ctx(["."], ca={"crm_deal_id": "D7"}), learn, created))
+    asyncio.run(sa._note_deal_updates(_front_ctx(["."]), learn, []))
+    asyncio.run(sa._note_deal_updates(_front_ctx(["."], ca={"crm_deal_id": "D7"}), [], []))
+    assert len(notes) == 1
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_DEAL_NOTES", False)      # kill switch
+    asyncio.run(sa._note_deal_updates(_front_ctx(["."], ca={"crm_deal_id": "D7"}), learn, []))
+    assert len(notes) == 1
+
+
+def test_reask_detector_counts_a_name_only_when_held():
+    prof = {"identity": {"phone": {"value": "9"}, "name": {"value": "Rahul Verma"}},
+            "location": {"city": {"value": "Delhi"}}}
+    assert sa.reasks_known_details("Could you share your full name?", prof)
+    del prof["identity"]["name"]
+    assert not sa.reasks_known_details("Could you share your full name?", prof)
+
+
+def test_retail_owner_never_owns_a_doors_or_fhc_deal(monkeypatch):
+    """One conversation can hold a deal per product line, so a furniture
+    showroom picked earlier must not become the owner of the doors / FHC deal."""
+    import asyncio
+    import main
+
+    async def doors(*a, **k):
+        return {"configured": True, "owner_id": "D", "location": "doors-other", "vertical": "Doors"}
+
+    async def named(*a, **k):
+        return {"configured": True, "owner_id": "H", "location": "homestudio:Delhi", "vertical": "FHC"}
+    monkeypatch.setattr(main, "_resolve_doors_owner", doors)
+    monkeypatch.setattr(main, "_resolve_named_owner", named)
+    showroom = {"owner_id": "9", "location": "Delhi - Kirti Nagar"}
+
+    def owner(category):
+        return asyncio.run(main._resolve_deal_owner(
+            {"retail_deal_owner": showroom, "phase2_category": category}, "", "", ""))["owner_id"]
+    assert owner("product_enquiry") == "9"
+    assert owner("doors_veneer_plywood") == "D"
+    assert owner("full_home_customization") == "H"
+
+
+def test_product_is_asked_once_when_only_the_line_is_known():
+    for vague in ("", "doors", "Furniture", "full home customisation"):
+        assert sa._vague_requirement(vague), vague
+    for clear in ("5 veneer doors", "modular kitchen", "Lewis corner sofa"):
+        assert not sa._vague_requirement(clear), clear
+    made = {"registered": True, "deal_created": True, "next": "tell them it is registered."}
+    assert "ONE question" in sa._ask_product_once(dict(made), "doors")["next"]
+    assert "ONE question" not in sa._ask_product_once(dict(made), "5 veneer doors")["next"]
+    # nothing is asked when no deal was created (the missing-details ask comes first)
+    assert "next" not in sa._ask_product_once({"registered": False}, "")
+
+
+def test_enquiry_checklist_lists_everything_still_missing():
+    """The agent sees, every turn, what an enquiry still needs — so it can ask
+    for all of it in one message before register_enquiry has ever been called."""
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "house_of_holani"}}}
+    block = sa._enquiry_checklist({"identity": {}, "location": {}}, conv)
+    assert "Still missing: their contact number; their city or pincode; their full name." in block
+    assert "EVERYTHING still missing in that one message" in block and "nothing yet" in block
+    # WhatsApp: the number is on the profile; a real-looking profile name is to be confirmed
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "Rajeshri Patil"}}}
+    block = sa._enquiry_checklist({"identity": {"phone": {"value": "9560150835"}}, "location": {}}, conv)
+    assert "We hold: their contact number." in block and "their contact number;" not in block
+    assert "Shall we register this under the name Rajeshri Patil?" in block
+    # everything in hand, one line already registered
+    conv = {"custom_attributes": {"enquiry_customer_name": "Rahul Verma", "crm_deal_id": "D1",
+                                  "phase2_category": "doors_veneer_plywood"},
+            "meta": {"sender": {"name": "rv_1990"}}}
+    block = sa._enquiry_checklist({"identity": {"phone": {"value": "9"}},
+                                   "location": {"pincode": {"value": "110054"}}}, conv)
+    assert "Nothing is missing" in block and "Still missing" not in block
+    assert "Already registered in this conversation: doors" in block and "Rahul Verma" in block
