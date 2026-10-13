@@ -76,12 +76,28 @@ def _now_iso() -> str:
 _campaign_label_ensured = False
 
 
-async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str) -> None:
+def _campaign_referral(content_attributes) -> dict:
+    """The Meta click-to-WhatsApp ad referral Chatwoot now stores on the first
+    message's content_attributes (headline/body/source_url/ids), or {}. Handles
+    the dict or the legacy JSON-string form."""
+    ca = content_attributes
+    if isinstance(ca, str):
+        try:
+            ca = json.loads(ca)
+        except Exception:
+            return {}
+    ref = ca.get("referral") if isinstance(ca, dict) else None
+    return ref if isinstance(ref, dict) and ref else {}
+
+
+async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
+                                       content_attributes=None) -> None:
     """Tag a WhatsApp conversation whose opening message is a Meta click-to-
     WhatsApp ad prefill, so campaign leads are trackable: a label (for Chatwoot's
     native Label report) + lead_source="whatsapp_campaign" (rides into the CRM
-    deal). Chatwoot drops the real ad referral, so the prefill text is the only
-    signal. Best-effort and idempotent — never blocks message handling."""
+    deal). When the ad referral is present (Chatwoot now keeps it), the ad itself
+    is stored too (campaign_ad) so the deal description names it. Best-effort and
+    idempotent — never blocks message handling."""
     global _campaign_label_ensured
     if not config.WHATSAPP_CAMPAIGN_TRACKING_ENABLED:
         return
@@ -100,13 +116,16 @@ async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str) -> N
         await chatwoot.add_label(conv_id, config.WHATSAPP_CAMPAIGN_LABEL)
     except Exception as e:
         print(f"[campaign] add_label failed for conv {conv_id}: {e}")
+    attrs = {"lead_source": "whatsapp_campaign", "campaign_detected_at": _now_iso()}
+    referral = _campaign_referral(content_attributes)
+    if referral:
+        attrs["campaign_ad"] = referral
     try:
-        await chatwoot.merge_custom_attributes(conv_id, {
-            "lead_source": "whatsapp_campaign",
-            "campaign_detected_at": _now_iso()})
+        await chatwoot.merge_custom_attributes(conv_id, attrs)
     except Exception as e:
         print(f"[campaign] attr merge failed for conv {conv_id}: {e}")
-    print(f"[campaign] conv {conv_id}: tagged Meta WhatsApp campaign lead")
+    print(f"[campaign] conv {conv_id}: tagged Meta WhatsApp campaign lead"
+          + (f" (ad: {referral.get('headline') or referral.get('source_url')})" if referral else ""))
 
 
 @app.on_event("startup")
@@ -4115,7 +4134,8 @@ async def handle_message_created(data: dict) -> dict:
     # matter which flow then handles the message. Best-effort, idempotent.
     if (social_channel == "whatsapp" and conv_id
             and data.get("message_type") in (0, "incoming")):
-        await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "")
+        await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
+                                           data.get("content_attributes"))
 
     # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
     # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card
@@ -7920,6 +7940,13 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
     ]
     if custom.get("fhc_blueprint"):
         parts.insert(5, f"Blueprint: {str(custom['fhc_blueprint']).title()}")
+    # Click-to-WhatsApp ad this lead came from (captured on the first message).
+    ad = custom.get("campaign_ad") or {}
+    if ad:
+        headline = " — ".join(b for b in (ad.get("headline"), ad.get("body")) if b)
+        parts.insert(1, "Campaign:  " + (headline or "WhatsApp ad")
+                     + (f" (page {ad['source_url']})" if ad.get("source_url") else "")
+                     + (f" [ad {ad['source_id']}]" if ad.get("source_id") else ""))
     # AI summary — same summarizer the Desk tickets use. Best-effort.
     try:
         summary = await summarizer.summarize_conversation(messages) if messages else {}

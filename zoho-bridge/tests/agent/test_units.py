@@ -1572,3 +1572,44 @@ def test_enquiry_checklist_lists_everything_still_missing():
                                    "location": {"pincode": {"value": "110054"}}}, conv)
     assert "Nothing is missing" in block and "Still missing" not in block
     assert "Already registered in this conversation: doors" in block and "Rahul Verma" in block
+
+
+# ── Click-to-WhatsApp ad referral: context to the agent + onto the deal ──────
+
+def _msg_with_referral(ref):
+    return {"message_type": 0, "content": "Hello! Can I get more information on this?",
+            "content_attributes": {"referral": ref}}
+
+
+def test_campaign_referral_and_block():
+    ref = {"headline": "Grand Festive Offer", "body": "Flat 50% off select furniture",
+           "source_url": "https://www.durian.in/furniture", "source_id": "120x"}
+    msgs = [{"message_type": 2, "content": "activity"}, _msg_with_referral(ref),
+            {"message_type": 0, "content": "yes"}]
+    assert sa._campaign_referral(msgs) == ref
+    assert sa._campaign_referral([{"message_type": 0, "content": "hi"}]) == {}
+    block = sa._campaign_block(ref)
+    assert "CAMPAIGN CONTEXT" in block and "Grand Festive Offer" in block
+    assert "durian.in/furniture" in block and "do NOT ask them to send a screenshot" in block
+    assert sa._campaign_block({}) == ""
+
+
+def test_system_prompt_injects_campaign_only_when_passed():
+    from datetime import datetime
+    base = dict(surface="dm", inbox="Whatsapp FHC", vertical="fhc",
+                now=datetime(2026, 1, 1), profile_block="P", templates="T",
+                n_customer_msgs=1, channel="whatsapp")
+    assert "CAMPAIGN CONTEXT" not in sa._system_prompt(**base)
+    assert "CAMPAIGN CONTEXT" in sa._system_prompt(**base, campaign=sa._campaign_block(
+        {"headline": "Grand Festive Offer", "source_url": "https://www.durian.in/furniture"}))
+
+
+def test_main_campaign_referral_parses_dict_and_json():
+    import json as _json
+    import main
+    ref = {"headline": "Grand Festive Offer", "source_url": "https://www.durian.in/x"}
+    assert main._campaign_referral({"referral": ref}) == ref
+    assert main._campaign_referral(_json.dumps({"referral": ref})) == ref   # legacy string form
+    assert main._campaign_referral({"foo": 1}) == {}
+    assert main._campaign_referral(None) == {}
+    assert main._campaign_referral("not json") == {}
