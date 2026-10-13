@@ -2217,10 +2217,14 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
     # WhatsApp carries the customer's phone as their number — never ask for it.
     whatsapp_rule = (
         "\n\nWHATSAPP: the customer's phone number IS their WhatsApp number and "
-        "we already hold it (shown in the profile) — NEVER ask for a phone "
-        "number. Ask their name only if the profile doesn't carry it. For a "
-        "store or customisation enquiry, ask for their pincode (city is a nice "
-        "extra). The deal is created against their WhatsApp number."
+        "your tools ALREADY HAVE it in full (the profile shows only the last 4 "
+        "digits for privacy — that is NOT a missing number). So NEVER ask for a "
+        "phone number, never pass one, and NEVER hold or hand off because you "
+        "think you only have 4 digits — register_enquiry / route_to_showroom / "
+        "book_store_visit all use the full number automatically. Ask their name "
+        "only if the profile doesn't carry it. For a store or customisation "
+        "enquiry, ask for their pincode (city is a nice extra); the deal is "
+        "created against their WhatsApp number."
         if channel == "whatsapp" else "")
     guidance_block = whatsapp_rule + guidance_block
     converge = ""
@@ -2254,10 +2258,13 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "only once they've described it (or want to proceed) capture their name + "
         "contact + city/pincode and register it with register_enquiry (category "
         "fhc) — that needs no studio in their city. If you only know their city "
-        "from past records, confirm it with them before registering. "
-        "share_offer and showroom details are still fine; a ready-made SKU or its "
-        "price is NOT."
-        if _is_fhc_account(inbox) else "")
+        "from past records, confirm it with them before registering. NEVER call "
+        "route_to_showroom here — that is the furniture-retail path and it refuses "
+        "on this account; use register_enquiry to register, find_showrooms for "
+        "studio details, and book_store_visit (after registering) when they want "
+        "to visit. share_offer and showroom details are still fine; a ready-made "
+        "SKU or its price is NOT."
+        if vertical == "fhc" else "")
     visit_rule = (
         " When the customer wants to VISIT a store in person — AFTER you have "
         "registered their enquiry this turn (so a deal exists) — ask for the DAY "
