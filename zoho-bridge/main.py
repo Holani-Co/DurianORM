@@ -7541,6 +7541,9 @@ async def _ensure_crm_contact(conv_id: int, conv: dict, owner_id: str = "",
     if custom.get("crm_contact_id"):
         return str(custom["crm_contact_id"]), False
     name, email = _conv_sender(conv)
+    # The name the customer gave or confirmed in chat beats the profile name
+    # (which on Instagram is often a handle).
+    name = str(custom.get("enquiry_customer_name") or name)
     # Social contacts (IG/FB) carry no email/phone on the Chatwoot record, so fall
     # back to the number the gate captured from the thread (retail_customer_phone
     # for furniture, deal_customer_details.phone for doors/FHC) before giving up.
@@ -7812,8 +7815,11 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
 
     # Retail: the retail gate captured the showroom the customer chose → tag its
     # CRM owner on the deal (un-parks the retail matrix for product enquiries).
+    # Never for a doors / FHC deal: a conversation can hold one deal per product
+    # line, and a furniture showroom picked earlier must not own those.
     retail_owner = custom.get("retail_deal_owner") or {}
-    if retail_owner.get("owner_id"):
+    if retail_owner.get("owner_id") and category != "doors_veneer_plywood" \
+            and category not in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES:
         return {"configured": True, "location": retail_owner.get("location") or None,
                 "owner_id": str(retail_owner["owner_id"]),
                 "owner_email": retail_owner.get("crm_email") or "",
@@ -8129,6 +8135,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                 "url": zoho_crm.deal_url(str(custom["crm_deal_id"]))}
 
     name, email = _conv_sender(conv)
+    name = str(custom.get("enquiry_customer_name") or name)   # given / confirmed in chat
     subject, body_text = _conv_first_incoming_body(messages)
     category_display = (custom.get("email_category_v2") or {}).get("display_name") \
                        or (custom.get("email_category_v2") or {}).get("category") \
@@ -8571,8 +8578,12 @@ async def spam_digest(
 # Inject the Create-Deal core into social_agent (module-level to avoid a
 # circular import). The agent's auto-deal checklist calls the SAME code path
 # as the panel button; 409/422 ambiguity keeps deferring to the human button.
-async def _agent_deal_creator(conv_id, agent_name="Durian agent mode"):
-    return await _create_crm_deal(conv_id, agent_name=agent_name)
+async def _agent_deal_creator(conv_id, agent_name="Durian agent mode",
+                              allow_duplicate=False):
+    # allow_duplicate: the conversation already holds a deal for ANOTHER product
+    # line (one deal per line) — create this one too instead of returning it.
+    return await _create_crm_deal(conv_id, agent_name=agent_name,
+                                  allow_duplicate=allow_duplicate)
 
 
 social_agent.set_deal_creator(_agent_deal_creator)

@@ -29,6 +29,11 @@ import snapmint                     # noqa: E402
 import social_agent                 # noqa: E402
 import website_search               # noqa: E402
 import zoho_crm                     # noqa: E402
+# main wires the REAL deal creator into social_agent when it is imported, and the
+# agent imports it lazily mid-turn. Import it now, so that can never happen after
+# a scenario has installed its fake (a second deal in one conversation then went
+# to the real Zoho core and "failed", depending on test order).
+import main                         # noqa: E402,F401
 
 IST = timezone(timedelta(hours=5, minutes=30))
 BASE_NOW = datetime(2026, 8, 12, 15, 0, tzinfo=IST)
@@ -77,6 +82,8 @@ class FakeChatwoot:
         self.teams: list[int] = []
         self.assignments: list[dict] = []
         self.deal_calls: list = []
+        self.deals: list[dict] = []          # one per deal created: id, category, name
+        self.deal_notes: list[dict] = []     # notes posted onto a deal after it exists
         self.new_conversation(scenario.get("inbox") or "durianfurniture_official",
                               comment=scenario.get("surface") == "comment")
 
@@ -421,11 +428,24 @@ class Engine:
             return out[:rows]
         monkeypatch.setattr(website_search, "search", fake_site_search)
 
-        async def fake_deal_creator(conv_id, agent_name=""):
+        async def fake_deal_creator(conv_id, agent_name="", allow_duplicate=False):
+            ca = self.fake.conv["custom_attributes"]
+            # Like the real core: a conversation's existing deal is handed back
+            # unless the caller says this is a new enquiry (another product line).
+            if ca.get("crm_deal_id") and not allow_duplicate:
+                return {"deal_id": ca["crm_deal_id"], "created": False}
+            deal_id = f"TEST-DEAL-{len(self.fake.deal_calls) + 1}"
             self.fake.deal_calls.append(conv_id)
-            await self.fake.merge_custom_attributes(conv_id, {"crm_deal_id": "TEST-DEAL-1"})
-            return {"deal_id": "TEST-DEAL-1", "created": True}
+            self.fake.deals.append({"id": deal_id, "category": ca.get("phase2_category") or "",
+                                    "name": ca.get("enquiry_customer_name") or ""})
+            await self.fake.merge_custom_attributes(conv_id, {"crm_deal_id": deal_id})
+            return {"deal_id": deal_id, "created": True}
         social_agent.set_deal_creator(fake_deal_creator)
+
+        async def fake_deal_note(module, record_id, title, content):
+            self.fake.deal_notes.append({"deal": str(record_id), "title": title, "body": content})
+            return {}
+        monkeypatch.setattr(zoho_crm, "create_note", fake_deal_note)
 
         # config knobs (restored by monkeypatch)
         for key, val in {"SOCIAL_AGENT_ENABLED": True,
@@ -502,7 +522,7 @@ class Engine:
             s0, c0 = len(self.fake.public_sends), len(self.fake.cards)
             o0, t0 = len(self.fake.offer_sends), len(getattr(self, "tools_trail", []))
             res = await social_agent.maybe_handle(
-                self.fake.conv, "instagram",
+                self.fake.conv, self.sc.get("channel") or "instagram",
                 surface=self.sc.get("surface") or "",
                 latest_message=step.get("text", ""),
                 latest_msg_id=msg["id"])
@@ -597,6 +617,26 @@ class Engine:
         if exp.get("deal_created_max") is not None:
             want(len(self.fake.deal_calls) <= exp["deal_created_max"],
                  f"deal created {len(self.fake.deal_calls)}× > max")
+        if exp.get("deal_count") is not None:
+            want(len(self.fake.deals) == exp["deal_count"],
+                 f"{len(self.fake.deals)} deal(s) created, expected {exp['deal_count']}")
+        if exp.get("deal_lines"):
+            got = sorted(social_agent._CATEGORY_LINE.get(d["category"], d["category"] or "?")
+                         for d in self.fake.deals)
+            want(got == sorted(exp["deal_lines"]),
+                 f"deals created for {got}, expected {sorted(exp['deal_lines'])}")
+        if exp.get("deal_name_contains"):
+            want(any(re.search(exp["deal_name_contains"], d["name"], re.I)
+                     for d in self.fake.deals),
+                 f"no deal under a name matching {exp['deal_name_contains']!r} "
+                 f"(names: {[d['name'] for d in self.fake.deals]})")
+        notes_text = "\n".join(n["body"] for n in self.fake.deal_notes)
+        for frag in exp.get("deal_notes_contains") or []:
+            want(re.search(frag, notes_text, re.I),
+                 f"no note on the deal contains: {frag!r} (notes: {notes_text[:160]!r})")
+        if exp.get("deal_notes_max") is not None:
+            want(len(self.fake.deal_notes) <= exp["deal_notes_max"],
+                 f"{len(self.fake.deal_notes)} deal note(s) > max {exp['deal_notes_max']}")
         for k, v in (exp.get("send_attr") or {}).items():
             want(self.fake.public_sends and
                  self.fake.public_sends[-1]["attrs"].get(k) == v,
@@ -682,6 +722,24 @@ class Engine:
             want(used == bool(exp["preview_swatch_used"]),
                  f"preview swatch used={used}, expected "
                  f"{bool(exp['preview_swatch_used'])}")
+        # Per-turn expectations: a script step may carry its own `expect`
+        # (sent_contains / sent_not_contains / handled), checked against the
+        # replies THAT turn produced — so a replay can assert what the very next
+        # reply did, not just the conversation as a whole.
+        for i, step in enumerate(self.sc.get("script") or []):
+            sx = step.get("expect") or {}
+            if not sx or i >= len(getattr(self, "timeline", [])):
+                continue
+            turn = self.timeline[i]
+            turn_sent = "\n".join(o["text"] for o in turn["outputs"] if o["type"] == "sent")
+            for frag in sx.get("sent_contains") or []:
+                want(re.search(frag, turn_sent, re.I), f"turn {i + 1} sent missing: {frag!r}")
+            for frag in sx.get("sent_not_contains") or []:
+                want(not re.search(frag, turn_sent, re.I),
+                     f"turn {i + 1} sent must not contain: {frag!r}")
+            if sx.get("handled"):
+                want(turn.get("handled") == sx["handled"],
+                     f"turn {i + 1} handled={turn.get('handled')!r} != {sx['handled']!r}")
         return errors, sent_text, card_text
 
 

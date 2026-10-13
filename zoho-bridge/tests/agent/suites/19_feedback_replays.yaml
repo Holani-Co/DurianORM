@@ -1,0 +1,429 @@
+# Replays of conversations complained about in the "Daily ORM AI Feedback" sheet.
+# One scenario per conversation; customer messages are verbatim except that phone
+# numbers are the suite test number and personal names are made up. Expectations
+# verified by Vaibhav on 2026-10-13.
+# WhatsApp scenarios set `channel: whatsapp` (see conftest ScenarioEngine.run).
+
+# #9868 · P02 · Customer details not asked
+- id: fb9868_fhc_wardrobe_store_delhi
+  inbox: durian_fullhomecustomisation
+  contact:
+    id: 900
+    name: Priya
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I am looking for Modular wardrobe & lifestyle system, do you have store in DELHI city?
+  - at: 2m
+    text: Also note please register enquiry with name Ms. Priya & my pin code is 110021.
+  expect:
+    handled: agent_sent
+    labels_absent:
+    - agent-needed
+    sent_contains:
+    - Kirti Nagar
+    - contact number|phone number|mobile number
+    deal_not_created: true
+    judge:
+      min: 3
+
+# #9725 · P05 · Deal not created
+- id: fb9725_fhc_number_city_pincode_no_requirement
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Hi
+  - at: 2m
+    text: '9560150835'
+  - at: 4m
+    text: 'Delhi
+
+      110024'
+  expect:
+    handled: agent_sent
+    labels_absent:
+    - agent-needed
+    sent_contains:
+    - looking for|customi[sz]e|requirement|interested in|planning|help you with
+    sent_not_contains:
+    - Noida
+    - Kirti Nagar
+    judge:
+      min: 3
+    deal_not_created: true
+
+# #6137 · P02 · Customer details not asked
+- id: fb6137_kitchen_display_mumbai
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  history:
+  - at: -42d
+    text: Please change the kitchen look and suggest something different
+  - at: -42d
+    who: durian
+    text: We can help refresh your kitchen with a different look. Please share a clear photo of your current kitchen,
+      and we'll suggest suitable design directions.
+  script:
+  - at: 0m
+    text: Hi
+  - at: 2m
+    text: I need to modify my Mumbai house, so where I see kitchen display?
+  - at: 4m
+    text: '400607'
+  expect:
+    handled: agent_sent
+    labels_absent:
+    - agent-needed
+    sent_contains:
+    - pincode
+    - Thane
+    sent_not_contains:
+    - Nazneen
+    - Worli
+    judge:
+      min: 3
+
+# #9395 · P05 · Deal not created
+- id: fb9395_sofa_with_teapoy
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Hi
+  - at: 2m
+    text: Karthik 9560150835
+  - at: 4m
+    text: 'Wardrobe
+
+      Sofa with tepa'
+  - at: 6m
+    text: Yes teapoy
+  expect:
+    labels_absent:
+    - agent-needed
+    tool_call_matches:
+    - search_products\(.*(table|teapoy)
+    sent_contains:
+    - durian\.in/product
+    - pincode|city
+    judge:
+      min: 3
+    deal_not_created: true
+
+# #9674 · P05 · Deal not created
+- id: fb9674_dealership_enquiry
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Do you make dealers also
+  - at: 2m
+    text: 'Rohan Mehta
+
+      9560150835
+
+      244901'
+  expect:
+    tools_called:
+    - escalate_to_human
+    labels:
+    - agent-needed
+    deal_not_created: true
+    judge:
+      min: 3
+
+# #8939 · P11 · Template missing / not used
+- id: fb8939_hinglish_doors_request
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: 'Hello
+
+      Sir'
+  - at: 2m
+    text: Hame aap ka door aap chahiye
+  - at: 4m
+    text: 'Aap dijiye
+
+      Door ka'
+  - at: 6m
+    text: Sir hame aap nambar diye aapne campani ka
+  - at: 8m
+    text: Ji ha
+  - at: 10m
+    text: 'Kya hua
+
+      Sir
+
+      Aap meri hellf kar sakte hai ki nahi'
+  expect:
+    sent_contains:
+    - door
+    sent_not_contains:
+    - '[\u0900-\u097F]'
+    handled: agent_sent
+    judge:
+      min: 3
+
+# #9928 · Reply held · Agent Needed
+- id: fb9928_hall_sofa_then_director_chairs
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  prior_conversations:
+  - messages:
+    - at: -8d
+      text: I am looking for a sofa and dining table for my area
+    - at: -8d
+      who: durian
+      text: We have several sofas and dining tables. Could you share your pincode?
+  script:
+  - at: 0m
+    text: Hiii
+  - at: 2m
+    text: We need further for my Hall like sofa and 4 door wardrobe,
+  - at: 4m
+    text: I need directer chairs 10 pic
+    expect:
+      handled: agent_sent
+      sent_contains:
+      - chair
+  expect:
+    handled: agent_sent
+    labels_absent:
+    - agent-needed
+    sent_contains:
+    - contact number|phone number|mobile number
+    tool_call_matches:
+    - search_products\(.*chair
+    deal_not_created: true
+    judge:
+      min: 3
+
+# #9578 · P01 · Store address / link not shared
+- id: fb9578_comment_availability_hindi
+  inbox: duriandoor
+  surface: comment
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: हनुमानगढ़ में अवेलेबल है क्या
+  expect:
+    handled: agent_sent
+    anywhere_contains:
+    - DM|direct message|message us|inbox
+    sent_not_contains:
+    - '[\u0900-\u097F]'
+    - ₹
+    judge:
+      min: 3
+
+# #9308, #9591 · P08 · Wrong / irrelevant reply
+- id: fb9308_9591_wa_product_enquiry_name
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Test Customer
+    phone_number: '+919560150835'
+  config:
+    STORE_LOCATOR_ENABLED: true
+    SOCIAL_AGENT_CHANNELS:
+    - instagram
+    - facebook
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Hello! Can I get more information on this?
+    expect:
+      handled: agent_sent
+      sent_not_contains:
+      - screenshot
+  - at: 2m
+    text: Product enquiry
+  expect:
+    labels_absent:
+    - agent-needed
+    sent_contains:
+    - pincode|city
+    sent_not_contains:
+    - phone number|contact number
+    judge:
+      min: 3
+
+# #9494 · P05 · Deal not created, P08 · Wrong / irrelevant reply
+- id: fb9494_wa_store_address_one_store
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Test Customer
+    phone_number: '+919560150835'
+  config:
+    STORE_LOCATOR_ENABLED: true
+    SOCIAL_AGENT_CHANNELS:
+    - instagram
+    - facebook
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Hello! Can I get more information on this?
+  - at: 2m
+    text: Store address
+  - at: 1d
+    text: '201304'
+    expect:
+      sent_contains:
+      - looking for|customi[sz]e|requirement|interested in|plan\b|planning|help you|would you like
+      sent_not_contains:
+      - Mohit
+      - Shruti
+  - at: 1d
+    text: Full home customisation
+    expect:
+      sent_contains:
+      - Shruti
+      sent_not_contains:
+      - Mohit
+  expect:
+    sent_contains:
+    - Noida
+    - Shruti
+    sent_not_contains:
+    - Mohit
+    labels_absent:
+    - agent-needed
+    deal_not_created: true
+    judge:
+      min: 3
+
+# #9583 · P08 · Wrong / irrelevant reply
+- id: fb9583_wa_job_resume
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Test Customer
+    phone_number: '+919560150835'
+  config:
+    STORE_LOCATOR_ENABLED: true
+    SOCIAL_AGENT_CHANNELS:
+    - instagram
+    - facebook
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Hi
+  - at: 2m
+    text: 'RAHIM
+
+      Location: Noida, Uttar Pradesh
+
+      CAREER OBJECTIVE
+
+      8 saal ke experience ke sath ek mehanati aur skilled Woodwork Professional, jo modular furniture ka kaam karta
+      hai. Job ki talash hai.'
+  expect:
+    sent_not_contains:
+    - nearest (Durian )?studio
+    - book a visit
+    - '[\u0900-\u097F]'
+    deal_not_created: true
+    judge:
+      min: 3
+    sent_contains:
+    - job|career|hiring|vacanc|recruit|employment|opening|work opportunit|work enquiry
+    tools_called:
+    - escalate_to_human
+    labels:
+    - agent-needed
+
+# #9675 · P08 · Wrong / irrelevant reply
+- id: fb9675_wa_kaam_milega
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Test Customer
+    phone_number: '+919560150835'
+  config:
+    STORE_LOCATOR_ENABLED: true
+    SOCIAL_AGENT_CHANNELS:
+    - instagram
+    - facebook
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Hello! Can I get more information on this?
+  - at: 2m
+    text: Kam milega sir
+  - at: 4m
+    text: Other help
+  - at: 6m
+    text: Kam milega sir
+  expect:
+    sent_not_contains:
+    - nearest (Durian )?studio
+    - book a visit
+    - '[\u0900-\u097F]'
+    deal_not_created: true
+    judge:
+      min: 3
+    sent_contains:
+    - job|career|hiring|vacanc|recruit|employment|opening|work opportunit|work enquiry
+    tools_called:
+    - escalate_to_human
+    labels:
+    - agent-needed
+
+# #6205 · P08 · Wrong / irrelevant reply
+- id: fb6205_wa_job_other_help
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Test Customer
+    phone_number: '+919560150835'
+  config:
+    STORE_LOCATOR_ENABLED: true
+    SOCIAL_AGENT_CHANNELS:
+    - instagram
+    - facebook
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Other help
+  - at: 2m
+    text: I am looking for Job.
+  - at: 4m
+    text: Who will contact me for this? As I need job on urgent basis. Kindly help
+  - at: 6m
+    text: I understand you are AI but please try to share HR contact detail or email id so I can share my resume.
+  expect:
+    sent_not_contains:
+    - Explore our collection
+    - nearest (Durian )?studio
+    - may I have your
+    deal_not_created: true
+    judge:
+      min: 3
+    sent_contains:
+    - job|career|hiring|vacanc|recruit|employment|opening|work opportunit|work enquiry
+    tools_called:
+    - escalate_to_human
+    labels:
+    - agent-needed

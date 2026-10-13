@@ -1,0 +1,378 @@
+# Part 2 of the agent redesign: the product line comes from the conversation, one
+# enquiry skill for every line, the name is confirmed before the deal, one deal per
+# line, later details go onto the deal. One designed conversation per rule decided by
+# Vaibhav on 2026-10-12/13 (built on his "do it"; the cases were not individually
+# marked on the review page).
+
+# 1 · What they want, not which account
+- id: p2_doors_store_asked_on_furniture_account
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Do you have a doors showroom in Gurgaon?
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - MG Road
+    sent_not_contains:
+    - Sohna Road
+    - Gurgaon JMD
+
+# 1 · What they want, not which account
+- id: p2_sofa_store_asked_on_doors_account
+  inbox: duriandoor
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to see sofas. Which showroom is near pincode 110054?
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - Kirti Nagar
+    - Raghvendra
+    sent_not_contains:
+    - Rohit
+
+# 1 · What they want, not which account
+- id: p2_custom_wardrobe_asked_on_furniture_account
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want a wardrobe built to measure for my bedroom. Which is the nearest studio to 400097?
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - Goregaon
+    - Janhavi
+    sent_not_contains:
+    - Worli
+    - Nazneen
+
+# 1 · What they want, not which account
+- id: p2_ready_made_sofa_asked_on_fhc_account
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: What is the price of the Lewis corner sofa?
+  expect:
+    handled: agent_sent
+    tools_called:
+    - search_products
+    sent_contains:
+    - durian\.in/product
+    - ₹
+
+# 1 · What they want, not which account
+- id: p2_store_asked_requirement_unknown
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Do you have a store in Delhi?
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - looking for|customi[sz]e|requirement|interested in|plan\b|planning|help you|would you like
+    sent_not_contains:
+    - Raghvendra
+    - Sohna Road
+    - Ghitorni
+
+# 1 · What they want, not which account
+- id: p2_likely_requirement_is_confirmed_not_assumed
+  inbox: duriandoor
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: Store in Mumbai?
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - door
+    - \?
+    sent_not_contains:
+    - Sushmita
+
+# 2 · One enquiry step, asks for everything missing
+- id: p2_everything_missing_is_asked_at_once
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa
+    expect:
+      sent_contains:
+      - name
+      - contact number|phone number|mobile number
+      - pincode|city
+  expect:
+    handled: agent_sent
+    deal_not_created: true
+
+# 2 · One enquiry step, asks for everything missing
+- id: p2_only_the_missing_piece_is_asked
+  inbox: duriandoor
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I need 5 veneer doors. I am Rahul Verma, my number is 9560150835
+  expect:
+    handled: agent_sent
+    sent_contains:
+    - pincode|city
+    sent_not_contains:
+    - contact number|phone number|mobile number
+    - full name
+    deal_not_created: true
+
+# 2 · One enquiry step, asks for everything missing
+- id: p2_furniture_all_details_one_message
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. I am Rahul Verma, 9560150835, pincode 110054
+  expect:
+    deal_count: 1
+    deal_lines:
+    - furniture
+    sent_contains:
+    - Kirti Nagar
+    judge:
+      min: 3
+
+# 2 · One enquiry step, asks for everything missing
+- id: p2_doors_all_details_one_message
+  inbox: duriandoor
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I need 5 veneer doors. Rahul Verma, 9560150835, Mumbai 400101
+  expect:
+    deal_count: 1
+    deal_lines:
+    - doors
+    judge:
+      min: 3
+
+# 2 · One enquiry step, asks for everything missing
+- id: p2_fhc_all_details_one_message
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want a modular kitchen. Priya Nair, 9560150835, pincode 400097
+  expect:
+    deal_count: 1
+    deal_lines:
+    - fhc
+    sent_contains:
+    - Goregaon
+    judge:
+      min: 3
+
+# 3 · Name confirmed before the deal
+- id: p2_profile_name_is_confirmed_first
+  inbox: durianforhome
+  contact:
+    id: 900
+    name: Rajeshri Patil
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. 9560150835, pincode 110054
+    expect:
+      sent_contains:
+      - Rajeshri
+      - \?
+  expect:
+    handled: agent_sent
+    deal_not_created: true
+
+# 3 · Name confirmed before the deal
+- id: p2_name_confirmed_then_deal
+  inbox: durianforhome
+  contact:
+    id: 900
+    name: Rajeshri Patil
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. 9560150835, pincode 110054
+  - at: 2m
+    text: 'Yes'
+  expect:
+    deal_count: 1
+    deal_name_contains: Rajeshri
+
+# 3 · Name confirmed before the deal
+- id: p2_name_corrected_then_deal
+  inbox: durianforhome
+  contact:
+    id: 900
+    name: Rajeshri Patil
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. 9560150835, pincode 110054
+  - at: 2m
+    text: No, please register it under Anita Patil
+  expect:
+    deal_count: 1
+    deal_name_contains: Anita
+
+# 3 · Name confirmed before the deal
+- id: p2_handle_is_not_a_name
+  inbox: durianforhome
+  contact:
+    id: 900
+    name: house_of_holani
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. 9560150835, pincode 110054
+    expect:
+      sent_contains:
+      - name
+      sent_not_contains:
+      - house_of_holani
+  expect:
+    handled: agent_sent
+    deal_not_created: true
+
+# 3 · Name confirmed before the deal
+- id: p2_typed_name_needs_no_confirmation
+  inbox: durianforhome
+  contact:
+    id: 900
+    name: rv_1990
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. I am Rahul Verma, 9560150835, pincode 110054
+    expect:
+      sent_not_contains:
+      - register (this|it|the enquiry) under
+  expect:
+    deal_created: true
+    deal_created_max: 1
+
+# 4 · One deal per vertical
+- id: p2_sofa_and_chairs_one_deal
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. I am Rahul Verma, 9560150835, pincode 110054
+  - at: 2m
+    text: I also need 4 dining chairs
+  expect:
+    deal_count: 1
+    deal_lines:
+    - furniture
+    deal_notes_contains:
+    - chair
+
+# 4 · One deal per vertical
+- id: p2_sofa_and_doors_two_deals
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. I am Rahul Verma, 9560150835, pincode 110054
+  - at: 2m
+    text: I also need 5 veneer doors for the same flat
+  expect:
+    deal_count: 2
+    deal_lines:
+    - furniture
+    - doors
+    sent_not_contains:
+    - contact number|phone number|mobile number
+
+# 4 · One deal per vertical
+- id: p2_sofa_and_custom_wardrobe_two_deals
+  inbox: durianforhome
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to buy the Lewis corner sofa. I am Rahul Verma, 9560150835, pincode 110054
+  - at: 2m
+    text: And I want a wardrobe built to measure for the bedroom
+  expect:
+    deal_count: 2
+    deal_lines:
+    - furniture
+    - fhc
+    sent_not_contains:
+    - contact number|phone number|mobile number
+
+# 5 · Later details go onto the deal
+- id: p2_deal_first_product_asked_once
+  inbox: duriandoor
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I need doors. Rahul Verma, 9560150835, Mumbai 400101
+    expect:
+      sent_contains:
+      - which|what (kind|type)|how many
+  expect:
+    deal_created: true
+    deal_created_max: 1
+
+# 5 · Later details go onto the deal
+- id: p2_later_details_become_a_note
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to redo my home interiors. Priya Nair, 9560150835, pincode 400097
+  - at: 2m
+    text: Mainly a modular kitchen and two wardrobes, budget around 6 lakh
+  expect:
+    deal_count: 1
+    deal_lines:
+    - fhc
+    deal_notes_contains:
+    - kitchen
+    - wardrobe
+    - 6 lakh|budget
+
+# 5 · Later details go onto the deal
+- id: p2_small_talk_adds_nothing
+  inbox: durian_fullhomecustomisation
+  config:
+    STORE_LOCATOR_ENABLED: true
+  script:
+  - at: 0m
+    text: I want to redo my home interiors. Priya Nair, 9560150835, pincode 400097
+  - at: 2m
+    text: Ok thank you
+  expect:
+    deal_count: 1
+    deal_notes_max: 0

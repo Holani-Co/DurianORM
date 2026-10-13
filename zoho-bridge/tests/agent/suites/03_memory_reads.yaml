@@ -47,9 +47,12 @@
   script:
     - {at: "0m", text: "I want to buy the esmeralda marble dining set. pincode 110054"}
   expect:
-    tools_called: ["route_to_showroom"]
-    deal_created: true
+    tools_called: ["register_enquiry"]
+    # The phone is remembered from the earlier conversation, so it is never asked
+    # for again; the one thing still missing for the deal is their name.
     sent_not_contains: ["contact number", "phone number\\?"]
+    sent_contains: ["name"]
+    deal_not_created: true
     judge: {min: 3}
 
 - id: emi_reask_refetches_exact

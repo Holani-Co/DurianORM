@@ -4,7 +4,7 @@
     deals:
       - {Deal_Name: "Sofa purchase 2025", Stage: "Closed Won"}
   script:
-    - {at: "0m", text: "I want the benjamin corner sofa. my number is 9560150835, pincode 110054"}
+    - {at: "0m", text: "I am Rahul Verma. I want the benjamin corner sofa. my number is 9560150835, pincode 110054"}
   expect:
     profile_field: {commercial.crm_contact_id: "CRM-77"}
     deal_created: true

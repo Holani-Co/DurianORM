@@ -99,12 +99,20 @@ def empty_profile() -> dict:
 
 LEARN_KINDS = ("interest", "declined", "preference", "correction", "budget",
                "objection", "promise", "routed", "deal_created", "note")
-SET_FIELDS = ("identity.phone", "location.pincode", "location.city",
+SET_FIELDS = ("identity.name", "identity.phone", "location.pincode", "location.city",
               "commercial.showroom")
 
 
 def _norm(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _squash(text) -> str:
+    """Whitespace-free form for evidence matching. The agent re-types a tool
+    result's JSON compact ({"routed":true,…}) as often as spaced, and a real
+    quote must not be rejected over spacing (it was: the routed / showroom
+    update vanished whenever the model happened to quote compactly)."""
+    return re.sub(r"\s+", "", str(text or "")).lower()
 
 
 def _tool_haystack(tool_results: list) -> str:
@@ -126,8 +134,8 @@ def verify_updates(updates: list, incoming_texts: list[str],
     closed list of set fields / learn kinds) AND its quote appears in this
     turn's customer messages or tool results. Rejections are logged, never
     stored. Returns stamped, apply-ready updates."""
-    msg_hay = _norm(" ".join(incoming_texts or []))
-    tool_hay = _tool_haystack(tool_results)
+    msg_hay = _squash(" ".join(incoming_texts or []))
+    tool_hay = _squash(_tool_haystack(tool_results))
     stamp = _iso(now())
     out = []
     for item in updates or []:
@@ -153,8 +161,17 @@ def verify_updates(updates: list, incoming_texts: list[str],
                 print(f"[profile] rejected learn {kind!r}: not a learn kind / empty")
                 continue
             what_for_log = f"{kind}/{value[:40]}"
-        probe = quote[:80]
-        if not probe or (probe not in msg_hay and probe not in tool_hay):
+        probe = _squash(quote[:80])
+        # Quoting a tool result, the agent tends to keep the first key/value
+        # pair exact and abridge the rest ('"showroom": "X", "deal_created":…'
+        # where the real result has "city" in between). For a `set`, that
+        # leading pair is real evidence when BOTH it and the value being set
+        # are in this turn's tool results — a generic lead ('"routed": true')
+        # can never vouch for a value the tools did not return.
+        lead = _squash(re.split(r',\s*"', quote, maxsplit=1)[0])
+        abridged = (op == "set" and len(lead) >= 12 and lead in tool_hay
+                    and _squash(value) in tool_hay)
+        if not probe or not (probe in msg_hay or probe in tool_hay or abridged):
             print(f"[profile] rejected unverified update: {what_for_log} "
                   f"(quote {quote[:50]!r} not in this turn)")
             continue
@@ -271,6 +288,10 @@ def render(profile: dict, contact_name: str, inbox: str = "") -> str:
              + (f" · via {inbox}" if inbox else "")]
     ident, loc, com = (profile.get("identity") or {}), \
         (profile.get("location") or {}), (profile.get("commercial") or {})
+    nm = (ident.get("name") or {}).get("value")
+    if nm:
+        lines.append(f"- Name: {nm} (given or confirmed by the customer "
+                     f"{age_label((ident['name'] or {}).get('t'), ref)})")
     ph = (ident.get("phone") or {}).get("value")
     if ph:
         digits = re.sub(r"\D", "", ph)[-4:]
