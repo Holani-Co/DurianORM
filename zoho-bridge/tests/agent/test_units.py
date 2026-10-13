@@ -1206,3 +1206,21 @@ def test_fhc_deal_no_studio_in_range_stays_plain(monkeypatch):
     r = asyncio.run(sa.SKILLS["register_enquiry"]["handler"](ctx, category="fhc", city="Imphal"))
     assert r["deal_created"] is True and "store_card" not in r
     assert "our team will reach out" in r["next"]
+
+
+# ── FHC guidance follows the VERTICAL, not the inbox name (conv #9916) ───────
+
+def test_fhc_rule_present_on_whatsapp_fhc_inbox_despite_name():
+    from datetime import datetime
+    # WhatsApp FHC inbox is named "Whatsapp FHC" (not matching _is_fhc_account),
+    # but its vertical is fhc → the FHC rule MUST still be injected.
+    assert sa._is_fhc_account("Whatsapp FHC") is False
+    p = sa._system_prompt("dm", "Whatsapp FHC", "fhc", datetime(2026, 1, 1),
+                          "P", "T", 1, channel="whatsapp")
+    assert "FULL HOME CUSTOMISATION ACCOUNT" in p
+    assert "NEVER call route_to_showroom here" in p
+    assert "ALREADY HAVE it in full" in p                 # phone clarity
+    # a furniture inbox gets neither
+    f = sa._system_prompt("dm", "Durian Furniture", "furniture", datetime(2026, 1, 1),
+                          "P", "T", 1, channel="instagram")
+    assert "FULL HOME CUSTOMISATION ACCOUNT" not in f
