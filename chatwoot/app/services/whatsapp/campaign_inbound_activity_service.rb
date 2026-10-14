@@ -41,8 +41,26 @@ class Whatsapp::CampaignInboundActivityService
     conversation.update!(
       additional_attributes: conversation.additional_attributes.merge('reply_campaign' => reply_campaign)
     )
+    post_reply_campaign_note(conversation, reply_campaign)
   rescue StandardError => e
     Rails.logger.error("[whatsapp] reply-campaign stamp failed for inbox #{@inbox.id}: #{e.message}")
+  end
+
+  # Agent-only note so a human replying to a bare "Hi! Can I get more
+  # information on this?" sees it is a reply to one of our campaigns and what we
+  # sent. Posted here (not from the bridge) because the reply_campaign stamp
+  # lands after the webhook payload is built — the campaign reply is usually a
+  # single message, so a bridge-side snapshot read would miss it. Best-effort.
+  def post_reply_campaign_note(conversation, reply_campaign)
+    return if ENV.fetch('WHATSAPP_CAMPAIGN_NOTE_ENABLED', 'true').to_s.downcase == 'false'
+
+    lines = ['📣 Reply to our WhatsApp campaign — context for the agent',
+             "• Campaign: #{reply_campaign['title'].presence || 'a Durian campaign'}"]
+    lines << "• We sent: #{reply_campaign['message']}" if reply_campaign['message'].present?
+    lines << "• Media sent: #{reply_campaign['media_type']}" if reply_campaign['media_type'].present?
+    Messages::MessageBuilder.new(nil, conversation, { content: lines.join("\n"), private: true }).perform
+  rescue StandardError => e
+    Rails.logger.error("[whatsapp] reply-campaign note failed for inbox #{@inbox.id}: #{e.message}")
   end
 
   # 'image' / 'video' / 'document' when the campaign's template has a media
