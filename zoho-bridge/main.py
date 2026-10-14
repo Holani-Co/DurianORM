@@ -141,20 +141,6 @@ def _ad_note_body(ref: dict) -> str:
     return "\n".join(lines)
 
 
-def _outbound_note_body(rc: dict) -> str:
-    """Human-facing agent note for a reply to one of our own WhatsApp campaigns."""
-    title = (rc.get("title") or "").strip()
-    message = re.sub(r"\s+", " ", str(rc.get("message") or "")).strip()
-    media_type = (rc.get("media_type") or "").strip().lower()
-    lines = ["📣 Reply to our WhatsApp campaign — context for the agent",
-             f"• Campaign: “{title or 'a Durian campaign'}”"]
-    if message:
-        lines.append(f"• We sent: “{message[:400]}”")
-    if media_type:
-        lines.append(f"• Media sent: {media_type}")
-    return "\n".join(lines)
-
-
 async def _fetch_ad_creative(url: str) -> tuple[bytes | None, str]:
     """Download an ad creative from Meta's (public) CDN. Caps size so a large
     video never blows up the note. Returns (bytes, content_type) or (None, "")."""
@@ -168,30 +154,27 @@ async def _fetch_ad_creative(url: str) -> tuple[bytes | None, str]:
     return None, ""
 
 
-async def _maybe_post_campaign_note(conv: dict, conv_id: int, data: dict) -> None:
-    """Post a ONE-TIME agent-only private note with the campaign context behind a
-    WhatsApp lead — a Meta click-to-WhatsApp ad (headline + embedded creative) or
-    a reply to one of our own campaigns (name + the offer we sent) — so a human
-    agent isn't blindsided by a bare 'Hi! Can I get more information on this?'.
+async def _maybe_post_ad_note(conv: dict, conv_id: int, data: dict) -> None:
+    """Post a ONE-TIME agent-only private note with the ad behind a click-to-
+    WhatsApp lead (headline + embedded creative), so a human agent isn't
+    blindsided by a bare 'Hi! Can I get more information on this?'. The referral
+    rides on THIS message's content_attributes, so the webhook snapshot is
+    reliable. (Replies to OUR OWN campaigns are noted from Chatwoot instead —
+    that stamp lands after the webhook, so a snapshot read here would miss it.)
     Best-effort, idempotent (skips once campaign_note_posted is set)."""
     if not config.WHATSAPP_CAMPAIGN_NOTE_ENABLED:
         return
     if (conv.get("custom_attributes") or {}).get("campaign_note_posted"):
         return
     ref = _campaign_referral(data.get("content_attributes"))
-    reply_campaign = (conv.get("additional_attributes") or {}).get("reply_campaign") or {}
-    if not ref and not reply_campaign:
+    if not ref:
         return
 
     posted = False
     try:
-        if ref:
-            posted = await _post_ad_note(conv_id, ref)
-        else:
-            await chatwoot.post_private_note(conv_id, _outbound_note_body(reply_campaign))
-            posted = True
+        posted = await _post_ad_note(conv_id, ref)
     except Exception as e:
-        print(f"[campaign-note] post failed for conv {conv_id}: {e}")
+        print(f"[campaign-note] ad note failed for conv {conv_id}: {e}")
 
     if posted:
         try:
@@ -4234,8 +4217,8 @@ async def handle_message_created(data: dict) -> dict:
             and data.get("message_type") in (0, "incoming")):
         await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
                                            data.get("content_attributes"))
-        # Agent-only note so a human sees which campaign the lead came from.
-        await _maybe_post_campaign_note(conv, conv_id, data)
+        # Agent-only note showing the ad a click-to-WhatsApp lead came from.
+        await _maybe_post_ad_note(conv, conv_id, data)
 
     # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
     # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card

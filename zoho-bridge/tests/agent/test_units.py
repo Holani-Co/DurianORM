@@ -1650,21 +1650,19 @@ class _NoteFakeChatwoot:
         self.merged.append(attrs)
 
 
-def test_note_bodies_format():
+def test_ad_note_body_format():
     import main
     ad = main._ad_note_body({"headline": "Grand Festive Offer", "body": "Up to 50% off",
                              "source_url": "https://durian.in/x"})
     assert "WhatsApp Ad lead" in ad and "Grand Festive Offer — Up to 50% off" in ad
     assert "durian.in/x" in ad
-    out = main._outbound_note_body({"title": "Diwali Sale",
-                                    "message": "Flat 50%  off\nsofas", "media_type": "image"})
-    assert "Reply to our WhatsApp campaign" in out and "Diwali Sale" in out
-    assert "Flat 50% off sofas" in out and "Media sent: image" in out
-    # no media_type line when the campaign was plain text
-    assert "Media sent" not in main._outbound_note_body({"title": "T", "message": "m"})
 
 
-def test_campaign_note_embeds_ad_creative(monkeypatch):
+def _ad_data(**ref):
+    return {"content_attributes": {"referral": ref}}
+
+
+def test_ad_note_embeds_creative(monkeypatch):
     import asyncio
     import main
     fake = _NoteFakeChatwoot()
@@ -1675,16 +1673,15 @@ def test_campaign_note_embeds_ad_creative(monkeypatch):
     monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
 
     conv = {"custom_attributes": {}}
-    data = {"content_attributes": {"referral": {
-        "headline": "Grand Festive Offer", "media_type": "image",
-        "image_url": "https://cdn.meta/x.jpg", "source_url": "https://durian.in/x"}}}
-    asyncio.run(main._maybe_post_campaign_note(conv, 55, data))
+    data = _ad_data(headline="Grand Festive Offer", media_type="image",
+                    image_url="https://cdn.meta/x.jpg", source_url="https://durian.in/x")
+    asyncio.run(main._maybe_post_ad_note(conv, 55, data))
     assert len(fake.media) == 1 and fake.media[0][2] == "ad-creative.jpg"
     assert "Grand Festive Offer" in fake.media[0][1] and not fake.notes
     assert fake.merged == [{"campaign_note_posted": True}]
 
 
-def test_campaign_note_ad_falls_back_to_link_when_fetch_fails(monkeypatch):
+def test_ad_note_falls_back_to_link_when_fetch_fails(monkeypatch):
     import asyncio
     import main
     fake = _NoteFakeChatwoot()
@@ -1695,45 +1692,41 @@ def test_campaign_note_ad_falls_back_to_link_when_fetch_fails(monkeypatch):
     monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
 
     conv = {"custom_attributes": {}}
-    data = {"content_attributes": {"referral": {
-        "headline": "X", "image_url": "https://cdn.meta/x.jpg"}}}
-    asyncio.run(main._maybe_post_campaign_note(conv, 7, data))
+    asyncio.run(main._maybe_post_ad_note(conv, 7, _ad_data(headline="X",
+                                                           image_url="https://cdn.meta/x.jpg")))
     assert not fake.media and len(fake.notes) == 1
     assert "Creative: https://cdn.meta/x.jpg" in fake.notes[0][1]
 
 
-def test_campaign_note_outbound_and_idempotent_and_skip(monkeypatch):
+def test_ad_note_idempotent_and_skips_without_referral(monkeypatch):
     import asyncio
     import main
     fake = _NoteFakeChatwoot()
     monkeypatch.setattr(main, "chatwoot", fake)
 
-    # reply to our own campaign → text note, flag set
-    conv = {"custom_attributes": {}, "additional_attributes": {"reply_campaign": {
-        "title": "Diwali Sale", "message": "Flat 50% off", "media_type": "video"}}}
-    asyncio.run(main._maybe_post_campaign_note(conv, 9, {}))
-    assert len(fake.notes) == 1 and "Diwali Sale" in fake.notes[0][1]
-    assert "Media sent: video" in fake.notes[0][1]
-    assert fake.merged == [{"campaign_note_posted": True}]
+    async def fake_fetch(url):
+        return None, ""
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
 
-    # idempotent: already-posted conv posts nothing more
-    asyncio.run(main._maybe_post_campaign_note(
-        {"custom_attributes": {"campaign_note_posted": True},
-         "additional_attributes": conv["additional_attributes"]}, 9, {}))
-    assert len(fake.notes) == 1
-
-    # no campaign context at all → nothing posted
-    asyncio.run(main._maybe_post_campaign_note({"custom_attributes": {}}, 9, {}))
-    assert len(fake.notes) == 1
+    # already-posted conv → nothing
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {"campaign_note_posted": True}}, 9,
+        _ad_data(headline="X")))
+    assert not fake.notes and not fake.media
+    # no referral on the message → nothing (outbound-campaign case lives in Chatwoot)
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9, {}))
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {},
+         "additional_attributes": {"reply_campaign": {"title": "Diwali Sale"}}}, 9, {}))
+    assert not fake.notes and not fake.media
 
 
-def test_campaign_note_respects_disable_flag(monkeypatch):
+def test_ad_note_respects_disable_flag(monkeypatch):
     import asyncio
     import main
     fake = _NoteFakeChatwoot()
     monkeypatch.setattr(main, "chatwoot", fake)
     monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_NOTE_ENABLED", False)
-    conv = {"custom_attributes": {}, "additional_attributes": {"reply_campaign": {
-        "title": "Diwali Sale", "message": "Flat 50% off"}}}
-    asyncio.run(main._maybe_post_campaign_note(conv, 9, {}))
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9,
+                                         _ad_data(headline="X", image_url="https://cdn.meta/x.jpg")))
     assert not fake.notes and not fake.media and not fake.merged
