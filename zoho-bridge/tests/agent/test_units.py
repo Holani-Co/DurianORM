@@ -1613,3 +1613,18 @@ def test_main_campaign_referral_parses_dict_and_json():
     assert main._campaign_referral({"foo": 1}) == {}
     assert main._campaign_referral(None) == {}
     assert main._campaign_referral("not json") == {}
+
+
+def test_outbound_campaign_block_and_injection():
+    from datetime import datetime
+    conv = {"additional_attributes": {"reply_campaign": {
+        "title": "Grand Festive Offer", "message": "Flat 50% off select furniture"}}}
+    block = sa._outbound_campaign_block(conv)
+    assert "CAMPAIGN CONTEXT" in block and "Grand Festive Offer" in block
+    assert "Flat 50% off" in block and "do NOT ask what 'this' is" in block
+    assert sa._outbound_campaign_block({"additional_attributes": {}}) == ""
+    # it reaches the prompt via the campaign arg
+    base = dict(surface="dm", inbox="Whatsapp FHC", vertical="fhc",
+                now=datetime(2026, 1, 1), profile_block="P", templates="T",
+                n_customer_msgs=1, channel="whatsapp")
+    assert "Grand Festive Offer" in sa._system_prompt(**base, campaign=block)

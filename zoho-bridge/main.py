@@ -7940,13 +7940,19 @@ async def _deal_description(conv_id: int, conv: dict, messages: list,
     ]
     if custom.get("fhc_blueprint"):
         parts.insert(5, f"Blueprint: {str(custom['fhc_blueprint']).title()}")
-    # Click-to-WhatsApp ad this lead came from (captured on the first message).
+    # The campaign this lead came from: a Meta click-to-WhatsApp ad (captured on
+    # the first message) or a reply to one of our own WhatsApp campaigns (stamped
+    # on the conversation).
     ad = custom.get("campaign_ad") or {}
+    reply_campaign = (conv.get("additional_attributes") or {}).get("reply_campaign") or {}
     if ad:
         headline = " — ".join(b for b in (ad.get("headline"), ad.get("body")) if b)
         parts.insert(1, "Campaign:  " + (headline or "WhatsApp ad")
                      + (f" (page {ad['source_url']})" if ad.get("source_url") else "")
                      + (f" [ad {ad['source_id']}]" if ad.get("source_id") else ""))
+    elif reply_campaign.get("title") or reply_campaign.get("message"):
+        parts.insert(1, "Campaign:  " + (reply_campaign.get("title") or "WhatsApp campaign")
+                     + (f" — {reply_campaign['message'][:120]}" if reply_campaign.get("message") else ""))
     # AI summary — same summarizer the Desk tickets use. Best-effort.
     try:
         summary = await summarizer.summarize_conversation(messages) if messages else {}
