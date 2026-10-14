@@ -801,6 +801,13 @@ except Exception as _e:
 if not WHATSAPP_CAMPAIGN_PREFILLS:
     WHATSAPP_CAMPAIGN_PREFILLS = ["hello! can i get more information on this?"]
 
+# Post a one-time agent-only private note when a WhatsApp lead arrives with
+# campaign context — a Meta click-to-WhatsApp ad (shows the ad's headline +
+# embedded creative) or a reply to one of our own campaigns (shows the campaign
+# name + the message/offer we sent). So a human agent isn't left guessing why
+# the customer's first line is "Hi! Can I get more information on this?".
+WHATSAPP_CAMPAIGN_NOTE_ENABLED = _bool("WHATSAPP_CAMPAIGN_NOTE_ENABLED", "true")
+
 # The same FHC flow on the Chatwoot website widget (FHC section of durian.in) —
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.
