@@ -193,10 +193,31 @@ class Whatsapp::IncomingMessageBaseService # rubocop:disable Metrics/ClassLength
     )
   end
 
-  def create_message(message, source_id: nil)
-    content_attrs = outgoing_echo ? { external_echo: true } : {}
-    content_attrs[:in_reply_to_external_id] = @in_reply_to_external_id if @in_reply_to_external_id.present?
+  # Click-to-WhatsApp ad referral: Meta attaches the ad the customer clicked
+  # (headline/body, the product URL, ad + click ids) to the FIRST message of the
+  # conversation. We keep the fields worth acting on so downstream (the ORM
+  # agent, the CRM deal) can greet the lead with the right offer instead of
+  # dropping the ad context.
+  REFERRAL_KEYS = %w[source_url source_id source_type headline body media_type ctwa_clid].freeze
 
+  def referral_attributes(message)
+    return {} if outgoing_echo
+
+    referral = message[:referral]
+    return {} if referral.blank?
+
+    referral.slice(*REFERRAL_KEYS).compact_blank
+  end
+
+  def incoming_content_attributes(message)
+    attrs = outgoing_echo ? { external_echo: true } : {}
+    attrs[:in_reply_to_external_id] = @in_reply_to_external_id if @in_reply_to_external_id.present?
+    referral = referral_attributes(message)
+    attrs[:referral] = referral if referral.present?
+    attrs
+  end
+
+  def create_message(message, source_id: nil)
     @message = @conversation.messages.build(
       content: message_content(message),
       account_id: @inbox.account_id,
@@ -206,7 +227,7 @@ class Whatsapp::IncomingMessageBaseService # rubocop:disable Metrics/ClassLength
       status: outgoing_echo ? :delivered : :sent,
       sender: outgoing_echo ? nil : @contact,
       source_id: (source_id || message[:id]).to_s,
-      content_attributes: content_attrs
+      content_attributes: incoming_content_attributes(message)
     )
   end
 
