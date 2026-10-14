@@ -230,6 +230,54 @@ def _ctx_line(ctx, line: str = "") -> str:
         or _norm_line(ctx.get("vertical")) or "furniture"
 
 
+def _campaign_referral(all_messages) -> dict:
+    """The Meta click-to-WhatsApp ad referral on the first message that carries
+    one (Chatwoot stores it on content_attributes.referral) — the ad the lead
+    clicked — or {} when there is none."""
+    for m in all_messages or []:
+        ref = profile_mod.msg_attrs(m).get("referral")
+        if isinstance(ref, dict) and ref:
+            return ref
+    return {}
+
+
+def _campaign_block(ref: dict) -> str:
+    """Context-only note so the agent greets a click-to-WhatsApp ad lead with the
+    ad's offer instead of asking what 'this' is. It never makes the agent fetch
+    or promise anything — the normal grounding rules still apply."""
+    if not ref:
+        return ""
+    headline = " — ".join(b for b in (ref.get("headline"), ref.get("body")) if b)
+    url = ref.get("source_url") or ""
+    if not (headline or url):
+        return ""
+    return ("\n\nCAMPAIGN CONTEXT — this customer arrived by clicking a Durian ad: "
+            f"\"{headline or 'a Durian offer'}\"" + (f" (page {url})" if url else "")
+            + ". Their opening line is the ad's generic prefill, so treat the AD as "
+            "what they're asking about — acknowledge that offer/product and carry on; "
+            "do NOT ask them to send a screenshot or what 'this' is. Refer to the "
+            "offer only as the ad states it, and quote no price or detail you did "
+            "not fetch this turn.")
+
+
+def _outbound_campaign_block(conv) -> str:
+    """Context-only note when the customer is replying to one of our own WhatsApp
+    campaigns — Chatwoot stamps the campaign (title + the message we sent) on the
+    conversation's additional_attributes.reply_campaign. "" when there is none."""
+    rc = (conv.get("additional_attributes") or {}).get("reply_campaign")
+    if not isinstance(rc, dict):
+        return ""
+    title = (rc.get("title") or "").strip()
+    message = re.sub(r"\s+", " ", str(rc.get("message") or "")).strip()
+    if not (title or message):
+        return ""
+    return ("\n\nCAMPAIGN CONTEXT — this customer is replying to our WhatsApp campaign "
+            f"\"{title or 'a Durian campaign'}\"" + (f", which said: \"{message}\"" if message else "")
+            + ". Treat their message as a reply to that campaign/offer — acknowledge it "
+            "and carry on; do NOT ask what 'this' is. Refer to the offer only as the "
+            "campaign states it, and quote no price or detail you did not fetch this turn.")
+
+
 def _deal_store_card(vertical: str, city: str, pincode: str = "") -> str:
     """The customer-facing address card of the store/studio serving `city` for
     this vertical (the same one find_showrooms would show), or "" when the city
@@ -2701,7 +2749,7 @@ to the comment, never paste the framing):
 def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
                    profile_block: str, templates: str, n_customer_msgs: int,
                    post_caption: str = "", client_guidance: str = "",
-                   channel: str = "instagram") -> str:
+                   channel: str = "instagram", campaign: str = "") -> str:
     if surface == "comment":
         return _comment_prompt(inbox, vertical, now, profile_block, templates,
                                post_caption, client_guidance)
@@ -2772,7 +2820,7 @@ it, or drop the claim.
 CURRENT TIME: {now:%A %d %b %Y, %H:%M} IST. Transcript and profile carry real \
 timestamps — use them naturally; never treat an old enquiry as new.
 
-{profile_block}
+{profile_block}{campaign}
 
 EVERY TURN, IN THIS ORDER:
 1. READ the profile and the message. A shared post is intent. A reel / video / \
@@ -3310,9 +3358,17 @@ async def _handle_locked(conv, conv_id, channel, surface,
         post_caption = ((conv.get("additional_attributes") or {})
                         .get("caption") or "").strip()
     client_guidance = _client_guidance(vertical)
+    # Campaign context so the agent doesn't ask "what is this?" — a Meta click-to-
+    # WhatsApp ad (referral on the first message) OR a reply to one of our own
+    # WhatsApp campaigns (stamped on the conversation). WhatsApp only, context-
+    # only; empty when neither applies, so every other flow is unchanged.
+    campaign = ""
+    if channel == "whatsapp" and surface != "comment":
+        campaign = _campaign_block(_campaign_referral(all_messages)) \
+            or _outbound_campaign_block(conv)
     system = _system_prompt(surface, inbox_name, vertical, now, profile_block,
                             templates, n_customer, post_caption, client_guidance,
-                            channel=channel)
+                            channel=channel, campaign=campaign)
     viz_pass = ""
     if config.VISUALIZER_ENABLED and surface != "comment" \
             and _viz_allowed(conv):
