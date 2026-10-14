@@ -529,6 +529,31 @@ async def post_private_note(conversation_id: int, content: str) -> dict:
         return r.json()
 
 
+async def post_private_note_media(conversation_id: int, content: str,
+                                  media: bytes, filename: str,
+                                  ctype: str) -> dict | None:
+    """Add a private (agent-only) note with one attachment — caption + file in a
+    single note bubble. Used to show an incoming lead's WhatsApp-ad creative to
+    the agent. Best-effort; None on failure (caller falls back to a text note)."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            files = {"attachments[]": (filename, media, ctype)}
+            # Multipart: token header ONLY + string 'true' (see send_image_bytes).
+            data = {"content": content, "message_type": "outgoing", "private": "true"}
+            r = await client.post(
+                _conv_url(conversation_id, "/messages"),
+                headers={"api_access_token": config.CHATWOOT_API_TOKEN},
+                data=data, files=files)
+            if r.status_code >= 300:
+                print(f"[chatwoot] post_private_note_media failed "
+                      f"[{r.status_code}]: {r.text[:200]}")
+                return None
+            return r.json()
+    except Exception as e:
+        print(f"[chatwoot] post_private_note_media error: {e}")
+        return None
+
+
 async def send_outgoing_message(conversation_id: int,
                                 content: str,
                                 to_emails:  Optional[str] = None,

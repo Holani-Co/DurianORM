@@ -28,6 +28,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from langfuse import get_client
 
@@ -126,6 +127,86 @@ async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
         print(f"[campaign] attr merge failed for conv {conv_id}: {e}")
     print(f"[campaign] conv {conv_id}: tagged Meta WhatsApp campaign lead"
           + (f" (ad: {referral.get('headline') or referral.get('source_url')})" if referral else ""))
+
+
+def _ad_note_body(ref: dict) -> str:
+    """Human-facing agent note for a click-to-WhatsApp ad lead."""
+    headline = " — ".join(b for b in (ref.get("headline"), ref.get("body")) if b)
+    lines = ["📣 WhatsApp Ad lead — context for the agent",
+             "They messaged by tapping a Durian ad; their first line is the ad's default prefill."]
+    if headline:
+        lines.append(f"• Ad: “{headline}”")
+    if ref.get("source_url"):
+        lines.append(f"• Landing page: {ref['source_url']}")
+    return "\n".join(lines)
+
+
+async def _fetch_ad_creative(url: str) -> tuple[bytes | None, str]:
+    """Download an ad creative from Meta's (public) CDN. Caps size so a large
+    video never blows up the note. Returns (bytes, content_type) or (None, "")."""
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+            r = await c.get(url)
+            if r.status_code < 300 and r.content and len(r.content) <= 15_000_000:
+                return r.content, (r.headers.get("content-type") or "")
+    except Exception as e:
+        print(f"[campaign-note] creative fetch failed: {e}")
+    return None, ""
+
+
+async def _maybe_post_ad_note(conv: dict, conv_id: int, data: dict) -> None:
+    """Post a ONE-TIME agent-only private note with the ad behind a click-to-
+    WhatsApp lead (headline + embedded creative), so a human agent isn't
+    blindsided by a bare 'Hi! Can I get more information on this?'. The referral
+    rides on THIS message's content_attributes, so the webhook snapshot is
+    reliable. (Replies to OUR OWN campaigns are noted from Chatwoot instead —
+    that stamp lands after the webhook, so a snapshot read here would miss it.)
+    Best-effort, idempotent (skips once campaign_note_posted is set)."""
+    if not config.WHATSAPP_CAMPAIGN_NOTE_ENABLED:
+        return
+    if (conv.get("custom_attributes") or {}).get("campaign_note_posted"):
+        return
+    ref = _campaign_referral(data.get("content_attributes"))
+    if not ref:
+        return
+
+    posted = False
+    try:
+        posted = await _post_ad_note(conv_id, ref)
+    except Exception as e:
+        print(f"[campaign-note] ad note failed for conv {conv_id}: {e}")
+
+    if posted:
+        try:
+            await chatwoot.merge_custom_attributes(conv_id, {"campaign_note_posted": True})
+        except Exception as e:
+            print(f"[campaign-note] flag merge failed for conv {conv_id}: {e}")
+
+
+async def _post_ad_note(conv_id: int, ref: dict) -> bool:
+    """Post the ad note, embedding the creative when we can fetch it, else a text
+    note with the creative link. Returns True once a note is posted."""
+    body = _ad_note_body(ref)
+    if ref.get("image_url"):
+        media_url, kind = ref["image_url"], "image"
+    elif ref.get("video_url"):
+        media_url, kind = ref["video_url"], "video"
+    elif ref.get("thumbnail_url"):
+        media_url, kind = ref["thumbnail_url"], "image"
+    else:
+        media_url, kind = "", ""
+    if media_url:
+        content, ctype = await _fetch_ad_creative(media_url)
+        if content:
+            ext = "mp4" if kind == "video" else "jpg"
+            ctype = ctype or ("video/mp4" if kind == "video" else "image/jpeg")
+            res = await chatwoot.post_private_note_media(
+                conv_id, body, content, f"ad-creative.{ext}", ctype)
+            if res:
+                return True
+        body += f"\n• Creative: {media_url}"
+    await chatwoot.post_private_note(conv_id, body)
+    return True
 
 
 @app.on_event("startup")
@@ -4136,6 +4217,8 @@ async def handle_message_created(data: dict) -> dict:
             and data.get("message_type") in (0, "incoming")):
         await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
                                            data.get("content_attributes"))
+        # Agent-only note showing the ad a click-to-WhatsApp lead came from.
+        await _maybe_post_ad_note(conv, conv_id, data)
 
     # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
     # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card
