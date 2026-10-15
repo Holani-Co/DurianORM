@@ -16,15 +16,10 @@ class Api::V1::Accounts::ForwardedEmailReportsController < Api::V1::Accounts::Ba
   # GET …/forwarded_email_report/categories — the categories that email a team,
   # with the address each forwards to.
   def categories
-    response = HTTParty.get("#{ENV.fetch('ZOHO_BRIDGE_URL', 'http://127.0.0.1:8420')}/admin/routing-config",
-                            headers: { 'X-Routing-Admin-Secret' => ENV.fetch('ROUTING_ADMIN_SECRET', '') }, timeout: 20)
-    rules = response.parsed_response.dig('effective', 'categories') if response.success?
-    return render json: { error: 'bridge unavailable' }, status: :bad_gateway unless rules.is_a?(Hash)
+    list = Reports::ForwardingCategories.list
+    return render json: { error: 'bridge unavailable' }, status: :bad_gateway if list.nil?
 
-    render json: rules.filter_map { |key, rule| forwarding_category(key, rule) }.sort_by { |c| c[:name] }
-  rescue StandardError => e
-    Rails.logger.error("[forwarded-report] categories failed: #{e.message}")
-    render json: { error: 'bridge unavailable' }, status: :bad_gateway
+    render json: list
   end
 
   # POST …/forwarded_email_report/deliver  { category, category_name, week, recipients: 'a@x.com, b@y.com' }
@@ -41,20 +36,6 @@ class Api::V1::Accounts::ForwardedEmailReportsController < Api::V1::Accounts::Ba
   end
 
   private
-
-  # A category that emails a team: it forwards, or one of its subcategories
-  # does. Bulk orders (suppress_forward) and disabled categories never forward.
-  def forwarding_category(key, rule)
-    return unless forwards?(rule)
-
-    { key: key, name: rule['display_name'].presence || key.humanize, forward_to: rule['forward_to'].to_s.strip }
-  end
-
-  def forwards?(rule)
-    return false if rule['disabled'] || rule['suppress_forward']
-
-    rule['action'] == 'forward' || (rule['vertical_routing'] || {}).values.any? { |route| route&.dig('forward_to').present? }
-  end
 
   def recipients
     @recipients ||= params[:recipients].to_s.split(/[\s,;]+/).compact_blank.uniq
