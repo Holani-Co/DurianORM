@@ -813,6 +813,14 @@ except Exception as _e:
 if not WHATSAPP_CAMPAIGN_PREFILLS:
     WHATSAPP_CAMPAIGN_PREFILLS = ["hello! can i get more information on this?"]
 
+# Post a one-time agent-only private note showing the Meta click-to-WhatsApp ad
+# a lead came from (headline + embedded creative), so a human agent isn't left
+# guessing why the customer's first line is "Hi! Can I get more information on
+# this?". (Replies to OUR OWN campaigns are noted by Chatwoot's
+# CampaignInboundActivityService — same env flag name, read there too, so set
+# this on BOTH chatwoot and zoho-bridge to disable all campaign-context notes.)
+WHATSAPP_CAMPAIGN_NOTE_ENABLED = _bool("WHATSAPP_CAMPAIGN_NOTE_ENABLED", "true")
+
 # The same FHC flow on the Chatwoot website widget (FHC section of durian.in) —
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
 # Separate flag so website and WhatsApp roll out independently. Dark-launched.

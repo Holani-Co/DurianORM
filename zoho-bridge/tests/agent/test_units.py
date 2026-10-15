@@ -1630,6 +1630,109 @@ def test_outbound_campaign_block_and_injection():
     assert "Grand Festive Offer" in sa._system_prompt(**base, campaign=block)
 
 
+# --- Agent-only campaign context note (PR follow-up) ---------------------------
+
+class _NoteFakeChatwoot:
+    def __init__(self):
+        self.notes = []          # (conv_id, content) text notes
+        self.media = []          # (conv_id, content, filename, ctype) media notes
+        self.merged = []         # custom-attr merges
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append((conv_id, content))
+        return {"id": 1}
+
+    async def post_private_note_media(self, conv_id, content, media, filename, ctype):
+        self.media.append((conv_id, content, filename, ctype, media))
+        return {"id": 2}
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merged.append(attrs)
+
+
+def test_ad_note_body_format():
+    import main
+    ad = main._ad_note_body({"headline": "Grand Festive Offer", "body": "Up to 50% off",
+                             "source_url": "https://durian.in/x"})
+    assert "WhatsApp Ad lead" in ad and "Grand Festive Offer — Up to 50% off" in ad
+    assert "durian.in/x" in ad
+
+
+def _ad_data(**ref):
+    return {"content_attributes": {"referral": ref}}
+
+
+def test_ad_note_embeds_creative(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return b"\xff\xd8\xff", "image/jpeg"
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    conv = {"custom_attributes": {}}
+    data = _ad_data(headline="Grand Festive Offer", media_type="image",
+                    image_url="https://cdn.meta/x.jpg", source_url="https://durian.in/x")
+    asyncio.run(main._maybe_post_ad_note(conv, 55, data))
+    assert len(fake.media) == 1 and fake.media[0][2] == "ad-creative.jpg"
+    assert "Grand Festive Offer" in fake.media[0][1] and not fake.notes
+    assert fake.merged == [{"campaign_note_posted": True}]
+
+
+def test_ad_note_falls_back_to_link_when_fetch_fails(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return None, ""
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    conv = {"custom_attributes": {}}
+    asyncio.run(main._maybe_post_ad_note(conv, 7, _ad_data(headline="X",
+                                                           image_url="https://cdn.meta/x.jpg")))
+    assert not fake.media and len(fake.notes) == 1
+    assert "Creative: https://cdn.meta/x.jpg" in fake.notes[0][1]
+
+
+def test_ad_note_idempotent_and_skips_without_referral(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return None, ""
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    # already-posted conv → nothing
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {"campaign_note_posted": True}}, 9,
+        _ad_data(headline="X")))
+    assert not fake.notes and not fake.media
+    # no referral on the message → nothing (outbound-campaign case lives in Chatwoot)
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9, {}))
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {},
+         "additional_attributes": {"reply_campaign": {"title": "Diwali Sale"}}}, 9, {}))
+    assert not fake.notes and not fake.media
+
+
+def test_ad_note_respects_disable_flag(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+    monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_NOTE_ENABLED", False)
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9,
+                                         _ad_data(headline="X", image_url="https://cdn.meta/x.jpg")))
+    assert not fake.notes and not fake.media and not fake.merged
+
+
+
 # --- Social partnership / pitch forwarding ------------------------------------
 
 class _PFFakeChatwoot:
