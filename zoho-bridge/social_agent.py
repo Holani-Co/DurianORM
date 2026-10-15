@@ -1499,6 +1499,15 @@ def _offer_interest_keywords(ctx, product_context: str) -> set:
     return kw
 
 
+def _offer_in_vertical(offer: dict, vertical: str) -> bool:
+    """True when the offer may be shown on this conversation's vertical. An offer
+    with no `verticals` set is universal (all channels); otherwise it shows only
+    on the verticals it is tagged with — so a furniture sale offer never lands on
+    an FHC or doors chat."""
+    vs = [str(v).strip().lower() for v in (offer.get("verticals") or []) if str(v).strip()]
+    return not vs or vertical in vs
+
+
 def _offer_matches_interest(offer: dict, kw: set) -> bool:
     """True when any offer tag shares a category word with the customer's
     interest — substring either way so 'sofa' matches the 'All Sofas' tag."""
@@ -1531,9 +1540,11 @@ async def _sk_share_offer(ctx, product_context: str = "", **_) -> dict:
     if not config.OFFERS_ENABLED:
         return {"sent": False, "matched": [], "note": "offers disabled"}
     conv, conv_id = ctx["conv"], ctx["conv_id"]
+    vertical = (ctx.get("vertical") or "").strip().lower()
     try:
         live = [o for o in (await chatwoot.get_offers())
-                if o.get("active") and o.get("image_url") and _offer_fresh(o)]
+                if o.get("active") and o.get("image_url") and _offer_fresh(o)
+                and _offer_in_vertical(o, vertical)]
     except Exception as e:
         return {"sent": False, "matched": [], "note": f"offers unavailable: {e}"}
     if not live:

@@ -19,6 +19,16 @@ const saving = ref(false);
 const imageFile = ref(null);
 const imagePreview = ref('');
 
+// The agent verticals an offer can be scoped to. None ticked = all verticals.
+const VERTICAL_OPTIONS = ['furniture', 'doors', 'fhc'];
+const toggleVertical = v => {
+  if (!editing.value) return;
+  const set = new Set(editing.value.verticals || []);
+  if (set.has(v)) set.delete(v);
+  else set.add(v);
+  editing.value.verticals = [...set];
+};
+
 const load = async () => {
   loading.value = true;
   try {
@@ -62,6 +72,7 @@ const startAdd = () => {
     priority: smallestFreePriority(),
     active: true,
     tags: [],
+    verticals: [],
     expires_at: null,
   };
   imageFile.value = null;
@@ -69,7 +80,11 @@ const startAdd = () => {
 };
 
 const startEdit = o => {
-  editing.value = { ...o, tags: [...(o.tags || [])] };
+  editing.value = {
+    ...o,
+    tags: [...(o.tags || [])],
+    verticals: [...(o.verticals || [])],
+  };
   imageFile.value = null;
   imagePreview.value = o.image_url || '';
 };
@@ -116,6 +131,11 @@ const save = async () => {
     fd.append('priority', editing.value.priority ?? 0);
     fd.append('active', editing.value.active);
     (editing.value.tags || []).forEach(tag => fd.append('tags[]', tag));
+    (editing.value.verticals || []).forEach(v => fd.append('verticals[]', v));
+    // Always send the key (a blank sentinel when none ticked) so unticking all
+    // on an edit actually clears it back to "all verticals"; the model strips
+    // the blank. Without this an empty array sends nothing and the old value sticks.
+    fd.append('verticals[]', '');
     if (editing.value.expires_at)
       fd.append('expires_at', editing.value.expires_at);
     if (imageFile.value) fd.append('image', imageFile.value);
@@ -250,6 +270,29 @@ const remove = async o => {
         />
         <span class="text-xs text-n-slate-10">{{
           $t('OFFERS.FORM.TAGS_HINT')
+        }}</span>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-medium text-n-slate-12">
+          {{ $t('OFFERS.FORM.VERTICALS') }}
+        </label>
+        <div class="flex flex-wrap gap-3">
+          <label
+            v-for="v in VERTICAL_OPTIONS"
+            :key="v"
+            class="flex items-center gap-2 text-sm capitalize cursor-pointer text-n-slate-12"
+          >
+            <input
+              type="checkbox"
+              class="accent-n-brand"
+              :checked="(editing.verticals || []).includes(v)"
+              @change="toggleVertical(v)"
+            />
+            {{ v }}
+          </label>
+        </div>
+        <span class="text-xs text-n-slate-10">{{
+          $t('OFFERS.FORM.VERTICALS_HINT')
         }}</span>
       </div>
       <label

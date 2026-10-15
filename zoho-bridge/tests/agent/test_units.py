@@ -1628,3 +1628,63 @@ def test_outbound_campaign_block_and_injection():
                 now=datetime(2026, 1, 1), profile_block="P", templates="T",
                 n_customer_msgs=1, channel="whatsapp")
     assert "Grand Festive Offer" in sa._system_prompt(**base, campaign=block)
+
+
+# --- Offers scoped by vertical -------------------------------------------------
+
+def _offer(caption, verticals, tags=None):
+    return {"active": True, "image_url": "http://x/img.png", "caption": caption,
+            "verticals": verticals, "tags": tags or [], "link": ""}
+
+
+def test_offer_in_vertical():
+    assert sa._offer_in_vertical(_offer("x", []), "fhc")             # empty = universal
+    assert sa._offer_in_vertical(_offer("x", ["fhc"]), "fhc")
+    assert not sa._offer_in_vertical(_offer("x", ["furniture"]), "fhc")
+    assert sa._offer_in_vertical(_offer("x", ["Furniture"]), "furniture")   # case-insensitive
+    assert sa._offer_in_vertical(_offer("x", ["", "fhc"]), "fhc")    # blank entries ignored
+
+
+class _OfferFakeChatwoot:
+    def __init__(self, offers):
+        self._offers = offers
+        self.sent = []
+
+    async def get_offers(self):
+        return self._offers
+
+    async def send_offer_message(self, conv_id, caption, image_url, link=""):
+        self.sent.append(caption)
+        return {"id": 1}
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        pass
+
+
+def test_share_offer_scopes_to_vertical(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "OFFERS_ENABLED", True)
+    offers = [_offer("Furniture sale", ["furniture"]),
+              _offer("FHC studio offer", ["fhc"]),
+              _offer("Universal offer", [])]
+
+    # FHC chat → never the furniture-only offer (gets the fhc or universal one)
+    fake = _OfferFakeChatwoot(offers)
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    ctx = {"conv": {"custom_attributes": {}}, "conv_id": 1, "vertical": "fhc", "profile": {}}
+    res = asyncio.run(sa._sk_share_offer(ctx))
+    assert res["sent"] and "Furniture sale" not in fake.sent[0]
+
+    # Furniture chat → the furniture offer is eligible again
+    fake2 = _OfferFakeChatwoot(offers)
+    monkeypatch.setattr(sa, "chatwoot", fake2)
+    ctx2 = {"conv": {"custom_attributes": {}}, "conv_id": 2, "vertical": "furniture", "profile": {}}
+    asyncio.run(sa._sk_share_offer(ctx2))
+    assert fake2.sent and fake2.sent[0] == "Furniture sale"
+
+    # A vertical with no matching/universal offer → nothing sent
+    fake3 = _OfferFakeChatwoot([_offer("Furniture sale", ["furniture"])])
+    monkeypatch.setattr(sa, "chatwoot", fake3)
+    ctx3 = {"conv": {"custom_attributes": {}}, "conv_id": 3, "vertical": "fhc", "profile": {}}
+    res3 = asyncio.run(sa._sk_share_offer(ctx3))
+    assert not res3["sent"] and not fake3.sent
