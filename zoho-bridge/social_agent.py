@@ -35,6 +35,7 @@ import chatwoot
 import config
 import config_store
 import customer_profile as profile_mod
+import partnership_forward
 import pincode_resolver
 import product_catalog
 import product_images
@@ -2202,9 +2203,11 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
     "escalate_to_human",
     "Hand the conversation to a human (flags + assignment). USE for: order "
     "status / delivery / warranty, dealer or franchise, bulk / B2B / project, "
-    "collabs, job / career enquiries, price negotiation, complaints beyond a "
+    "job / career enquiries, price negotiation, complaints beyond a "
     "first apology, abuse, or "
-    "anything your tools cannot ground. If intent is UNCLEAR, ask ONE "
+    "anything your tools cannot ground. For a marketing / advertising / PR / "
+    "media pitch or a brand / influencer / sponsorship collaboration, use "
+    "forward_partnership_enquiry instead when it is available. If intent is UNCLEAR, ask ONE "
     "clarifying question first, THEN escalate with what you learned. This "
     "ends your turn — so it carries the same profile duty as finish: pass "
     "`profile_updates` recording what this contact IS (learn note: 'dealer "
@@ -2230,6 +2233,55 @@ async def _sk_escalate(ctx, reason: str = "", customer_message: str = "",
     ctx["escalate"] = {"reason": reason, "customer_message": customer_message,
                        "profile_updates": list(profile_updates or [])}
     return {"escalated": True}
+
+
+@_skill(
+    "forward_partnership_enquiry",
+    "Use ONLY for a genuine business PITCH TO Durian: a marketing / advertising "
+    "/ PR / media proposal, OR a brand / influencer / content / sponsorship "
+    "COLLABORATION. It forwards the whole conversation to the right internal team "
+    "(emails them the ORM conversation link + a PDF transcript) AND assigns the "
+    "conversation to that team, so a human picks it up — do NOT also call "
+    "escalate_to_human for these. Pass `category` EXACTLY: 'marketing_advertising' "
+    "(paid services — agencies, PR, ad space, media buys, influencer *marketing* "
+    "offers) or 'collaboration_request' (brand-to-brand, unpaid barter / product "
+    "seeding, content creators, joint launches / events, sponsorships). If you "
+    "truly can't tell which, ask ONE short question first. `customer_message` is "
+    "the courteous line the customer sees — acknowledge that their enquiry has "
+    "been shared with the concerned team who will reach out here; never promise a "
+    "timeline or reveal internal email addresses. This ENDS your turn, so it "
+    "carries the same profile duty as finish (a learn note: 'collab pitch — 50k "
+    "home-decor influencer').",
+    {"category": {"type": "string",
+                  "enum": ["marketing_advertising", "collaboration_request"]},
+     "customer_message": {"type": "string",
+                          "description": "one short courteous acknowledgement to "
+                                         "send the customer"},
+     "profile_updates": {"type": "array",
+                         "description": "same shape as finish.profile_updates",
+                         "items": {"type": "object"}}},
+    {"forwarded": "bool", "team": "str"},
+    ({"category": "collaboration_request",
+      "customer_message": "Thank you! I've shared your proposal with our "
+                          "collaborations team — they'll get back to you here shortly.",
+      "profile_updates": [{"op": "learn", "kind": "note",
+                           "what": "collab pitch — home-decor influencer",
+                           "quote": "would love to collaborate", "note": ""}]},
+     {"forwarded": True, "team": "Collaboration Request"}),
+)
+async def _sk_forward_partnership(ctx, category: str = "", customer_message: str = "",
+                                  profile_updates=None, **_) -> dict:
+    res = await partnership_forward.run(ctx.get("conv_id"), ctx.get("conv") or {},
+                                        category, ctx.get("channel") or "")
+    # Hand off through the shared escalate path (sends the ack, cards it, ends the
+    # turn). keep_team: the category team is already assigned, don't overwrite it.
+    reason = (f"{res.get('display') or category} forwarded to "
+              f"{res.get('team') or 'the team'}" if res.get("forwarded")
+              else f"partnership enquiry ({category})")
+    ctx["escalate"] = {"reason": reason, "customer_message": customer_message,
+                       "profile_updates": list(profile_updates or [])}
+    ctx["keep_team"] = bool(res.get("forwarded"))
+    return res
 
 
 _FINISH_TOOL = {
@@ -2297,6 +2349,10 @@ def tools_for_responses(surface: str = "") -> list[dict]:
         # look_at_photo is dark-launched: keep it out of the agent's toolset
         # entirely until enabled, so "off" is a true no-op (no stray handoffs).
         if name == "look_at_photo" and not config.PRODUCT_VISION_ENABLED:
+            continue
+        # Dark-launched: hide the partnership-forward skill until enabled, so the
+        # agent keeps using escalate_to_human for these until the flow is live.
+        if name == "forward_partnership_enquiry" and not config.PARTNERSHIP_FORWARD_ENABLED:
             continue
         # A public comment is a thank-you or a DM-invite — never a deal. Expose
         # only the human handoff so the agent can't reach for routing/price
@@ -3564,7 +3620,9 @@ async def _handle_locked(conv, conv_id, channel, surface,
                         note=f"escalated: {esc.get('reason')}")
         await _card(conv_id, channel, surface, "", 0, trace,
                     f"Escalated by agent: {esc.get('reason')}")
-        if config.SOCIAL_AGENT_HANDOFF_TEAM_ID:
+        # keep_team: a partnership forward already assigned the category's own
+        # team — don't overwrite it with the generic handoff team.
+        if config.SOCIAL_AGENT_HANDOFF_TEAM_ID and not ctx.get("keep_team"):
             try:
                 await chatwoot.assign_team(conv_id, config.SOCIAL_AGENT_HANDOFF_TEAM_ID)
             except Exception:

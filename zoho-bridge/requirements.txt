@@ -5,4 +5,5 @@ python-dotenv==1.0.1
 openai==2.40.0
 langfuse==4.7.1
 pypdf==5.1.0
+fpdf2==2.8.4
 pyyaml==6.0.2

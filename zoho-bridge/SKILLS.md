@@ -84,11 +84,19 @@ Actually VIEW a photo/screenshot the customer sent (flagged '[customer sent a ph
 
 ## escalate_to_human
 
-Hand the conversation to a human (flags + assignment). USE for: order status / delivery / warranty, dealer or franchise, bulk / B2B / project, collabs, job / career enquiries, price negotiation, complaints beyond a first apology, abuse, or anything your tools cannot ground. If intent is UNCLEAR, ask ONE clarifying question first, THEN escalate with what you learned. This ends your turn — so it carries the same profile duty as finish: pass `profile_updates` recording what this contact IS (learn note: 'dealer enquiry for Lucknow', 'complaint: broken leg on delivered sofa', 'collab pitch') plus any real fact given — never a product interest for a pitch or complaint.
+Hand the conversation to a human (flags + assignment). USE for: order status / delivery / warranty, dealer or franchise, bulk / B2B / project, job / career enquiries, price negotiation, complaints beyond a first apology, abuse, or anything your tools cannot ground. For a marketing / advertising / PR / media pitch or a brand / influencer / sponsorship collaboration, use forward_partnership_enquiry instead when it is available. If intent is UNCLEAR, ask ONE clarifying question first, THEN escalate with what you learned. This ends your turn — so it carries the same profile duty as finish: pass `profile_updates` recording what this contact IS (learn note: 'dealer enquiry for Lucknow', 'complaint: broken leg on delivered sofa', 'collab pitch') plus any real fact given — never a product interest for a pitch or complaint.
 
 **Args**: `{"reason": {"type": "string"}, "customer_message": {"type": "string", "description": "one short courteous line to send the customer before handoff (optional)"}, "profile_updates": {"type": "array", "description": "same shape as finish.profile_updates", "items": {"type": "object"}}}`
 **Returns**: `{"escalated": "bool"}`
 **Example**: `{"reason": "franchise enquiry for Pune", "profile_updates": [{"op": "learn", "kind": "note", "what": "franchise enquiry for Pune", "quote": "franchise in pune", "note": ""}]}` → `{"escalated": true}`
+
+## forward_partnership_enquiry
+
+Use ONLY for a genuine business PITCH TO Durian: a marketing / advertising / PR / media proposal, OR a brand / influencer / content / sponsorship COLLABORATION. It forwards the whole conversation to the right internal team (emails them the ORM conversation link + a PDF transcript) AND assigns the conversation to that team, so a human picks it up — do NOT also call escalate_to_human for these. Pass `category` EXACTLY: 'marketing_advertising' (paid services — agencies, PR, ad space, media buys, influencer *marketing* offers) or 'collaboration_request' (brand-to-brand, unpaid barter / product seeding, content creators, joint launches / events, sponsorships). If you truly can't tell which, ask ONE short question first. `customer_message` is the courteous line the customer sees — acknowledge that their enquiry has been shared with the concerned team who will reach out here; never promise a timeline or reveal internal email addresses. This ENDS your turn, so it carries the same profile duty as finish (a learn note: 'collab pitch — 50k home-decor influencer').
+
+**Args**: `{"category": {"type": "string", "enum": ["marketing_advertising", "collaboration_request"]}, "customer_message": {"type": "string", "description": "one short courteous acknowledgement to send the customer"}, "profile_updates": {"type": "array", "description": "same shape as finish.profile_updates", "items": {"type": "object"}}}`
+**Returns**: `{"forwarded": "bool", "team": "str"}`
+**Example**: `{"category": "collaboration_request", "customer_message": "Thank you! I've shared your proposal with our collaborations team \u2014 they'll get back to you here shortly.", "profile_updates": [{"op": "learn", "kind": "note", "what": "collab pitch \u2014 home-decor influencer", "quote": "would love to collaborate", "note": ""}]}` → `{"forwarded": true, "team": "Collaboration Request"}`
 
 ## finish
 
