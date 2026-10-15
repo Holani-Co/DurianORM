@@ -8,15 +8,29 @@ class V2::Reports::OrmForwardedReportBuilder
   STAMP = '%d-%b-%Y %H:%M'.freeze
   PREVIEW_CHARS = 200
 
-  attr_reader :account, :category, :week_start, :range
+  attr_reader :account, :category, :period_start, :range, :all_categories
 
-  # week: 'YYYY-MM-DD', any day of the week (defaults to last week, India time).
-  def initialize(account:, category:, week: nil)
+  # Weekly ONE-category mode: week: 'YYYY-MM-DD', any day of the week (defaults to
+  # last week). Monthly ALL-categories mode: category: nil + month: 'YYYY-MM-DD',
+  # any day of the month (defaults to last month) — every forwarding category in
+  # one report, with a Category column. India time throughout.
+  def initialize(account:, category:, week: nil, month: nil)
     @account = account
     @category = category.to_s
+    @all_categories = @category.blank?
     zone = ActiveSupport::TimeZone[TIME_ZONE]
-    @week_start = (week.present? ? zone.parse(week) : zone.now - 1.week).beginning_of_week(:monday)
-    @range = @week_start...(@week_start + 1.week)
+    if all_categories
+      @period_start = (month.present? ? zone.parse(month) : zone.now - 1.month).beginning_of_month
+      @range = @period_start...(@period_start + 1.month)
+    else
+      @period_start = (week.present? ? zone.parse(week) : zone.now - 1.week).beginning_of_week(:monday)
+      @range = @period_start...(@period_start + 1.week)
+    end
+  end
+
+  # Back-compat alias for callers that referenced the weekly builder's start.
+  def week_start
+    period_start
   end
 
   def build
@@ -24,23 +38,31 @@ class V2::Reports::OrmForwardedReportBuilder
     convs = account.conversations.where(id: sent.keys).preload(:contact, :inbox, :assignee).index_by(&:id)
     cases = first_messages(sent.keys)
     rows = sent.filter_map { |id, fwd| convs[id] && row(convs[id], fwd, cases[id]) }
-    { week_key: week_start.strftime('%Y-%m-%d'), week_label: week_label,
-      rows: rows, totals: totals(rows, sent.values.flat_map { |fwd| fwd[:to] }) }
+    { week_key: period_key, week_label: period_label, period_label: period_label,
+      all_categories: all_categories, rows: rows,
+      totals: totals(rows, sent.values.flat_map { |fwd| fwd[:to] }) }
   end
 
   private
 
-  def week_label
-    "#{week_start.strftime('%-d %b')} to #{(week_start + 6.days).strftime('%-d %b %Y')}"
+  def period_key
+    all_categories ? period_start.strftime('%Y-%m') : period_start.strftime('%Y-%m-%d')
   end
 
-  # Conversations forwarded in an earlier week stay out, even when something
+  def period_label
+    return period_start.strftime('%B %Y') if all_categories
+
+    "#{period_start.strftime('%-d %b')} to #{(period_start + 6.days).strftime('%-d %b %Y')}"
+  end
+
+  # Conversations forwarded in an earlier period stay out, even when something
   # goes to a team address again: a re-forward, or an agent's reply (the reply
   # box pre-fills To with the last forward's recipients).
   def first_forwards
-    sent = forwards(account.messages.joins(:conversation).where(created_at: range)
-                           .where("conversations.custom_attributes -> 'email_category_v2' ->> 'category' = ?", category))
-    sent.except(*forwards(account.messages.where(conversation_id: sent.keys, created_at: ...week_start)).keys)
+    scope = account.messages.joins(:conversation).where(created_at: range)
+    scope = scope.where("conversations.custom_attributes -> 'email_category_v2' ->> 'category' = ?", category) unless all_categories
+    sent = forwards(scope)
+    sent.except(*forwards(account.messages.where(conversation_id: sent.keys, created_at: ...range.begin)).keys)
   end
 
   # conversation_id → the start of the customer's first email (the "case").
@@ -54,6 +76,7 @@ class V2::Reports::OrmForwardedReportBuilder
   def row(conv, fwd, message)
     attrs = conv.custom_attributes || {}
     { forwarded_at: fwd[:at].in_time_zone(TIME_ZONE).strftime(STAMP), conversation_id: conv.display_id,
+      category: humanize((attrs['email_category_v2'] || {})['category']),
       subject: conv.additional_attributes&.dig('mail_subject'), message: message,
       subcategory: humanize((attrs['email_category_v2'] || {})['vertical']), forwarded_to: fwd[:to].join(', ') }
       .merge(contact_columns(conv, fwd, attrs), outcome_columns(conv, attrs))
@@ -78,10 +101,19 @@ class V2::Reports::OrmForwardedReportBuilder
   end
 
   def totals(rows, recipients)
-    { forwarded: rows.size,
-      by_recipient: recipients.tally.sort_by { |email, n| [-n, email] }.to_h,
-      deals: rows.count { |r| r[:deal] == 'Yes' },
-      tickets: rows.count { |r| r[:ticket_no].present? },
-      resolved: rows.count { |r| r[:status] == 'Resolved' } }
+    base = { forwarded: rows.size, by_recipient: by_recipient_totals(recipients),
+             deals: rows.count { |r| r[:deal] == 'Yes' },
+             tickets: rows.count { |r| r[:ticket_no].present? },
+             resolved: rows.count { |r| r[:status] == 'Resolved' } }
+    all_categories ? base.merge(by_category: by_category_totals(rows)) : base
+  end
+
+  def by_recipient_totals(recipients)
+    recipients.tally.sort_by { |email, n| [-n, email] }.to_h
+  end
+
+  def by_category_totals(rows)
+    rows.group_by { |r| r[:category].presence || 'Uncategorised' }
+        .transform_values(&:size).sort_by { |name, n| [-n, name] }.to_h
   end
 end

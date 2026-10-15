@@ -1630,6 +1630,260 @@ def test_outbound_campaign_block_and_injection():
     assert "Grand Festive Offer" in sa._system_prompt(**base, campaign=block)
 
 
+# --- Agent-only campaign context note (PR follow-up) ---------------------------
+
+class _NoteFakeChatwoot:
+    def __init__(self):
+        self.notes = []          # (conv_id, content) text notes
+        self.media = []          # (conv_id, content, filename, ctype) media notes
+        self.merged = []         # custom-attr merges
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append((conv_id, content))
+        return {"id": 1}
+
+    async def post_private_note_media(self, conv_id, content, media, filename, ctype):
+        self.media.append((conv_id, content, filename, ctype, media))
+        return {"id": 2}
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merged.append(attrs)
+
+
+def test_ad_note_body_format():
+    import main
+    ad = main._ad_note_body({"headline": "Grand Festive Offer", "body": "Up to 50% off",
+                             "source_url": "https://durian.in/x"})
+    assert "WhatsApp Ad lead" in ad and "Grand Festive Offer — Up to 50% off" in ad
+    assert "durian.in/x" in ad
+
+
+def _ad_data(**ref):
+    return {"content_attributes": {"referral": ref}}
+
+
+def test_ad_note_embeds_creative(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return b"\xff\xd8\xff", "image/jpeg"
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    conv = {"custom_attributes": {}}
+    data = _ad_data(headline="Grand Festive Offer", media_type="image",
+                    image_url="https://cdn.meta/x.jpg", source_url="https://durian.in/x")
+    asyncio.run(main._maybe_post_ad_note(conv, 55, data))
+    assert len(fake.media) == 1 and fake.media[0][2] == "ad-creative.jpg"
+    assert "Grand Festive Offer" in fake.media[0][1] and not fake.notes
+    assert fake.merged == [{"campaign_note_posted": True}]
+
+
+def test_ad_note_falls_back_to_link_when_fetch_fails(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return None, ""
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    conv = {"custom_attributes": {}}
+    asyncio.run(main._maybe_post_ad_note(conv, 7, _ad_data(headline="X",
+                                                           image_url="https://cdn.meta/x.jpg")))
+    assert not fake.media and len(fake.notes) == 1
+    assert "Creative: https://cdn.meta/x.jpg" in fake.notes[0][1]
+
+
+def test_ad_note_idempotent_and_skips_without_referral(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+
+    async def fake_fetch(url):
+        return None, ""
+    monkeypatch.setattr(main, "_fetch_ad_creative", fake_fetch)
+
+    # already-posted conv → nothing
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {"campaign_note_posted": True}}, 9,
+        _ad_data(headline="X")))
+    assert not fake.notes and not fake.media
+    # no referral on the message → nothing (outbound-campaign case lives in Chatwoot)
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9, {}))
+    asyncio.run(main._maybe_post_ad_note(
+        {"custom_attributes": {},
+         "additional_attributes": {"reply_campaign": {"title": "Diwali Sale"}}}, 9, {}))
+    assert not fake.notes and not fake.media
+
+
+def test_ad_note_respects_disable_flag(monkeypatch):
+    import asyncio
+    import main
+    fake = _NoteFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+    monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_NOTE_ENABLED", False)
+    asyncio.run(main._maybe_post_ad_note({"custom_attributes": {}}, 9,
+                                         _ad_data(headline="X", image_url="https://cdn.meta/x.jpg")))
+    assert not fake.notes and not fake.media and not fake.merged
+
+
+
+# --- Social partnership / pitch forwarding ------------------------------------
+
+class _PFFakeChatwoot:
+    def __init__(self):
+        self.emails = []      # (to, filename, cc, has_pdf)
+        self.teams = []       # assigned team ids
+        self.merged = []
+        self.notes = []
+        self.convs = []       # created forwarding conversations
+
+    async def get_conversation_messages(self, conv_id):
+        return [{"message_type": 0, "content": "Hi, we'd love to collaborate with Durian",
+                 "created_at": 1_700_000_000},
+                {"message_type": 1, "content": "Could you share a bit more?",
+                 "created_at": 1_700_000_100}]
+
+    async def create_contact(self, name, identifier, inbox_id, email=None, **_):
+        return 11, "src-1"
+
+    async def create_conversation(self, source_id, inbox_id, contact_id, **_):
+        self.convs.append((inbox_id, source_id))
+        return 999
+
+    async def send_email_with_attachment(self, conv_id, content, to_emails, filename,
+                                         data, ctype, cc_emails=None):
+        self.emails.append((to_emails, filename, cc_emails, data[:4] == b"%PDF", content))
+        return {"id": 1}
+
+    async def find_team_id(self, name):
+        return {"Marketing /Advertising": 3, "Collaboration Request": 10}.get(name)
+
+    async def assign_team(self, conv_id, team_id):
+        self.teams.append(team_id)
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merged.append(attrs)
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+
+_PF_RULES = {"categories": {
+    "marketing_advertising": {"display_name": "Marketing / Advertising Enquiry",
+                              "forward_to": "shilpa@durian.in", "cc": ["mkt@durian.in"],
+                              "team": "Marketing /Advertising"},
+    "collaboration_request": {"display_name": "Collaboration Request",
+                              "forward_to": "snehal@durian.in", "cc": [],
+                              "team": "Collaboration Request"},
+}}
+
+
+class _PFFakeClassifier:
+    @staticmethod
+    def get_routing_rules(force=False):
+        return _PF_RULES
+
+
+def _pf_setup(monkeypatch, enabled=True):
+    import os
+    import partnership_forward as pf
+    os.environ.pop("LOCAL_FORWARD_OVERRIDE", None)   # .env sets it locally; prod unset
+    fake = _PFFakeChatwoot()
+    monkeypatch.setattr(pf, "chatwoot", fake)
+    monkeypatch.setattr(pf, "classifier", _PFFakeClassifier())
+    monkeypatch.setattr(pf.config, "PARTNERSHIP_FORWARD_ENABLED", enabled)
+    monkeypatch.setattr(pf.config, "PARTNERSHIP_FORWARD_INBOX_ID", 7)
+    monkeypatch.setattr(pf.config, "CHATWOOT_PUBLIC_URL", "https://orm.durianos.in")
+    monkeypatch.setattr(pf.config, "CHATWOOT_ACCOUNT_ID", 1)
+    return pf, fake
+
+
+def test_partnership_build_pdf_is_pdf():
+    import partnership_forward as pf
+    conv = {"meta": {"sender": {"name": "Riya Sharma"}}}
+    data = pf.build_pdf(conv, "instagram", "Collaboration Request",
+                        [{"message_type": 0, "content": "collab?", "created_at": 1_700_000_000}])
+    assert isinstance(data, (bytes, bytearray)) and data[:4] == b"%PDF"
+
+
+def test_partnership_run_forwards_and_assigns_team(monkeypatch):
+    import asyncio
+    pf, fake = _pf_setup(monkeypatch)
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "Riya"}}}
+    res = asyncio.run(pf.run(55, conv, "collaboration_request", "instagram"))
+    assert res["forwarded"] and res["team"] == "Collaboration Request"
+    # emailed the category recipient with a PDF; cc empty here
+    assert fake.emails and fake.emails[0][0] == "snehal@durian.in"
+    assert fake.emails[0][1].endswith(".pdf") and fake.emails[0][3] is True
+    # the ORM link is in the body
+    assert "orm.durianos.in/app/accounts/1/conversations/55" in fake.emails[0][4]
+    assert fake.teams == [10]                       # Collaboration Request team id
+    assert fake.merged and fake.merged[0]["partnership_forwarded"] == "collaboration_request"
+    assert fake.notes
+
+
+def test_partnership_run_marketing_cc_and_team(monkeypatch):
+    import asyncio
+    pf, fake = _pf_setup(monkeypatch)
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "Agency X"}}}
+    res = asyncio.run(pf.run(60, conv, "marketing_advertising", "facebook"))
+    assert res["forwarded"] and fake.emails[0][0] == "shilpa@durian.in"
+    assert fake.emails[0][2] == "mkt@durian.in"     # cc joined
+    assert fake.teams == [3]
+
+
+def test_partnership_run_idempotent_disabled_and_bad_category(monkeypatch):
+    import asyncio
+    pf, fake = _pf_setup(monkeypatch)
+    # already forwarded → nothing
+    assert asyncio.run(pf.run(1, {"custom_attributes": {"partnership_forwarded": "x"}},
+                              "collaboration_request", "instagram"))["reason"] == "already_forwarded"
+    assert not fake.emails
+    # not a partnership category
+    assert asyncio.run(pf.run(1, {"custom_attributes": {}}, "complaint",
+                              "instagram"))["reason"] == "category_not_forwardable"
+    # disabled flag
+    pf2, fake2 = _pf_setup(monkeypatch, enabled=False)
+    assert asyncio.run(pf2.run(1, {"custom_attributes": {}}, "collaboration_request",
+                               "instagram"))["reason"] == "disabled"
+    assert not fake2.emails
+
+
+def test_partnership_skill_sets_escalate_and_keep_team(monkeypatch):
+    import asyncio
+    async def fake_run(conv_id, conv, category, channel):
+        return {"forwarded": True, "team": "Marketing /Advertising",
+                "display": "Marketing / Advertising Enquiry", "recipient": "shilpa@durian.in"}
+    monkeypatch.setattr(sa.partnership_forward, "run", fake_run)
+    ctx = {"conv_id": 5, "conv": {}, "channel": "instagram"}
+    res = asyncio.run(sa._sk_forward_partnership(ctx, category="marketing_advertising",
+                                                 customer_message="Shared with our team!"))
+    assert res["forwarded"] and ctx["keep_team"] is True
+    assert ctx["escalate"]["customer_message"] == "Shared with our team!"
+    assert "Marketing /Advertising" in ctx["escalate"]["reason"]
+
+
+def test_partnership_skill_hidden_until_enabled(monkeypatch):
+    monkeypatch.setattr(sa.config, "PARTNERSHIP_FORWARD_ENABLED", False)
+    names_off = {t["name"] for t in sa.tools_for_responses("dm")}
+    assert "forward_partnership_enquiry" not in names_off
+    monkeypatch.setattr(sa.config, "PARTNERSHIP_FORWARD_ENABLED", True)
+    names_on = {t["name"] for t in sa.tools_for_responses("dm")}
+    assert "forward_partnership_enquiry" in names_on
+
+
+def test_norm_team_matches_whitespace_and_case():
+    import chatwoot
+    assert chatwoot._norm_team("Marketing /Advertising") == chatwoot._norm_team("marketing  /advertising ")
+
+
+
 # --- Offers scoped by vertical -------------------------------------------------
 
 def _offer(caption, verticals, tags=None):

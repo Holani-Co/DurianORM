@@ -320,6 +320,18 @@ REVIEW_ESCALATION_INBOX_ID = int(os.environ.get("REVIEW_ESCALATION_INBOX_ID", "0
 # Team to route handed-off (negative) reviews to. Defaults to the support team.
 REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEAM_IDS.get("support", 0)
 
+# ── Partnership / pitch forwarding from social (OPTIONAL, dark-launched) ────
+# When a social (IG/FB) DM is a marketing/advertising or collaboration/
+# sponsorship/media pitch, the agent forwards it to the routing category's team
+# — an email (through PARTNERSHIP_FORWARD_INBOX_ID, e.g. hello@durian.in) with
+# the Chatwoot conversation link + the full transcript as a PDF, and the
+# conversation is assigned to that category's Chatwoot team. Dark-launched.
+PARTNERSHIP_FORWARD_ENABLED  = _bool("PARTNERSHIP_FORWARD_ENABLED", "false")
+# The email-channel inbox used to SEND the forward (a social inbox can't email).
+# Defaults to the review-escalation inbox (both are hello@durian.in).
+PARTNERSHIP_FORWARD_INBOX_ID = int(os.environ.get("PARTNERSHIP_FORWARD_INBOX_ID", "0") or 0) \
+    or REVIEW_ESCALATION_INBOX_ID
+
 REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
 REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
 REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "1"))
@@ -800,6 +812,14 @@ except Exception as _e:
     WHATSAPP_CAMPAIGN_PREFILLS = []
 if not WHATSAPP_CAMPAIGN_PREFILLS:
     WHATSAPP_CAMPAIGN_PREFILLS = ["hello! can i get more information on this?"]
+
+# Post a one-time agent-only private note showing the Meta click-to-WhatsApp ad
+# a lead came from (headline + embedded creative), so a human agent isn't left
+# guessing why the customer's first line is "Hi! Can I get more information on
+# this?". (Replies to OUR OWN campaigns are noted by Chatwoot's
+# CampaignInboundActivityService — same env flag name, read there too, so set
+# this on BOTH chatwoot and zoho-bridge to disable all campaign-context notes.)
+WHATSAPP_CAMPAIGN_NOTE_ENABLED = _bool("WHATSAPP_CAMPAIGN_NOTE_ENABLED", "true")
 
 # The same FHC flow on the Chatwoot website widget (FHC section of durian.in) —
 # the widget renders the same interactive buttons, so it reuses whatsapp_fhc.
