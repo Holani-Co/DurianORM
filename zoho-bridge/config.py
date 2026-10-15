@@ -320,6 +320,18 @@ REVIEW_ESCALATION_INBOX_ID = int(os.environ.get("REVIEW_ESCALATION_INBOX_ID", "0
 # Team to route handed-off (negative) reviews to. Defaults to the support team.
 REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEAM_IDS.get("support", 0)
 
+# ── Partnership / pitch forwarding from social (OPTIONAL, dark-launched) ────
+# When a social (IG/FB) DM is a marketing/advertising or collaboration/
+# sponsorship/media pitch, the agent forwards it to the routing category's team
+# — an email (through PARTNERSHIP_FORWARD_INBOX_ID, e.g. hello@durian.in) with
+# the Chatwoot conversation link + the full transcript as a PDF, and the
+# conversation is assigned to that category's Chatwoot team. Dark-launched.
+PARTNERSHIP_FORWARD_ENABLED  = _bool("PARTNERSHIP_FORWARD_ENABLED", "false")
+# The email-channel inbox used to SEND the forward (a social inbox can't email).
+# Defaults to the review-escalation inbox (both are hello@durian.in).
+PARTNERSHIP_FORWARD_INBOX_ID = int(os.environ.get("PARTNERSHIP_FORWARD_INBOX_ID", "0") or 0) \
+    or REVIEW_ESCALATION_INBOX_ID
+
 REVIEWS_POLL_INTERVAL_SECONDS = int(os.environ.get("REVIEWS_POLL_INTERVAL_SECONDS", "300"))
 REVIEWS_AUTO_REPLY            = _bool("REVIEWS_AUTO_REPLY", "true")
 REVIEWS_AUTO_REPLY_MIN_STARS  = int(os.environ.get("REVIEWS_AUTO_REPLY_MIN_STARS", "1"))

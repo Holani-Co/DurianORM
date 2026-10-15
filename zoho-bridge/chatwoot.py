@@ -1,6 +1,7 @@
 # Chatwoot Application API client. Add more methods here as needed.
 # Docs: https://www.chatwoot.com/developers/api/
 
+import re
 import time
 from typing import Optional
 
@@ -34,6 +35,32 @@ async def assign_team(conversation_id: int, team_id: int) -> dict:
         if r.status_code >= 300:
             raise RuntimeError(f"Chatwoot assign_team failed [{r.status_code}]: {r.text}")
         return r.json()
+
+
+_teams_cache: dict[str, int] | None = None
+
+
+async def find_team_id(name: str) -> int | None:
+    """Resolve a Chatwoot team NAME → its id (case/space-insensitive), so a
+    category can route to its own team without hard-coding numeric ids. The
+    team list is small and stable, so it is cached for the process lifetime.
+    Returns None when no team matches."""
+    global _teams_cache
+    if _teams_cache is None:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(_acct_url("/teams"), headers=_headers())
+                teams = r.json() if r.status_code < 300 else []
+            _teams_cache = {_norm_team(t.get("name")): int(t["id"])
+                            for t in (teams or []) if t.get("id")}
+        except Exception as e:
+            print(f"[chatwoot] find_team_id list failed: {e}")
+            return None
+    return _teams_cache.get(_norm_team(name))
+
+
+def _norm_team(name) -> str:
+    return re.sub(r"\s+", " ", str(name or "").strip().lower())
 
 
 async def assign_agent(conversation_id: int, assignee_id: int) -> dict:
@@ -596,6 +623,32 @@ async def send_outgoing_message(conversation_id: int,
             raise RuntimeError(
                 f"Chatwoot send_outgoing_message failed [{r.status_code}]: {r.text}"
             )
+        return r.json()
+
+
+async def send_email_with_attachment(conversation_id: int, content: str,
+                                     to_emails: str, filename: str,
+                                     data: bytes, ctype: str,
+                                     cc_emails: Optional[str] = None) -> dict:
+    """Send an outbound email (through an email-channel conversation) with ONE
+    file attached — e.g. a conversation transcript PDF forwarded to a team. Like
+    send_outgoing_message it overrides the recipient via `to_emails`, but the
+    attachment forces a multipart POST (string flags, token-only header — a JSON
+    Content-Type on multipart makes Rails 400; see send_image_bytes). The email
+    subject rides on the conversation's `mail_subject` (set at create_conversation)."""
+    form: dict = {"content": content, "message_type": "outgoing",
+                  "private": "false", "to_emails": to_emails}
+    if cc_emails:
+        form["cc_emails"] = cc_emails
+    files = {"attachments[]": (filename, data, ctype)}
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"),
+            headers={"api_access_token": config.CHATWOOT_API_TOKEN},
+            data=form, files=files)
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot send_email_with_attachment failed [{r.status_code}]: {r.text[:300]}")
         return r.json()
 
 

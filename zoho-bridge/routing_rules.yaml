@@ -544,6 +544,9 @@ categories:
   marketing_advertising:
     display_name: Marketing / Advertising Enquiry
     action: forward
+    # Chatwoot team this routes to (used by the social partnership-forward flow;
+    # resolved to a team id by NAME at runtime). Matches the Teams list exactly.
+    team: Marketing /Advertising
     forward_to: shilpa@durian.in
     cc: []
     bcc: []
@@ -578,6 +581,7 @@ categories:
   collaboration_request:
     display_name: Collaboration Request
     action: forward
+    team: Collaboration Request
     forward_to: snehal@durian.in
     cc: []
     bcc: []
