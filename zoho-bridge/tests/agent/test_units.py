@@ -1628,3 +1628,114 @@ def test_outbound_campaign_block_and_injection():
                 now=datetime(2026, 1, 1), profile_block="P", templates="T",
                 n_customer_msgs=1, channel="whatsapp")
     assert "Grand Festive Offer" in sa._system_prompt(**base, campaign=block)
+
+
+# --- Deal-details gate: accumulate prior details (no re-asking) ---------------
+
+def test_deal_gate_remembers_prior_phone(monkeypatch):
+    import asyncio
+    import main
+    merges = []
+
+    class _CW:
+        async def merge_custom_attributes(self, cid, attrs):
+            merges.append(attrs)
+
+        async def remove_label(self, cid, label):
+            pass
+
+    monkeypatch.setattr(main, "chatwoot", _CW())
+    monkeypatch.setattr(main, "_extract_phones", lambda text, cap=3: [])   # reply has no phone
+
+    async def _llm(name, text, have_phone):
+        return {"city": "Chhatarpur", "ask_reply": "" if have_phone else "please share your phone"}
+    monkeypatch.setattr(main, "_deal_details_gate_llm", _llm)
+
+    async def _noop(*a, **k):
+        pass
+    monkeypatch.setattr(main, "_retail_send", _noop)
+    monkeypatch.setattr(main, "_label_conversation", _noop)
+    monkeypatch.setattr(main, "_maybe_auto_create_deal", _noop)
+    monkeypatch.setattr(main, "_EMAIL_CUSTOMER_ACK_ENABLED", True)
+
+    # Phone was given earlier (first email's signature) → carried in `prior`;
+    # this reply only gives the city. The gate must capture BOTH, not re-ask phone.
+    audit = asyncio.run(main._run_deal_details_gate(
+        1, "Abhinav", "a@x.com", "Re: enquiry", "We are based in Chhatarpur.",
+        "project_bulk_order", attempt=1, channel="email",
+        prior={"phone": "7898632017", "city": None}))
+    captured = next((m["deal_customer_details"] for m in merges if m.get("deal_customer_details")), None)
+    assert captured and captured["phone"] == "7898632017" and captured["city"] == "Chhatarpur"
+    assert any("deal-ready" in line.lower() or "acknowledged" in line.lower() for line in audit)
+
+
+def test_deal_gate_asks_when_city_still_missing_and_stores_phone(monkeypatch):
+    import asyncio
+    import main
+    merges = []
+
+    class _CW:
+        async def merge_custom_attributes(self, cid, attrs):
+            merges.append(attrs)
+
+        async def remove_label(self, cid, label):
+            pass
+
+    monkeypatch.setattr(main, "chatwoot", _CW())
+    monkeypatch.setattr(main, "_extract_phones", lambda text, cap=3: ["7898632017"])   # phone in signature
+
+    async def _llm(name, text, have_phone):
+        return {"city": "", "ask_reply": "please share your city"}
+    monkeypatch.setattr(main, "_deal_details_gate_llm", _llm)
+
+    async def _noop(*a, **k):
+        pass
+    monkeypatch.setattr(main, "_retail_send", _noop)
+    monkeypatch.setattr(main, "_label_conversation", _noop)
+    monkeypatch.setattr(main, "_maybe_auto_create_deal", _noop)
+    monkeypatch.setattr(main.config, "DEAL_DETAILS_MAX_ASKS", 3)
+
+    # First email: phone present, city missing → asks city, and REMEMBERS the phone
+    # in pending_deal_details so the next reply doesn't re-ask it.
+    asyncio.run(main._run_deal_details_gate(
+        1, "Abhinav", "a@x.com", "Enquiry", "...CONTACT NO 7898632017",
+        "project_bulk_order", attempt=0, channel="email"))
+    pending = next((m["pending_deal_details"] for m in merges
+                    if m.get("pending_deal_details")), None)
+    assert pending and pending["phone"] == "7898632017" and not pending["city"]
+    assert not any(m.get("deal_customer_details") for m in merges)   # not captured yet
+
+
+# --- Ticket-decision card only for ticket-worthy categories -------------------
+
+def test_ticket_card_only_for_ticket_worthy_category(monkeypatch):
+    import asyncio
+    import main
+    category = {"v": "project_bulk_order"}
+
+    class _CW:
+        async def get_conversation(self, cid):
+            return {"custom_attributes": {"email_category_v2": {"category": category["v"]}},
+                    "meta": {"sender": {"email": "a@x.com"}}, "inbox_id": 777}
+
+    monkeypatch.setattr(main, "chatwoot", _CW())
+    monkeypatch.setattr(main.config, "REVIEWS_INBOX_ID", 0)
+    monkeypatch.setattr(main.config, "TICKET_DECISION_CATEGORIES", {"complaint", "legal_complaint"})
+    monkeypatch.setattr(main.config, "ZOHO_TICKET_REQUIRE_APPROVAL", True)
+    monkeypatch.setattr(main, "_is_comment_conversation", lambda c: False)
+    paused = []
+
+    async def _pause(cid, email, label):
+        paused.append(label)
+        return {"awaiting_approval": True}
+    monkeypatch.setattr(main, "_pause_ticket_for_approval", _pause)
+
+    data = {"conversation": {"id": 1, "status": "open"}}
+    # Deal/bulk category → no ticket card
+    res = asyncio.run(main.handle_status_changed(data))
+    assert res.get("reason") == "category_not_ticket_worthy" and not paused
+
+    # Complaint → the card is surfaced
+    category["v"] = "complaint"
+    asyncio.run(main.handle_status_changed(data))
+    assert paused == ["manual_handoff"]
