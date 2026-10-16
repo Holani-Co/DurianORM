@@ -64,7 +64,7 @@ class Api::V1::Accounts::OffersController < Api::V1::Accounts::BaseController
   end
 
   def offer_params
-    params.permit(:caption, :priority, :active, :expires_at, :link, tags: [])
+    params.permit(:caption, :priority, :active, :expires_at, :link, tags: [], verticals: [])
   end
 
   def check_admin

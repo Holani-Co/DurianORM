@@ -9,10 +9,26 @@ class Reports::OrmForwardedEmailSummary < Reports::OrmDailyEmailSummary
     t = @data[:totals]
     tiles([['Emails forwarded', t[:forwarded]], ['Deals created', t[:deals]],
            ['Tickets raised', t[:tickets]], ['Resolved', t[:resolved]]]) +
-      recipients(t[:by_recipient]) + emails(@data[:rows])
+      by_category(t[:by_category]) + recipients(t[:by_recipient]) + emails(@data[:rows])
   end
 
   private
+
+  def all_categories?
+    @data[:all_categories]
+  end
+
+  # Monthly all-categories report only: how many emails each category forwarded.
+  def by_category(counts)
+    return '' if counts.blank?
+
+    body = counts.map do |name, count|
+      "<tr><td style='#{CELL}color:#{INK};'>#{h(name)}</td>" \
+        "<td style='#{CELL}color:#{INK};font-weight:600;text-align:right;'>#{count}</td></tr>"
+    end.join
+    "#{heading('By category')}<table role='presentation' cellpadding='0' cellspacing='0' " \
+      "style='width:100%;max-width:420px;border-collapse:collapse;'>#{body}</table>"
+  end
 
   def recipients(by_recipient)
     return '' if by_recipient.blank?
@@ -28,7 +44,8 @@ class Reports::OrmForwardedEmailSummary < Reports::OrmDailyEmailSummary
   def emails(rows)
     return "<p style='color:#{MUTED};font-size:14px;margin:18px 0;'>No emails in this category were forwarded this week.</p>" if rows.empty?
 
-    head = %w[Date Customer Case Deal Status].map { |col| "<th style='#{CELL}color:#{MUTED};font-weight:600;'>#{col}</th>" }.join
+    columns = all_categories? ? %w[Date Category Customer Case Deal Status] : %w[Date Customer Case Deal Status]
+    head = columns.map { |col| "<th style='#{CELL}color:#{MUTED};font-weight:600;'>#{col}</th>" }.join
     body = rows.first(ROW_LIMIT).map { |row| email_row(row) }.join
     more = rows.size - ROW_LIMIT
     note = more.positive? ? "<p style='color:#{MUTED};font-size:13px;margin:8px 0;'>+ #{more} more in the attached Excel.</p>" : ''
@@ -37,12 +54,25 @@ class Reports::OrmForwardedEmailSummary < Reports::OrmDailyEmailSummary
   end
 
   def email_row(row)
-    customer = [row[:customer], row[:email]].compact_blank.map { |value| h(value) }.join('<br>')
-    kase = "<strong>#{h(row[:subject].presence || '(no subject)')}</strong><br>" \
-           "<span style='color:#{MUTED};'>#{h(row[:message])}</span>"
-    deal = row[:deal] == 'Yes' ? h([row[:deal_no], row[:deal_stage]].compact_blank.join(' · ').presence || 'Yes') : '—'
-    cells = [h(row[:forwarded_at]), customer, kase, deal, h(row[:status])]
+    cells = [h(row[:forwarded_at])]
+    cells << h(row[:category]) if all_categories?
+    cells += [customer_cell(row), case_cell(row), deal_cell(row), h(row[:status])]
     "<tr>#{cells.map { |cell| "<td style='#{CELL}color:#{INK};'>#{cell}</td>" }.join}</tr>"
+  end
+
+  def customer_cell(row)
+    [row[:customer], row[:email]].compact_blank.map { |value| h(value) }.join('<br>')
+  end
+
+  def case_cell(row)
+    "<strong>#{h(row[:subject].presence || '(no subject)')}</strong><br>" \
+      "<span style='color:#{MUTED};'>#{h(row[:message])}</span>"
+  end
+
+  def deal_cell(row)
+    return '—' unless row[:deal] == 'Yes'
+
+    h([row[:deal_no], row[:deal_stage]].compact_blank.join(' · ').presence || 'Yes')
   end
 
   def heading(text)

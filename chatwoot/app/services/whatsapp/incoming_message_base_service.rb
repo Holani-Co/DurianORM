@@ -198,7 +198,7 @@ class Whatsapp::IncomingMessageBaseService # rubocop:disable Metrics/ClassLength
   # conversation. We keep the fields worth acting on so downstream (the ORM
   # agent, the CRM deal) can greet the lead with the right offer instead of
   # dropping the ad context.
-  REFERRAL_KEYS = %w[source_url source_id source_type headline body media_type ctwa_clid].freeze
+  REFERRAL_KEYS = %w[source_url source_id source_type headline body media_type image_url video_url thumbnail_url ctwa_clid].freeze
 
   def referral_attributes(message)
     return {} if outgoing_echo

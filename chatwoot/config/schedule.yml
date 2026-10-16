@@ -38,6 +38,18 @@ send_daily_orm_report_job:
   class: 'Reports::SendDailyOrmReportJob'
   queue: scheduled_jobs
 
+# sends each email category's previous Mon-Sun forwarded-emails report to its team every Monday 9 AM IST
+send_weekly_forwarded_reports_job:
+  cron: '0 9 * * 1 Asia/Kolkata'
+  class: 'Reports::SendWeeklyForwardedReportsJob'
+  queue: scheduled_jobs
+
+# sends the previous month's all-categories forwarded-emails overall report on the 1st at 10 AM IST
+send_monthly_forwarded_report_job:
+  cron: '0 10 1 * * Asia/Kolkata'
+  class: 'Reports::SendMonthlyForwardedReportJob'
+  queue: scheduled_jobs
+
 # executed hourly for scheduled jobs that do not need minute-level cadence
 trigger_hourly_scheduled_items_job:
   cron: '0 * * * *'
