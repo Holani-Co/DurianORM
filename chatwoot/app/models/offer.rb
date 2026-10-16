@@ -5,6 +5,10 @@
 # priority: lower number = shown first (#1 is the current headline).
 # tags: product/category keywords used to match an offer to a customer's
 #       interest (from the conversation context blob).
+# verticals: the agent verticals (furniture / doors / fhc) this offer applies
+#       to. Empty = all verticals (a universal offer). The bot only surfaces an
+#       offer whose verticals match the conversation's vertical, so a furniture
+#       sale offer never lands on an FHC or doors chat.
 # == Schema Information
 #
 # Table name: offers
@@ -30,6 +34,10 @@ class Offer < ApplicationRecord
 
   validates :caption, presence: true
 
+  # Keep verticals a clean lowercased array (strips the blank sentinel the admin
+  # form sends when no vertical is ticked → [] = all verticals).
+  before_validation { self.verticals = normalized_verticals }
+
   # Active + not past its optional expiry, most important first.
   scope :live, lambda {
     where(active: true)
@@ -39,5 +47,9 @@ class Offer < ApplicationRecord
 
   def normalized_tags
     Array(tags).map { |t| t.to_s.strip.downcase }.reject(&:blank?)
+  end
+
+  def normalized_verticals
+    Array(verticals).map { |v| v.to_s.strip.downcase }.reject(&:blank?)
   end
 end

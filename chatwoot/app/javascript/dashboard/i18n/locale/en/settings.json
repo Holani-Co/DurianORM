@@ -25,6 +25,8 @@
       "TAGS": "Tags (optional)",
       "TAGS_PH": "sofa, living room, emi",
       "TAGS_HINT": "Used to match this offer to a customer's interest. Comma-separated.",
+      "VERTICALS": "Show on (optional)",
+      "VERTICALS_HINT": "Which channels the assistant may share this offer on. Leave all unticked to show it everywhere.",
       "ACTIVE": "Active",
       "SAVE": "Save",
       "CANCEL": "Cancel"
