@@ -511,6 +511,18 @@ PRIORITY_ESCALATION_COOLDOWN_MINUTES = max(
 # creation (e.g. once out of the prod-test phase).
 ZOHO_TICKET_REQUIRE_APPROVAL = _bool("ZOHO_TICKET_REQUIRE_APPROVAL", "true")
 
+# The generic email-handoff "Zoho ticket decision" card (manual_handoff) used to
+# fire on EVERY email reopen/handoff — noise on deal / product / general emails
+# that resolve without a Desk ticket. Now it surfaces ONLY when the email's
+# category is one of these support/ticket-worthy ones. Complaints still get their
+# ticket via their own complaint-escalation path; this just stops the card on
+# everything else. Comma-separated category keys; blank disables the card entirely.
+TICKET_DECISION_CATEGORIES = {
+    c.strip().lower() for c in
+    os.environ.get("TICKET_DECISION_CATEGORIES", "complaint,legal_complaint").split(",")
+    if c.strip()
+}
+
 # ── Product-complaint auto-ticket ──────────────────────────────────────────
 # When a `complaint` email is classified, auto-create a Zoho Desk ticket
 # assigned to the client's customersupport agent, in ADDITION to the existing

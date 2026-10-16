@@ -462,8 +462,17 @@ async def handle_status_changed(data: dict) -> dict:
     if social_channel:
         return await handle_template_suggest(full_conv, social_channel)
 
-    # Email handoff → Zoho ticket. With the approval gate on, pause for an
-    # agent decision instead of auto-creating.
+    # Email handoff → Zoho ticket. Only surface the ticket-decision card for
+    # genuinely ticket-worthy (support) categories — complaints / legal and any
+    # others in TICKET_DECISION_CATEGORIES. A deal / product / general / forward
+    # email that reopens resolves without a Desk ticket, so no card (that was the
+    # noise: every email reopen spawned a "Zoho ticket decision" banner).
+    category = ((full_conv.get("custom_attributes") or {}).get("email_category_v2") or {}).get("category")
+    if str(category or "").lower() not in config.TICKET_DECISION_CATEGORIES:
+        print(f"[handoff] conv {conv_id}: category {category!r} is not ticket-worthy — no ticket card")
+        return {"ignored": True, "reason": "category_not_ticket_worthy"}
+
+    # With the approval gate on, pause for an agent decision instead of auto-creating.
     sender_email = ((full_conv.get("meta") or {}).get("sender") or {}).get("email") or ""
     if config.ZOHO_TICKET_REQUIRE_APPROVAL:
         return await _pause_ticket_for_approval(conv_id, sender_email, "manual_handoff")
@@ -2774,14 +2783,23 @@ async def _deal_details_gate_llm(customer_name: str, text: str,
 
 async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: str,
                                  subject: str, body: str, category: str,
-                                 *, attempt: int, channel: str = "email") -> list[str]:
+                                 *, attempt: int, channel: str = "email",
+                                 prior: dict | None = None) -> list[str]:
     """One pass of the deal-details gate. Captures phone + city; when both are
     present it registers the enquiry (auto-acknowledges, marks deal-ready) and
     when either is missing it auto-sends ONE AI-drafted ask (replacing the
-    generic acknowledgment). `attempt` = asks already sent."""
+    generic acknowledgment). `attempt` = asks already sent. `prior` = details
+    already gathered on earlier passes (pending_deal_details), so a detail the
+    customer gave before — the phone in the first email's signature, the city in
+    an earlier reply — is REMEMBERED and never re-asked."""
+    prior = prior or {}
     text = f"{subject}\n{body}"
     phones = _extract_phones(text)
-    have_phone = bool(phones)
+    # Accumulate across the thread: this message's detail, else the one already
+    # gathered. (Without this the gate re-read only the latest message and kept
+    # re-asking for a field the customer had already given in another message.)
+    phone = phones[0] if phones else (prior.get("phone") or "")
+    have_phone = bool(phone)
     name = _resolve_customer_name(sender_name, sender_email)
 
     gate = await _deal_details_gate_llm(name, text, have_phone)
@@ -2790,7 +2808,7 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
     # told never to infer a city from an area code, so a pincode used to be
     # rejected and the gate looped to the ask cap. Resolve it here instead — a
     # known pincode IS a valid location answer.
-    pincode = ""
+    pincode = prior.get("pincode") or ""
     if not city:
         pin = pincode_resolver.extract_pincode(text)
         if pin and pincode_resolver.is_known_pincode(pin):
@@ -2800,12 +2818,13 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
             # CUSTOMER is; owner-routing handles which store services it.
             resolved = pincode_resolver.resolve(pin, "furniture")
             city = (resolved or {}).get("store") or f"Pincode {pin}"
+    city = city or prior.get("city") or ""
     have_city = bool(city)
 
     if have_phone and have_city:
         # Both in hand → capture for the deal, acknowledge, mark ready.
         await chatwoot.merge_custom_attributes(conv_id, {
-            "deal_customer_details": {"phone": phones[0], "city": city,
+            "deal_customer_details": {"phone": phone, "city": city,
                                       "pincode": pincode or None,
                                       "captured_at": _now_iso()},
             "pending_deal_details": None})
@@ -2835,10 +2854,14 @@ async def _run_deal_details_gate(conv_id: int, sender_name: str, sender_email: s
         return [f"📝 Deal details ({missing}) still missing after {attempt} ask(s) — left to the team."]
     ask = gate.get("ask_reply") or _DEAL_DETAILS_FALLBACK_ASK.format(customer_name=name)
     # `channel` rides in pending_deal_details so the reply resumes on the same
-    # channel (the reply webhook only knows the conversation, not how we reached them).
+    # channel (the reply webhook only knows the conversation, not how we reached
+    # them). phone/city carry the detail(s) already gathered so the next reply
+    # only needs to supply what is still missing — no re-asking.
     await chatwoot.merge_custom_attributes(conv_id, {
         "pending_deal_details": {"attempts": attempt + 1, "asked_at": _now_iso(),
-                                 "category": category, "channel": channel}})
+                                 "category": category, "channel": channel,
+                                 "phone": phone or None, "city": city or None,
+                                 "pincode": pincode or None}})
     await _retail_send(conv_id, channel, sender_email, ask)
     await _label_conversation(conv_id, DEAL_DETAILS_NEEDED_LABEL)
     print(f"[deal-gate] conv {conv_id}: auto-sent AI ask for {missing} (attempt {attempt + 1})")
@@ -2856,7 +2879,8 @@ async def _handle_deal_details_reply(conv_id: int, data: dict,
         conv_id, sender.get("name") or "", sender.get("email") or "",
         subject, content, str(pending.get("category") or ""),
         attempt=int(pending.get("attempts") or 1),
-        channel=str(pending.get("channel") or "email"))
+        channel=str(pending.get("channel") or "email"),
+        prior=pending)
     print(f"[deal-gate] conv {conv_id}: reply re-entry → {audit}")
     return {"handled": "deal_details_reply", "audit": audit}
 
