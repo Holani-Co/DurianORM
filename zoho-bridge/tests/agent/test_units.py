@@ -2053,3 +2053,107 @@ def test_share_offer_scopes_to_vertical(monkeypatch):
     ctx3 = {"conv": {"custom_attributes": {}}, "conv_id": 3, "vertical": "fhc", "profile": {}}
     res3 = asyncio.run(sa._sk_share_offer(ctx3))
     assert not res3["sent"] and not fake3.sent
+
+
+# --- search_products: a NAMED product is searched by name (conv 10241) ---------
+# The agent searched "recliner" for "glass table and Quinn recliner", Quinn was
+# not in that top 6, and it told the customer Quinn didn't exist.
+
+_QUINN_MSG = ("I had sent a text on insta for a glass table and Quinn recliner... "
+              "can I know the price")
+_QUINN = {"title": "Quinn", "category": "Reclining Sofas", "selling_price": 51840,
+          "mrp": 115200, "url": "https://www.durian.in/product/quinn"}
+_VIVIAN = {"title": "Vivian", "category": "Reclining Sofas", "selling_price": 108000,
+           "mrp": 216000, "url": "https://www.durian.in/product/vivian"}
+_JESSICA = {"title": "Jessica", "category": "Coffee & Center Tables",
+            "selling_price": 15120, "mrp": 43200,
+            "url": "https://www.durian.in/product/jessica"}
+
+
+def _named_search(monkeypatch, results):
+    import website_search as ws
+    calls = []
+
+    async def fake(query, rows=4, sort="", min_price=None, max_price=None):
+        calls.append(query)
+        return list(results.get(query.lower(), []))
+    monkeypatch.setattr(ws, "search", fake)
+    return calls
+
+
+class _LabelChatwoot:
+    def __init__(self):
+        self.labels = []
+
+    async def add_label(self, cid, label):
+        self.labels.append((cid, label))
+
+
+def test_family_matches_by_kind():
+    import product_catalog as pc
+    assert pc.family_matches("QUINN", "recliner")
+    assert pc.family_matches("QUINN", "recliners")
+    assert pc.family_matches("QUINN", "sofa")
+    assert not pc.family_matches("QUINN", "glass table")
+
+
+def test_search_products_adds_dropped_name(monkeypatch):
+    import asyncio
+    calls = _named_search(monkeypatch, {"recliner": [_VIVIAN], "quinn": [_QUINN]})
+    handler = sa.SKILLS["search_products"]["handler"]
+    ctx = {"incoming_all": ["Hey", _QUINN_MSG]}
+    out = asyncio.run(handler(ctx, query="recliner"))
+    assert calls == ["recliner", "Quinn"]
+    assert [p["title"] for p in out["products"]] == ["Quinn", "Vivian"]
+    assert out["products"][0]["price"] == "₹51,840"
+    assert "note" not in out
+    # looked up once per turn, not on every later search
+    asyncio.run(handler(ctx, query="recliner"))
+    assert calls.count("Quinn") == 1
+
+
+def test_search_products_reminds_when_query_is_other_kind(monkeypatch):
+    import asyncio
+    calls = _named_search(monkeypatch, {"glass table": [_JESSICA]})
+    handler = sa.SKILLS["search_products"]["handler"]
+    out = asyncio.run(handler({"incoming_all": [_QUINN_MSG]}, query="glass table"))
+    assert calls == ["glass table"]
+    assert [p["title"] for p in out["products"]] == ["Jessica"]
+    assert "also named Quinn" in out["note"]
+
+
+def test_search_products_named_not_listed_captures_lead(monkeypatch):
+    import asyncio
+    _named_search(monkeypatch, {"recliner": [_VIVIAN]})
+    cw = _LabelChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", cw)
+    handler = sa.SKILLS["search_products"]["handler"]
+    out = asyncio.run(handler({"incoming_all": [_QUINN_MSG], "conv_id": 7},
+                              query="recliner"))
+    assert [p["title"] for p in out["products"]] == ["Vivian"]
+    assert "not listed online" in out["note"]
+    assert "do NOT say we don't have it" in out["note"]
+    assert cw.labels == [(7, "product-check")]
+
+
+def test_search_products_name_in_query_but_unlisted(monkeypatch):
+    import asyncio
+    calls = _named_search(monkeypatch, {})
+    cw = _LabelChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", cw)
+    handler = sa.SKILLS["search_products"]["handler"]
+    out = asyncio.run(handler({"incoming_all": [_QUINN_MSG], "conv_id": 7},
+                              query="Quinn recliner"))
+    assert calls == ["Quinn recliner", "Quinn"]
+    assert out["products"] == [] and "not listed online" in out["note"]
+    assert "try different words" not in out["note"]
+
+
+def test_search_products_generic_ask_unchanged(monkeypatch):
+    import asyncio
+    calls = _named_search(monkeypatch, {"sofa": [_VIVIAN]})
+    handler = sa.SKILLS["search_products"]["handler"]
+    out = asyncio.run(handler({"incoming_all": ["hi do you have a 3 seater sofa in grey"]},
+                              query="sofa"))
+    assert calls == ["sofa"]
+    assert [p["title"] for p in out["products"]] == ["Vivian"] and "note" not in out
