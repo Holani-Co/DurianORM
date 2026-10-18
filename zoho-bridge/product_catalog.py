@@ -120,6 +120,24 @@ def search(query: str, limit: int = 6, require_family: bool = False) -> list[dic
     return out
 
 
+def _stem(tok: str) -> str:
+    return tok[:-1] if len(tok) > 3 and tok.endswith("s") else tok
+
+
+def family_matches(family: str, query: str) -> bool:
+    """Whether a search query is about this family's kind of product — 'recliner'
+    or 'sofa' for QUINN (motorized recliners, category RECLINING SOFAS), but not
+    'glass table'. Compares the query's nouns with the family's descriptions and
+    categories, plurals folded."""
+    _load()
+    q = {_stem(t) for t in _apply_synonyms(_norm(query)).split() if len(t) >= 3}
+    words: set[str] = set()
+    for sku in _by_family.get(str(family or "").lower(), []):
+        p = _data["products"][sku]
+        words |= {_stem(t) for t in _norm(f"{p.get('name')} {p.get('category')}").split()}
+    return bool(q & words)
+
+
 def resolve(query: str) -> dict | None:
     """A single unambiguous product for the query, or None when it's ambiguous
     (several variants) or no match — the caller then shows candidates / asks."""

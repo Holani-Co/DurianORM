@@ -370,14 +370,73 @@ def _coerce_skill_args(args: dict, params: dict) -> dict:
     return out
 
 
+def _product_row(p: dict) -> dict:
+    """A live search hit as the skill returns it — prices only in Indian notation."""
+    item = {"title": p["title"], "category": p["category"],
+            "price": inr(p.get("selling_price")), "link": p["url"]}
+    try:
+        if p.get("mrp") and float(p["mrp"]) > float(p.get("selling_price") or 0):
+            item["mrp"] = inr(p["mrp"])
+    except (TypeError, ValueError):
+        pass
+    if p.get("in_store_exclusive"):
+        item["note"] = "in-store exclusive — seen at a showroom, not sold online"
+    return item
+
+
+def _named_families(ctx) -> list[str]:
+    """Product names (price-list families: QUINN, MATILDA) the customer used in
+    their recent messages. The model sometimes strips the name and searches the
+    bare noun — 'recliner' for 'Quinn recliner' (conv 10241) — then reports the
+    named product missing. Generic words never match a family."""
+    fams: list[str] = []
+    for text in (ctx.get("incoming_all") or [])[-3:]:
+        for hit in product_catalog.search(text or "", limit=40, require_family=True):
+            fam = hit.get("family")
+            if fam and fam not in fams:
+                fams.append(fam)
+    return fams
+
+
+def _query_names(family: str, query: str) -> bool:
+    first = re.sub(r"[^a-z0-9]+", " ", family.lower()).split()[:1]
+    return bool(first) and first[0] in re.sub(r"[^a-z0-9]+", " ", query.lower()).split()
+
+
+async def _search_named(ctx, family: str) -> tuple[list[dict], str]:
+    """Live search for a product the customer named. Not listed online → no rows,
+    the conversation is tagged product-check, and the note tells the agent to
+    capture the lead instead of saying we don't carry it."""
+    name = family.title()
+    first = family.lower().split()[0]
+    try:
+        found = await website_search.search(name, rows=6)
+    except Exception:
+        found = []
+    rows = [_product_row(p) for p in found if first in p["title"].lower()]
+    if rows:
+        return rows, ""
+    if ctx.get("conv_id"):
+        try:
+            await chatwoot.add_label(ctx["conv_id"], "product-check")
+        except Exception:
+            pass
+    return [], (f"{name} is in Durian's range but not listed online right now — do "
+                f"NOT say we don't have it and do not quote a price: say the team "
+                f"will confirm its availability and current price, and ask for "
+                f"their name, contact number and city or pincode")
+
+
 @_skill(
     "search_products",
     "Look up Durian products on the LIVE durian.in storefront — the website's "
     "own search, so results are current sellable products at live prices "
     "(handles customer vocabulary: 'L-shaped' finds sectional sofas). USE WHEN "
-    "a customer names or describes a product. QUERY = the customer's product "
-    "NOUNS ONLY ('centre table', 'fabric sofa') — never adjectives or prices: "
-    "'premium', 'luxury', 'better', 'around ₹40,000' are NOISE to the keyword "
+    "a customer names or describes a product. QUERY = the product NAME the "
+    "customer used plus its nouns ('Quinn recliner', 'Matilda', 'centre table', "
+    "'fabric sofa') — a name like Quinn or Matilda is the most important word, "
+    "never drop it; search each named product by its name. Never adjectives or "
+    "prices: 'premium', 'luxury', 'better', 'around ₹40,000' are NOISE to the keyword "
     "engine and pull in wrong-category rows. Quality and budget are the PRICE "
     "AXIS instead: better/premium/upmarket → same noun query + "
     "sort='price_desc'; cheaper/budget → 'price_asc'; a stated budget → "
@@ -391,10 +450,15 @@ def _coerce_skill_args(args: dict, params: dict) -> dict:
     "separately unless the customer asks or you are comparing. EMI exists on "
     "everything: a one-line 'EMI options available' needs no fetch, but any "
     "EMI figure requires get_emi_plans first. Empty products[] = not found: "
-    "rephrase and retry ONCE, then say so honestly, never invent.",
+    "rephrase and retry ONCE. A product the customer NAMED is never 'not "
+    "available' or 'not in our catalogue' — say the team will confirm its "
+    "availability and price, and ask for their name, contact number and city "
+    "or pincode. For an unnamed ask, say honestly what the range is. Never "
+    "invent. Follow the returned note when one is set.",
     {"query": {"type": "string",
-               "description": "the customer's product nouns — no adjectives, "
-                              "no prices"},
+               "description": "the product name the customer used, if any "
+                              "('Quinn recliner'), plus product nouns — no "
+                              "adjectives, no prices"},
      "sort": {"type": "string", "enum": ["", "price_desc", "price_asc"],
               "description": "price_desc for better/premium asks, price_asc "
                              "for budget asks; \"\" (default order) for a "
@@ -423,20 +487,38 @@ async def _sk_search_products(ctx, query: str = "", sort: str = "",
         return {"products": [], "note": f"live search unavailable "
                 f"({type(e).__name__}) — retry once; still failing → tell "
                 f"the customer honestly and offer the showroom"}
-    out = []
-    for p in found:     # prices leave the skill ONLY in Indian notation
-        item = {"title": p["title"], "category": p["category"],
-                "price": inr(p.get("selling_price")), "link": p["url"]}
-        try:
-            if p.get("mrp") and float(p["mrp"]) > float(p.get("selling_price") or 0):
-                item["mrp"] = inr(p["mrp"])
-        except (TypeError, ValueError):
-            pass
-        if p.get("in_store_exclusive"):
-            item["note"] = "in-store exclusive — seen at a showroom, not sold online"
-        out.append(item)
-    return {"products": out} if out \
-        else {"products": [], "note": "no match — try different words once"}
+    out = [_product_row(p) for p in found]
+    notes: list[str] = []
+    searched = ctx.setdefault("named_searched", set())
+    # A product the customer NAMED must be looked up by name: when this query is
+    # about its kind of product but dropped the name, search the name too and put
+    # it first; when the query is about something else, remind the agent.
+    for fam in _named_families(ctx):
+        if fam in searched:
+            continue
+        first = fam.lower().split()[0]
+        if _query_names(fam, query):
+            searched.add(fam)
+            if not any(first in r["title"].lower() for r in out):
+                rows, note = await _search_named(ctx, fam)
+                out = rows + out
+                notes += [note] if note else []
+            continue
+        if not product_catalog.family_matches(fam, query):
+            notes.append(f"the customer also named {fam.title()} — search it by "
+                         f"name before saying anything about it")
+            continue
+        searched.add(fam)
+        rows, note = await _search_named(ctx, fam)
+        links = {r["link"] for r in rows}
+        out = rows + [r for r in out if r["link"] not in links]
+        notes += [note] if note else []
+    if not out and not notes:
+        notes.append("no match — try different words once")
+    res = {"products": out[:8]}
+    if notes:
+        res["note"] = "; ".join(notes)
+    return res
 
 
 @_skill(
