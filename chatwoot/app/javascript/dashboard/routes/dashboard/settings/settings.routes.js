@@ -20,6 +20,7 @@ import macros from './macros/macros.routes';
 import routingConfig from './routingConfig/routingConfig.routes';
 import storesConfig from './storesConfig/storesConfig.routes';
 import agentPromptsConfig from './agentPromptsConfig/agentPromptsConfig.routes';
+import productCatalogConfig from './productCatalogConfig/productCatalogConfig.routes';
 import offers from './offers/offers.routes';
 import reports from './reports/reports.routes';
 import store from '../../../store';
@@ -66,6 +67,7 @@ export default {
     ...routingConfig.routes,
     ...storesConfig.routes,
     ...agentPromptsConfig.routes,
+    ...productCatalogConfig.routes,
     ...offers.routes,
     ...reports.routes,
     ...sla.routes,

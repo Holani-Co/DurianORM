@@ -451,6 +451,18 @@ Rails.application.routes.draw do
                 post :rollback
               end
             end
+            resource :product_catalog_config, controller: 'product_catalog_config', only: [:show] do
+              collection do
+                post :preview
+                post :publish
+                post :sync
+                post :sync_settings
+                get  :export
+                get  :versions
+                get  :version
+                post :rollback
+              end
+            end
             resource :shopify, controller: 'shopify', only: [:destroy] do
               collection do
                 post :auth

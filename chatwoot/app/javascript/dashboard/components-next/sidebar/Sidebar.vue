@@ -873,6 +873,12 @@ const menuItems = computed(() => {
           to: accountScopedRoute('agent_prompts_config_index'),
         },
         {
+          name: 'Settings Product Catalog Config',
+          label: t('SIDEBAR.PRODUCT_CATALOG_CONFIG'),
+          icon: 'i-lucide-package',
+          to: accountScopedRoute('product_catalog_config_index'),
+        },
+        {
           name: 'Settings Offers',
           label: t('SIDEBAR.OFFERS'),
           icon: 'i-lucide-badge-percent',

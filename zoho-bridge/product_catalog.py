@@ -1,7 +1,10 @@
 # Product catalog resolver — turns what a customer says ("the Rihanna sofa",
 # "Meagan 3 seater") into a Durian SKU + sale price, for the EMI / product flows.
-# Pure stdlib; reads data/product_catalog.json (built by build_product_catalog.py
-# from the client's monthly price sheet — regenerate when prices change).
+# Source: the price list published in Settings → Product Catalog (config_store
+# domain "catalog", from a Google Sheet or an upload). Falls back to the
+# committed data/product_catalog.json when nothing valid is published. The
+# active version is re-checked at most once a minute, so a publish reaches the
+# agent without a restart.
 #
 # The customer-facing product name is the SKU FAMILY (RIHANNA, MEAGAN), i.e. the
 # part before the first "/", NOT the generic description ("COFFEE TABLE"). So we
@@ -12,21 +15,101 @@
 import difflib
 import json
 import re
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+import config_store
+
 _PATH = Path(__file__).parent / "data" / "product_catalog.json"
+_RECHECK_SECONDS = 60
 _data: dict | None = None          # {"price_period", "products": {sku: {...}}}
 _by_family: dict | None = None      # {family_lower: [sku, ...]}
+_meta: dict = {}                    # where _data came from (see meta())
+_version_id: int | None = None      # published version evaluated (None = none)
+_checked_at = 0.0
+
+
+def _published() -> tuple[int | None, dict]:
+    """(id, metadata) of the active published catalog, or (None, {}). Never
+    raises — a store problem means the floor keeps serving."""
+    try:
+        v = config_store.active_version(config_store.CATALOG)
+    except Exception:
+        return None, {}
+    return (int(v["id"]), v) if v else (None, {})
 
 
 def _load() -> dict:
-    global _data, _by_family
-    if _data is None:
+    global _data, _by_family, _meta, _version_id, _checked_at
+    now = time.monotonic()
+    if _data is not None and now - _checked_at < _RECHECK_SECONDS:
+        return _data
+    _checked_at = now
+    vid, ver = _published()
+    if _data is not None and vid == _version_id:
+        return _data
+    _version_id = vid
+    doc = config_store.get_active_override(config_store.CATALOG) if vid else {}
+    products = doc.get("products")
+    if isinstance(products, dict) and products:
+        _data = {"price_period": doc.get("price_period", ""), "products": products}
+        _meta = {"managed": True, "version_id": vid,
+                 "published_at": ver.get("created_at"),
+                 "published_by": ver.get("created_by"),
+                 "source": doc.get("source") or "upload",
+                 "source_name": doc.get("source_name") or "",
+                 "format": doc.get("format") or ""}
+    else:
         _data = json.loads(_PATH.read_text(encoding="utf-8"))
-        _by_family = {}
-        for sku, p in _data.get("products", {}).items():
-            _by_family.setdefault((p.get("family") or "").lower(), []).append(sku)
+        _meta = {"managed": False, "source": "built-in"}
+    _by_family = {}
+    for sku, p in _data.get("products", {}).items():
+        _by_family.setdefault((p.get("family") or "").lower(), []).append(sku)
     return _data
+
+
+def reload() -> None:
+    """Forget the cache — the next read re-checks the published version now
+    (called right after a publish/rollback so the admin sees it instantly)."""
+    global _data, _checked_at
+    _data, _checked_at = None, 0.0
+
+
+def products() -> dict:
+    """Every product in the live list, {sku: {...}}."""
+    return _load().get("products", {})
+
+
+def meta() -> dict:
+    """Where the live list came from: managed (published in the UI) or the
+    built-in floor, plus version/publisher/time, price period and size."""
+    data = _load()
+    return {**_meta, "price_period": data.get("price_period", ""),
+            "count": len(data.get("products", {}))}
+
+
+def is_fresh(max_age_days: int) -> bool:
+    """A list published in the UI within max_age_days — the only list whose
+    prices are current enough to quote to a customer. The built-in floor never is."""
+    _load()
+    if not _meta.get("managed") or not _meta.get("published_at"):
+        return False
+    try:
+        at = datetime.fromisoformat(_meta["published_at"])
+    except (TypeError, ValueError):
+        return False
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - at).days < max_age_days
+
+
+def family_products(family: str) -> list[dict]:
+    """All variants of one family, cheapest first."""
+    _load()
+    rows = [{"sku": sku, **_data["products"][sku]}
+            for sku in _by_family.get(str(family or "").lower(), [])]
+    return sorted(rows, key=lambda r: r.get("sale_price") or 0)
 
 
 def _norm(s) -> str:
