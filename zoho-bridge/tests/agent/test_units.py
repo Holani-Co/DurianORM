@@ -2157,3 +2157,173 @@ def test_search_products_generic_ask_unchanged(monkeypatch):
                               query="sofa"))
     assert calls == ["sofa"]
     assert [p["title"] for p in out["products"]] == ["Vivian"] and "note" not in out
+
+
+# --- Comment + B2B handoff fixes (convs 9978, 9979, 9996, 10009, 10011, 10110) ---
+
+def test_comment_toolset_uses_narrow_escalate_description():
+    comment = {t["name"]: t for t in sa.tools_for_responses("comment")}
+    assert set(comment) == {"escalate_to_human", "finish"}
+    desc = comment["escalate_to_human"]["description"]
+    assert "NEVER for a price or product" in desc and "store / location" in desc
+    assert "ALWAYS pass customer_message" in desc
+    assert "price negotiation" not in desc             # the DM trigger list is gone
+    dm = {t["name"]: t for t in sa.tools_for_responses("")}
+    assert "price negotiation" in dm["escalate_to_human"]["description"]
+
+
+def test_comment_prompt_covers_location_objection_offtopic():
+    from datetime import datetime
+    p = sa._comment_prompt("durianfurniture_official", "furniture", datetime(2026, 10, 19),
+                           "P", "T", post_caption="Franceska dining table")
+    for case in ("STORE / LOCATION ask", "PRICE / VALUE OBJECTION", "OFF-TOPIC / UNRELATED"):
+        assert case in p
+    assert "never says a request was escalated, forwarded, reviewed" in p
+    assert "NEVER for a price, location, product" in p
+
+
+def test_dm_prompt_captures_business_leads_before_handoff():
+    from datetime import datetime
+    p = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                          now=datetime(2026, 10, 19), profile_block="P", templates="T",
+                          n_customer_msgs=1)
+    assert "BUSINESS LEADS" in p and "CAPTURE it before any handoff" in p
+    assert "line=furniture" in p
+    assert "dealer / \\\nfranchise; bulk / B2B / projects" not in p
+    esc = sa.SKILLS["escalate_to_human"]["description"]
+    assert "ONLY AFTER register_enquiry" in esc
+
+
+def test_comment_violation_blocks_escalation_and_refund_talk():
+    bad = ["We've escalated your refund request to our team.",
+           "We will process your refund soon.", "You'll get your money back."]
+    for reply in bad:
+        assert "escalation / refund" in sa.comment_violation(reply), reply
+    for ok in (sa._COMMENT_HANDOFF_LINE,
+               "We'd love to help — please DM us to know more about our stores near you.",
+               "We hear you! Please DM us so we can suggest options that suit your budget."):
+        assert sa.comment_violation(ok) == "", ok
+
+
+def test_handoff_pending_needs_label_and_stamp():
+    stamp = {sa._HANDOFF_SENT_ATTR: "2026-10-15T12:40:00+05:30"}
+    assert sa._handoff_pending({"labels": ["agent-needed"], "custom_attributes": stamp})
+    assert not sa._handoff_pending({"labels": [], "custom_attributes": stamp})   # resolved
+    assert not sa._handoff_pending({"labels": ["agent-needed"], "custom_attributes": {}})
+
+
+# Full agent turns with a scripted model (no live LLM).
+
+class _TurnChatwoot:
+    def __init__(self, msgs=None):
+        self.msgs = msgs or []
+        self.public, self.private, self.labels, self.attrs = [], [], [], {}
+
+    async def get_inbox_name(self, inbox_id):
+        return "durianfurniture_official"
+
+    async def get_conversation_messages_raw(self, conv_id):
+        return self.msgs
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.attrs.update(attrs)
+
+    async def add_label(self, conv_id, label):
+        self.labels.append(label)
+
+    async def create_message(self, conv_id, content, message_type="outgoing",
+                             private=False, content_attributes=None):
+        (self.private if private else self.public).append(
+            {"content": content, "attrs": content_attributes or {}})
+        return {"id": 1}
+
+    async def post_private_note(self, conv_id, content):
+        self.private.append({"content": content, "attrs": {}})
+
+    async def assign_team(self, conv_id, team_id):
+        pass
+
+
+def _scripted_turn(monkeypatch, calls, *, surface="comment", latest="Price",
+                   conv_extra=None):
+    """Run one real _handle_locked turn where the model makes `calls`
+    ([(tool_name, args), ...]) in its first response."""
+    import asyncio
+    import json as _json
+    from types import SimpleNamespace as NS
+    cw = _TurnChatwoot([{"id": 7, "message_type": 0, "content": latest, "created_at": 0}])
+    monkeypatch.setattr(sa, "chatwoot", cw)
+    monkeypatch.setattr(sa.config, "SOCIAL_AUTO_SEND_ENABLED", True)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_TEAM_ID", 0)
+
+    async def _none(*a, **k):
+        return None
+
+    async def _empty(*a, **k):
+        return ""
+    for name in ("load", "soft_link", "crm_lookup", "save"):
+        monkeypatch.setattr(sa.profile_mod, name, _none)
+    monkeypatch.setattr(sa.profile_mod, "prior_transcript", _empty)
+    monkeypatch.setattr(sa, "_templates_block", _empty)
+    responses = [NS(output=[NS(type="function_call", name=n, arguments=_json.dumps(a),
+                               call_id=f"c{i}") for i, (n, a) in enumerate(calls)],
+                    output_text="")]
+
+    async def fake_llm(**kw):
+        return responses.pop(0) if responses else NS(output=[], output_text="")
+    monkeypatch.setattr(sa, "_responses_with_retry", fake_llm)
+    sa._last_handled_msgid.pop(77, None)
+    conv = {"id": 77, "inbox_id": 16, "labels": [],
+            "meta": {"sender": {"id": 5, "name": "Fatima"}, "channel": "Instagram"},
+            "custom_attributes": {}, "additional_attributes": {}}
+    conv.update(conv_extra or {})
+    res = asyncio.run(sa._handle_locked(conv, 77, "instagram", surface, latest, 7))
+    return res, cw
+
+
+def test_comment_silent_escalation_now_sends_dm_invite(monkeypatch):
+    # convs 10009 / 10011: "Price" handed over with no customer_message → silence
+    res, cw = _scripted_turn(monkeypatch, [("escalate_to_human", {"reason": "price ask"})])
+    assert res["handled"] == "agent_escalated"
+    assert [m["content"] for m in cw.public] == [sa._COMMENT_HANDOFF_LINE]
+    assert "agent-needed" in cw.labels                    # still flagged for a look
+    assert not any("without replying" in m["content"] for m in cw.private)
+
+
+def test_comment_refund_promise_replaced_by_dm_invite(monkeypatch):
+    # conv 9979: "We've escalated your refund request" must never go public
+    res, cw = _scripted_turn(monkeypatch, [("escalate_to_human", {
+        "reason": "refund", "customer_message":
+            "We've escalated your refund request to our team."})],
+        latest="RETURN ALL MY MONEY")
+    assert [m["content"] for m in cw.public] == [sa._COMMENT_HANDOFF_LINE]
+
+
+def test_comment_no_reply_still_gets_dm_invite(monkeypatch):
+    res, cw = _scripted_turn(monkeypatch, [])       # model says nothing at all
+    assert res["handled"] == "agent_no_reply_dm_invite"
+    assert [m["content"] for m in cw.public] == [sa._COMMENT_HANDOFF_LINE]
+
+
+def test_dm_handoff_line_sent_once_then_not_repeated(monkeypatch):
+    # conv 10110: "we're forwarding your enquiry" went out on five turns
+    esc = [("escalate_to_human", {"reason": "B2B lead: Kanpur showroom supply",
+                                  "customer_message": "Thank you — our team will be in touch."})]
+    _, first = _scripted_turn(monkeypatch, esc, surface="", latest="yes")
+    assert [m["content"] for m in first.public] == ["Thank you — our team will be in touch."]
+    assert sa._HANDOFF_SENT_ATTR in first.attrs
+    _, again = _scripted_turn(monkeypatch, esc, surface="", latest="ok please do",
+                              conv_extra={"labels": ["agent-needed"],
+                                          "custom_attributes": dict(first.attrs)})
+    assert again.public == []                              # not re-announced
+    note = [m for m in again.private if "without replying" in m["content"]]
+    assert note and note[0]["attrs"]["ai_trace"]           # reason recorded, not lost
+    assert any(s.get("label") == "Handoff already pending"
+               for s in note[0]["attrs"]["ai_trace"])
+
+
+def test_dm_silent_no_reply_leaves_reasoning_note(monkeypatch):
+    res, cw = _scripted_turn(monkeypatch, [], surface="", latest="hmm")
+    assert res["handled"] == "agent_no_reply" and cw.public == []
+    assert any("without replying" in m["content"] and m["attrs"].get("ai_trace")
+               for m in cw.private)

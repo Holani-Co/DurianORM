@@ -2295,7 +2295,9 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
 @_skill(
     "escalate_to_human",
     "Hand the conversation to a human (flags + assignment). USE for: order "
-    "status / delivery / warranty, dealer or franchise, bulk / B2B / project, "
+    "status / delivery / warranty; dealer / franchise / bulk / B2B / "
+    "wholesale / project leads ONLY AFTER register_enquiry has registered them "
+    "(capture their name, number and city first — they are leads), "
     "job / career enquiries, price negotiation, complaints beyond a "
     "first apology, abuse, or "
     "anything your tools cannot ground. For a marketing / advertising / PR / "
@@ -2315,10 +2317,12 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
                          "description": "same shape as finish.profile_updates",
                          "items": {"type": "object"}}},
     {"escalated": "bool"},
-    ({"reason": "franchise enquiry for Pune",
+    ({"reason": "complaint: sofa delivery delayed two weeks, Pune",
+      "customer_message": "We're sorry about the delay — our team will reach "
+                          "out to you shortly.",
       "profile_updates": [{"op": "learn", "kind": "note",
-                           "what": "franchise enquiry for Pune",
-                           "quote": "franchise in pune", "note": ""}]},
+                           "what": "complaint: delayed sofa delivery",
+                           "quote": "my sofa still hasn't arrived", "note": ""}]},
      {"escalated": True}),
 )
 async def _sk_escalate(ctx, reason: str = "", customer_message: str = "",
@@ -2436,6 +2440,17 @@ _FINISH_TOOL = {
 }
 
 
+_COMMENT_ESCALATE_DESC = (
+    "PUBLIC COMMENTS ONLY: hand this comment to a human ONLY for a complaint "
+    "about a real Durian order / delivery / warranty / service, abuse toward "
+    "Durian or our staff, or a legal threat. NEVER for a price or product "
+    "question, a store / location ask, praise, a price objection or an "
+    "off-topic comment — those always get a public reply via finish. ALWAYS "
+    "pass customer_message: one short line inviting them to DM us so our team "
+    "can help. Never say a request was escalated, forwarded, reviewed or "
+    "refunded. This ends your turn.")
+
+
 def tools_for_responses(surface: str = "") -> list[dict]:
     out = []
     for name, s in SKILLS.items():
@@ -2452,8 +2467,14 @@ def tools_for_responses(surface: str = "") -> list[dict]:
         # fetches (which is what carded comments as 'unclear intent').
         if surface == "comment" and name != "escalate_to_human":
             continue
+        # The DM handoff list (price negotiation, "anything your tools cannot
+        # ground", B2B…) made the agent hand price / location comments over in
+        # silence (convs 9996, 10009, 10011). On a comment it gets its own,
+        # narrow description instead.
+        desc = _COMMENT_ESCALATE_DESC \
+            if surface == "comment" and name == "escalate_to_human" else s["description"]
         out.append({"type": "function", "name": name,
-                    "description": s["description"] +
+                    "description": desc +
                     f"\nRETURNS: {json.dumps(s['returns'])}" +
                     f"\nEXAMPLE: {json.dumps(s['example'][0])} -> "
                     f"{json.dumps(s['example'][1])}",
@@ -2766,6 +2787,10 @@ def comment_violation(reply: str) -> str:
         return "phone number in a public comment"
     if len(reply or "") > 350:
         return "public comment too long"
+    # conv 9979: a public "we've escalated your refund request" to an off-topic
+    # rant. Escalation / refund talk never goes out under a post.
+    if re.search(r"\bescalat\w*|\brefund\w*|\bmoney back\b", reply or "", re.I):
+        return "escalation / refund promise in a public comment"
     return ""
 
 
@@ -2872,21 +2897,41 @@ bare greeting or blessing with no request ("jai shri krishna", "good morning", \
 Read the comment and do EXACTLY ONE of these:
 - PRAISE / appreciation / love (including emoji-love) -> a brief, genuine \
 thank-you. finish(action=send).
-- A QUESTION about a product (price, availability, "how much", colour, size, \
-material, "is this in stock") -> name the product from THE POST above if you \
-can, and warmly invite them to DM us so our team can share the details and \
-connect them to their nearest store. No price, no number. finish(action=send).
-- A COMPLAINT, an order / delivery / warranty problem, abuse, a legal threat, \
-or anything you cannot answer safely in public -> escalate_to_human (a \
-teammate replies). Do not attempt a public answer.
+- A QUESTION about a product (price, "price?", "how much", availability, \
+colour, size, material, "is this in stock") -> name the product from THE POST \
+above if you can, and warmly invite them to DM us so our team can share the \
+details and connect them to their nearest store. No price, no number. \
+finish(action=send).
+- A STORE / LOCATION ask (a city or area name like "jaipur location", "where \
+is your store", "showroom near me", "address?") -> warmly invite them to DM \
+us to know more about our stores near them. No address, no link. \
+finish(action=send).
+- A PRICE / VALUE OBJECTION ("too expensive", "very costly", "not worth it", \
+"overpriced") -> one empathetic line that respects their view, and invite \
+them to DM us so we can suggest options that suit their budget. Never argue, \
+never say the team will "review" it. finish(action=send).
+- OFF-TOPIC / UNRELATED (personal matters, rants or claims that have nothing \
+to do with Durian, spam, random requests) -> one polite, neutral line saying \
+we're happy to help with anything about Durian's furniture and interiors. \
+Never take its claims at face value: do NOT apologise for it, do NOT mention \
+refunds or money, do NOT say anything was escalated or will be looked into. \
+finish(action=send).
+- A COMPLAINT about a real Durian order / delivery / warranty / service, \
+abuse toward Durian or our staff, or a legal threat -> escalate_to_human \
+with customer_message = one short line inviting them to DM us so our team \
+can help (a teammate takes it from there). Do not attempt a public answer.
 
-CONFIDENCE — comments only: a clean thank-you or a DM-invite is a CONFIDENT \
-send. finish with action=send and confidence 95. The deal-flow confidence math \
-(fetch every fact, -25 for unclear intent) does NOT apply to a public comment: \
-naming the product from THE POST is allowed, and a comment's intent is always \
-one of the three above — never "unclear" in a way that should hold back a \
-thank-you or a DM-invite. Reach for escalate_to_human ONLY for complaints / \
-abuse / handoff cases, never for an ordinary praise or product comment.
+A PUBLIC reply never says a request was escalated, forwarded, reviewed or \
+refunded, and never promises money back — those words go to DM, if anywhere.
+
+CONFIDENCE — comments only: a clean thank-you, a DM-invite or a polite \
+redirect is a CONFIDENT send. finish with action=send and confidence 95. The \
+deal-flow confidence math (fetch every fact, -25 for unclear intent) does NOT \
+apply to a public comment: naming the product from THE POST is allowed, and a \
+comment's intent is always one of the cases above — never "unclear" in a way \
+that should hold back a reply. Reach for escalate_to_human ONLY for the \
+complaint / abuse / legal case, NEVER for a price, location, product, praise, \
+price-objection or off-topic comment — those always get a public reply.
 
 CURRENT TIME: {now:%A %d %b %Y, %H:%M} IST.{_guidance_block(vertical, client_guidance)}
 
@@ -3127,8 +3172,16 @@ CALL the skill first (it sees the room photo and placement is often \
 obvious); need_variant / need_placement notes are your script: ask exactly \
 that ONE question (at most these two questions), then call again with the \
 customer's answer.
-- ESCALATE (escalate_to_human): order status / delivery / warranty; dealer / \
-franchise; bulk / B2B / projects; collabs; job / career / vacancy enquiries \
+- BUSINESS LEADS — wholesale / B2B supply, dealer / franchise, bulk or \
+project orders: a lead like any buyer, so CAPTURE it before any handoff. Ask \
+in ONE line for whichever of full name / contact number / city-or-pincode we \
+don't hold, then call register_enquiry with line=furniture (doors or fhc only \
+if that is what they want) and requirement = a few words ("wholesale supply \
+for a new showroom in Kanpur"). Only once it is registered, escalate_to_human \
+(reason "B2B lead: …") with a customer_message thanking them and saying our \
+team will be in touch. Never say it is being forwarded before it is registered.
+- ESCALATE (escalate_to_human): order status / delivery / warranty; business \
+leads only AFTER register_enquiry (above); collabs; job / career / vacancy enquiries \
 (Hindi and Hinglish too: "kaam / kam milega", "job chahiye", "naukri"); discount \
 requests beyond listed offers (one firm polite line first); serious complaints; abuse — any insult \
 toward Durian or staff, never de-escalate it yourself. Unclear intent → ONE \
@@ -3704,15 +3757,34 @@ async def _handle_locked(conv, conv_id, channel, surface,
         esc = ctx["escalate"]
         msg = mask_stored_phone(scrub(esc.get("customer_message") or "", surface),
                                 phone_val or "", typed)
+        # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
+        # unsafe handoff line becomes the standard DM invite.
+        if surface == "comment" and (not msg or comment_violation(msg)):
+            msg = _COMMENT_HANDOFF_LINE
+        sent = False
+        if surface != "comment" and _handoff_pending(conv):
+            # conv 10110: our team already has it — re-announcing the forward on
+            # every "ok" sent the customer the same line five times.
+            trace.append({"type": "decision", "source": "rule", "visibility": "internal",
+                          "label": "Handoff already pending",
+                          "detail": "Our team already has this conversation — the "
+                                    "handoff line was not sent again."})
         # The handoff line passes the same guardrails as any reply; one that
         # fails them is left to the teammate who picks up the card.
-        if msg and not over_budget and config.SOCIAL_AUTO_SEND_ENABLED \
+        elif msg and not over_budget and config.SOCIAL_AUTO_SEND_ENABLED \
                 and not link_violation(msg) \
                 and not (surface == "comment" and comment_violation(msg)):
             await _send(conv_id, channel, msg, 100, trace,
                         note=f"escalated: {esc.get('reason')}")
+            sent = True
+            if surface != "comment":
+                try:
+                    await chatwoot.merge_custom_attributes(
+                        conv_id, {_HANDOFF_SENT_ATTR: now.isoformat()})
+                except Exception:
+                    pass
         await _card(conv_id, channel, surface, "", 0, trace,
-                    f"Escalated by agent: {esc.get('reason')}")
+                    f"Escalated by agent: {esc.get('reason')}", silent=not sent)
         # keep_team: a partnership forward already assigned the category's own
         # team — don't overwrite it with the generic handoff team.
         if config.SOCIAL_AGENT_HANDOFF_TEAM_ID and not ctx.get("keep_team"):
@@ -3723,8 +3795,16 @@ async def _handle_locked(conv, conv_id, channel, surface,
         return {"handled": "agent_escalated", "reason": esc.get("reason")}
 
     if not finish or not (finish.get("reply") or "").strip():
+        if surface == "comment" and config.SOCIAL_AUTO_SEND_ENABLED and not over_budget:
+            # Never leave a public comment unanswered: send the DM invite and
+            # still flag it, since the agent failed to write its own reply.
+            await _send(conv_id, channel, _COMMENT_HANDOFF_LINE, 100, trace,
+                        note="no reply from the agent — sent the standard DM invite")
+            await _card(conv_id, channel, surface, "", 0, trace,
+                        "Agent produced no reply — sent the standard DM invite.")
+            return {"handled": "agent_no_reply_dm_invite"}
         await _card(conv_id, channel, surface, "", 0, trace,
-                    "Agent produced no reply — needs a human.")
+                    "Agent produced no reply — needs a human.", silent=True)
         return {"handled": "agent_no_reply"}
 
     reply = scrub(finish["reply"], surface)
@@ -3883,13 +3963,46 @@ async def _send(conv_id, channel, reply, confidence, trace, note="") -> None:
         pass
 
 
-async def _card(conv_id, channel, surface, reply, confidence, trace, hold) -> None:
+# The public line for a comment the agent hands over (or fails to answer):
+# never silent, never a promise — just the way to reach us.
+_COMMENT_HANDOFF_LINE = ("Thank you for reaching out! Please DM us so our team "
+                         "can help you further.")
+# Stamped when a DM handoff line goes out; with agent-needed still on, the
+# conversation is waiting on a human and the line is not re-sent.
+_HANDOFF_SENT_ATTR = "agent_handoff_sent_at"
+
+
+def _handoff_pending(conv: dict) -> bool:
+    """A DM already handed to our team and not yet picked up: the handoff line
+    went out and the agent-needed flag is still on. Resolving the conversation
+    clears the flag, so a later fresh enquiry gets its handoff line again."""
+    labels = conv.get("labels") or []
+    return "agent-needed" in labels and \
+        bool((conv.get("custom_attributes") or {}).get(_HANDOFF_SENT_ATTR))
+
+
+async def _card(conv_id, channel, surface, reply, confidence, trace, hold,
+                silent: bool = False) -> None:
+    """Flag for a human. With a held `reply`, post it as a review card. With no
+    reply and `silent` (nothing went to the customer this turn), post the
+    agent's reasoning as a private note — a bare label told nobody why (convs
+    9996 / 10009 / 10011 had no reply, no note and no chain of thought)."""
     for lbl in ("agent-needed", f"agent-needed-{channel}"):
         try:
             await chatwoot.add_label(conv_id, lbl)
         except Exception:
             pass
     if not reply:
+        if silent:
+            try:
+                await chatwoot.create_message(
+                    conv_id, f"🤖 Agent mode handed this to a human without "
+                             f"replying — {hold}",
+                    message_type="outgoing", private=True,
+                    content_attributes={"ai_trace": review_reply.add_outcome_step(
+                        list(trace), sent=False, detail=hold)})
+            except Exception:
+                pass
         return
     held = review_reply.add_outcome_step(list(trace), sent=False, detail=hold)
     await chatwoot.create_message(

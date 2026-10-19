@@ -130,11 +130,14 @@
 
       244901'
   expect:
+    # Business leads are registered as a normal deal first, then handed to a
+    # human (client feedback on conv 10110).
     tools_called:
+    - register_enquiry
     - escalate_to_human
     labels:
     - agent-needed
-    deal_not_created: true
+    deal_created: true
     judge:
       min: 3
 
@@ -427,3 +430,25 @@
     - escalate_to_human
     labels:
     - agent-needed
+
+# #10110 · P08 · Wholesale enquiry forwarded without contact details, five times
+- id: fb10110_wholesale_lead_registered
+  inbox: durianforhome
+  script:
+  - at: 0m
+    text: Hello, I have a 1,500 sq. ft. commercial space in the main furniture
+      market of Govind Nagar, Kanpur, and I am planning to start a furniture
+      showroom. Do you deal in wholesale furniture and supply products to
+      retailers/showroom in kanpur ??
+  - at: 2m
+    text: 'Aman Grover, 8090999991, Kanpur 208006'
+  - at: 4m
+    text: Ok please do
+  expect:
+    tools_called:
+    - register_enquiry
+    deal_created: true
+    labels:
+    - agent-needed
+    judge:
+      min: 3

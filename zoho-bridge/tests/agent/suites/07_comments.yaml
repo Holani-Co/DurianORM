@@ -14,6 +14,8 @@
   expect:
     sent_not_contains: ["₹", "\\d{4,}"]
     anywhere_contains: ["DM|direct message|message us"]
+    handled: agent_sent
+    labels_absent: [agent-needed]
     judge: {min: 3}
 
 - id: comment_low_value_skipped
@@ -38,4 +40,46 @@
     - {at: "0m", text: "does this come in leather?"}
   expect:
     sent_not_contains: ["₹", "[6-9]\\d{9}"]
+    judge: {min: 3}
+
+# Client feedback, Oct 2026 — every one of these gets a public reply and is
+# NOT flagged agent-needed.
+- id: comment_location_dm_invite          # conv 9996
+  surface: comment
+  script:
+    - {at: "0m", text: "jaipur location"}
+  expect:
+    handled: agent_sent
+    labels_absent: [agent-needed]
+    anywhere_contains: ["DM|direct message|message us"]
+    sent_not_contains: ["₹", "https?://"]
+
+- id: comment_dining_chair_price          # conv 10009
+  surface: comment
+  script:
+    - {at: "0m", text: "Price of dining chairs"}
+  expect:
+    handled: agent_sent
+    labels_absent: [agent-needed]
+    anywhere_contains: ["DM|direct message|message us"]
+    sent_not_contains: ["₹", "\\d{4,}"]
+
+- id: comment_price_objection_empathy     # conv 9978
+  surface: comment
+  script:
+    - {at: "0m", text: "Very expensive not worth"}
+  expect:
+    handled: agent_sent
+    labels_absent: [agent-needed]
+    sent_not_contains: ["review", "escalat"]
+    judge: {min: 3}
+
+- id: comment_offtopic_polite_redirect    # conv 9979
+  surface: comment
+  script:
+    - {at: "0m", text: "Return my money, I don't want a house with a man, who already married another woman, even if he married them on Internet and through deepfake. I DON'T CARE."}
+  expect:
+    handled: agent_sent
+    labels_absent: [agent-needed]
+    sent_not_contains: ["refund", "escalat", "money"]
     judge: {min: 3}
