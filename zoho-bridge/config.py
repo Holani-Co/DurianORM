@@ -207,6 +207,27 @@ except Exception as _e:  # noqa: BLE001
     print(f"[config] ZOHO_CRM_SOURCE_MAP invalid JSON ({_e}) — using defaults")
     ZOHO_CRM_SOURCE_MAP = dict(_SOURCE_MAP_DEFAULT)
 
+# WhatsApp campaign leads in the CRM: a conversation that opened with a Meta
+# click-to-WhatsApp ad prefill (lead_source="whatsapp_campaign") or that replies
+# to one of our own WhatsApp campaigns. Its deal follows the client's existing
+# campaign convention (verified on 1,000 prod deals — their ad-form integrations
+# fill Integration Source with the form/campaign, Campaign_Source1 with fb/ig,
+# Campaign_Name / Campaign_Content with the campaign and creative):
+#   Integration Source = ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE, written AT CREATE.
+#     It is free text. On FHC (Home Studio) deals a non-empty value selects the
+#     Digital Blueprint — client-confirmed as right for ad leads. A confirmed
+#     studio visit (fhc_blueprint=offline) keeps it empty, as before.
+#   Campaign fields, best-effort after create.
+# An empty value or field name = not written.
+ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE = os.environ.get(
+    "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE", "Durian ORM - WhatsApp Campaign")
+ZOHO_CRM_INTEGRATION_SOURCE_FIELD = os.environ.get(
+    "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
+ZOHO_CRM_CAMPAIGN_SOURCE_FIELD = os.environ.get("ZOHO_CRM_CAMPAIGN_SOURCE_FIELD", "Campaign_Source1")
+ZOHO_CRM_CAMPAIGN_MEDIUM_FIELD = os.environ.get("ZOHO_CRM_CAMPAIGN_MEDIUM_FIELD", "Campaign_Medium")
+ZOHO_CRM_CAMPAIGN_NAME_FIELD = os.environ.get("ZOHO_CRM_CAMPAIGN_NAME_FIELD", "Campaign_Name")
+ZOHO_CRM_CAMPAIGN_CONTENT_FIELD = os.environ.get("ZOHO_CRM_CAMPAIGN_CONTENT_FIELD", "Campaign_Content")
+
 # Manual email-forward: the preset internal recipients the agent can pick from
 # in the Forward dialog (they can also type any address). JSON array of
 # {"name": "...", "email": "..."}; empty (default) = free-type only.

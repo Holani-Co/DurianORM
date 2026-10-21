@@ -2794,3 +2794,121 @@ def test_named_product_quotes_fresh_showroom_price(monkeypatch):
         assert "do not quote a price" in stale["note"] and "₹69,120" not in stale["note"]
     finally:
         pc.reload()
+
+
+# --- WhatsApp campaign leads are told apart in the CRM -------------------------
+
+_AD_CONV = {"custom_attributes": {"lead_source": "whatsapp_campaign", "campaign_ad": {
+    "headline": "Trusted By 3.2 Million Customers.",
+    "body": "Customised for your home. Delivered by Durian."}},
+    "meta": {"channel": "Channel::Whatsapp"}}
+_REPLY_CONV = {"custom_attributes": {}, "meta": {"channel": "Channel::Whatsapp"},
+               "additional_attributes": {"reply_campaign": {
+                   "title": "Grand Festive Offer", "message": "Flat 50% off select furniture"}}}
+_PLAIN_CONV = {"custom_attributes": {}, "meta": {"channel": "Channel::Instagram"}}
+
+
+def test_whatsapp_campaign_detection():
+    import main
+    ad = main._whatsapp_campaign(_AD_CONV)
+    assert ad == {"medium": "click-to-whatsapp ad", "name": "Trusted By 3.2 Million Customers.",
+                  "content": "Customised for your home. Delivered by Durian."}
+    bare_ad = main._whatsapp_campaign({"custom_attributes": {"lead_source": "whatsapp_campaign"}})
+    assert bare_ad["medium"] == "click-to-whatsapp ad" and bare_ad["name"] == ""
+    assert main._whatsapp_campaign(_REPLY_CONV)["name"] == "Grand Festive Offer"
+    assert main._whatsapp_campaign(_PLAIN_CONV) == {} and main._whatsapp_campaign(None) == {}
+
+
+def test_campaign_integration_source(monkeypatch):
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
+                        "Durian ORM - WhatsApp Campaign")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
+    assert main._campaign_integration_source(_AD_CONV) == "Durian ORM - WhatsApp Campaign"
+    assert main._campaign_integration_source(_REPLY_CONV, "digital") == "Durian ORM - WhatsApp Campaign"
+    # a confirmed studio visit keeps the Offline Home Studio Blueprint (field empty)
+    assert main._campaign_integration_source(_AD_CONV, "offline") == ""
+    assert main._campaign_integration_source(_PLAIN_CONV) == ""
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "")
+    assert main._campaign_integration_source(_AD_CONV) == ""
+
+
+def test_campaign_deal_fields_follow_client_convention(monkeypatch):
+    import main
+    for k, v in {"ZOHO_CRM_CAMPAIGN_SOURCE_FIELD": "Campaign_Source1",
+                 "ZOHO_CRM_CAMPAIGN_MEDIUM_FIELD": "Campaign_Medium",
+                 "ZOHO_CRM_CAMPAIGN_NAME_FIELD": "Campaign_Name",
+                 "ZOHO_CRM_CAMPAIGN_CONTENT_FIELD": "Campaign_Content"}.items():
+        monkeypatch.setattr(main.config, k, v)
+    f = main._campaign_deal_fields(main._whatsapp_campaign(_AD_CONV))
+    assert f == {"Campaign_Source1": "whatsapp", "Campaign_Medium": "click-to-whatsapp ad",
+                 "Campaign_Name": "Trusted By 3.2 Million Customers.",
+                 "Campaign_Content": "Customised for your home. Delivered by Durian."}
+    # empty values and switched-off fields are left out; long values capped
+    f2 = main._campaign_deal_fields({"medium": "whatsapp campaign", "name": "x" * 400, "content": ""})
+    assert len(f2["Campaign_Name"]) == 255 and "Campaign_Content" not in f2
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_NAME_FIELD", "")
+    assert "Campaign_Name" not in main._campaign_deal_fields({"medium": "m", "name": "n"})
+    assert main._campaign_deal_fields({}) == {}
+
+
+def test_campaign_marker_never_costs_the_deal(monkeypatch):
+    import asyncio
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
+    calls = []
+
+    async def create(fields):
+        calls.append(dict(fields))
+        if "Integration_Source" in fields:
+            raise RuntimeError('INVALID_DATA {"api_name":"Integration_Source"}')
+        return {"id": "D9"}
+    fields = {"Business_Type": "Retail", "Integration_Source": "Durian ORM - WhatsApp Campaign"}
+    deal = asyncio.run(main._create_deal_keeping_campaign_optional(create, fields, True, 7))
+    assert deal == {"id": "D9"} and len(calls) == 2
+    assert "Integration_Source" not in calls[1] and calls[1]["Business_Type"] == "Retail"
+
+    async def broken(fields):
+        raise RuntimeError("MANDATORY_NOT_FOUND Owner")
+    try:   # any other failure is still a real failure
+        asyncio.run(main._create_deal_keeping_campaign_optional(broken, {}, True, 7))
+        raise AssertionError("expected HTTPException")
+    except main.HTTPException as e:
+        assert "MANDATORY_NOT_FOUND" in str(e.detail)
+
+
+def test_backfill_marks_campaign_deals_only(monkeypatch):
+    import asyncio
+    import backfill_campaign_deals as bf
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_SOURCE_FIELD", "Lead_Source")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
+                        "Durian ORM - WhatsApp Campaign")
+    convs = [dict(_AD_CONV, id=1, custom_attributes=dict(_AD_CONV["custom_attributes"], crm_deal_id="D1")),
+             dict(_REPLY_CONV, id=2, custom_attributes={"crm_deal_id": "D2"}),
+             dict(_PLAIN_CONV, id=3, custom_attributes={"crm_deal_id": "D3"})]
+
+    async def list_deals(max_age_days=90):
+        return convs
+    monkeypatch.setattr(bf.chatwoot, "list_deal_conversations", list_deals)
+    existing = {"D1": None, "D2": "#MV_Some_Other_Form"}     # D2 already carries another source
+
+    async def crm(method, path, params=None, json_body=None):
+        return {"data": [{"Integration_Source": existing[path.rsplit("/", 1)[-1]]}]}
+    monkeypatch.setattr(bf.zoho_crm, "_crm_request", crm)
+    writes = {}
+
+    async def update(deal_id, fields):
+        writes[deal_id] = fields
+        return True
+    monkeypatch.setattr(bf.zoho_crm, "update_deal", update)
+    asyncio.run(bf.run(apply=False))
+    assert writes == {}                                     # list-only by default
+    asyncio.run(bf.run(apply=True))
+    assert set(writes) == {"D1", "D2"}                      # the plain deal is untouched
+    assert writes["D1"]["Integration_Source"] == "Durian ORM - WhatsApp Campaign"
+    assert writes["D1"]["Lead_Source"] == "Whats App Or SMS"
+    assert writes["D1"]["Campaign_Source1"] == "whatsapp"
+    assert "Integration_Source" not in writes["D2"]         # never overwrites another value
+    assert writes["D2"]["Campaign_Name"] == "Grand Festive Offer"
