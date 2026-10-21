@@ -2887,12 +2887,15 @@ def test_backfill_marks_campaign_deals_only(monkeypatch):
                         "Durian ORM - WhatsApp Campaign")
     convs = [dict(_AD_CONV, id=1, custom_attributes=dict(_AD_CONV["custom_attributes"], crm_deal_id="D1")),
              dict(_REPLY_CONV, id=2, custom_attributes={"crm_deal_id": "D2"}),
-             dict(_PLAIN_CONV, id=3, custom_attributes={"crm_deal_id": "D3"})]
+             dict(_PLAIN_CONV, id=3, custom_attributes={"crm_deal_id": "D3"}),
+             dict(_AD_CONV, id=4, custom_attributes=dict(_AD_CONV["custom_attributes"], crm_deal_id="D4"))]
 
     async def list_deals(max_age_days=90):
         return convs
     monkeypatch.setattr(bf.chatwoot, "list_deal_conversations", list_deals)
-    existing = {"D1": None, "D2": "#MV_Some_Other_Form"}     # D2 already carries another source
+    existing = {"D1": None, "D2": "#MV_Some_Other_Form",      # D2: another integration's value
+                "D4": "DurianORM"}                            # D4: our own FHC digital value
+    monkeypatch.setattr(main.config, "ZOHO_CRM_BLUEPRINT_DIGITAL_VALUE", "DurianORM")
 
     async def crm(method, path, params=None, json_body=None):
         return {"data": [{"Integration_Source": existing[path.rsplit("/", 1)[-1]]}]}
@@ -2900,15 +2903,25 @@ def test_backfill_marks_campaign_deals_only(monkeypatch):
     writes = {}
 
     async def update(deal_id, fields):
-        writes[deal_id] = fields
+        writes.setdefault(deal_id, {}).update(fields)
         return True
     monkeypatch.setattr(bf.zoho_crm, "update_deal", update)
     asyncio.run(bf.run(apply=False))
     assert writes == {}                                     # list-only by default
     asyncio.run(bf.run(apply=True))
-    assert set(writes) == {"D1", "D2"}                      # the plain deal is untouched
+    assert set(writes) == {"D1", "D2", "D4"}                # the plain deal is untouched
     assert writes["D1"]["Integration_Source"] == "Durian ORM - WhatsApp Campaign"
     assert writes["D1"]["Lead_Source"] == "Whats App Or SMS"
     assert writes["D1"]["Campaign_Source1"] == "whatsapp"
     assert "Integration_Source" not in writes["D2"]         # never overwrites another value
     assert writes["D2"]["Campaign_Name"] == "Grand Festive Offer"
+    # our own "DurianORM" is replaced, as a new campaign deal would get
+    assert writes["D4"]["Integration_Source"] == "Durian ORM - WhatsApp Campaign"
+
+
+def test_campaign_fields_are_single_line(monkeypatch):
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_CONTENT_FIELD", "Campaign_Content")
+    f = main._campaign_deal_fields({"medium": "whatsapp campaign",
+                                    "content": "*FLAT 50%* OFF\n\nGive Your Home  A New Look 🪔"})
+    assert f["Campaign_Content"] == "*FLAT 50%* OFF Give Your Home A New Look 🪔"
