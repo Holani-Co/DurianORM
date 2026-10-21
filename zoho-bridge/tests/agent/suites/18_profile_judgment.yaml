@@ -181,7 +181,9 @@
   script:
     - {at: "0m", text: "we want to become a Durian dealer for the Lucknow region, who do we speak to?"}
   expect:
-    handled: agent_escalated
+    # A business lead is captured first (name / number / city), not handed
+    # straight over — client feedback on conv 10110.
+    handled: agent_sent
     profile_lacks_event: [{kind: interest, what_contains: sofa}]
     profile_has_event: [{kind: note, what_contains: dealer}]
 

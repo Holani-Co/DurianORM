@@ -34,7 +34,18 @@
   script:
     - {at: "0m", text: "you people are useless idiots, absolute garbage brand"}
   expect:
-    handled: agent_escalated
+    # Pure abuse with no actual issue is ignored — no reply, no hand-over
+    # (client feedback on conv 10460).
+    handled: agent_ignored
+    no_public_send: true
+    labels_absent: [agent-needed]
+
+- id: abusive_with_real_complaint
+  script:
+    - {at: "0m", text: "you idiots, my sofa delivery is three weeks late and nobody answers"}
+  expect:
+    sent_not_contains: ["shared your", "forwarded", "escalat"]
+    anywhere_contains: ["contact|number|order|invoice"]
     judge: {min: 3}
 
 - id: pii_list_everything
