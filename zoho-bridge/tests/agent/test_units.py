@@ -2166,7 +2166,7 @@ def test_comment_toolset_uses_narrow_escalate_description():
     assert set(comment) == {"escalate_to_human", "finish"}
     desc = comment["escalate_to_human"]["description"]
     assert "NEVER for a price or product" in desc and "store / location" in desc
-    assert "ALWAYS pass customer_message" in desc
+    assert "written for you" in desc and "ignore" in desc
     assert "price negotiation" not in desc             # the DM trigger list is gone
     dm = {t["name"]: t for t in sa.tools_for_responses("")}
     assert "price negotiation" in dm["escalate_to_human"]["description"]
@@ -2191,7 +2191,7 @@ def test_dm_prompt_captures_business_leads_before_handoff():
     assert "line=furniture" in p
     assert "dealer / \\\nfranchise; bulk / B2B / projects" not in p
     esc = sa.SKILLS["escalate_to_human"]["description"]
-    assert "ONLY AFTER register_enquiry" in esc
+    assert "ONLY after register_enquiry" in esc and "category" in esc
 
 
 def test_comment_violation_blocks_escalation_and_refund_talk():
@@ -2215,12 +2215,16 @@ def test_handoff_pending_needs_label_and_stamp():
 # Full agent turns with a scripted model (no live LLM).
 
 class _TurnChatwoot:
-    def __init__(self, msgs=None):
+    def __init__(self, msgs=None, inbox_name="durianfurniture_official", teams=None):
         self.msgs = msgs or []
         self.public, self.private, self.labels, self.attrs = [], [], [], {}
+        self.inbox_name, self.teams, self.team = inbox_name, teams or {}, None
 
     async def get_inbox_name(self, inbox_id):
-        return "durianfurniture_official"
+        return self.inbox_name
+
+    async def find_team_id(self, name):
+        return self.teams.get(name)
 
     async def get_conversation_messages_raw(self, conv_id):
         return self.msgs
@@ -2241,17 +2245,19 @@ class _TurnChatwoot:
         self.private.append({"content": content, "attrs": {}})
 
     async def assign_team(self, conv_id, team_id):
-        pass
+        self.team = team_id
 
 
 def _scripted_turn(monkeypatch, calls, *, surface="comment", latest="Price",
-                   conv_extra=None):
+                   conv_extra=None, channel="instagram",
+                   inbox_name="durianfurniture_official", teams=None):
     """Run one real _handle_locked turn where the model makes `calls`
     ([(tool_name, args), ...]) in its first response."""
     import asyncio
     import json as _json
     from types import SimpleNamespace as NS
-    cw = _TurnChatwoot([{"id": 7, "message_type": 0, "content": latest, "created_at": 0}])
+    cw = _TurnChatwoot([{"id": 7, "message_type": 0, "content": latest, "created_at": 0}],
+                       inbox_name=inbox_name, teams=teams)
     monkeypatch.setattr(sa, "chatwoot", cw)
     monkeypatch.setattr(sa.config, "SOCIAL_AUTO_SEND_ENABLED", True)
     monkeypatch.setattr(sa.config, "SOCIAL_AGENT_HANDOFF_TEAM_ID", 0)
@@ -2277,7 +2283,7 @@ def _scripted_turn(monkeypatch, calls, *, surface="comment", latest="Price",
             "meta": {"sender": {"id": 5, "name": "Fatima"}, "channel": "Instagram"},
             "custom_attributes": {}, "additional_attributes": {}}
     conv.update(conv_extra or {})
-    res = asyncio.run(sa._handle_locked(conv, 77, "instagram", surface, latest, 7))
+    res = asyncio.run(sa._handle_locked(conv, 77, channel, surface, latest, 7))
     return res, cw
 
 
@@ -2327,3 +2333,205 @@ def test_dm_silent_no_reply_leaves_reasoning_note(monkeypatch):
     assert res["handled"] == "agent_no_reply" and cw.public == []
     assert any("without replying" in m["content"] and m["attrs"].get("ai_trace")
                for m in cw.private)
+
+
+# --- Honest, routed hand-overs (convs 10472, 10460, 10507, 10505) -------------
+
+_TEAMS = {"complaint": 4, "career/job enquiry": 1, "legal complaint": 2,
+          "full home customization  (enquiry & complaints)": 13,
+          "project/bulk order": 12, "existing order enquiry": 8}
+
+
+class _AttrChatwoot:
+    def __init__(self):
+        self.attrs = {}
+
+    async def merge_custom_attributes(self, cid, attrs):
+        self.attrs.update(attrs)
+
+
+def _esc_ctx(surface="", incoming=None, phone=None, ca=None):
+    prof = {"identity": {"phone": {"value": phone}}} if phone else {}
+    return {"conv": {"custom_attributes": dict(ca or {})}, "conv_id": 3,
+            "surface": surface, "profile": prof, "incoming_all": incoming or [],
+            "escalate": None}
+
+
+def test_complaint_handoff_asks_for_details_once(monkeypatch):
+    import asyncio
+    cw = _AttrChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", cw)
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    ctx = _esc_ctx(incoming=["One of the worst post purchase service"])
+    r = asyncio.run(h(ctx, category="complaint", reason="post-purchase service"))
+    assert r["escalated"] is False and ctx["escalate"] is None
+    assert "their contact number" in r["missing"] and len(r["missing"]) == 2
+    assert "Do NOT say anything was shared" in r["note"]
+    assert cw.attrs[sa._DETAILS_ASKED_ATTR] == "complaint"
+    # their next message (a new turn): asked once already → a customer who
+    # won't share still gets handed over
+    nxt = _esc_ctx(incoming=["just call me back"], ca=ctx["conv"]["custom_attributes"])
+    r2 = asyncio.run(h(nxt, category="complaint", reason="post-purchase service"))
+    assert r2["escalated"] is True and nxt["escalate"]["category"] == "complaint"
+
+
+def test_complaint_handoff_passes_with_phone_and_details(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    ctx = _esc_ctx(incoming=["sofa leg broke, order 45812 from Pune. 9876543210"])
+    r = asyncio.run(h(ctx, category="complaint", reason="broken sofa",
+                      details="Benjamin sofa leg broke, order 45812, Pune"))
+    assert r["escalated"] is True
+
+
+def test_whatsapp_job_handoff_uses_known_number(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    ctx = _esc_ctx(phone="9999923147")
+    r = asyncio.run(h(ctx, category="job", reason="job seeker",
+                      details="site supervisor, 6 years, Bhopal"))
+    assert r["escalated"] is True
+
+
+def test_business_lead_handoff_needs_registration(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    r = asyncio.run(h(_esc_ctx(), category="bulk", reason="wholesale"))
+    assert r["escalated"] is False and "register_enquiry" in r["note"]
+    r2 = asyncio.run(h(_esc_ctx(ca={"crm_deal_id": "D1"}), category="bulk", reason="wholesale"))
+    assert r2["escalated"] is True
+
+
+def test_comment_handoff_is_never_gated(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    r = asyncio.run(h(_esc_ctx(surface="comment"), category="complaint", reason="x"))
+    assert r["escalated"] is True
+
+
+def test_unbacked_claims_are_caught():
+    for claim in ["We've shared your complaint with our customer support team.",
+                  "A teammate will review this conversation and assist further.",
+                  "Our team will review this and get back to you shortly.",
+                  "We've shared your request with the concerned team, who will get back to you here.",
+                  "We're forwarding your wholesale enquiry to our team for assistance."]:
+        assert sa.unbacked_claim(claim), claim
+        assert sa.comment_violation(claim), claim
+    for fine in ["Please share your contact number and city.",
+                 sa._COMMENT_HANDOFF_LINE, sa._COMMENT_COMPLAINT_LINE,
+                 "We'd love to help — please DM us to know more about our stores near you."]:
+        assert not sa.unbacked_claim(fine), fine
+
+
+def test_dm_reply_with_claim_is_held_unless_routed():
+    claim = "We've shared your complaint with our customer support team."
+    hold, _ = sa.hold_reason(claim, surface="", prof={}, sources=claim)
+    assert "nothing was routed" in hold
+    for kw in ({"routed": True}, {"wrote_this_turn": True}):
+        hold, _ = sa.hold_reason(claim, surface="", prof={}, sources=claim, **kw)
+        assert "nothing was routed" not in hold
+
+
+def test_other_handoff_line_drops_model_claims():
+    assert sa._handoff_line("other", "", False, "We've shared your request with the team.") \
+        == sa._DM_OTHER_LINE
+    assert sa._handoff_line("other", "", False, "Thank you, one moment.") == "Thank you, one moment."
+    assert sa._handoff_line("job", "", True).startswith("Thank you for your interest in working")
+
+
+def _esc_call(category, **extra):
+    return ("escalate_to_human", {"category": category, "reason": category, **extra})
+
+
+def test_turn_dm_complaint_routes_to_support_team(monkeypatch):
+    # conv 10472 done right: details in hand → routed to the complaint team, and
+    # only THEN told it was passed on
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="dining table top cracked, invoice 7781, Noida",
+                                phone="9876543210")],
+        surface="", latest="invoice 7781, table top cracked, 9876543210",
+        inbox_name="durianforhome", teams=_TEAMS)
+    assert res["team"] == "complaint" and cw.team == 4
+    assert [m["content"] for m in cw.public] == [sa._DM_HANDOFF_LINES["complaint"][1]]
+
+
+def test_turn_whatsapp_job_goes_to_career_team(monkeypatch):
+    # conv 10505: "Carpenter or site supervisor required ?"
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("job", details="site supervisor, 5 years, Indore")],
+        surface="", latest="Carpenter or site supervisor required ?", channel="whatsapp",
+        inbox_name="Whatsapp FHC", teams=_TEAMS,
+        conv_extra={"meta": {"sender": {"id": 5, "name": "Aslam",
+                                        "phone_number": "+919999923147"},
+                             "channel": "Whatsapp"}})
+    assert res["team"] == "career/job enquiry" and cw.team == 1
+    sent = cw.public[0]["content"]
+    assert "working with Durian" in sent and "shared your request" not in sent
+
+
+def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="kitchen shutter misaligned, Gurgaon",
+                                phone="9876543210")],
+        surface="", latest="kitchen shutter misaligned 9876543210",
+        inbox_name="durian_fullhomecustomisation", teams=_TEAMS)
+    assert cw.team == 13
+
+
+def test_turn_unrouted_complaint_makes_no_forward_claim(monkeypatch):
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="sofa fabric torn, order 551",
+                                phone="9876543210")],
+        surface="", latest="sofa fabric torn 9876543210", inbox_name="durianforhome",
+        teams={})                                          # team missing in Chatwoot
+    assert res["team"] == "" and cw.team is None
+    assert [m["content"] for m in cw.public] == [sa._DM_HANDOFF_LINES["complaint"][0]]
+    assert not sa.unbacked_claim(cw.public[0]["content"])
+
+
+def test_turn_comment_complaint_invites_dm(monkeypatch):
+    # conv 10507: "Poor quality and worst in service"
+    res, cw = _scripted_turn(monkeypatch, [_esc_call("complaint")],
+                             latest="Poor quality and worst in service", teams=_TEAMS)
+    assert [m["content"] for m in cw.public] == [sa._COMMENT_COMPLAINT_LINE]
+    assert cw.team == 4 and "agent-needed" in cw.labels
+
+
+def _ignore_call():
+    return ("finish", {"action": "ignore", "reply": "", "confidence": 92,
+                       "reasoning": "pure abuse, nothing about Durian",
+                       "profile_updates": []})
+
+
+def test_turn_pure_abuse_is_ignored(monkeypatch):
+    # conv 10460: no reply, no hand-over, but an audit note with the reasoning
+    res, cw = _scripted_turn(monkeypatch, [_ignore_call()],
+                             latest="Tum apni bahan chudwa rahe ho")
+    assert res == {"handled": "agent_ignored"}
+    assert cw.public == [] and "agent-needed" not in cw.labels
+    assert any("ignored on purpose" in m["content"] and m["attrs"].get("ai_trace")
+               for m in cw.private)
+
+
+def test_turn_ignore_refused_when_message_has_an_issue(monkeypatch):
+    res, cw = _scripted_turn(monkeypatch, [_ignore_call()],
+                             latest="you idiots, my sofa delivery is 3 weeks late")
+    assert res == {"handled": "agent_ignore_refused"}
+    assert cw.public == [] and "agent-needed" in cw.labels
+
+
+def test_details_gate_holds_for_a_same_turn_retry(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    ctx = _esc_ctx(incoming=["worst service ever"])
+    assert asyncio.run(h(ctx, category="complaint", reason="x"))["escalated"] is False
+    # the model calls again in the SAME turn instead of asking → still refused
+    assert asyncio.run(h(ctx, category="complaint", reason="x"))["escalated"] is False
+    # next turn (fresh ctx, attr persisted) → the customer was asked → goes through
+    nxt = _esc_ctx(incoming=["worst service ever"], ca=ctx["conv"]["custom_attributes"])
+    assert asyncio.run(h(nxt, category="complaint", reason="x"))["escalated"] is True

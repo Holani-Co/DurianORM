@@ -83,3 +83,21 @@
     labels_absent: [agent-needed]
     sent_not_contains: ["refund", "escalat", "money"]
     judge: {min: 3}
+
+- id: comment_complaint_invites_dm        # conv 10507
+  surface: comment
+  script:
+    - {at: "0m", text: "Poor quality and worst in service 😢"}
+  expect:
+    handled: agent_escalated
+    anywhere_contains: ["DM|direct message|message us"]
+    sent_not_contains: ["review", "get back", "shared"]
+
+- id: comment_pure_abuse_ignored          # conv 10460
+  surface: comment
+  script:
+    - {at: "0m", text: "Tum apni bahan chudwa rahe ho"}
+  expect:
+    handled: agent_ignored
+    no_public_send: true
+    labels_absent: [agent-needed]

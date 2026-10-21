@@ -744,6 +744,15 @@ SOCIAL_AGENT_VERTICAL_PROMPTS_ENABLED = _bool("SOCIAL_AGENT_VERTICAL_PROMPTS_ENA
 SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS = int(
     os.environ.get("SOCIAL_AGENT_VERTICAL_PROMPT_MAX_CHARS", "1500"))
 SOCIAL_AGENT_HANDOFF_TEAM_ID = int(os.environ.get("SOCIAL_AGENT_HANDOFF_TEAM_ID", "0") or 0)
+# Hand-over category → Chatwoot team NAME, overriding social_agent's defaults
+# (complaint / order_status / legal / job / bulk / dealer; "complaint@fhc" for
+# a per-vertical team). ";"-separated because team names contain "/" and ",":
+#   SOCIAL_HANDOFF_TEAMS=job=career/job enquiry;complaint@doors=doors complaints
+SOCIAL_HANDOFF_TEAMS = {
+    k.strip().lower(): v.strip()
+    for k, _, v in (part.partition("=") for part in
+                    os.environ.get("SOCIAL_HANDOFF_TEAMS", "").split(";"))
+    if k.strip() and v.strip()}
 
 # ── Room visualizer (visualize_in_room skill) ──────────────────────────────
 # Dark until GEMINI_API_KEY exists. Gated: enquiry registered first, then

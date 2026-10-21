@@ -420,7 +420,7 @@
     sent_not_contains:
     - Explore our collection
     - nearest (Durian )?studio
-    - may I have your
+    - pincode
     deal_not_created: true
     judge:
       min: 3
@@ -450,5 +450,56 @@
     deal_created: true
     labels:
     - agent-needed
+    judge:
+      min: 3
+
+# #10472 · P08 · Complaint "shared with Customer Support" before any details
+- id: fb10472_dm_complaint_details_first
+  inbox: durianforhome
+  script:
+  - at: 0m
+    text: One of the worst post purchase service
+  - at: 3m
+    text: Sofa bought from Noida store, invoice 7781, cushion fabric torn in a month.
+      9876543210
+  expect:
+    sent_not_contains:
+    - shared your complaint
+    - forwarding
+    - escalat
+    anywhere_contains:
+    - contact|number|invoice|order
+    tools_called:
+    - escalate_to_human
+    labels:
+    - agent-needed
+    judge:
+      min: 3
+
+# #10505 · P08 · Job enquiry answered "we've shared your request"
+- id: fb10505_wa_job_carpenter
+  inbox: Whatsapp FHC
+  channel: whatsapp
+  contact:
+    id: 900
+    name: Aslam Khan
+    phone_number: '+919999923147'
+  config:
+    SOCIAL_AGENT_WHATSAPP_INBOXES:
+      whatsapp fhc: fhc
+  script:
+  - at: 0m
+    text: Carpenter or site supervisor required ?
+  - at: 2m
+    text: Site supervisor, 6 years experience, Indore
+  expect:
+    sent_contains:
+    - job|career|hiring|vacanc|recruit|opening|working with
+    sent_not_contains:
+    - shared your request
+    - nearest (Durian )?studio
+    tools_called:
+    - escalate_to_human
+    deal_not_created: true
     judge:
       min: 3
