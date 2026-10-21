@@ -8406,6 +8406,63 @@ def _enquiry_source_for(conv) -> str:
     return config.ZOHO_CRM_SOURCE_MAP.get("default", "")
 
 
+async def _create_deal_keeping_campaign_optional(create, extra_fields: dict,
+                                                has_campaign_marker: bool, conv_id):
+    """Create the deal; the campaign marker must never cost it. If Zoho rejects
+    the Integration Source we added, create it again without that field (logged)."""
+    try:
+        return await create(extra_fields)
+    except Exception as e:
+        field = config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD
+        if not (has_campaign_marker and field and field in str(e)):
+            raise HTTPException(500, f"CRM create_deal failed: {e}")
+        print(f"[crm] campaign Integration Source rejected for conv {conv_id} "
+              f"({e}) — creating the deal without it")
+        extra_fields.pop(field, None)
+        try:
+            return await create(extra_fields)
+        except Exception as e2:
+            raise HTTPException(500, f"CRM create_deal failed: {e2}")
+
+
+def _whatsapp_campaign(conv) -> dict:
+    """{medium, name, content} when the conversation is a WhatsApp campaign lead —
+    a Meta click-to-WhatsApp ad (tagged lead_source on its first message) or a
+    reply to one of our own WhatsApp campaigns — else {}."""
+    conv = conv or {}
+    custom = conv.get("custom_attributes") or {}
+    if custom.get("lead_source") == "whatsapp_campaign":
+        ad = custom.get("campaign_ad") or {}
+        return {"medium": "click-to-whatsapp ad", "name": str(ad.get("headline") or ""),
+                "content": str(ad.get("body") or "")}
+    reply = (conv.get("additional_attributes") or {}).get("reply_campaign") or {}
+    if reply.get("title") or reply.get("message"):
+        return {"medium": "whatsapp campaign", "name": str(reply.get("title") or ""),
+                "content": str(reply.get("message") or "")}
+    return {}
+
+
+def _campaign_integration_source(conv, blueprint_mode: str = "") -> str:
+    """The Integration Source a campaign lead's deal is CREATED with ("" = none).
+    A confirmed studio visit (Offline Home Studio Blueprint) must keep it empty."""
+    if (_whatsapp_campaign(conv) and blueprint_mode != "offline"
+            and config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD):
+        return config.ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE
+    return ""
+
+
+def _campaign_deal_fields(campaign: dict) -> dict:
+    """The campaign columns, the way the client's ad-form integrations fill them
+    (Campaign_Source1 = fb / ig there, so "whatsapp" here)."""
+    if not campaign:
+        return {}
+    values = {config.ZOHO_CRM_CAMPAIGN_SOURCE_FIELD: "whatsapp",
+              config.ZOHO_CRM_CAMPAIGN_MEDIUM_FIELD: campaign.get("medium"),
+              config.ZOHO_CRM_CAMPAIGN_NAME_FIELD: campaign.get("name"),
+              config.ZOHO_CRM_CAMPAIGN_CONTENT_FIELD: campaign.get("content")}
+    return {f: str(v).strip()[:255] for f, v in values.items() if f and str(v or "").strip()}
+
+
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            phone="", owner_id_override="",
                            owner_label="", send_store_line=False,
@@ -8610,6 +8667,13 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             # for this key, if one exists, so offline records cannot
             # accidentally satisfy the Digital Blueprint's non-empty rule.
             extra_fields.pop(config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD, None)
+    # WhatsApp campaign leads (click-to-WhatsApp ad / reply to our campaign) are
+    # told apart in the CRM by Integration Source — set at CREATE, since Zoho
+    # picks the Home Studio Blueprint from it (non-empty = Digital).
+    campaign = _whatsapp_campaign(conv)
+    campaign_integration = _campaign_integration_source(conv, blueprint_mode)
+    if campaign_integration:
+        extra_fields[config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD] = campaign_integration
     if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
         # "Business Type" picklist (Retail / Project / Retail A & ID) —
         # "Retail A & ID" is agent-set in CRM afterwards.
@@ -8666,15 +8730,15 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         category_display=category_display, owner=owner,
         layout_name=layout_name)
     deal_name = f"{name or email} — DurianORM · {_channel_label(conv)}"[:255]
-    try:
-        deal = await zoho_crm.create_deal(
+    async def _create(fields: dict) -> dict:
+        return await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
             description=description, source=config.ZOHO_CRM_LEAD_SOURCE, owner_id=owner_id,
             vertical=owner.get("vertical", ""), layout_name=layout_name,
-            stage=deal_stage, extra_fields=extra_fields,
+            stage=deal_stage, extra_fields=fields,
         )
-    except Exception as e:
-        raise HTTPException(500, f"CRM create_deal failed: {e}")
+    deal = await _create_deal_keeping_campaign_optional(
+        _create, extra_fields, bool(campaign_integration), conv_id)
 
     deal_id = str(deal.get("id") or "")
     try:
@@ -8704,6 +8768,11 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                     deal_id, {config.ZOHO_CRM_SOURCE_FIELD: source_value})
         except Exception as e:
             print(f"[crm] enquiry-source stamp failed for conv {conv_id}: {e}")
+
+    # The campaign columns (Campaign_Source1 / Medium / Name / Content), the way
+    # the client's ad-form integrations fill them. Best-effort, post-create.
+    if campaign and deal_id:
+        await zoho_crm.update_deal(deal_id, _campaign_deal_fields(campaign))
 
     # Manual Create-Deal button only — the auto flows fold the map into their own
     # single ack. Retail showrooms only: the tagged owner must BE the customer's
