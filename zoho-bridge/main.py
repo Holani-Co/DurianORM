@@ -8460,7 +8460,10 @@ def _campaign_deal_fields(campaign: dict) -> dict:
               config.ZOHO_CRM_CAMPAIGN_MEDIUM_FIELD: campaign.get("medium"),
               config.ZOHO_CRM_CAMPAIGN_NAME_FIELD: campaign.get("name"),
               config.ZOHO_CRM_CAMPAIGN_CONTENT_FIELD: campaign.get("content")}
-    return {f: str(v).strip()[:255] for f, v in values.items() if f and str(v or "").strip()}
+    # One line each, like the ad-form values beside them: WhatsApp text carries
+    # line breaks that a single-line CRM field may refuse.
+    clean = {f: re.sub(r"\s+", " ", str(v or "")).strip() for f, v in values.items()}
+    return {f: v[:255] for f, v in clean.items() if f and v}
 
 
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",

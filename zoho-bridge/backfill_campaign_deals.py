@@ -13,7 +13,11 @@ Run on the VM from zoho-bridge/ (it reads the bridge's own .env):
     venv/bin/python backfill_campaign_deals.py            # list only, changes nothing
     venv/bin/python backfill_campaign_deals.py --apply    # write the fields
 
-Never overwrites an Integration Source that already holds another value.
+Never overwrites an Integration Source that holds another integration's value;
+the ORM's own "DurianORM" (an FHC Digital-Blueprint deal) IS replaced by the
+campaign value, as a new campaign deal would get. Integration / Lead Source and
+the campaign columns go in separate updates, so one refused field never costs
+the others.
 """
 
 import asyncio
@@ -53,8 +57,9 @@ async def run(apply: bool) -> None:
                 existing = str((await _current(deal_id, [integ_field])).get(integ_field) or "")
             except Exception as e:
                 existing, note = "", f"(could not read deal: {str(e)[:80]})"
-            if existing and existing != integ:
-                note = f"keeps Integration Source {existing!r}"
+            ours = {"", integ, config.ZOHO_CRM_BLUEPRINT_DIGITAL_VALUE}
+            if existing not in ours:
+                note = f"keeps Integration Source {existing!r} (another integration's)"
             else:
                 fields[integ_field] = integ
         print(f"conv {conv.get('id')} · deal {deal_id} · {camp['medium']}"
@@ -65,11 +70,16 @@ async def run(apply: bool) -> None:
         if not fields:
             skipped += 1
             continue
-        if await zoho_crm.update_deal(deal_id, fields):
+        sources = {k: v for k, v in fields.items()
+                   if k in (integ_field, config.ZOHO_CRM_SOURCE_FIELD)}
+        columns = {k: v for k, v in fields.items() if k not in sources}
+        results = [await zoho_crm.update_deal(deal_id, part)
+                   for part in (sources, columns) if part]
+        if all(results):
             done += 1
         else:
             failed += 1
-            print("    ✗ update failed — see the [crm] line above")
+            print("    ✗ part of this update was refused — see the [crm] line above")
     if apply:
         print(f"\nUpdated {done}, failed {failed}, nothing to write {skipped}.")
     else:
