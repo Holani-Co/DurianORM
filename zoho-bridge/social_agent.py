@@ -403,10 +403,33 @@ def _query_names(family: str, query: str) -> bool:
     return bool(first) and first[0] in re.sub(r"[^a-z0-9]+", " ", query.lower()).split()
 
 
+def _variant_label(name: str) -> str:
+    """'1STR LEATHER MOTORIZED RECLINER' → '1-Seater Leather Motorized Recliner'."""
+    return re.sub(r"\b(\d)\s*STR\b", r"\1-seater", name or "", flags=re.I).title()
+
+
+def _showroom_prices(family: str) -> str:
+    """'1-Seater … — ₹69,120 (MRP ₹1,15,200); …' from the price list, but only
+    while the list is fresh (published in Settings → Product Catalog recently).
+    '' when stale or unpriced — then nobody quotes a price."""
+    if not product_catalog.is_fresh(config.CATALOG_QUOTE_MAX_AGE_DAYS):
+        return ""
+    parts = []
+    for p in product_catalog.family_products(family)[:4]:
+        sale, mrp = p.get("sale_price"), p.get("mrp")
+        if not sale:
+            continue
+        label = _variant_label(p.get("name")) or p["sku"]
+        parts.append(f"{label} — {inr(sale)}"
+                     + (f" (MRP {inr(mrp)})" if mrp and mrp > sale else ""))
+    return "; ".join(parts)
+
+
 async def _search_named(ctx, family: str) -> tuple[list[dict], str]:
     """Live search for a product the customer named. Not listed online → no rows,
     the conversation is tagged product-check, and the note tells the agent to
-    capture the lead instead of saying we don't carry it."""
+    quote the showroom price list (when current) or capture the lead — never to
+    say we don't carry it."""
     name = family.title()
     first = family.lower().split()[0]
     try:
@@ -421,6 +444,13 @@ async def _search_named(ctx, family: str) -> tuple[list[dict], str]:
             await chatwoot.add_label(ctx["conv_id"], "product-check")
         except Exception:
             pass
+    prices = _showroom_prices(family)
+    if prices:
+        return [], (f"{name} is not listed on durian.in but is in Durian's showroom "
+                    f"price list: {prices}. You may quote these verbatim as showroom "
+                    f"prices (no link — available through our showrooms), add that "
+                    f"the team will confirm availability, and ask for their name, "
+                    f"contact number and city or pincode")
     return [], (f"{name} is in Durian's range but not listed online right now — do "
                 f"NOT say we don't have it and do not quote a price: say the team "
                 f"will confirm its availability and current price, and ask for "

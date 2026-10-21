@@ -9,6 +9,10 @@
 #                 per-store overrides; store_locator merges them.
 #   - "agent_prompts" : per-vertical free-text guidance the client writes in
 #                 Settings → Agent Prompts; social_agent injects it (advisory).
+#   - "catalog" : the product price list from Settings → Product Catalog (Google
+#                 Sheet sync or file upload). REPLACES the committed
+#                 data/product_catalog.json floor whole — never merged.
+#   - "catalog_sync" : the linked Google Sheet URL + daily auto-sync switch.
 # An absent, empty, or broken override => the FLOOR wins, so a bad edit can never
 # crash the store or routing path. Every publish is a new version → one-click
 # rollback; domains never touch each other's active row.
@@ -32,6 +36,8 @@ _lock = threading.Lock()
 ROUTING = "routing"
 STORES = "stores"
 AGENT_PROMPTS = "agent_prompts"
+CATALOG = "catalog"
+CATALOG_SYNC = "catalog_sync"
 
 
 @contextmanager
