@@ -17,6 +17,8 @@
 # wiring it in the dispatcher at the bottom.
 
 import asyncio
+import base64
+import binascii
 import difflib
 import hashlib
 import hmac
@@ -60,6 +62,8 @@ import website_reviews_state
 import reviews_state
 import crm_state
 import config_store
+import catalog_import
+import catalog_sync
 import store_locator
 
 crm_state.init()     # round-robin counters for govt/bulk owner rotation
@@ -217,6 +221,9 @@ async def _start_reviews_poller():
     asyncio.create_task(website_reviews_poller.run_forever())
     # Daily refresh of each open deal's current Zoho Stage onto its conversation.
     asyncio.create_task(deal_stage_sync.run_forever())
+    # Daily re-read of a linked Google Sheet price list (Settings → Product
+    # Catalog) — each run no-ops unless auto-sync is switched on there.
+    asyncio.create_task(catalog_sync.run_forever())
 
 
 @app.on_event("shutdown")
@@ -7380,6 +7387,164 @@ async def admin_agent_prompts_config_rollback(request: Request,
     if not row or row.get("domain") != config_store.AGENT_PROMPTS \
             or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
         raise HTTPException(status_code=404, detail="version not found")
+    return {"ok": True, "version_id": int(vid)}
+
+
+# ── Product catalog (Settings → Product Catalog) ───────────────────────────
+# The price list the agent uses for EMI, product-name recognition and showroom
+# prices of products not on durian.in. Published from a link-shared Google Sheet
+# or an uploaded file (simple template or the monthly Durian/RT workbook);
+# every publish is a version with one-click rollback. Live within a minute.
+
+async def _catalog_parse(body: dict) -> tuple[dict, str, str]:
+    """(parsed, source, source_name) from a preview/publish body — a linked
+    sheet_url, or an uploaded file as base64. Whole-file problems → 422."""
+    body = body or {}
+    sheet_url = str(body.get("sheet_url") or "").strip()
+    try:
+        if sheet_url:
+            data = await catalog_import.fetch_sheet(sheet_url)
+            return catalog_import.parse_file(data, "sheet.xlsx"), "sheet", sheet_url
+        try:
+            data = base64.b64decode(str(body.get("file_b64") or ""), validate=True)
+        except (binascii.Error, ValueError):
+            raise catalog_import.CatalogImportError("The uploaded file couldn't be read.")
+        name = str(body.get("filename") or "upload.xlsx")
+        return catalog_import.parse_file(data, name), "upload", name
+    except catalog_import.CatalogImportError as e:
+        raise HTTPException(status_code=422, detail={"message": str(e)})
+
+
+@app.get("/admin/catalog-config")
+async def admin_catalog_config_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Everything the Product Catalog screen shows: the live list, where it came
+    from, and the Google Sheet link / auto-sync state."""
+    _require_routing_admin(x_routing_admin_secret)
+    rows = [{"sku": sku, "name": p.get("name") or "", "family": p.get("family") or "",
+             "category": p.get("category") or "", "mrp": p.get("mrp"),
+             "sale_price": p.get("sale_price")}
+            for sku, p in sorted(product_catalog.products().items())]
+    return {
+        "meta": product_catalog.meta(),
+        "fresh": product_catalog.is_fresh(config.CATALOG_QUOTE_MAX_AGE_DAYS),
+        "quote_max_age_days": config.CATALOG_QUOTE_MAX_AGE_DAYS,
+        "products": rows,
+        "sync": {**catalog_sync.settings(), "last": catalog_sync.last_status or None,
+                 "time": f"{config.CATALOG_SYNC_HOUR:02d}:{config.CATALOG_SYNC_MINUTE:02d}"},
+    }
+
+
+@app.post("/admin/catalog-config/preview")
+async def admin_catalog_config_preview(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """Parse a file or sheet and show what publishing it would change. Saves nothing."""
+    _require_routing_admin(x_routing_admin_secret)
+    parsed, source, source_name = await _catalog_parse(await request.json())
+    return {"ok": True, "format": parsed["format"], "source": source,
+            "source_name": source_name, "warnings": parsed["warnings"],
+            "summary": catalog_import.diff(product_catalog.products(), parsed["products"])}
+
+
+@app.post("/admin/catalog-config/publish")
+async def admin_catalog_config_publish(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """Publish a file or sheet as the live price list. Publishing a sheet links
+    it (auto-sync on unless switched off); publishing a file pauses auto-sync so
+    the next morning's sync can't silently overwrite the upload."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    actor = str(body.get("actor") or "")
+    parsed, source, source_name = await _catalog_parse(body)
+    doc = catalog_import.build_doc(parsed, source, source_name,
+                                   str(body.get("price_period") or ""))
+    vid = catalog_sync.publish_catalog(doc, str(body.get("note") or "")
+                                       or ("Google Sheet" if source == "sheet"
+                                           else f"Upload: {source_name}"), actor)
+    paused = False
+    if source == "sheet":
+        catalog_sync.save_settings(source_name, bool(body.get("auto_sync", True)), actor)
+    else:
+        cur = catalog_sync.settings()
+        if cur["auto_sync"]:
+            catalog_sync.save_settings(cur["sheet_url"], False, actor)
+            paused = True
+    return {"ok": True, "version_id": vid, "warnings": parsed["warnings"],
+            "auto_sync_paused": paused}
+
+
+@app.post("/admin/catalog-config/sync")
+async def admin_catalog_config_sync(request: Request,
+                                    x_routing_admin_secret: Optional[str] = Header(None)):
+    """The UI's Sync now: re-read the linked sheet (publishes only on a change)."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    return await catalog_sync.sync_once(actor=str(body.get("actor") or "admin"))
+
+
+@app.post("/admin/catalog-config/settings")
+async def admin_catalog_config_settings(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    """Switch daily auto-sync on/off, or unlink the sheet ({unlink: true})."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    actor = str(body.get("actor") or "")
+    if body.get("unlink"):
+        catalog_sync.save_settings("", False, actor)
+    else:
+        url = catalog_sync.settings()["sheet_url"]
+        if not url:
+            raise HTTPException(status_code=422,
+                                detail={"message": "Link a Google Sheet first."})
+        catalog_sync.save_settings(url, bool(body.get("auto_sync")), actor)
+    return {"ok": True, "sync": catalog_sync.settings()}
+
+
+@app.get("/admin/catalog-config/export")
+async def admin_catalog_config_export(x_routing_admin_secret: Optional[str] = Header(None)):
+    """The live list as a simple-template CSV — to start a Google Sheet from."""
+    _require_routing_admin(x_routing_admin_secret)
+    return {"filename": f"durian-price-list-{datetime.now(timezone.utc):%Y-%m-%d}.csv",
+            "csv": catalog_import.export_csv(product_catalog.products())}
+
+
+@app.get("/admin/catalog-config/versions")
+async def admin_catalog_config_versions(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return {"versions": config_store.list_versions(config_store.CATALOG),
+            "audit": config_store.list_audit(50, config_store.CATALOG)}
+
+
+@app.get("/admin/catalog-config/versions/{version_id}")
+async def admin_catalog_config_version(version_id: int,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """One version's details and what restoring it would change (not the full list)."""
+    _require_routing_admin(x_routing_admin_secret)
+    row = config_store.get_version(version_id)
+    if not row or row.get("domain") != config_store.CATALOG:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        doc = json.loads(row.pop("doc_json", None) or "{}")
+    except Exception:
+        doc = {}
+    summary = catalog_import.diff(product_catalog.products(), doc.get("products") or {})
+    return {**row, "price_period": doc.get("price_period", ""),
+            "source": doc.get("source", ""), "source_name": doc.get("source_name", ""),
+            "format": doc.get("format", ""), "count": len(doc.get("products") or {}),
+            "restore_changes": {k: v for k, v in summary.items()
+                                if not k.endswith("_sample")}}
+
+
+@app.post("/admin/catalog-config/rollback")
+async def admin_catalog_config_rollback(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    vid = (body or {}).get("version_id")
+    row = config_store.get_version(int(vid)) if vid is not None else None
+    if not row or row.get("domain") != config_store.CATALOG \
+            or not config_store.rollback(int(vid), actor=str((body or {}).get("actor") or "")):
+        raise HTTPException(status_code=404, detail="version not found")
+    product_catalog.reload()
     return {"ok": True, "version_id": int(vid)}
 
 

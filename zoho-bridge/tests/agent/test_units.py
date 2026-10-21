@@ -2535,3 +2535,262 @@ def test_details_gate_holds_for_a_same_turn_retry(monkeypatch):
     # next turn (fresh ctx, attr persisted) → the customer was asked → goes through
     nxt = _esc_ctx(incoming=["worst service ever"], ca=ctx["conv"]["custom_attributes"])
     assert asyncio.run(h(nxt, category="complaint", reason="x"))["escalated"] is True
+
+
+# --- Settings → Product Catalog: import, live list, sync, showroom prices -------
+
+def _xlsx(sheets: dict) -> bytes:
+    """{tab: [rows]} → .xlsx bytes."""
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name, rows in sheets.items():
+        ws = wb.create_sheet(name)
+        for r in rows:
+            ws.append(list(r))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _temp_catalog_store(monkeypatch):
+    import os
+    import tempfile
+    import config_store
+    import product_catalog
+    monkeypatch.setattr(config_store, "_DB_PATH",
+                        os.path.join(tempfile.mkdtemp(), "config_store.db"))
+    config_store.init()
+    product_catalog.reload()
+
+
+_TEMPLATE_CSV = ("SKU,Name,MRP,Sale Price,Category\n"
+                 "QUINN/1,1STR LEATHER MOTORIZED RECLINER,\"1,15,200\",\"₹69,120\",RECLINING SOFAS\n"
+                 "QUINN/2,2STR LEATHER MOTORIZED RECLINER,193000,115800,RECLINING SOFAS\n"
+                 ",missing sku,100,90,X\n"
+                 "QUINN/2,2STR LEATHER MOTORIZED RECLINER,193000,99000,RECLINING SOFAS\n")
+
+
+def test_catalog_import_simple_csv():
+    import catalog_import as ci
+    res = ci.parse_file(_TEMPLATE_CSV.encode(), "prices.csv")
+    assert res["format"] == "template"
+    p = res["products"]
+    assert p["QUINN/1"] == {"name": "1STR LEATHER MOTORIZED RECLINER", "family": "QUINN",
+                            "mrp": 115200.0, "sale_price": 69120,
+                            "category": "RECLINING SOFAS", "source": "sheet"}
+    assert p["QUINN/2"]["sale_price"] == 99000          # duplicate: last row wins
+    joined = " ".join(res["warnings"])
+    assert "1 rows skipped" in joined and "duplicate" in joined
+
+
+def test_catalog_import_template_xlsx_header_not_first_row():
+    import catalog_import as ci
+    data = _xlsx({"Prices": [("Durian price list Oct",),
+                             ("Code", "Product Name", "MRP", "Selling Price", "Category"),
+                             ("MATILDA/1", "1STR RECLINER", 76400, 38200, "RECLINING SOFAS")]})
+    res = ci.parse_file(data, "prices.xlsx")
+    assert res["products"]["MATILDA/1"]["sale_price"] == 38200
+
+
+def test_catalog_import_monthly_workbook():
+    import catalog_import as ci
+    durian = [("title",), ("SKU ID", "MRP", "BP", "Offer", None, None, None, None, "CATEGORY"),
+              ("RIHANNA/A/2", 100000, 0, 52000, None, None, None, None, "SOFA"),
+              ("NOPRICE/1", 5000, 0, None, None, None, None, None, "X")]
+    rt = [("title",), ("No.", "Description", None, "MRP", None, None, None, "BP", None, "Category"),
+          ("RIHANNA/A/2", "2STR SOFA", None, 100000, None, None, None, 52000, None, "SOFA"),
+          ("ONLYRT/1", "SIDE TABLE", None, 9000, None, None, None, 4500, None, "TABLES")]
+    res = ci.parse_file(_xlsx({"Durian": durian, "RT": rt}), "REVISED SALE PRICE.xlsx")
+    assert res["format"] == "workbook"
+    p = res["products"]
+    assert p["RIHANNA/A/2"]["sale_price"] == 52000 and p["RIHANNA/A/2"]["name"] == "2STR SOFA"
+    assert p["ONLYRT/1"]["source"] == "rt" and p["ONLYRT/1"]["sale_price"] == 4500
+    assert "NOPRICE/1" not in p and "1 SKUs skipped" in " ".join(res["warnings"])
+
+
+def test_catalog_import_rejects_wrong_files():
+    import catalog_import as ci
+    for data, name, msg in [(b"", "x.csv", "empty"),
+                            (b"Item,Qty\nA,1\n", "x.csv", "header row"),
+                            (b"not a workbook", "x.xlsx", "Couldn't read"),
+                            (("SKU,Sale price\n" + "A,\n" * 5 + "B,10\n").encode(),
+                             "x.csv", "rows are missing")]:
+        try:
+            ci.parse_file(data, name)
+            raise AssertionError(f"accepted {name}")
+        except ci.CatalogImportError as e:
+            assert msg in str(e), str(e)
+
+
+def test_catalog_sheet_link_only_google():
+    import asyncio
+    import catalog_import as ci
+    good = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit#gid=0"
+    assert ci.sheet_id(good) == "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    for bad in ("http://169.254.169.254/latest", "https://evil.com/spreadsheets/d/x",
+                "https://docs.google.com.evil.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWx"):
+        assert ci.sheet_id(bad) is None
+        try:
+            asyncio.run(ci.fetch_sheet(bad))
+            raise AssertionError("fetched a non-Google URL")
+        except ci.CatalogImportError as e:
+            assert "Google Sheets link" in str(e)
+
+
+def test_catalog_diff_and_export_roundtrip():
+    import catalog_import as ci
+    old = ci.parse_file(_TEMPLATE_CSV.encode(), "a.csv")["products"]
+    new = {**old, "QUINN/1": {**old["QUINN/1"], "sale_price": 65000},
+           "QUINN/2": {**old["QUINN/2"], "category": "RECLINERS"},
+           "NEW/1": {"name": "NEW", "family": "NEW", "mrp": None, "sale_price": 10,
+                     "category": "", "source": "sheet"}}
+    d = ci.diff(old, new)
+    assert (d["added"], d["removed"], d["price_changed"], d["details_changed"]) == (1, 0, 1, 1)
+    assert d["changed_sample"][0] == {"sku": "QUINN/1", "name": "1STR LEATHER MOTORIZED RECLINER",
+                                      "old": 69120, "new": 65000}
+    back = ci.parse_file(ci.export_csv(new).encode(), "export.csv")["products"]
+    assert {k: v["sale_price"] for k, v in back.items()} == {k: v["sale_price"] for k, v in new.items()}
+    assert back["QUINN/2"]["category"] == "RECLINERS" and back["NEW/1"]["family"] == "NEW"
+
+
+def test_product_catalog_serves_published_list(monkeypatch):
+    import catalog_import as ci
+    import catalog_sync
+    import config_store
+    import product_catalog as pc
+    _temp_catalog_store(monkeypatch)
+    try:
+        floor_count = pc.meta()["count"]
+        assert pc.meta()["managed"] is False and floor_count > 1000
+        assert not pc.is_fresh(45)
+        doc = ci.build_doc(ci.parse_file(_TEMPLATE_CSV.encode(), "oct.csv"),
+                           "upload", "oct.csv", "1–31 Oct 2026")
+        vid = catalog_sync.publish_catalog(doc, "Upload: oct.csv", "admin@durian.in")
+        m = pc.meta()
+        assert m["managed"] and m["version_id"] == vid and m["count"] == 2
+        assert m["price_period"] == "1–31 Oct 2026" and m["published_by"] == "admin@durian.in"
+        assert pc.is_fresh(45)
+        assert [h["sku"] for h in pc.search("quinn")] == ["QUINN/1", "QUINN/2"]
+        # a broken published doc never takes the agent down — the floor serves
+        config_store.publish({"products": {}}, domain=config_store.CATALOG)
+        pc.reload()
+        assert pc.meta()["managed"] is False and pc.meta()["count"] == floor_count
+    finally:
+        pc.reload()
+
+
+def test_catalog_sync_publishes_only_on_change(monkeypatch):
+    import asyncio
+    import catalog_import as ci
+    import catalog_sync
+    import config_store
+    import product_catalog as pc
+    _temp_catalog_store(monkeypatch)
+    url = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit"
+    sheet = {"rows": [("SKU", "Name", "MRP", "Sale price", "Category"),
+                      ("QUINN/1", "1STR RECLINER", 115200, 69120, "RECLINING SOFAS")]}
+
+    async def fake_fetch(u):
+        assert u == url
+        return _xlsx({"Sheet1": sheet["rows"]})
+    monkeypatch.setattr(ci, "fetch_sheet", fake_fetch)
+    try:
+        assert asyncio.run(catalog_sync.sync_once())["error"] == "No Google Sheet is linked."
+        catalog_sync.save_settings(url, True, "admin")
+        assert catalog_sync.settings() == {"sheet_url": url, "auto_sync": True}
+        first = asyncio.run(catalog_sync.sync_once())
+        assert first["ok"] and first["changed"] and pc.meta()["source"] == "sheet"
+        again = asyncio.run(catalog_sync.sync_once())
+        assert again["ok"] and not again["changed"] and "version_id" not in again
+        assert len(config_store.list_versions(config_store.CATALOG)) == 1
+        sheet["rows"][1] = ("QUINN/1", "1STR RECLINER", 115200, 64999, "RECLINING SOFAS")
+        third = asyncio.run(catalog_sync.sync_once())
+        assert third["changed"] and third["summary"]["price_changed"] == 1
+        assert pc.get("QUINN/1")["sale_price"] == 64999
+        assert catalog_sync.last_status["ok"] and catalog_sync.last_status["changed"]
+    finally:
+        pc.reload()
+
+
+def test_catalog_admin_api_preview_publish_rollback(monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+    import catalog_sync
+    import main
+    import product_catalog as pc
+    _temp_catalog_store(monkeypatch)
+    monkeypatch.setattr(main.config, "ROUTING_ADMIN_SECRET", "s3cret")
+    client = TestClient(main.app)
+    h = {"X-Routing-Admin-Secret": "s3cret"}
+    try:
+        assert client.get("/admin/catalog-config").status_code == 401
+        got = client.get("/admin/catalog-config", headers=h).json()
+        assert got["meta"]["managed"] is False and got["sync"]["sheet_url"] == ""
+        body = {"file_b64": base64.b64encode(_TEMPLATE_CSV.encode()).decode(),
+                "filename": "oct.csv"}
+        prev = client.post("/admin/catalog-config/preview", json=body, headers=h).json()
+        assert prev["format"] == "template" and prev["summary"]["count"] == 2
+        assert pc.meta()["managed"] is False            # preview saves nothing
+        bad = client.post("/admin/catalog-config/preview", headers=h,
+                          json={"file_b64": "%%%", "filename": "x.csv"})
+        assert bad.status_code == 422
+        # an upload pauses a linked sheet's auto-sync
+        catalog_sync.save_settings("https://docs.google.com/spreadsheets/d/"
+                                   "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", True, "a")
+        pub = client.post("/admin/catalog-config/publish", headers=h,
+                          json={**body, "price_period": "Oct 2026", "actor": "a@x"}).json()
+        assert pub["ok"] and pub["auto_sync_paused"] is True
+        assert catalog_sync.settings()["auto_sync"] is False
+        got = client.get("/admin/catalog-config", headers=h).json()
+        assert got["meta"]["count"] == 2 and got["fresh"] is True
+        assert [r["sku"] for r in got["products"]] == ["QUINN/1", "QUINN/2"]
+        ver = client.get(f"/admin/catalog-config/versions/{pub['version_id']}",
+                         headers=h).json()
+        assert ver["count"] == 2 and ver["price_period"] == "Oct 2026"
+        exp = client.get("/admin/catalog-config/export", headers=h).json()
+        assert exp["csv"].startswith("SKU,Name,MRP,Sale price,Category,Family")
+        # publish a second list, then roll back to the first
+        two = _TEMPLATE_CSV.replace("69,120", "60,000").encode()
+        client.post("/admin/catalog-config/publish", headers=h,
+                    json={"file_b64": base64.b64encode(two).decode(), "filename": "v2.csv"})
+        assert pc.get("QUINN/1")["sale_price"] == 60000
+        rb = client.post("/admin/catalog-config/rollback", headers=h,
+                         json={"version_id": pub["version_id"]})
+        assert rb.status_code == 200 and pc.get("QUINN/1")["sale_price"] == 69120
+    finally:
+        pc.reload()
+
+
+def test_named_product_quotes_fresh_showroom_price(monkeypatch):
+    import asyncio
+    import catalog_import as ci
+    import catalog_sync
+    import config_store
+    import product_catalog as pc
+    _named_search(monkeypatch, {"recliner": [_VIVIAN]})       # Quinn not online
+    monkeypatch.setattr(sa, "chatwoot", _LabelChatwoot())
+    _temp_catalog_store(monkeypatch)
+    handler = sa.SKILLS["search_products"]["handler"]
+    try:
+        doc = ci.build_doc(ci.parse_file(_TEMPLATE_CSV.encode(), "oct.csv"), "upload", "oct.csv")
+        catalog_sync.publish_catalog(doc, "", "admin")
+        out = asyncio.run(handler({"incoming_all": [_QUINN_MSG], "conv_id": 9},
+                                  query="recliner"))
+        note = out["note"]
+        assert "showroom price list" in note
+        assert "1-Seater Leather Motorized Recliner — ₹69,120 (MRP ₹1,15,200)" in note
+        # a list published long ago is not current enough to quote
+        old = {"at": "2026-01-01T00:00:00+00:00"}
+        monkeypatch.setattr(config_store, "active_version",
+                            lambda domain: {"id": 999, "note": "", "created_by": "",
+                                            "created_at": old["at"]})
+        monkeypatch.setattr(config_store, "get_active_override",
+                            lambda domain: doc if domain == config_store.CATALOG else {})
+        pc.reload()
+        stale = asyncio.run(handler({"incoming_all": [_QUINN_MSG], "conv_id": 9},
+                                    query="recliner"))
+        assert "do not quote a price" in stale["note"] and "₹69,120" not in stale["note"]
+    finally:
+        pc.reload()

@@ -378,6 +378,16 @@ WEBSITE_REVIEWS_AUTO_REPLY     = _bool("WEBSITE_REVIEWS_AUTO_REPLY")
 WEBSITE_REVIEWS_POSITIVE_MIN_STARS = int(os.environ.get("WEBSITE_REVIEWS_POSITIVE_MIN_STARS", "4"))
 
 
+# ── Product catalog (Settings → Product Catalog) ────────────────────────────
+# A linked Google Sheet is re-read once a day at this IST time (when its
+# auto-sync switch is on in the UI — no env flag needed to enable it).
+CATALOG_SYNC_HOUR   = int(os.environ.get("CATALOG_SYNC_HOUR", "6"))
+CATALOG_SYNC_MINUTE = int(os.environ.get("CATALOG_SYNC_MINUTE", "30"))
+# The agent quotes a price-list (showroom) price for a named product that isn't
+# on durian.in only while the list was published in the UI within this many
+# days; older or built-in → "the team will confirm the price" instead.
+CATALOG_QUOTE_MAX_AGE_DAYS = int(os.environ.get("CATALOG_QUOTE_MAX_AGE_DAYS", "45"))
+
 # ── Deal stage sync ─────────────────────────────────────────────────────────
 # Once-a-day sweep that reads each open ORM deal's CURRENT Zoho Stage and writes
 # it onto its Chatwoot conversation (custom attribute crm_deal_stage), so the
