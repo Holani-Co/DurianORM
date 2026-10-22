@@ -409,6 +409,13 @@ CATALOG_SYNC_MINUTE = int(os.environ.get("CATALOG_SYNC_MINUTE", "30"))
 # days; older or built-in → "the team will confirm the price" instead.
 CATALOG_QUOTE_MAX_AGE_DAYS = int(os.environ.get("CATALOG_QUOTE_MAX_AGE_DAYS", "45"))
 
+# ── CRM stage → WhatsApp template automation (crm_automation.py) ─────────────
+# Zoho's Workflow webhook calls the public /webhooks/crm_stage (Chatwoot), which
+# forwards here; this secret must be in that webhook URL (?key=…). Empty = the
+# webhook is refused. Rules themselves live in Settings → CRM WhatsApp Automation.
+CRM_AUTOMATION_WEBHOOK_SECRET = os.environ.get("CRM_AUTOMATION_WEBHOOK_SECRET", "")
+CRM_AUTOMATION_POLL_SECONDS = int(os.environ.get("CRM_AUTOMATION_POLL_SECONDS", "60"))
+
 # ── Deal stage sync ─────────────────────────────────────────────────────────
 # Once-a-day sweep that reads each open ORM deal's CURRENT Zoho Stage and writes
 # it onto its Chatwoot conversation (custom attribute crm_deal_stage), so the
