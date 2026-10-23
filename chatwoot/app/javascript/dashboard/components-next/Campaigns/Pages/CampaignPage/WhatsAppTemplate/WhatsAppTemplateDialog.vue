@@ -48,6 +48,10 @@ const state = reactive({
 });
 
 const isEdit = computed(() => Boolean(props.template));
+// Meta can't rename a submitted template or change its language.
+const isSubmitted = computed(
+  () => isEdit.value && props.template.status !== 'DRAFT'
+);
 
 // WhatsApp renders these markers as formatting in the message BODY only
 // (headers/footers are plain text). Wrap the current selection with the marker.
@@ -330,6 +334,7 @@ const submitTemplate = async () => {
 
       <Input
         v-model="state.name"
+        :disabled="isSubmitted"
         :label="t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.NAME')"
         :placeholder="t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.NAME_PLACEHOLDER')"
         :message="
@@ -360,7 +365,11 @@ const submitTemplate = async () => {
           <label class="text-heading-3 text-n-slate-12">
             {{ t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.LANGUAGE') }}
           </label>
-          <ComboBox v-model="state.language" :options="languageOptions" />
+          <ComboBox
+            v-model="state.language"
+            :options="languageOptions"
+            :disabled="isSubmitted"
+          />
         </div>
       </div>
 

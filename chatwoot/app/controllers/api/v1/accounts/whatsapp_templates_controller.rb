@@ -17,7 +17,9 @@ class Api::V1::Accounts::WhatsappTemplatesController < Api::V1::Accounts::BaseCo
   end
 
   def update
-    @whatsapp_template.assign_attributes(template_params.except(:inbox_id))
+    # Meta can't rename a submitted template or change its language.
+    locked = @whatsapp_template.status == 'DRAFT' ? [:inbox_id] : [:inbox_id, :name, :language]
+    @whatsapp_template.assign_attributes(template_params.except(*locked))
     if @whatsapp_template.status == 'DRAFT'
       @whatsapp_template.save!
     else
