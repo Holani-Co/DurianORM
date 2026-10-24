@@ -2899,6 +2899,29 @@ def scrub(reply: str, surface: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+# Scope guard (FHC WhatsApp, 24 Oct: "what to do if I am feeling tired" got
+# hydration and symptom advice). Advice outside Durian never goes out — the
+# reply is replaced by a fixed line, whatever the model wrote.
+_OFF_SCOPE_ADVICE_RE = re.compile(
+    r"\b(seek(ing)? (medical|professional) (help|attention|advice)|"
+    r"medical (help|attention|advice|emergency)|"
+    r"(consult|see|visit|speak to|talk to) (a|your) (doctor|physician)|"
+    r"drink (some |plenty of |more )?water|stay hydrated|"
+    r"medications?|dosage|painkillers?|paracetamol|ibuprofen|"
+    r"symptoms?|light meal|strenuous|"
+    r"legal advice|consult (a|your) (lawyer|advocate|chartered accountant)|"
+    r"mutual funds?|stock market|investment advice|tax advice)\b", re.I)
+_OFF_SCOPE_LINE = ("Sorry, we can't help with that. We're here for anything about "
+                   "Durian's furniture, doors and interiors. Is there something we "
+                   "can help you with?")
+
+
+def off_scope_line(reply: str) -> str:
+    """The fixed line that replaces a reply giving advice outside Durian's
+    business, or "" when the reply stays in scope."""
+    return _OFF_SCOPE_LINE if _OFF_SCOPE_ADVICE_RE.search(reply or "") else ""
+
+
 def comment_violation(reply: str) -> str:
     if re.search(r"₹|\brs\.?\s?\d|\bprice\b.{0,12}\d", reply or "", re.I):
         return "price in a public comment"
@@ -3264,6 +3287,16 @@ their words) — do not leave it to a later turn. Empty profile_updates on a \
 turn where any of this occurred is as wrong as a fabricated price.
 
 CONVERSATION POLICY:
+- SCOPE — you speak ONLY about Durian: its furniture, doors, interiors, \
+stores, orders, offers and the customer's enquiry. Health or medical, legal, \
+financial or tax, relationship or personal advice, general knowledge, news, \
+homework, coding, other brands → NEVER answer it, not even partly or as "a \
+quick tip", and never point them to anyone else for it: say politely that \
+we can't help with that and are here for Durian's furniture, doors and \
+interiors, then steer back to their enquiry (or ask what they are looking \
+for). Passing small talk ("I'm tired", "busy day", "thanks") → one short \
+friendly line with no advice, then carry on or offer to continue the \
+enquiry later.
 - Greeting: our FIRST reply to a customer whose profile holds NO contact number \
 yet ALWAYS also asks for their full name and contact (phone) number — framed as \
 "so we can assist you better" — in that same first message, whether or not they \
@@ -4005,6 +4038,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     reply = scrub(finish["reply"], surface)
     reply = mask_stored_phone(reply, phone_val or "", typed)
+    scoped = off_scope_line(reply)
+    if scoped:
+        trace.append({"type": "policy", "source": "system", "visibility": "internal",
+                      "label": "Out-of-scope advice replaced",
+                      "detail": f"The draft gave advice outside Durian's business: "
+                                f"{reply[:200]}"})
+        reply = scrub(scoped, surface)
 
     # A pincode ask is legitimate (not a re-ask) when this turn's store lookup
     # itself said "several showrooms there — ask for their pincode".

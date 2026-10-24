@@ -2925,3 +2925,22 @@ def test_campaign_fields_are_single_line(monkeypatch):
     f = main._campaign_deal_fields({"medium": "whatsapp campaign",
                                     "content": "*FLAT 50%* OFF\n\nGive Your Home  A New Look 🪔"})
     assert f["Campaign_Content"] == "*FLAT 50%* OFF Give Your Home A New Look 🪔"
+
+
+def test_off_scope_advice_is_replaced():
+    # FHC WhatsApp, 24 Oct: "what to do if I am feeling tired"
+    tired = ("Please take a break, drink some water, and rest in a comfortable place. "
+             "If the tiredness comes with chest pain, please seek medical help promptly.")
+    assert sa.off_scope_line(tired) == sa._OFF_SCOPE_LINE
+    assert sa.off_scope_line("You should consult a lawyer for that.") == sa._OFF_SCOPE_LINE
+    # in-scope replies, small talk and kitchen fittings pass untouched
+    for ok in ("Sorry to hear that, Vaibhav. Please take some rest — we can continue "
+               "with your kitchen redesign whenever you feel ready.",
+               "We can add a tall unit with a medicine drawer next to the fridge.",
+               "Our Kirti Nagar showroom is open 11 AM to 9 PM, all days.",
+               "EMI options available"):
+        assert sa.off_scope_line(ok) == ""
+    # the fixed lines themselves pass the other guardrails
+    line = sa._OFF_SCOPE_LINE
+    assert not sa.comment_violation(line) and not sa.link_violation(line)
+    assert sa.off_scope_line(line) == ""
