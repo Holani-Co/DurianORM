@@ -844,3 +844,93 @@ async def search_contacts(query: str) -> list[dict]:
         if isinstance(payload, dict):
             payload = payload.get("contacts")
         return [c for c in (payload or []) if isinstance(c, dict)]
+
+
+# ── WhatsApp template sends for CRM automation (crm_automation.py) ────────────
+
+def _digits(phone) -> str:
+    return re.sub(r"\D", "", str(phone or ""))
+
+
+async def ensure_whatsapp_conversation(inbox_id: int, phone_digits: str,
+                                       name: str = "") -> tuple[int, int]:
+    """(contact_id, conversation_id) for this WhatsApp number in this inbox —
+    reusing the customer's existing contact and their latest conversation there
+    (so the history stays in one thread), creating only what's missing.
+    `phone_digits` is the full number with country code, no '+'."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        contact = None
+        s = await client.get(_acct_url("/contacts/search"), headers=_headers(),
+                             params={"q": phone_digits})
+        if s.status_code < 300:
+            payload = (s.json() or {}).get("payload")
+            if isinstance(payload, dict):
+                payload = payload.get("contacts")
+            for c in payload or []:
+                if isinstance(c, dict) and _digits(c.get("phone_number")) == phone_digits:
+                    contact = c
+                    break
+        if contact is None:
+            r = await client.post(_acct_url("/contacts"), headers=_headers(), json={
+                "inbox_id": inbox_id, "name": name or f"+{phone_digits}",
+                "phone_number": f"+{phone_digits}"})
+            if r.status_code >= 300:
+                raise RuntimeError(f"Chatwoot create contact failed [{r.status_code}]: {r.text[:300]}")
+            contact = (r.json().get("payload") or {}).get("contact") or {}
+        contact_id = contact["id"]
+        source_id = ""
+        for ci in contact.get("contact_inboxes") or []:
+            if str((ci.get("inbox") or {}).get("id") or ci.get("inbox_id")) == str(inbox_id):
+                source_id = ci.get("source_id") or ""
+        if not source_id:
+            r = await client.post(_acct_url(f"/contacts/{contact_id}/contact_inboxes"),
+                                  headers=_headers(),
+                                  json={"inbox_id": inbox_id, "source_id": phone_digits})
+            if r.status_code >= 300 and r.status_code != 422:
+                raise RuntimeError(f"Chatwoot contact_inbox failed [{r.status_code}]: {r.text[:300]}")
+            source_id = phone_digits
+    convs = [c for c in await get_contact_conversations(contact_id)
+             if str(c.get("inbox_id")) == str(inbox_id)]
+    if convs:
+        convs.sort(key=lambda c: (c.get("status") in ("open", "pending"),
+                                  c.get("last_activity_at") or c.get("timestamp") or 0),
+                   reverse=True)
+        return contact_id, int(convs[0]["id"])
+    return contact_id, await create_conversation(source_id, inbox_id, contact_id)
+
+
+async def latest_whatsapp_consent(contact_id: int, inbox_id: int) -> str:
+    """The contact's latest marketing consent status in this inbox
+    ("OPTED_IN" / "OPTED_OUT"), or "" when none is recorded. A STOP reply is
+    recorded as OPTED_OUT by Chatwoot's consent capture."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(_acct_url("/whatsapp_consents"), headers=_headers(),
+                             params={"inbox_id": inbox_id, "contact_id": contact_id})
+    if r.status_code >= 300:
+        raise RuntimeError(f"Chatwoot consents read failed [{r.status_code}]")
+    rows = r.json() if isinstance(r.json(), list) else (r.json() or {}).get("payload") or []
+    return str((rows[0] or {}).get("status") or "") if rows else ""
+
+
+async def list_whatsapp_templates(inbox_id: int) -> list[dict]:
+    """The WhatsApp templates synced into the ORM for this inbox."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(_acct_url("/whatsapp_templates"), headers=_headers(),
+                             params={"inbox_id": inbox_id})
+    if r.status_code >= 300:
+        raise RuntimeError(f"Chatwoot templates read failed [{r.status_code}]")
+    body = r.json()
+    return body if isinstance(body, list) else (body or {}).get("payload") or []
+
+
+async def send_template_message(conversation_id: int, content: str,
+                                template_params: dict) -> dict:
+    """An outgoing WhatsApp TEMPLATE message in the conversation — Chatwoot's own
+    template sender fills it (works outside the 24-hour window)."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(_conv_url(conversation_id, "/messages"), headers=_headers(),
+                              json={"content": content, "message_type": "outgoing",
+                                    "private": False, "template_params": template_params})
+    if r.status_code >= 300:
+        raise RuntimeError(f"Chatwoot template send failed [{r.status_code}]: {r.text[:300]}")
+    return r.json()

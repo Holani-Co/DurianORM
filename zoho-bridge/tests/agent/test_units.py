@@ -2925,3 +2925,213 @@ def test_campaign_fields_are_single_line(monkeypatch):
     f = main._campaign_deal_fields({"medium": "whatsapp campaign",
                                     "content": "*FLAT 50%* OFF\n\nGive Your Home  A New Look 🪔"})
     assert f["Campaign_Content"] == "*FLAT 50%* OFF Give Your Home A New Look 🪔"
+
+
+# --- CRM stage → WhatsApp template automation (crm_automation.py) -------------
+
+_WS_TPL = {"name": "durian_ws_qualified", "language": "en_US", "status": "APPROVED",
+           "category": "UTILITY", "components": [{"type": "BODY", "text":
+           "Hello {{1}}, our workspace expert, {{2}}, will reach out to you shortly."}]}
+_WS_FU1 = {"name": "durian_ws_followup_1", "language": "en_US", "status": "APPROVED",
+           "category": "MARKETING", "components": [{"type": "BODY", "text":
+           "Hello {{1}}, your expert {{2}} is on {{3}}."}]}
+
+
+def _ws_deal(stage="Qualified Deal (Please Select This )", **extra):
+    d = {"id": "555", "Stage": stage, "Deal_Name": "Ravi — DurianORM · WhatsApp",
+         "Contact_Name": {"name": "Ravi Kumar", "id": "9"}, "Mobile": "98765 43210",
+         "Owner": {"name": "Neha Singh", "email": "neha@durian.in"}, "Deal_No": "D-1",
+         "Integration_Source": "Workspaces Office Form"}
+    d.update(extra)
+    return d
+
+
+class _AutoCW:
+    def __init__(self, templates=None, consent=""):
+        self.templates = templates if templates is not None else [_WS_TPL, _WS_FU1]
+        self.consent, self.sent, self.notes = consent, [], []
+
+    async def list_whatsapp_templates(self, inbox_id):
+        return self.templates
+
+    async def ensure_whatsapp_conversation(self, inbox_id, phone, name=""):
+        return 70, 700
+
+    async def latest_whatsapp_consent(self, contact_id, inbox_id):
+        return self.consent
+
+    async def send_template_message(self, conv_id, content, template_params):
+        self.sent.append((conv_id, content, template_params))
+        return {"id": 1}
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+
+def _auto_setup(monkeypatch, rules, deal=None, cw=None, enabled=True, team=None):
+    import os
+    import tempfile
+    import config_store
+    import crm_automation as ca
+    d = tempfile.mkdtemp()
+    monkeypatch.setattr(config_store, "_DB_PATH", os.path.join(d, "cs.db"))
+    monkeypatch.setattr(ca, "_DB_PATH", os.path.join(d, "auto.db"))
+    config_store.init()
+    ca.init()
+    config_store.publish({"enabled": enabled, "inbox_id": 25, "team": team or [], "rules": rules},
+                         domain=config_store.CRM_AUTOMATION)
+    cw = cw or _AutoCW()
+    monkeypatch.setattr(ca, "chatwoot", cw)
+    state = {"deal": deal or _ws_deal()}
+
+    async def fetch(deal_id):
+        return state["deal"]
+    monkeypatch.setattr(ca, "_fetch_deal", fetch)
+    return ca, cw, state
+
+
+def _rule(rid="ws_qualified", stage="Qualified Deal (Please Select This )",
+          template="durian_ws_qualified", delay=0, variables=None, **extra):
+    r = {"id": rid, "name": rid, "enabled": True, "stage": stage,
+         "match": [{"field": "Integration_Source", "op": "contains", "value": "workspaces"}],
+         "template": template, "language": "", "delay_hours": delay,
+         "only_if_still_in_stage": True, "header_media_url": "",
+         "variables": variables if variables is not None else
+         [{"source": "contact_name", "fallback": "there"},
+          {"source": "owner_name", "fallback": "our workspace expert"}]}
+    r.update(extra)
+    return r
+
+
+def test_auto_matching_and_variables():
+    import crm_automation as ca
+    deal = _ws_deal()
+    assert ca.stage_matches({"stage": "qualified deal  (please select THIS )"}, deal)
+    assert not ca.stage_matches({"stage": "Follow Up"}, deal)
+    assert ca.filters_match({"match": [{"field": "Integration_Source", "op": "contains",
+                                        "value": "WORKSPACES"}]}, deal)[0]
+    ok, why = ca.filters_match({"match": [{"field": "Owner", "op": "equals", "value": "Someone"}]}, deal)
+    assert not ok and "Neha Singh" in why                       # object fields compare by name
+    assert ca.filters_match({"match": [{"field": "", "op": "equals", "value": ""}]}, deal)[0]
+    assert ca.filters_match({"match": [{"field": "Mobile", "op": "not_empty"}]}, deal)[0]
+    team = [{"owner": "neha singh", "phone": "+91 99999 11111"}]
+    rv = lambda src, fb="": ca.resolve_variable({"source": src, "fallback": fb}, deal, team)
+    assert rv("contact_name") == "Ravi Kumar" and rv("first_name") == "Ravi"
+    assert rv("owner_name") == "Neha Singh" and rv("owner_phone") == "+91 99999 11111"
+    assert rv("field:Integration_Source") == "Workspaces Office Form" and rv("text:hi") == "hi"
+    assert ca.resolve_variable({"source": "owner_phone", "fallback": "this number"}, deal, []) \
+        == "this number"
+    for raw, want in [("98765 43210", "919876543210"), ("+91-98765-43210", "919876543210"),
+                      ("098765 43210", "919876543210"), ("12345", "")]:
+        assert ca.customer_phone({"Mobile": raw}) == want, raw
+
+
+def test_auto_sends_once_into_the_conversation(monkeypatch):
+    import asyncio
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()])
+    out = asyncio.run(ca.handle_deal("555"))
+    assert out[0]["status"] == "sent" and len(cw.sent) == 1
+    conv, content, params = cw.sent[0]
+    assert conv == 700 and params["name"] == "durian_ws_qualified"
+    assert params["processed_params"] == {"body": {"1": "Ravi Kumar", "2": "Neha Singh"}}
+    assert content.startswith("Hello Ravi Kumar, our workspace expert, Neha Singh")
+    assert "CRM automation" in cw.notes[0]
+    # Zoho retries / the stage is saved again → never a second message
+    assert asyncio.run(ca.handle_deal("555"))[0]["status"] == "already handled"
+    assert len(cw.sent) == 1
+
+
+def test_auto_respects_switch_filter_and_stop(monkeypatch):
+    import asyncio
+    ca, cw, state = _auto_setup(monkeypatch, [_rule()], enabled=False)
+    assert asyncio.run(ca.handle_deal("555"))[0]["detail"] == "automation is switched off"
+    ca, cw, state = _auto_setup(monkeypatch, [_rule()], deal=_ws_deal(Integration_Source="FB form"))
+    assert asyncio.run(ca.handle_deal("555")) == [] and cw.sent == []   # not a Workspaces deal
+    ca, cw, state = _auto_setup(monkeypatch, [_rule()], cw=_AutoCW(consent="OPTED_OUT"))
+    res = asyncio.run(ca.handle_deal("555"))[0]
+    assert res["status"] == "skipped" and "STOP" in res["detail"] and cw.sent == []
+
+
+def test_auto_followups_scheduled_and_cancelled_when_deal_moves(monkeypatch):
+    import asyncio
+    phone_vars = [{"source": "contact_name", "fallback": "there"},
+                  {"source": "owner_name", "fallback": "our expert"},
+                  {"source": "owner_phone", "fallback": "this number"}]
+    rules = [_rule("fu1", "Follow Up", "durian_ws_followup_1", 0, phone_vars),
+             _rule("fu2", "Follow Up", "durian_ws_followup_1", 48, phone_vars)]
+    ca, cw, state = _auto_setup(monkeypatch, rules, deal=_ws_deal("Follow Up"),
+                                team=[{"owner": "Neha Singh", "phone": "+91 99999 11111"}])
+    out = {r["rule"]: r["status"] for r in asyncio.run(ca.handle_deal("555"))}
+    assert out == {"fu1": "sent", "fu2": "scheduled"} and len(cw.sent) == 1
+    assert cw.sent[0][2]["processed_params"]["body"]["3"] == "+91 99999 11111"
+    assert asyncio.run(ca.run_due()) == 0                      # not due yet
+    with ca._conn() as c:                                      # fast-forward the clock
+        c.execute("UPDATE runs SET due_at = '2000-01-01T00:00:00+00:00' WHERE rule_id = 'fu2'")
+    state["deal"] = _ws_deal("Interested")                     # lead moved on
+    assert asyncio.run(ca.run_due()) == 1 and len(cw.sent) == 1
+    fu2 = next(r for r in ca.recent_runs() if r["rule_id"] == "fu2")
+    assert fu2["status"] == "cancelled" and "Interested" in fu2["detail"]
+
+
+def test_auto_due_followup_sends_when_still_in_stage(monkeypatch):
+    import asyncio
+    ca, cw, state = _auto_setup(monkeypatch, [_rule("fu2", "Follow Up", delay=48)],
+                                deal=_ws_deal("Follow Up"))
+    asyncio.run(ca.handle_deal("555"))
+    with ca._conn() as c:
+        c.execute("UPDATE runs SET due_at = '2000-01-01T00:00:00+00:00'")
+    asyncio.run(ca.run_due())
+    assert len(cw.sent) == 1 and ca.recent_runs()[0]["status"] == "sent"
+
+
+def test_auto_refuses_mismatched_or_unready_templates(monkeypatch):
+    import asyncio
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule(variables=[{"source": "contact_name"}])])
+    assert asyncio.run(ca.handle_deal("555"))[0]["status"] == "failed"         # 1 var vs 2
+    img = dict(_WS_TPL, components=[{"type": "HEADER", "format": "IMAGE"}] + _WS_TPL["components"])
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()], cw=_AutoCW(templates=[img]))
+    res = asyncio.run(ca.handle_deal("555"))[0]
+    assert res["status"] == "skipped" and "media URL" in res["detail"]
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()], cw=_AutoCW(templates=[]))
+    assert "not approved" in asyncio.run(ca.handle_deal("555"))[0]["detail"]
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()], deal=_ws_deal(Mobile=""))
+    assert "no valid mobile" in asyncio.run(ca.handle_deal("555"))[0]["detail"]
+
+
+def test_auto_validate_and_defaults():
+    import crm_automation as ca
+    v = ca.validate(ca.DEFAULT_DOC)
+    assert v["ok"] and len(ca.DEFAULT_DOC["rules"]) == 7
+    assert not any(r["enabled"] for r in ca.DEFAULT_DOC["rules"])   # off until filters are set
+    bad = {"inbox_id": 25, "rules": [_rule(stage=""), _rule(delay=9999)],
+           "team": [{"owner": "X", "phone": "12"}]}
+    errs = " ".join(ca.validate(bad)["errors"])
+    assert "unique id" in errs and "stage" in errs and "0–720" in errs and "invalid phone" in errs
+    nofilter = {"inbox_id": 25, "rules": [_rule(match=[])]}
+    assert "EVERY deal" in ca.validate(nofilter)["warnings"][0]
+
+
+def test_auto_webhook_security_and_dispatch(monkeypatch):
+    import asyncio
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    monkeypatch.setattr(main.config, "CRM_AUTOMATION_WEBHOOK_SECRET", "")
+    assert client.post("/crm/stage-changed?key=x", json={"deal_id": "1"}).status_code == 503
+    monkeypatch.setattr(main.config, "CRM_AUTOMATION_WEBHOOK_SECRET", "s3")
+    assert client.post("/crm/stage-changed?key=no", json={"deal_id": "1"}).status_code == 401
+    assert client.post("/crm/stage-changed?key=s3", json={}).status_code == 422
+    seen = []
+
+    async def handle(deal_id):
+        seen.append(deal_id)
+        return []
+    monkeypatch.setattr(main.crm_automation, "handle_deal", handle)
+    r = client.post("/crm/stage-changed?key=s3", data={"id": "3608871000639735034"})  # Zoho form post
+    assert r.status_code == 200 and r.json()["deal_id"] == "3608871000639735034"
+    assert seen == ["3608871000639735034"]
+    # the other ways a Zoho webhook can carry the deal id
+    client.post("/crm/stage-changed?key=s3", json={"deal_id": "111"})
+    client.post("/crm/stage-changed?key=s3&deal_id=222")
+    client.post("/crm/stage-changed?key=s3", files={"deal_id": (None, "333")})   # form-data
+    assert seen[1:] == ["111", "222", "333"]

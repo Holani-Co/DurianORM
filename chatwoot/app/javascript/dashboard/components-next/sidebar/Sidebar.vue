@@ -879,6 +879,12 @@ const menuItems = computed(() => {
           to: accountScopedRoute('product_catalog_config_index'),
         },
         {
+          name: 'Settings CRM Automation',
+          label: t('SIDEBAR.CRM_AUTOMATION_CONFIG'),
+          icon: 'i-lucide-workflow',
+          to: accountScopedRoute('crm_automation_index'),
+        },
+        {
           name: 'Settings Offers',
           label: t('SIDEBAR.OFFERS'),
           icon: 'i-lucide-badge-percent',
