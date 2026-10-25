@@ -2944,3 +2944,16 @@ def test_off_scope_advice_is_replaced():
     line = sa._OFF_SCOPE_LINE
     assert not sa.comment_violation(line) and not sa.link_violation(line)
     assert sa.off_scope_line(line) == ""
+
+
+def test_home_studio_deals_are_created_digital(monkeypatch):
+    # Agent / Create-Deal FHC deals carried no fhc_blueprint, so Integration
+    # Source stayed empty and Zoho put them in the Offline Blueprint.
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_HOME_STUDIO_LAYOUT", "Home Studio")
+    assert main._blueprint_mode({}, "Home Studio") == "digital"
+    assert main._blueprint_mode({"fhc_blueprint": "Digital"}, "Home Studio") == "digital"
+    assert main._blueprint_mode({"fhc_blueprint": "offline"}, "Home Studio") == "offline"  # studio visit
+    assert main._blueprint_mode({}, "Standard") == ""                                       # not FHC
+    monkeypatch.setattr(main.config, "ZOHO_CRM_HOME_STUDIO_LAYOUT", "")
+    assert main._blueprint_mode({}, "Standard") == ""

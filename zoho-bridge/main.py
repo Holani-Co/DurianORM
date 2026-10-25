@@ -8442,6 +8442,18 @@ def _whatsapp_campaign(conv) -> dict:
     return {}
 
 
+def _blueprint_mode(custom: dict, layout_name: str) -> str:
+    """The Home Studio Blueprint a new deal is CREATED in: "offline" only when a
+    studio visit set it; every other Home Studio deal the ORM creates came in
+    through a digital channel, so "digital". (Deals from the agent / Create
+    Deal button carried no mode and landed in Offline — D-551238, D-548808.)
+    "" for other layouts."""
+    mode = str((custom or {}).get("fhc_blueprint") or "").lower()
+    if not mode and layout_name and layout_name == config.ZOHO_CRM_HOME_STUDIO_LAYOUT:
+        return "digital"
+    return mode
+
+
 def _campaign_integration_source(conv, blueprint_mode: str = "") -> str:
     """The Integration Source a campaign lead's deal is CREATED with ("" = none).
     A confirmed studio visit (Offline Home Studio Blueprint) must keep it empty."""
@@ -8654,7 +8666,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     # Deal's field values, so the shared FHC state machine records the intended
     # mode and this one CRM boundary writes the configured selector field.
     # No studio visit => digital; a confirmed physical visit => offline.
-    blueprint_mode = str(custom.get("fhc_blueprint") or "").lower()
+    blueprint_mode = _blueprint_mode(custom, layout_name)
     if (config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD
             and blueprint_mode in ("digital", "offline")):
         blueprint_value = (
