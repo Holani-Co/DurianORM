@@ -3160,6 +3160,17 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "is a furniture customer and gets search_products like anywhere else, "
         "and someone who asks for doors is a doors customer."
         if vertical == "fhc" else "")
+    if vertical == "furniture":
+        fhc_rule = (
+            "\n\nTHIS IS THE FURNITURE ACCOUNT: people here want ready-made "
+            "furniture (sofas, beds, dining, recliners, office chairs and the like). "
+            "A greeting or a vague ask (\"hello\", \"I want to buy\", \"more "
+            "information\") is a furniture enquiry: ask which furniture they are "
+            "looking for, and NEVER offer doors or modular / made-to-measure "
+            "interiors as options or list the product lines. Register their "
+            "enquiry as line furniture. Only a customer who asks for doors or for "
+            "something built to measure (a modular kitchen, interiors) themselves "
+            "is a doors or fhc customer.")
     visit_rule = (
         " When the customer wants to VISIT a store in person — AFTER you have "
         "registered their enquiry this turn (so a deal exists) — ask for the DAY "

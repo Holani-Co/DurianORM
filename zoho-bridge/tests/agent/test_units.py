@@ -2957,3 +2957,13 @@ def test_home_studio_deals_are_created_digital(monkeypatch):
     assert main._blueprint_mode({}, "Standard") == ""                                       # not FHC
     monkeypatch.setattr(main.config, "ZOHO_CRM_HOME_STUDIO_LAYOUT", "")
     assert main._blueprint_mode({}, "Standard") == ""
+
+
+def test_furniture_account_defaults_to_furniture():
+    now = sa.datetime(2026, 10, 26, 12, 0, tzinfo=sa.timezone.utc)
+    furn = sa._system_prompt("dm", "Whatsapp Furniture", "furniture", now, "", "", 1,
+                             channel="whatsapp")
+    assert "THIS IS THE FURNITURE ACCOUNT" in furn and "NEVER offer doors" in furn
+    fhc = sa._system_prompt("dm", "Whatsapp FHC", "fhc", now, "", "", 1, channel="whatsapp")
+    assert "THIS IS THE FURNITURE ACCOUNT" not in fhc
+    assert "FULL HOME CUSTOMISATION ACCOUNT" in fhc
