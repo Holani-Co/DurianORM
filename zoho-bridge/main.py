@@ -64,10 +64,12 @@ import crm_state
 import config_store
 import catalog_import
 import catalog_sync
+import crm_automation
 import store_locator
 
 crm_state.init()     # round-robin counters for govt/bulk owner rotation
 config_store.init()  # routing-config override layer edited from the ORM UI
+crm_automation.init()  # CRM stage → WhatsApp automation run log
 
 app = FastAPI()
 
@@ -224,6 +226,8 @@ async def _start_reviews_poller():
     # Daily re-read of a linked Google Sheet price list (Settings → Product
     # Catalog) — each run no-ops unless auto-sync is switched on there.
     asyncio.create_task(catalog_sync.run_forever())
+    # CRM stage → WhatsApp automation: sends the scheduled follow-ups when due.
+    asyncio.create_task(crm_automation.run_forever())
 
 
 @app.on_event("shutdown")
@@ -7546,6 +7550,164 @@ async def admin_catalog_config_rollback(request: Request,
         raise HTTPException(status_code=404, detail="version not found")
     product_catalog.reload()
     return {"ok": True, "version_id": int(vid)}
+
+
+# ── CRM stage → WhatsApp template automation ───────────────────────────────
+# Zoho Workflow webhook → Chatwoot /webhooks/crm_stage (public) → here. The
+# secret in the webhook URL must match CRM_AUTOMATION_WEBHOOK_SECRET. Zoho gets
+# its 200 at once; the deal is read from Zoho itself (the payload is only a
+# pointer) and handled in the background.
+
+_CRM_AUTOMATION_TASKS: set = set()
+
+
+async def _crm_body(request: Request) -> dict:
+    """The webhook's fields, whichever body type the Zoho webhook was set up
+    with: raw JSON, x-www-form-urlencoded or form-data (parsed by hand — the
+    bridge has no python-multipart)."""
+    from urllib.parse import parse_qs
+    raw = (await request.body()).decode("utf-8", "replace")
+    try:
+        body = json.loads(raw)
+        if isinstance(body, dict):
+            return body
+    except ValueError:
+        pass
+    if "content-disposition" in raw.lower():
+        return {m.group(1): m.group(2).strip() for m in re.finditer(
+            r'name="([^"]+)"\r?\n(?:[^\r\n]+\r?\n)*\r?\n([^\r\n]*)', raw)}
+    return {k: v[0] for k, v in parse_qs(raw).items()}
+
+
+@app.post("/crm/stage-changed")
+async def crm_stage_changed(request: Request):
+    secret = (config.CRM_AUTOMATION_WEBHOOK_SECRET or "").strip()
+    key = (request.query_params.get("key") or request.headers.get("x-orm-key") or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="CRM automation webhook not configured")
+    if not hmac.compare_digest(key, secret):
+        raise HTTPException(status_code=401, detail="bad key")
+    body = await _crm_body(request)
+    deal_id = str(next((body.get(k) for k in ("deal_id", "id", "Deal_Id", "dealId")
+                        if body.get(k)), "") or request.query_params.get("deal_id") or "").strip()
+    if not deal_id.isdigit():
+        raise HTTPException(status_code=422, detail="deal_id missing")
+
+    async def _run():
+        try:
+            res = await crm_automation.handle_deal(deal_id)
+            print(f"[crm-automation] deal {deal_id}: {res}")
+        except Exception as e:
+            print(f"[crm-automation] deal {deal_id} failed: {e}")
+    task = asyncio.create_task(_run())
+    _CRM_AUTOMATION_TASKS.add(task)
+    task.add_done_callback(_CRM_AUTOMATION_TASKS.discard)
+    return {"ok": True, "deal_id": deal_id}
+
+
+@app.get("/admin/crm-automation")
+async def admin_crm_automation_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Everything the CRM WhatsApp Automation screen shows."""
+    _require_routing_admin(x_routing_admin_secret)
+    doc = crm_automation.get_doc()
+    try:
+        templates = [crm_automation.template_summary(t) for t in
+                     await chatwoot.list_whatsapp_templates(int(doc.get("inbox_id") or 0))]
+    except Exception:
+        templates = []
+    return {"doc": doc,
+            "active_version": config_store.active_version(config_store.CRM_AUTOMATION),
+            "templates": templates, "sources": crm_automation.SOURCES, "ops": crm_automation.OPS,
+            "runs": crm_automation.recent_runs(100),
+            "webhook_ready": bool((config.CRM_AUTOMATION_WEBHOOK_SECRET or "").strip())}
+
+
+@app.post("/admin/crm-automation/validate")
+async def admin_crm_automation_validate(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return crm_automation.validate(((await request.json()) or {}).get("doc"))
+
+
+@app.post("/admin/crm-automation/publish")
+async def admin_crm_automation_publish(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    v = crm_automation.validate(body.get("doc"))
+    if not v["ok"]:
+        raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
+    vid = config_store.publish(body["doc"], note=str(body.get("note") or ""),
+                               actor=str(body.get("actor") or ""),
+                               domain=config_store.CRM_AUTOMATION)
+    return {"ok": True, "version_id": vid, "warnings": v["warnings"]}
+
+
+@app.get("/admin/crm-automation/versions")
+async def admin_crm_automation_versions(x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    return {"versions": config_store.list_versions(config_store.CRM_AUTOMATION),
+            "audit": config_store.list_audit(50, config_store.CRM_AUTOMATION)}
+
+
+@app.get("/admin/crm-automation/versions/{version_id}")
+async def admin_crm_automation_version(version_id: int,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    row = config_store.get_version(version_id)
+    if not row or row.get("domain") != config_store.CRM_AUTOMATION:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        row["doc"] = json.loads(row.pop("doc_json", None) or "{}")
+    except Exception:
+        row["doc"] = {}
+    return row
+
+
+@app.post("/admin/crm-automation/rollback")
+async def admin_crm_automation_rollback(request: Request,
+                                        x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    vid = body.get("version_id")
+    row = config_store.get_version(int(vid)) if vid is not None else None
+    if not row or row.get("domain") != config_store.CRM_AUTOMATION \
+            or not config_store.rollback(int(vid), actor=str(body.get("actor") or "")):
+        raise HTTPException(status_code=404, detail="version not found")
+    return {"ok": True, "version_id": int(vid)}
+
+
+@app.post("/admin/crm-automation/preview")
+async def admin_crm_automation_preview(request: Request,
+                                       x_routing_admin_secret: Optional[str] = Header(None)):
+    """What each rule would do for a deal now — nothing is sent."""
+    _require_routing_admin(x_routing_admin_secret)
+    deal_id = str((await request.json() or {}).get("deal_id") or "").strip()
+    if not deal_id.isdigit():
+        raise HTTPException(status_code=422, detail={"message": "Enter a Zoho deal ID (digits)."})
+    try:
+        return await crm_automation.preview(deal_id)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail={"message": str(e)[:300]})
+
+
+@app.post("/admin/crm-automation/test-send")
+async def admin_crm_automation_test_send(request: Request,
+                                         x_routing_admin_secret: Optional[str] = Header(None)):
+    """Send one rule's template, filled from a real deal, to a TEST number."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json() or {}
+    doc = crm_automation.get_doc()
+    rule = next((r for r in doc.get("rules") or [] if r.get("id") == body.get("rule_id")), None)
+    phone = re.sub(r"\D", "", str(body.get("phone") or ""))
+    if not rule or len(phone) < 11 or not str(body.get("deal_id") or "").isdigit():
+        raise HTTPException(status_code=422, detail={
+            "message": "Pick a rule, a Zoho deal ID and a test number with country code."})
+    try:
+        deal = await crm_automation._fetch_deal(str(body["deal_id"]))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail={"message": str(e)[:300]})
+    return await crm_automation.send_rule(rule, deal, doc, to_phone=phone, test=True)
 
 
 @app.post("/reviews/regenerate")

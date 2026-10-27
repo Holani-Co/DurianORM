@@ -451,6 +451,17 @@ Rails.application.routes.draw do
                 post :rollback
               end
             end
+            resource :crm_automation_config, controller: 'crm_automation_config', only: [:show] do
+              collection do
+                post :validate
+                post :publish
+                get  :versions
+                get  :version
+                post :rollback
+                post :preview
+                post :test_send
+              end
+            end
             resource :product_catalog_config, controller: 'product_catalog_config', only: [:show] do
               collection do
                 post :preview
@@ -731,6 +742,7 @@ Rails.application.routes.draw do
   get 'webhooks/instagram', to: 'webhooks/instagram#verify'
   post 'webhooks/instagram', to: 'webhooks/instagram#events'
   post 'webhooks/tiktok', to: 'webhooks/tiktok#events'
+  post 'webhooks/crm_stage', to: 'webhooks/crm_stage#process_payload'
   post 'webhooks/shopify', to: 'webhooks/shopify#events'
 
   namespace :twitter do

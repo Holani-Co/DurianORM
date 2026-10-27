@@ -9,6 +9,8 @@ zoho-bridge/config_store.db
 zoho-bridge/config_store.db-journal
 zoho-bridge/crm_state.db
 zoho-bridge/crm_state.db-journal
+zoho-bridge/crm_automation.db
+zoho-bridge/crm_automation.db-journal
 docs/
 zoho-bridge/venv
 chatwoot/.git_sha
