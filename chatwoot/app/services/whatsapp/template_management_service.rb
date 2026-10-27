@@ -125,14 +125,16 @@ class Whatsapp::TemplateManagementService
     next_url.present? ? templates + fetch_templates(next_url) : templates
   end
 
+  # Meta's template id is the identity; name + language only for rows never
+  # submitted. A row renamed locally (Meta can't rename) takes Meta's name back,
+  # and one template that can't be saved is logged and skipped, not fatal.
   def import_template!(meta_template, synced_at)
-    template = @inbox.whatsapp_templates.find_or_initialize_by(
-      name: meta_template['name'],
-      language: meta_template['language']
-    )
+    template = local_template_for(meta_template)
     status = meta_template['status'].presence || 'PENDING'
 
     template.assign_attributes(
+      name: meta_template['name'],
+      language: meta_template['language'],
       account: @inbox.account,
       meta_template_id: meta_template['id'],
       category: meta_template['category'],
@@ -144,6 +146,13 @@ class Whatsapp::TemplateManagementService
     )
     apply_status_timestamps(template, status, synced_at)
     template.save!
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.warn("[whatsapp templates] inbox #{@inbox.id}: skipped #{meta_template['name']} (#{meta_template['id']}): #{e.message}")
+  end
+
+  def local_template_for(meta_template)
+    @inbox.whatsapp_templates.find_by(meta_template_id: meta_template['id']) ||
+      @inbox.whatsapp_templates.find_or_initialize_by(name: meta_template['name'], language: meta_template['language'])
   end
 
   def apply_status_timestamps(template, status, timestamp)

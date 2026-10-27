@@ -3135,3 +3135,43 @@ def test_auto_webhook_security_and_dispatch(monkeypatch):
     client.post("/crm/stage-changed?key=s3&deal_id=222")
     client.post("/crm/stage-changed?key=s3", files={"deal_id": (None, "333")})   # form-data
     assert seen[1:] == ["111", "222", "333"]
+def test_off_scope_advice_is_replaced():
+    # FHC WhatsApp, 24 Oct: "what to do if I am feeling tired"
+    tired = ("Please take a break, drink some water, and rest in a comfortable place. "
+             "If the tiredness comes with chest pain, please seek medical help promptly.")
+    assert sa.off_scope_line(tired) == sa._OFF_SCOPE_LINE
+    assert sa.off_scope_line("You should consult a lawyer for that.") == sa._OFF_SCOPE_LINE
+    # in-scope replies, small talk and kitchen fittings pass untouched
+    for ok in ("Sorry to hear that, Vaibhav. Please take some rest — we can continue "
+               "with your kitchen redesign whenever you feel ready.",
+               "We can add a tall unit with a medicine drawer next to the fridge.",
+               "Our Kirti Nagar showroom is open 11 AM to 9 PM, all days.",
+               "EMI options available"):
+        assert sa.off_scope_line(ok) == ""
+    # the fixed lines themselves pass the other guardrails
+    line = sa._OFF_SCOPE_LINE
+    assert not sa.comment_violation(line) and not sa.link_violation(line)
+    assert sa.off_scope_line(line) == ""
+
+
+def test_home_studio_deals_are_created_digital(monkeypatch):
+    # Agent / Create-Deal FHC deals carried no fhc_blueprint, so Integration
+    # Source stayed empty and Zoho put them in the Offline Blueprint.
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_HOME_STUDIO_LAYOUT", "Home Studio")
+    assert main._blueprint_mode({}, "Home Studio") == "digital"
+    assert main._blueprint_mode({"fhc_blueprint": "Digital"}, "Home Studio") == "digital"
+    assert main._blueprint_mode({"fhc_blueprint": "offline"}, "Home Studio") == "offline"  # studio visit
+    assert main._blueprint_mode({}, "Standard") == ""                                       # not FHC
+    monkeypatch.setattr(main.config, "ZOHO_CRM_HOME_STUDIO_LAYOUT", "")
+    assert main._blueprint_mode({}, "Standard") == ""
+
+
+def test_furniture_account_defaults_to_furniture():
+    now = sa.datetime(2026, 10, 26, 12, 0, tzinfo=sa.timezone.utc)
+    furn = sa._system_prompt("dm", "Whatsapp Furniture", "furniture", now, "", "", 1,
+                             channel="whatsapp")
+    assert "THIS IS THE FURNITURE ACCOUNT" in furn and "NEVER offer doors" in furn
+    fhc = sa._system_prompt("dm", "Whatsapp FHC", "fhc", now, "", "", 1, channel="whatsapp")
+    assert "THIS IS THE FURNITURE ACCOUNT" not in fhc
+    assert "FULL HOME CUSTOMISATION ACCOUNT" in fhc
