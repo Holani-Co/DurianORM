@@ -3135,6 +3135,23 @@ def test_auto_webhook_security_and_dispatch(monkeypatch):
     client.post("/crm/stage-changed?key=s3&deal_id=222")
     client.post("/crm/stage-changed?key=s3", files={"deal_id": (None, "333")})   # form-data
     assert seen[1:] == ["111", "222", "333"]
+def test_price_shorthand_comment_gets_dm_invite():
+    # convs 9477 / 10284: "Pp" got "Welcome to Durian Furniture. How may we assist you today?"
+    for pp in ("Pp", "pp", "PP?", "P.P", "p p", "Pp pls", "price plz", "Price?", "rate?",
+               "Pp 🙏", "pp please"):
+        assert sa.is_price_shorthand(pp), pp
+    for other in ("Hi", "pretty", "Happy", "price of this sofa in Delhi?", "Pappu", "app",
+                  "nice price", ""):
+        assert not sa.is_price_shorthand(other), other
+    greet = "Hello! Welcome to Durian Furniture. How may we assist you today? – Team Durian"
+    assert sa.price_comment_line("Pp", greet) == sa._COMMENT_PRICE_LINE
+    assert sa.comment_violation(sa._COMMENT_PRICE_LINE) == ""
+    # a reply that already invites a DM, or a comment that isn't shorthand, is kept
+    assert sa.price_comment_line("Pp", "Thank you! Please DM us for the Quinn recliner's price.") == ""
+    assert sa.price_comment_line("Love this!", greet) == ""
+    assert sa.is_low_value_comment("Pp") is False
+
+
 def test_off_scope_advice_is_replaced():
     # FHC WhatsApp, 24 Oct: "what to do if I am feeling tired"
     tired = ("Please take a break, drink some water, and rest in a comfortable place. "
