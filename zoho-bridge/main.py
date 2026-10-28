@@ -54,6 +54,7 @@ import zoho_crm
 import google_reviews as gr
 import forwarded_email
 import deal_stage_sync
+import owner_sync
 import review_reply
 import reviews_poller
 import website_reviews
@@ -228,6 +229,9 @@ async def _start_reviews_poller():
     asyncio.create_task(catalog_sync.run_forever())
     # CRM stage → WhatsApp automation: sends the scheduled follow-ups when due.
     asyncio.create_task(crm_automation.run_forever())
+    # Daily Zoho user snapshot — swaps deactivated/deleted deal owners at deal
+    # time and lists them in Settings → Routing config (owner_sync.py).
+    asyncio.create_task(owner_sync.run_forever())
 
 
 @app.on_event("shutdown")
@@ -7017,11 +7021,43 @@ async def admin_routing_config_get(x_routing_admin_secret: Optional[str] = Heade
         "effective":         effective,
         "override":          config_store.get_active_override(),
         "active_version":    config_store.active_version(),
-        "known_owners":      _known_owners(effective),
+        # Pickers: the owners already in the rules + every active Zoho user.
+        "known_owners":      _merge_owner_options(_known_owners(effective),
+                                                  owner_sync.active_owner_options()),
         "core_categories":   list(CORE_CATEGORIES),
         "default_subcategories": _default_subcategories(),
         "cache_ttl_seconds": classifier._RULES_CACHE_TTL,
     }
+
+
+def _merge_owner_options(*groups) -> list:
+    seen, out = set(), []
+    for group in groups:
+        for o in group:
+            key = (o.get("owner_email"), str(o.get("owner_id")))
+            if o.get("owner_email") and key not in seen:
+                seen.add(key)
+                out.append({"owner_email": o["owner_email"], "owner_id": str(o.get("owner_id") or "")})
+    return sorted(out, key=lambda x: x["owner_email"].lower())
+
+
+@app.get("/admin/owner-sync")
+async def admin_owner_sync(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Owner slots (routing config + stores) whose Zoho user is deactivated or
+    deleted, with suggested successors — Settings panel + daily alert email."""
+    _require_routing_admin(x_routing_admin_secret)
+    return owner_sync.audit()
+
+
+@app.post("/admin/owner-sync/run")
+async def admin_owner_sync_run(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Re-read Zoho's users now ("Sync with Zoho" button), then audit."""
+    _require_routing_admin(x_routing_admin_secret)
+    try:
+        await owner_sync.refresh()
+    except Exception as e:  # noqa: BLE001
+        return {**owner_sync.audit(), "error": str(e)[:300]}
+    return owner_sync.audit()
 
 
 @app.post("/admin/routing-config/validate")
@@ -8099,6 +8135,32 @@ async def _resolve_fhc_owner(custom: dict, body_text: str, subject: str,
     return fhc_fallback_owner() if owner.get("location") == "central" else owner
 
 
+def _dead_owner_fallback(owner: dict) -> dict:
+    """Who takes a deal whose owner is dead in Zoho and has no successor: the
+    govt/bulk catch-all (Saharsh) for bulk/project owners, the FHC fallback for
+    FHC, else the central fallback."""
+    R = classifier._ROUTING_RULES or {}
+    oid = str((owner or {}).get("owner_id") or "")
+    bulk = [R.get("crm_owner_routing_govt_bulk") or {}, R.get("crm_owner_routing_private") or {}]
+    if oid and any(str(e.get("owner_id")) == oid for e in _walk_owner_dicts(bulk)):
+        catch_all = (R.get("crm_owner_routing_govt_bulk") or {}).get(SAHARSH_TERRITORY_KEY) or []
+        if catch_all and str(catch_all[0].get("owner_id")) != oid:
+            return _owner_dict(SAHARSH_TERRITORY_KEY, catch_all[0], "Furniture")
+    fhc = R.get("crm_owner_routing_homestudio_fallback") or {}
+    if (owner or {}).get("vertical") == "FHC" and fhc.get("owner_id"):
+        return _owner_dict("homestudio:out-of-coverage", fhc, "FHC")
+    return _fallback_owner()
+
+
+async def _resync_owners() -> bool:
+    try:
+        await owner_sync.refresh()
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[owner-sync] re-sync after an Owner.id rejection failed: {e}")
+        return False
+
+
 def _mentions_doors(body_text: str, subject: str) -> bool:
     """A doors/veneer/plywood/laminate enquiry — even when it classifies as a
     bulk order (e.g. '100 doors') it must route to the doors desks, not the
@@ -8786,6 +8848,9 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             raise HTTPException(
                 422, owner.get("reason")
                 or "location could not be determined — not tagging to CRM")
+    # A routing/store owner whose Zoho user was deactivated or deleted fails the
+    # whole deal (INVALID_DATA on Owner.id, conv 11191) — swap it for a live one.
+    owner, owner_note = owner_sync.live_owner(owner, _dead_owner_fallback(owner))
     owner_id = owner.get("owner_id", "")
 
     # Contact matching: prefer an agent-supplied phone, else the phone the
@@ -8819,7 +8884,21 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"CRM Contact resolve failed: {e}")
+        # Zoho rejects the owner although the last sync saw it live (deactivated
+        # since): re-sync once and retry with whoever replaces it.
+        if "Owner.id" not in str(e) or not await _resync_owners():
+            raise HTTPException(500, f"CRM Contact resolve failed: {e}")
+        owner, owner_note = owner_sync.live_owner(owner, _dead_owner_fallback(owner))
+        if owner.get("owner_id", "") == owner_id:
+            raise HTTPException(500, f"CRM Contact resolve failed: {e}")
+        owner_id = owner.get("owner_id", "")
+        try:
+            contact_id, contact_created = await _ensure_crm_contact(
+                int(conv_id), conv, owner_id=owner_id, phone=phone_override)
+        except HTTPException:
+            raise
+        except Exception as e2:
+            raise HTTPException(500, f"CRM Contact resolve failed: {e2}")
 
     # Existing-deal info: when we matched an EXISTING contact (not one we just
     # created) that already has deals, surface them as a note for the team — but
@@ -9039,7 +9118,9 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         await chatwoot.post_private_note(
             int(conv_id),
             f"✅ CRM Deal created by {agent_name} — "
-            f"[View Deal in Zoho CRM]({zoho_crm.deal_url(deal_id)})",
+            f"[View Deal in Zoho CRM]({zoho_crm.deal_url(deal_id)})"
+            + (f"\n⚠️ {owner_note} Pick a permanent owner in Settings → Routing "
+               f"config." if owner_note else ""),
         )
     except Exception as e:
         print(f"[crm] Deal audit note failed for conv {conv_id}: {e}")

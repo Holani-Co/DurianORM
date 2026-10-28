@@ -45,6 +45,17 @@ class Api::V1::Accounts::Integrations::RoutingConfigController < Api::V1::Accoun
     proxy_post('/admin/routing-config/preview', request.raw_post)
   end
 
+  # GET .../routing_config/owner_sync — deal owners (routing + stores) whose
+  # Zoho user is deactivated or deleted, with suggested successors.
+  def owner_sync
+    proxy_get('/admin/owner-sync')
+  end
+
+  # POST .../routing_config/owner_sync_run — re-read Zoho's users now.
+  def owner_sync_run
+    proxy_post('/admin/owner-sync/run', '{}')
+  end
+
   private
 
   def check_admin_authorization

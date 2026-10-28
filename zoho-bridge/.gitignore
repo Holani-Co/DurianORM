@@ -6,3 +6,6 @@ routing_rules.local.yaml
 
 # raw store-locator export (processed into data/store_registry.json)
 data/*.xlsx
+
+# owner_sync.py snapshot of Zoho users
+owner_sync_state.json

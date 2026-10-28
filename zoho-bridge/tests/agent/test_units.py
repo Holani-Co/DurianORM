@@ -3221,3 +3221,66 @@ def test_furniture_account_defaults_to_furniture():
     fhc = sa._system_prompt("dm", "Whatsapp FHC", "fhc", now, "", "", 1, channel="whatsapp")
     assert "THIS IS THE FURNITURE ACCOUNT" not in fhc
     assert "FULL HOME CUSTOMISATION ACCOUNT" in fhc
+
+
+def test_owner_sync_swaps_dead_owners_and_audits(monkeypatch):
+    """A deactivated/deleted Zoho owner never fails a deal (conv 11191): a
+    same-named successor, else the reporting manager, else the fallback."""
+    import owner_sync
+    monkeypatch.setattr(owner_sync, "_state", {
+        "at": "2026-10-28T08:45:00+05:30",
+        "active": {"602": {"id": "602", "name": "Delhi Private Project", "email": "bhanu@x.in", "reports_to": ""},
+                   "900": {"id": "900", "name": "Franchise Team", "email": "fr@x.in", "reports_to": ""},
+                   "1":   {"id": "1", "name": "Saharsh", "email": "s@x.in", "reports_to": ""}},
+        "inactive": {"333": {"id": "333", "name": "Darbhanga Dealer", "email": "d@x.in", "reports_to": "900"}},
+        "names": {"355": "Delhi Private Project_", "278": "RAJ KUMAR SINGH"}})
+    fallback = {"owner_id": "1", "owner_email": "s@x.in"}
+    assert owner_sync.status("602") == "active" and owner_sync.status("333") == "deactivated"
+    assert owner_sync.status("355") == "deleted"
+    # live owner kept untouched
+    keep = {"owner_id": "602", "owner_email": "bhanu@x.in", "location": "private:Delhi"}
+    assert owner_sync.live_owner(keep, fallback) == (keep, "")
+    # deleted, renamed role → same-name successor (keeps location/vertical)
+    new, note = owner_sync.live_owner({"owner_id": "355", "location": "private:Delhi"}, fallback)
+    assert new["owner_id"] == "602" and new["location"] == "private:Delhi"
+    assert "same Zoho user name" in note
+    # deactivated → reporting manager
+    assert owner_sync.live_owner({"owner_id": "333"}, fallback)[0]["owner_id"] == "900"
+    # deleted, no successor → fallback
+    new, note = owner_sync.live_owner({"owner_id": "278"}, fallback)
+    assert new == fallback and "fallback" in note
+    # no snapshot yet → never swap
+    monkeypatch.setattr(owner_sync, "_state", {"at": None, "active": {}})
+    assert owner_sync.status("355") == "unknown"
+    assert owner_sync.live_owner({"owner_id": "355"}, fallback)[0]["owner_id"] == "355"
+
+
+def test_owner_sync_audit_lists_routing_and_store_slots(monkeypatch):
+    import owner_sync
+    monkeypatch.setattr(owner_sync, "_state", {
+        "at": "x", "active": {"602": {"id": "602", "name": "Delhi Private Project", "email": "b@x.in", "reports_to": ""}},
+        "inactive": {}, "names": {"355": "Delhi Private Project_"}})
+    monkeypatch.setattr(owner_sync.classifier, "get_routing_rules", lambda *a, **k: {
+        "crm_owner_routing_private": {"Delhi": {"owner_email": "a@x.in", "owner_id": "355"}},
+        "crm_owner_routing_govt_bulk": {"Kolkata": [{"owner_email": "b@x.in", "owner_id": "602"},
+                                                    {"owner_email": "v@x.in", "owner_id": "777"}]},
+        "crm_owner_routing": {"Parked": {"owner_email": "p@x.in", "owner_id": "888"}}})
+    monkeypatch.setattr(owner_sync.store_locator, "_stores", lambda: [
+        {"id": "s1", "name": "Ludhiana Store", "crm_owner_id": "246"}, {"id": "s2", "name": "No owner"}])
+    rep = owner_sync.audit()
+    rows = {(p["kind"], p["label"]): p for p in rep["problems"]}
+    assert set(rows) == {("routing", "Delhi"), ("routing", "Kolkata · #2"), ("store", "Ludhiana Store")}
+    assert rows[("routing", "Delhi")]["successor"]["id"] == "602"
+    assert rows[("store", "Ludhiana Store")]["status"] == "deleted"
+    assert "888" not in {p["owner_id"] for p in rep["problems"]}   # parked retail matrix ignored
+
+
+def test_dead_bulk_owner_falls_back_to_saharsh(monkeypatch):
+    import main
+    rules = {"crm_owner_routing_govt_bulk": {
+        "Uttrakhand and Punjab": [{"owner_email": "raj@x.in", "owner_id": "278"}],
+        main.SAHARSH_TERRITORY_KEY: [{"owner_email": "saharsh@x.in", "owner_id": "1"}]},
+        "crm_owner_routing_fallback": {"owner_email": "hello@x.in", "owner_id": "9"}}
+    monkeypatch.setattr(main.classifier, "_ROUTING_RULES", rules)
+    assert main._dead_owner_fallback({"owner_id": "278"})["owner_id"] == "1"
+    assert main._dead_owner_fallback({"owner_id": "555"})["owner_id"] == "9"

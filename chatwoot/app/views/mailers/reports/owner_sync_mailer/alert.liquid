@@ -1,0 +1,22 @@
+<tr>
+  <td>
+    <h1 style="color: #0F172A; font-size: 22px; line-height: 30px; margin: 0 0 6px;">Deal owners inactive in Zoho</h1>
+    <p style="color: #334155; font-size: 15px; line-height: 24px; margin: 12px 0;">Hello,</p>
+    <p style="color: #334155; font-size: 15px; line-height: 24px; margin: 0 0 12px;">
+      These ORM deal owners are deactivated or deleted in Zoho CRM. New deals for them are going to the suggested
+      replacement (or the fallback owner) until a permanent owner is picked in Settings → Routing config, or
+      Settings → Stores for a store.
+    </p>
+    <table cellpadding="6" cellspacing="0" style="border-collapse: collapse; font-size: 13px; color: #334155; width: 100%;">
+      <tr style="background: #F1F5F9; text-align: left;">
+        <th>Where</th><th>Owner</th><th>Status</th><th>Deals go to now</th>
+      </tr>
+      {% for p in problems %}
+      <tr style="border-top: 1px solid #E2E8F0;">
+        <td>{{ p.where }}</td><td>{{ p.owner }}</td><td>{{ p.status }}</td><td>{{ p.successor }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p style="color: #64748B; font-size: 12px; line-height: 18px; margin: 12px 0 0;">Zoho users last synced {{ synced_at }}.</p>
+  </td>
+</tr>

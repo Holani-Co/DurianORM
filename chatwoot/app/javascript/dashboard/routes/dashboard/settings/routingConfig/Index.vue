@@ -13,6 +13,9 @@ const CrmOwnersEditor = defineAsyncComponent(
   () => import('./CrmOwnersEditor.vue')
 );
 const HistoryPanel = defineAsyncComponent(() => import('./HistoryPanel.vue'));
+const OwnerSyncPanel = defineAsyncComponent(
+  () => import('./OwnerSyncPanel.vue')
+);
 const PreviewPanel = defineAsyncComponent(() => import('./PreviewPanel.vue'));
 const AiRulesEditor = defineAsyncComponent(() => import('./AiRulesEditor.vue'));
 const ThresholdsEditor = defineAsyncComponent(
@@ -142,6 +145,7 @@ const tabs = computed(() => [
       </div>
 
       <div v-else-if="activeTab === 'owners'">
+        <OwnerSyncPanel />
         <CrmOwnersEditor
           :effective="effective"
           :override="override"
