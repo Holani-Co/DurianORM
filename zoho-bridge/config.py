@@ -998,3 +998,14 @@ FORWARD_CONFIRM_SENDERS = _csv("FORWARD_CONFIRM_SENDERS")
 # boot and then daily at this IST time — before the 9:15 owner-alert email.
 OWNER_SYNC_HOUR   = int(os.environ.get("OWNER_SYNC_HOUR", "8"))
 OWNER_SYNC_MINUTE = int(os.environ.get("OWNER_SYNC_MINUTE", "45"))
+
+# ── WhatsApp idle follow-up + auto-resolve (idle_followup.py) ──────────────
+# Chats the AI owns whose customer went quiet: ONE chat-aware follow-up ~N hours
+# after their last message (inside WhatsApp's 24h window, never at night), then
+# resolved if still silent M hours after it. A reply reopens the chat.
+IDLE_FOLLOWUP_ENABLED     = _bool("IDLE_FOLLOWUP_ENABLED", "false")
+IDLE_FOLLOWUP_INBOXES     = [int(x) for x in os.environ.get(
+    "IDLE_FOLLOWUP_INBOXES", "25,29").split(",") if x.strip().isdigit()]
+IDLE_FOLLOWUP_AFTER_HOURS = float(os.environ.get("IDLE_FOLLOWUP_AFTER_HOURS", "20"))
+IDLE_RESOLVE_AFTER_HOURS  = float(os.environ.get("IDLE_RESOLVE_AFTER_HOURS", "24"))
+IDLE_SWEEP_MINUTES        = int(os.environ.get("IDLE_SWEEP_MINUTES", "15"))
