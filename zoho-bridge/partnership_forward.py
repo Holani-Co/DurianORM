@@ -20,6 +20,10 @@ import config
 # The routing categories this flow handles — advertising/marketing/PR/media and
 # brand/influencer/sponsorship collaborations. Others still use plain handoff.
 PARTNERSHIP_CATEGORIES = ("marketing_advertising", "collaboration_request")
+# A social job seeker's details go to HR the same way (the agent's job hand-over
+# only assigned an ORM team nobody in HR watches — convs 9847, 10941).
+JOB_CATEGORY = "career_job_enquiry"
+FORWARD_CATEGORIES = PARTNERSHIP_CATEGORIES + (JOB_CATEGORY,)
 
 
 def _lat(s) -> str:
@@ -95,15 +99,22 @@ def build_pdf(conv: dict, channel: str, category_display: str, messages: list) -
     return bytes(pdf.output())
 
 
-async def run(conv_id: int, conv: dict, category: str, channel: str) -> dict:
-    """Do the forward. Idempotent (skips once `partnership_forwarded` is set).
-    Returns {forwarded: True, team, recipient, display} on success, else
-    {forwarded: False, reason}."""
-    if not config.PARTNERSHIP_FORWARD_ENABLED:
+async def run(conv_id: int, conv: dict, category: str, channel: str,
+              details: str = "") -> dict:
+    """Do the forward. Idempotent per category (skips once
+    `partnership_forwarded` holds it). `details` (a job seeker's role /
+    experience / city / number) heads the email. Returns {forwarded: True, team,
+    recipient, display} on success, else {forwarded: False, reason}."""
+    enabled = config.JOB_HR_FORWARD_ENABLED if category == JOB_CATEGORY \
+        else config.PARTNERSHIP_FORWARD_ENABLED
+    if not enabled:
         return {"forwarded": False, "reason": "disabled"}
-    if category not in PARTNERSHIP_CATEGORIES:
+    if category not in FORWARD_CATEGORIES:
         return {"forwarded": False, "reason": "category_not_forwardable"}
-    if (conv.get("custom_attributes") or {}).get("partnership_forwarded"):
+    done = (conv.get("custom_attributes") or {}).get("partnership_forwarded")
+    # A pitch forwards once per conversation; a job seeker's own forward only
+    # once per job enquiry (an earlier pitch in the chat doesn't block it).
+    if done and (done == category or category != JOB_CATEGORY):
         return {"forwarded": False, "reason": "already_forwarded"}
 
     rule = _rule_for(category)
@@ -129,6 +140,7 @@ async def run(conv_id: int, conv: dict, category: str, channel: str) -> dict:
     body = "\n".join([
         f"Forwarding a {display.lower()} received on {channel.title()} "
         f"from {name or 'a customer'}.", "",
+        *([f"Details shared: {details.strip()}", ""] if details.strip() else []),
         "You can view and continue the conversation in ORM here:",
         link, "",
         "The full conversation so far is attached as a PDF.", "",

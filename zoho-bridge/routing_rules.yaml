@@ -638,7 +638,7 @@ categories:
     display_name: Career / Job Enquiry
     action: forward
     forward_to: hrcoordinator@durian.in
-    cc: []
+    cc: [hr@durian.in]
     bcc: []
     include_customer_in_cc: false
     description: |

@@ -1921,6 +1921,8 @@ _PF_RULES = {"categories": {
     "collaboration_request": {"display_name": "Collaboration Request",
                               "forward_to": "snehal@durian.in", "cc": [],
                               "team": "Collaboration Request"},
+    "career_job_enquiry": {"display_name": "Career / Job Enquiry",
+                           "forward_to": "hrcoordinator@durian.in", "cc": ["hr@durian.in"]},
 }}
 
 
@@ -1993,6 +1995,31 @@ def test_partnership_run_idempotent_disabled_and_bad_category(monkeypatch):
     assert asyncio.run(pf2.run(1, {"custom_attributes": {}}, "collaboration_request",
                                "instagram"))["reason"] == "disabled"
     assert not fake2.emails
+
+
+def test_job_enquiry_is_emailed_to_hr_with_details(monkeypatch):
+    """IG/FB/WhatsApp job seekers reach HR by email (convs 9847 / 10941 were
+    only assigned an ORM team), and the candidate is told where to send a CV."""
+    import asyncio
+    import social_agent as sa
+    pf, fake = _pf_setup(monkeypatch, enabled=False)        # partnership flag off …
+    monkeypatch.setattr(pf.config, "JOB_HR_FORWARD_ENABLED", True)   # … job forward on
+    conv = {"custom_attributes": {"partnership_forwarded": "collaboration_request"},
+            "meta": {"sender": {"name": "Nidhi"}}}
+    res = asyncio.run(pf.run(77, conv, pf.JOB_CATEGORY, "whatsapp",
+                             details="showroom sales, 3 yrs, Pune · 9876543210"))
+    assert res["forwarded"] and res["recipient"] == "hrcoordinator@durian.in"
+    to, _fname, cc, _pdf, body = fake.emails[0][:5]
+    assert to == "hrcoordinator@durian.in" and cc == "hr@durian.in"
+    assert "Details shared: showroom sales, 3 yrs, Pune · 9876543210" in body
+    # once per job enquiry
+    conv["custom_attributes"]["partnership_forwarded"] = pf.JOB_CATEGORY
+    assert asyncio.run(pf.run(77, conv, pf.JOB_CATEGORY, "whatsapp"))["reason"] == "already_forwarded"
+    monkeypatch.setattr(pf.config, "JOB_HR_FORWARD_ENABLED", False)
+    assert asyncio.run(pf.run(78, {"custom_attributes": {}}, pf.JOB_CATEGORY,
+                              "instagram"))["reason"] == "disabled"
+    line = sa._job_hr_line("hrcoordinator@durian.in")
+    assert "HR team" in line and "hrcoordinator@durian.in" in line
 
 
 def test_partnership_skill_sets_escalate_and_keep_team(monkeypatch):
