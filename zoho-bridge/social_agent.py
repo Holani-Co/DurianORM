@@ -3996,6 +3996,21 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # (convs 10472 / 10505 / 10507: "we've shared your request" with no team,
         # no assignee — only a label). keep_team: a partnership forward already
         # routed it to its own team.
+        # A job seeker's details go to HR by email (link + transcript PDF), not
+        # just to an ORM team; the line below names the HR address for their CV.
+        hr = {}
+        if category == "job" and surface != "comment":
+            try:
+                hr = await partnership_forward.run(
+                    conv_id, conv, partnership_forward.JOB_CATEGORY, channel,
+                    details=" · ".join(x for x in (esc.get("details"),
+                                                   _known_phone(ctx)) if x))
+            except Exception as e:  # noqa: BLE001
+                print(f"[agent] HR forward failed for conv {conv_id}: {e}")
+            if hr.get("forwarded"):
+                trace.append({"type": "decision", "source": "rule", "visibility": "internal",
+                              "label": "Forwarded to HR",
+                              "detail": f"job enquiry emailed to {hr.get('recipient')}"})
         team = "" if ctx.get("keep_team") else \
             await _route_handoff(conv_id, category, vertical)
         if team:
@@ -4003,6 +4018,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
                           "label": "Routed", "detail": f"{category} → team '{team}'"})
         routed = bool(team) or bool(ctx.get("keep_team"))
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
+            _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
             _handoff_line(category, surface, routed, esc.get("customer_message") or "")
         msg = mask_stored_phone(scrub(line, surface), phone_val or "", typed)
         # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
@@ -4333,6 +4349,13 @@ async def _route_handoff(conv_id, category: str, vertical: str) -> str:
     except Exception as e:
         print(f"[agent] handoff routing to {name!r} failed for conv {conv_id}: {e}")
     return ""
+
+
+def _job_hr_line(hr_email: str) -> str:
+    """The job seeker's line once their details were emailed to HR."""
+    return ("Thank you for your interest in working with Durian! We've shared your "
+            "details with our HR team. You can also email your CV to "
+            f"{hr_email} — they'll contact you if there's a suitable opening.")
 
 
 def _handoff_line(category: str, surface: str, routed: bool, model_msg: str = "") -> str:

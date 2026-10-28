@@ -348,6 +348,9 @@ REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEA
 # the Chatwoot conversation link + the full transcript as a PDF, and the
 # conversation is assigned to that category's Chatwoot team. Dark-launched.
 PARTNERSHIP_FORWARD_ENABLED  = _bool("PARTNERSHIP_FORWARD_ENABLED", "false")
+# Job seekers on IG/FB/WhatsApp: once the agent has their details, email them to
+# the career_job_enquiry category's forward_to / cc (HR) the same way. Kill switch.
+JOB_HR_FORWARD_ENABLED       = _bool("JOB_HR_FORWARD_ENABLED", "true")
 # The email-channel inbox used to SEND the forward (a social inbox can't email).
 # Defaults to the review-escalation inbox (both are hello@durian.in).
 PARTNERSHIP_FORWARD_INBOX_ID = int(os.environ.get("PARTNERSHIP_FORWARD_INBOX_ID", "0") or 0) \
