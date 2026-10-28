@@ -2956,6 +2956,31 @@ def unbacked_claim(reply: str) -> bool:
     return bool(_CLAIM_RE.search(reply or ""))
 
 
+# "Pp" under a post is Instagram shorthand for "price please" — the agent read
+# it as a bare greeting and replied "Welcome to Durian Furniture. How may we
+# assist you today?" (convs 9477, 9810, 10284 …). A comment made only of price
+# shorthand is a price question: it must get the DM invite.
+_PRICE_SHORTHAND_RE = re.compile(
+    r"^(p\s*\.?\s*p|price|prize|rate|cost)\s*\.?"
+    r"(\s*(pls|plz|please|plss|pl|bta\w*|kya\w*|kitn\w*|\?))*$", re.I)
+_DM_INVITE_RE = re.compile(r"\bdm\b|direct message|\bmessage us\b|\binbox\b", re.I)
+_COMMENT_PRICE_LINE = ("Thank you for your interest! Please DM us and we'll share "
+                       "the price and details with you.")
+
+
+def is_price_shorthand(text: str) -> bool:
+    t = _EMOJI_RE.sub("", (text or "").strip()).strip(" ?!.\n\t")
+    return bool(t) and bool(_PRICE_SHORTHAND_RE.match(t))
+
+
+def price_comment_line(comment: str, reply: str) -> str:
+    """The fixed DM invite that replaces a reply to a price-shorthand comment
+    ("Pp", "price pls") when that reply invites no DM, or "" to keep it."""
+    if is_price_shorthand(comment) and not _DM_INVITE_RE.search(reply or ""):
+        return _COMMENT_PRICE_LINE
+    return ""
+
+
 def is_low_value_comment(text: str) -> bool:
     t = (text or "").strip().lower()
     return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == ""
@@ -3060,7 +3085,8 @@ Read the comment and do EXACTLY ONE of these:
 - PRAISE / appreciation / love (including emoji-love) -> a brief, genuine \
 thank-you. finish(action=send).
 - A QUESTION about a product (price, "price?", "how much", availability, \
-colour, size, material, "is this in stock") -> name the product from THE POST \
+colour, size, material, "is this in stock") — including "PP" / "P.P" / \
+"pp pls", which is shorthand for "price please" and NEVER a greeting -> name the product from THE POST \
 above if you can, and warmly invite them to DM us so our team can share the \
 details and connect them to their nearest store. No price, no number. \
 finish(action=send).
@@ -3781,8 +3807,11 @@ async def _handle_locked(conv, conv_id, channel, surface,
         if _viz_used_today(prof) < config.VISUALIZER_DAILY_CAP:
             viz_pass = ("\n\n── VISUALIZER PASS FREE TODAY ──\n"
                         "A room preview is available for this customer.")
+    reply_to = latest or (incoming_texts[-1] if incoming_texts else '')
+    if surface == "comment" and is_price_shorthand(reply_to):
+        reply_to += '\n(This means "price please" — a price question.)'
     user = (f"── CONVERSATION (IST timestamps) ──\n{transcript}{viz_pass}\n\n"
-            f"── REPLY NOW TO ──\n{latest or (incoming_texts[-1] if incoming_texts else '')}")
+            f"── REPLY NOW TO ──\n{reply_to}")
 
     ctx = {"conv": conv, "conv_id": conv_id, "profile": prof,
            "vertical": vertical, "channel": channel, "surface": surface, "escalate": None,
@@ -4056,6 +4085,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
                       "detail": f"The draft gave advice outside Durian's business: "
                                 f"{reply[:200]}"})
         reply = scrub(scoped, surface)
+    priced = price_comment_line(latest_message, reply) if surface == "comment" else ""
+    if priced:
+        trace.append({"type": "policy", "source": "system", "visibility": "internal",
+                      "label": "Price shorthand answered with DM invite",
+                      "detail": f'"{(latest_message or "").strip()[:40]}" means price '
+                                f"please; the draft invited no DM: {reply[:200]}"})
+        reply = priced
 
     # A pincode ask is legitimate (not a re-ask) when this turn's store lookup
     # itself said "several showrooms there — ask for their pincode".
