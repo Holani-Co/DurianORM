@@ -328,6 +328,9 @@ GOOGLE_CLIENT_ID       = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET   = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REFRESH_TOKEN   = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
 GOOGLE_TOKEN_URL       = os.environ.get("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+# Store cards use each store's own Google Business Profile Maps link
+# (store_maps.py), refreshed daily from the GBP accounts above. Kill switch.
+STORE_MAPS_FROM_GBP    = _bool("STORE_MAPS_FROM_GBP", "true")
 # Optional: pin a single GBP account id (e.g. "accounts/123"); blank = auto-discover all.
 GBP_ACCOUNT_ID         = os.environ.get("GBP_ACCOUNT_ID", "")
 

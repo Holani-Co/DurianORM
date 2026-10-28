@@ -9,3 +9,6 @@ data/*.xlsx
 
 # owner_sync.py snapshot of Zoho users
 owner_sync_state.json
+
+# store_maps.py cache of GBP listing links
+store_maps_state.json

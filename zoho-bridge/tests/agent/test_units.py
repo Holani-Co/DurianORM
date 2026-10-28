@@ -3311,3 +3311,39 @@ def test_dead_bulk_owner_falls_back_to_saharsh(monkeypatch):
     monkeypatch.setattr(main.classifier, "_ROUTING_RULES", rules)
     assert main._dead_owner_fallback({"owner_id": "278"})["owner_id"] == "1"
     assert main._dead_owner_fallback({"owner_id": "555"})["owner_id"] == "9"
+
+
+def test_store_map_link_is_the_stores_own_google_listing(monkeypatch):
+    """FHC Kirti Nagar's card opened the Durian Furniture store in the same
+    building — each store now gets its own GBP listing's link (same vertical)."""
+    import store_maps
+    import store_locator
+    L = lambda title, pin, link, locality="": store_maps._listing({    # noqa: E731
+        "title": title, "metadata": {"mapsUri": link},
+        "storefrontAddress": {"postalCode": pin, "locality": locality}})
+    listings = [L("Durian Furniture - Delhi - Kirti Nagar", "110015", "cid-furn-kn"),
+                L("Durian Full Home Customisation", "110015", "cid-fhc-kn", "Delhi"),
+                L("Durian Experience Centre for Doors - Kirti Nagar", "110015", "cid-doors-kn"),
+                L("Durian Furniture - Noida - Sector 10", "201301", "cid-furn-n10"),
+                L("Durian Furniture - Noida - Sector 49", "201303", "cid-furn-n49"),
+                L("Durian Project Office- Bhopal", "462001", "cid-office")]
+    assert listings[-1] is None                       # project offices aren't stores
+    monkeypatch.setattr(store_maps, "_listings", [x for x in listings if x])
+    monkeypatch.setattr(store_maps.config, "STORE_MAPS_FROM_GBP", True)
+    fhc = {"id": "f", "primary_vertical": "fhc", "name": "Durian Full Home Customisation - Delhi - Kirti Nagar",
+           "pincode": "110015", "map_url": "short-link-of-the-furniture-store"}
+    assert store_maps.link_for(fhc) == "cid-fhc-kn"
+    assert store_maps.link_for({**fhc, "primary_vertical": "doors", "name": "Durian Doors - Kirti Nagar"}) == "cid-doors-kn"
+    # a wrong pincode in the sheet never pulls another place's listing
+    noida10 = {"primary_vertical": "furniture", "name": "Durian Furniture - Noida - Sector 10", "pincode": "110015"}
+    assert store_maps.link_for(noida10) == "cid-furn-n10"
+    assert store_maps.link_for({"primary_vertical": "furniture", "name": "Durian Furniture - Gurgaon JMD",
+                                "pincode": "110015"}) == ""
+    # the card uses it; a map_url set in Settings still wins; kill switch
+    monkeypatch.setattr(store_locator, "_floor", lambda: [fhc])
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: {})
+    assert store_locator._stores()[0]["map_url"] == "cid-fhc-kn"
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: {"stores": {"f": {"map_url": "set-in-settings"}}})
+    assert store_locator._stores()[0]["map_url"] == "set-in-settings"
+    monkeypatch.setattr(store_maps.config, "STORE_MAPS_FROM_GBP", False)
+    assert store_maps.link_for(fhc) == ""

@@ -67,6 +67,7 @@ import catalog_import
 import catalog_sync
 import crm_automation
 import store_locator
+import store_maps
 
 crm_state.init()     # round-robin counters for govt/bulk owner rotation
 config_store.init()  # routing-config override layer edited from the ORM UI
@@ -229,6 +230,8 @@ async def _start_reviews_poller():
     asyncio.create_task(catalog_sync.run_forever())
     # CRM stage → WhatsApp automation: sends the scheduled follow-ups when due.
     asyncio.create_task(crm_automation.run_forever())
+    # Each store's own Google listing Maps link for the store cards (store_maps.py).
+    asyncio.create_task(store_maps.run_forever())
     # Daily Zoho user snapshot — swaps deactivated/deleted deal owners at deal
     # time and lists them in Settings → Routing config (owner_sync.py).
     asyncio.create_task(owner_sync.run_forever())
