@@ -8054,6 +8054,51 @@ def _fallback_owner() -> dict:
             "vertical":    ""}
 
 
+def fhc_fallback_owner() -> dict:
+    """FHC deal with no studio in range → Pratik Ojha (Goregaon studio login),
+    from crm_owner_routing_homestudio_fallback. Central only if that is unset."""
+    fb = (classifier._ROUTING_RULES or {}).get("crm_owner_routing_homestudio_fallback") or {}
+    if not fb.get("owner_id"):
+        return _fallback_owner()
+    return {"configured": True, "location": "homestudio:out-of-coverage",
+            "owner_id": str(fb["owner_id"]),
+            "owner_email": fb.get("owner_email") or "", "vertical": "FHC"}
+
+
+async def _resolve_fhc_owner(custom: dict, body_text: str, subject: str,
+                             sender_email: str) -> dict:
+    """FHC deals stay inside the FHC vertical (convs 9920 / 10825 / 11078 went
+    to Customer Support - Marketing):
+      1. the customer's pincode / city → nearest dedicated FHC studio within the
+         client's FHC radius (store_locator, the same studio the card shows);
+      2. a location that resolves to NO studio → the FHC fallback owner;
+      3. no usable location (or a city matching several studios) → AI match on
+         the studio list, and the FHC fallback owner when that finds nothing."""
+    details = custom.get("deal_customer_details") or {}
+    city = str(details.get("city") or "").strip()
+    pincode = (pincode_resolver.normalize_pincode(details.get("pincode"))
+               or pincode_resolver.extract_pincode(city)
+               or pincode_resolver.extract_pincode(body_text) or "")
+    place = re.sub(r"\b\d{6}\b", " ", city).strip(" ,")
+    if config.STORE_LOCATOR_ENABLED and (pincode or place):
+        try:
+            store = store_locator.resolve("fhc", pincode=pincode, city=place,
+                                          primary_only=True)
+        except Exception as e:
+            print(f"[crm] FHC studio resolve failed: {e}")
+            store = {"ambiguous": True}
+        if store and not store.get("ambiguous") and store.get("crm_owner_id"):
+            return {"configured": True, "location": f"homestudio:{store['name']}",
+                    "owner_id": str(store["crm_owner_id"]),
+                    "owner_email": store.get("email") or "", "vertical": "FHC"}
+        if store is None and (not pincode or pincode_resolver.coords(pincode)):
+            return fhc_fallback_owner()     # placed, and no FHC studio in range
+    owner = await _resolve_named_owner(
+        (classifier._ROUTING_RULES or {}).get("crm_owner_routing_homestudio") or {},
+        body_text, subject, sender_email, "homestudio", "FHC")
+    return fhc_fallback_owner() if owner.get("location") == "central" else owner
+
+
 def _mentions_doors(body_text: str, subject: str) -> bool:
     """A doors/veneer/plywood/laminate enquiry — even when it classifies as a
     bulk order (e.g. '100 doors') it must route to the doors desks, not the
@@ -8284,11 +8329,9 @@ async def _resolve_deal_owner(custom: dict, body_text: str, subject: str,
     if category == "franchise_dealership" and franchise.get("owner_id"):
         return _owner_dict("franchise", franchise, "Furniture")
 
-    # FHC / Home Studio → home-studio owner by location.
+    # FHC / Home Studio → nearest FHC studio, else the FHC fallback owner.
     if category in config.ZOHO_CRM_HOME_STUDIO_CATEGORIES:
-        return await _resolve_named_owner(
-            R.get("crm_owner_routing_homestudio") or {},
-            body_text, subject, sender_email, "homestudio", "FHC")
+        return await _resolve_fhc_owner(custom, body_text, subject, sender_email)
 
     # Doors — a retail doors enquiry OR a bulk order that's about doors → the
     # doors desks (never the furniture bulk owners).

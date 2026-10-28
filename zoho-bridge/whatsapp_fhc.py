@@ -273,11 +273,14 @@ async def _create_fhc_deal(conv_id: int, name: str, phone: str, pincode: str,
 
 async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str,
                                interest: str = "") -> bool:
-    """Out-of-coverage FHC lead → create the deal assigned to Customer Support
-    (config.FHC_SUPPORT_OWNER_ID), so no lead is invisible to the CRM. No-op
-    (returns False) when that owner isn't configured — the caller keeps the
-    Chatwoot handoff. Never blocks the customer."""
-    if not config.FHC_SUPPORT_OWNER_ID:
+    """Out-of-coverage FHC lead → create the deal assigned to the FHC fallback
+    owner (config.FHC_SUPPORT_OWNER_ID, else routing_rules
+    crm_owner_routing_homestudio_fallback — Pratik Ojha), so no lead is
+    invisible to the CRM. No-op (returns False) when neither is configured —
+    the caller keeps the Chatwoot handoff. Never blocks the customer."""
+    import main  # lazy import — avoids a circular import at module load
+    owner_id = config.FHC_SUPPORT_OWNER_ID or main.fhc_fallback_owner().get("owner_id")
+    if not owner_id:
         return False
     interest_label = _INTEREST_LABEL.get(interest, "")
     try:
@@ -296,13 +299,12 @@ async def _create_support_deal(conv_id: int, name: str, phone: str, pincode: str
             f"🧾 WhatsApp FHC enquiry (OUTSIDE studio network) — {name} · {phone} "
             f"· pincode {pincode}"
             + (f"\nLooking to customise: {interest_label}" if interest_label else "")
-            + "\nRouted to Customer Support in the CRM.")
-        import main  # lazy import — avoids a circular import at module load
+            + "\nRouted to the FHC fallback owner in the CRM.")
         result = await main._create_crm_deal(
             conv_id, agent_name="WhatsApp FHC bot",
             sector="full_home_customization", phone=phone,
-            owner_id_override=config.FHC_SUPPORT_OWNER_ID,
-            owner_label="Customer Support", allow_duplicate=True)
+            owner_id_override=owner_id,
+            owner_label="FHC out-of-coverage", allow_duplicate=True)
         await _add_interest_note((result or {}).get("deal_id"), interest_label)
         return True
     except Exception as e:  # noqa: BLE001

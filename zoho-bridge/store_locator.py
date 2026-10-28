@@ -206,7 +206,8 @@ def _nearest_in_range(stores: list, loc, radius: float):
     return best, round(best_d, 1)
 
 
-def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
+def resolve(vertical: str, pincode=None, city: str = None,
+            primary_only: bool = False) -> dict | None:
     """Nearest serviceable store of `vertical` for the customer's pincode (or
     city). Returns a result dict, None (nothing in range → capture the lead), or
     {"ambiguous": True, "options": [...]} when a city alone matches several and
@@ -215,7 +216,9 @@ def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
     A store whose PRIMARY vertical matches is preferred over one that only
     "Services" the vertical (a dedicated FHC studio beats a doors store that also
     does FHC); the services-it stores are the fallback when no dedicated one is
-    in range."""
+    in range. `primary_only` drops them entirely — deal OWNERSHIP stays inside
+    the vertical (a furniture/doors store that also services FHC never owns an
+    FHC deal)."""
     # The model sometimes passes a dict/number for pincode or city — coerce to a
     # safe string so a malformed tool arg degrades to "not given", never crashes.
     vertical = vertical if isinstance(vertical, str) else ""
@@ -223,6 +226,8 @@ def resolve(vertical: str, pincode=None, city: str = None) -> dict | None:
     city = city if isinstance(city, str) else ""
     vert = vertical.strip().lower()
     candidates = [s for s in _stores() if vert in (s.get("verticals") or [])]
+    if primary_only:
+        candidates = [s for s in candidates if s.get("primary_vertical") == vert]
     if not candidates:
         return None
     primary = [s for s in candidates if s.get("primary_vertical") == vert]
