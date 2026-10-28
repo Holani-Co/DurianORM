@@ -24,6 +24,7 @@ from pathlib import Path
 import config
 import config_store
 import pincode_resolver
+import store_maps
 
 _REGISTRY = Path(__file__).parent / "data" / "store_registry.json"
 _floor_cache: list | None = None
@@ -156,9 +157,14 @@ def _stores() -> list:
     out = []
     for s in _floor():
         o = edits.get(s["id"]) if isinstance(edits, dict) else None
+        if isinstance(o, dict) and o.get("disabled"):
+            continue
+        # The store's own Google listing link beats the sheet's (which reused one
+        # link per building); a map_url set in Settings still wins over both.
+        gbp = store_maps.link_for(s)
+        if gbp:
+            s = {**s, "map_url": gbp}
         if isinstance(o, dict):
-            if o.get("disabled"):
-                continue
             s = {**s, **{k: v for k, v in o.items() if k != "disabled"}}
         out.append(s)
     return out
