@@ -1540,6 +1540,35 @@ def test_retail_owner_never_owns_a_doors_or_fhc_deal(monkeypatch):
     assert owner("full_home_customization") == "H"
 
 
+def test_fhc_deal_owner_is_nearest_fhc_studio_else_pratik(monkeypatch):
+    """FHC deals stay in the FHC vertical: pincode/city → nearest dedicated FHC
+    studio; no studio in range → Pratik Ojha (Goregaon login), never Customer
+    Support - Marketing (convs 9920 / 10825 / 11078)."""
+    import asyncio
+    import main
+    monkeypatch.setattr(main.config, "STORE_LOCATOR_ENABLED", True)
+    monkeypatch.setattr(main.store_locator, "_override_doc", lambda: {})
+
+    async def central(*a, **k):
+        return main._fallback_owner()
+    monkeypatch.setattr(main, "_resolve_named_owner", central)
+
+    def owner(details, body=""):
+        return asyncio.run(main._resolve_deal_owner(
+            {"phase2_category": "full_home_customization",
+             "deal_customer_details": details}, body, "", ""))
+
+    pratik = "3608871000315511062"
+    assert main.fhc_fallback_owner()["owner_id"] == pratik
+    assert owner({"city": "110054"})["owner_id"] == "3608871000410312080"        # Delhi → Kirti Nagar FHC
+    assert owner({"city": "Ghaziabad", "pincode": "201010"})["owner_id"] == "3608871000484244133"  # → Noida FHC
+    assert owner({"city": "Shillong", "pincode": "793001"})["owner_id"] == pratik  # no studio in range
+    assert owner({})["owner_id"] == pratik                                        # AI found nothing
+    # only dedicated FHC studios own FHC deals — never a furniture/doors store
+    hit = main.store_locator.resolve("fhc", pincode="110015", primary_only=True)
+    assert hit["crm_owner_id"] == "3608871000410312080"
+
+
 def test_product_is_asked_once_when_only_the_line_is_known():
     for vague in ("", "doors", "Furniture", "full home customisation"):
         assert sa._vague_requirement(vague), vague

@@ -1422,6 +1422,12 @@ crm_owner_routing_homestudio:   # FHC / Home Studio deals, by location
     owner_email: furnituredurian@gmail.com
     owner_id: "3608871000104057837"
 
+# FHC deal whose customer has no FHC studio in range (pincode/city resolves to
+# none) → Pratik Ojha via the Goregaon studio login — never Customer Support /
+# central, and never a furniture or doors owner.
+crm_owner_routing_homestudio_fallback:
+  owner_email: goregaon.homestudio@durian.in
+  owner_id: "3608871000315511062"
 crm_owner_routing_private:      # Private project furniture, by city
   "Bangalore":
     owner_email: sunil.m@durian.in
