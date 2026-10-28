@@ -54,6 +54,7 @@ import zoho_crm
 import google_reviews as gr
 import forwarded_email
 import deal_stage_sync
+import idle_followup
 import owner_sync
 import review_reply
 import reviews_poller
@@ -230,6 +231,8 @@ async def _start_reviews_poller():
     asyncio.create_task(catalog_sync.run_forever())
     # CRM stage → WhatsApp automation: sends the scheduled follow-ups when due.
     asyncio.create_task(crm_automation.run_forever())
+    # WhatsApp: one follow-up to a customer who went quiet, then auto-resolve.
+    asyncio.create_task(idle_followup.run_forever())
     # Each store's own Google listing Maps link for the store cards (store_maps.py).
     asyncio.create_task(store_maps.run_forever())
     # Daily Zoho user snapshot — swaps deactivated/deleted deal owners at deal

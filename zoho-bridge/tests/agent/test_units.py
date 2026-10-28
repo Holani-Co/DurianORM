@@ -3347,3 +3347,67 @@ def test_store_map_link_is_the_stores_own_google_listing(monkeypatch):
     assert store_locator._stores()[0]["map_url"] == "set-in-settings"
     monkeypatch.setattr(store_maps.config, "STORE_MAPS_FROM_GBP", False)
     assert store_maps.link_for(fhc) == ""
+
+
+def test_idle_followup_then_resolve_timeline(monkeypatch):
+    """WhatsApp chats the AI owns: one follow-up ~20h after the customer's last
+    message (inside the 24h window, never at night), resolved 24h after it."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import idle_followup as idle
+    monkeypatch.setattr(idle.config, "IDLE_FOLLOWUP_AFTER_HOURS", 20.0)
+    monkeypatch.setattr(idle.config, "IDLE_RESOLVE_AFTER_HOURS", 24.0)
+    monkeypatch.setattr(idle.config, "IDLE_SWEEP_MINUTES", 15)
+    ist = lambda d, h, m=0: datetime(2026, 10, d, h, m, tzinfo=ZoneInfo("Asia/Kolkata")).timestamp()  # noqa: E731
+    H = 3600
+    t_in = ist(10, 14)                                   # customer wrote 2 PM
+    msgs = [{"id": 1, "message_type": 0, "created_at": t_in, "content": "kitchen price?"},
+            {"id": 2, "message_type": 1, "created_at": t_in + 60, "content": "Sure — your city?"},
+            {"id": 3, "message_type": 2, "private": True, "created_at": t_in + 70, "content": "note"}]
+    conv = {"custom_attributes": {}, "meta": {}, "labels": []}
+    assert idle.decide(conv, msgs, t_in + 10 * H) == ""              # too early
+    assert idle.decide(conv, msgs, t_in + 20 * H) == "follow_up"    # 10 AM next day
+    # followed up → resolve only 24h after the follow-up
+    conv["custom_attributes"] = {"idle_followup_for": "1", "idle_followup_at": t_in + 20 * H}
+    assert idle.decide(conv, msgs, t_in + 30 * H) == ""
+    assert idle.decide(conv, msgs, t_in + 44 * H) == "resolve"
+    # the customer replied → waiting on us, never touched
+    assert idle.decide(conv, msgs + [{"id": 4, "message_type": 0, "created_at": t_in + 21 * H}],
+                       t_in + 50 * H) == ""
+    # backlog: window long closed, no follow-up possible → resolve
+    assert idle.decide({"custom_attributes": {}, "meta": {}}, msgs, t_in + 5 * 24 * H) == "resolve"
+    # never a human's chat, a chat waiting on a team, or a stood-down chat
+    human = {"custom_attributes": {}, "meta": {"assignee": {"name": "Neha Singh"}}}
+    assert idle.decide(human, msgs, t_in + 20 * H) == ""
+    assert idle.decide({"custom_attributes": {}, "meta": {}, "labels": ["agent-needed"]},
+                       msgs, t_in + 5 * 24 * H) == ""
+    assert idle.decide({"custom_attributes": {"agent_mode_standdown": True}, "meta": {}},
+                       msgs, t_in + 20 * H) == ""
+    # outbound-only thread (campaign the customer never answered) → left alone
+    assert idle.decide({"custom_attributes": {}, "meta": {}}, msgs[1:], t_in + 5 * 24 * H) == ""
+    # night: customer wrote 1 AM → 20h lands at 9 PM (quiet) and the window closes
+    # 12:30 AM → follow up at the last daytime sweep before 9 PM instead
+    t_night = ist(11, 1)
+    assert not idle.follow_up_due(ist(11, 20, 30), t_night)          # 19.5h, still daytime ahead
+    assert idle.follow_up_due(ist(11, 20, 50), t_night)              # last sweep before 9 PM
+    assert not idle.follow_up_due(ist(11, 22), t_night)              # never at night
+
+
+def test_idle_followup_draft_falls_back_on_unsafe_text(monkeypatch):
+    import asyncio
+    import idle_followup as idle
+
+    class _R:
+        def __init__(self, text):
+            self.choices = [type("C", (), {"message": type("M", (), {"content": text})()})()]
+
+    def client(text):
+        async def create(**_):
+            return _R(text)
+        return type("X", (), {"chat": type("Y", (), {"completions": type("Z", (), {"create": staticmethod(create)})()})()})()
+    conv = {"id": 9, "meta": {"sender": {"name": "Disha Shah"}}}
+    msgs = [{"message_type": 0, "content": "modular kitchen"}, {"message_type": 1, "content": "Your city?"}]
+    monkeypatch.setattr(idle.sa, "_client", client("Hi Disha, shall we share our Kirti Nagar studio details?"))
+    assert asyncio.run(idle._draft(conv, msgs, "fhc")).startswith("Hi Disha, shall we")
+    monkeypatch.setattr(idle.sa, "_client", client("Hi Disha, our kitchens start at ₹1,20,000!"))
+    assert asyncio.run(idle._draft(conv, msgs, "fhc")) == idle._FALLBACK["fhc"].format(name=" Disha")
