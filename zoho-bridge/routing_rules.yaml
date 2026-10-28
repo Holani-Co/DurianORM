@@ -1432,9 +1432,9 @@ crm_owner_routing_private:      # Private project furniture, by city
   "Bangalore":
     owner_email: sunil.m@durian.in
     owner_id: "3608871000430943098"
-  "Delhi":
-    owner_email: anubhav.singh@durian.in
-    owner_id: "3608871000355488523"
+  "Delhi":    # anubhav.singh deleted in Zoho (Oct 2026); "Delhi Private Project" is now bhanupratap
+    owner_email: bhanupratap.singh@durian.in
+    owner_id: "3608871000602952867"
   "Hyderabad":
     owner_email: hyder.shaffi@gmail.com
     owner_id: "3608871000586001175"
@@ -1476,7 +1476,8 @@ crm_owner_routing_govt_bulk:    # Govt/Bulk furniture, by city/region (lists rou
     - {owner_email: shaishav.khare@durian.in, owner_id: "3608871000332871010"}
     - {owner_email: mohit.swami@durian.in, owner_id: "3608871000176802004"}
   "Indore":
-    - {owner_email: gajendrasingh.mourya@durian.in, owner_id: "3608871000000320583"}
+    # gajendrasingh.mourya deleted in Zoho (Oct 2026); "Indore Project" is now shailesh.ravi
+    - {owner_email: shailesh.ravi@durian.in, owner_id: "3608871000599382762"}
   "Noida":
     - {owner_email: durian.noida@durian.in, owner_id: "3608871000001206109"}
   # Saharsh's explicit territory (per client sheet row 99): Delhi, all NCR

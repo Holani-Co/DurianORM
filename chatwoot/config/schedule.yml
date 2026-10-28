@@ -38,6 +38,12 @@ send_daily_orm_report_job:
   class: 'Reports::SendDailyOrmReportJob'
   queue: scheduled_jobs
 
+# emails the deal owners (routing config + stores) whose Zoho user is deactivated or deleted, 9:15 AM IST
+send_owner_sync_alert_job:
+  cron: '15 9 * * * Asia/Kolkata'
+  class: 'Reports::SendOwnerSyncAlertJob'
+  queue: scheduled_jobs
+
 # sends each email category's previous Mon-Sun forwarded-emails report to its team every Monday 9 AM IST
 send_weekly_forwarded_reports_job:
   cron: '0 9 * * 1 Asia/Kolkata'

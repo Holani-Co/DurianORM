@@ -635,6 +635,25 @@
       "PUBLISHING": "Publishing…",
       "PUBLISHED": "AI rules published — live now.",
       "PUBLISH_FAILED": "Couldn't publish the AI rules. Please try again."
+    },
+    "OWNER_SYNC": {
+      "TITLE": "Zoho owner check",
+      "SYNCED": "Zoho users synced {when} · {count} active users",
+      "NEVER": "Zoho users not synced yet.",
+      "SYNC_NOW": "Sync with Zoho now",
+      "SYNCING": "Syncing…",
+      "FAILED": "Couldn't read Zoho's users. Showing the last sync.",
+      "ALL_ACTIVE": "Every deal owner in the routing config and stores is an active Zoho user.",
+      "HINT": "These owners are no longer active in Zoho. New deals already go to the person on the right; pick a permanent owner below (or in Settings → Stores for a store).",
+      "COL_WHERE": "Used for",
+      "COL_OWNER": "Owner in Zoho",
+      "COL_NOW": "Deals go to now",
+      "STORE": "Store: {name}",
+      "FALLBACK": "Fallback owner — no successor found",
+      "STATUS": {
+        "deactivated": "deactivated",
+        "deleted": "deleted"
+      }
     }
   },
   "PROFILE_SETTINGS": {

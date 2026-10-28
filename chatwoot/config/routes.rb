@@ -430,6 +430,8 @@ Rails.application.routes.draw do
                 get  :version
                 post :rollback
                 post :preview
+                get  :owner_sync
+                post :owner_sync_run
               end
             end
             resource :stores_config, controller: 'stores_config', only: [:show] do

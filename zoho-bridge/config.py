@@ -986,3 +986,9 @@ INTERNAL_EMAIL_DOMAINS = tuple(
 # other forwarder just gets the normal handling with no confirmation. This is the
 # allow-list that gates the whole feature, so no separate on/off flag is needed.
 FORWARD_CONFIRM_SENDERS = _csv("FORWARD_CONFIRM_SENDERS")
+
+# ── Zoho owner sync (owner_sync.py) ────────────────────────────────────────
+# Daily re-read of Zoho's users (needs the ZohoCRM.users.READ scope). Runs at
+# boot and then daily at this IST time — before the 9:15 owner-alert email.
+OWNER_SYNC_HOUR   = int(os.environ.get("OWNER_SYNC_HOUR", "8"))
+OWNER_SYNC_MINUTE = int(os.environ.get("OWNER_SYNC_MINUTE", "45"))
