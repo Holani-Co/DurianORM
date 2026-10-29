@@ -111,3 +111,44 @@ Practical checklist for any change impacting core logic or public APIs
 ## Branding / White-labeling note
 
 - For user-facing strings that currently contain "Chatwoot" but should adapt to branded/self-hosted installs, prefer applying `replaceInstallationName` from `shared/composables/useBranding` in the UI layer (for example tooltip and suggestion labels) instead of adding hardcoded brand-specific copy.
+
+## Durian OS
+
+ORM is one of the eight apps managed by Durian OS (durianos.in). The rules come from the Durian OS app contract (v2), section 8.3 and the ORM appendix 10.8. Read them before touching sign-in, users, memberships or tokens.
+
+**The rule: never add a separate login, role list or user directory here.** Durian OS is the only sign-in, and it holds the list of people. A person's access lives in Chatwoot's own rows (one row per access) and Durian OS edits those same rows through Chatwoot's own APIs.
+
+### How Durian OS talks to ORM
+
+- ORM serves no `/os/v2` API. A connector inside Durian OS reads and writes through Chatwoot's Account API (`ORM_ACCOUNT_TOKEN`, the "Durian OS" administrator service user) and Platform API (`ORM_PLATFORM_TOKEN`). The proxy serves `/platform/` only to Durian OS's server.
+- What the connector reads and writes, per person in account 1 (`OS_ACCOUNT_ID`):
+  - `localUserId` = `users.id`; the link is `users.custom_attributes.os_person_id` (unique index `index_users_on_os_person_id`), written only by the Platform update;
+  - `custom_attributes.os_kind`: `service` or `emergency` (absent = person); `custom_attributes.os_offboarded_at`;
+  - role = `account_users.role` (`agent` | `administrator`; administrator is the admin role), inboxes = `inbox_members`, teams = `team_members`, custom role = `account_users.custom_role_id`;
+  - state: `active` while the account-1 `account_users` row exists, `offboarded` if not and `os_offboarded_at` is set, else `inactive`;
+  - version = first 16 base64url chars of SHA-256 of `state|role|custom_role_id|sorted inbox ids|sorted team ids` (ids comma-joined, empty custom role = empty string): `DurianOs::AccessSnapshot`.
+- There are no personal-token endpoints: ORM's description has no `tokens` section. Each user's Chatwoot API token is rotated by removal and by end-sessions.
+- Endpoints added for the connector (Platform token, `custom/app/controllers/platform/api/v1/durian_os_controller.rb`):
+  - `GET /platform/api/v1/durian_os/status` returns `{"emergencyLogin":{"enabled":bool}}`;
+  - `POST /platform/api/v1/durian_os/users/:id/end_sessions` clears `users.tokens`, rotates the API token, returns `{sessionsEnded, tokensRevoked}`.
+
+### How sign-in works
+
+- Opening ORM from Durian OS: Durian OS asks `GET /platform/api/v1/users/:id/login` for a one-time link and redirects to `/app/login?email=…&sso_auth_token=…`. The token is consumed with a single Redis `DEL`, so it works once (5 minutes, 256 bits). That page is sent `no-store` / `no-referrer`.
+- `OS_SIGNIN_ONLY=on` (unset by default) makes Durian OS the only way in: password sign-in, MFA posts, password reset, sign-up (`/auth` registrations route), confirmation sign-in, Google/SAML (they redirect to `OS_HANDOFF_URL`, default `https://durianos.in/api/handoff/orm`) and the super admin console all answer `404`; `/app/login` without a token redirects to Durian OS (a one-minute cookie stops loops); the emergency user's API token is refused. Undo = unset it and restart `chatwoot-web` and `chatwoot-worker`.
+- The emergency admin login (3.10) is off unless `OS_EMERGENCY_LOGIN_UNTIL` is a UTC time in the future and at most 24 hours ahead, with `OS_EMERGENCY_EMAIL` and `OS_EMERGENCY_PASSWORD_HASH` (bcrypt, cost ≥ 12) set. Only that email may use the password form (`/app/login?emergency=1`) and, with `OS_SIGNIN_ONLY` on, the super admin console. The password is checked against the hash, never the database; 5 failures per 15 minutes per address and 20 in total lock it until the setting changes. Sessions last one hour and end when the setting goes off. Every use is logged, audited and reported (`emergency_login.used`). While off, the emergency email gets `404`.
+- `OS_MANAGED=on` (unset by default): Remove agent keeps the user row (no `delete_user_record`); service and emergency rows cannot be edited or removed on the agents page; `Agents::DestroyJob` skips a person who is a member again, and ends sessions and rotates the API token once the person has no account left.
+
+### Change reports
+
+`DurianOs::Reportable` hooks `AccountUser`, `InboxMember` and `TeamMember` (`after_commit`, account 1 only) and queues `DurianOs::ChangeReportJob`, which posts `person.created | person.changed | person.deactivated` (and `emergency_login.used`, `ping`) to `OS_REPORT_URL` signed with HMAC-SHA256 (`OS_REPORT_KEY`, 32 bytes base64url, and `OS_REPORT_KEY_ID`; the app refuses to start with a bad key). Retries: 1, 5, 15 minutes, then hourly for 24 hours. A ping is sent when Sidekiq starts and daily (`config/schedule.yml`). Nothing is sent unless all three variables are set. Reports never carry access data; Durian OS re-reads the person. There is no outbox table: a report lost before it is queued is caught by Durian OS's 10-minute check.
+
+### Where the code is
+
+- Everything lives in `custom/` and is loaded as `Custom::` modules by `prepend_mod_with` / `include_mod_with` (the same mechanism as `enterprise/`); `config/application.rb` adds `custom/app/**` and `custom/config/initializers`. Shared helpers are `DurianOs::*` under `custom/app/services`, `custom/app/jobs` and `custom/app/models`.
+- When you change a controller or model that has a `Custom::` module, keep the module working, and run `bundle exec rspec spec/custom`.
+- `script/durian_os_conformance.rb` checks a local server (never production): ORM serves no `/os/v2` (signed with a throwaway Ed25519 key), the ping report and its signature, the Platform endpoints, the one-time link, and the `OS_SIGNIN_ONLY` switch. `script/durian_os_conformance_seed.rb` prepares a local database for it.
+
+### One-time operator steps (not code)
+
+Set `ENABLE_ACCOUNT_SIGNUP=false` in the `installation_configs` row and the environment, then `GlobalConfig.clear_cache`; set `ENABLE_GOOGLE_OAUTH_LOGIN` and `ENABLE_SAML_SSO_LOGIN` to false (keep `GOOGLE_OAUTH_CLIENT_ID` for Gmail inboxes); set `LOGOUT_REDIRECT_LINK=https://durianos.in`; set `DISABLE_USER_PROFILE_UPDATE=true`; bind Puma to 127.0.0.1 and fence `/platform/`. The order and the rest (Platform App, service and emergency users, accounts 2 and 3, super admins) are in appendix 10.8, "Deploying".

@@ -54,6 +54,13 @@ module Chatwoot
     enterprise_initializers = Rails.root.join('enterprise/config/initializers')
     Dir[enterprise_initializers.join('**/*.rb')].each { |f| require f } if enterprise_initializers.exist?
 
+    # Durian OS code lives in custom/ and is loaded as Custom:: modules by prepend_mod_with
+    # (see "Durian OS" in AGENTS.md).
+    # rubocop:disable Rails/FilePath
+    config.eager_load_paths += Dir["#{Rails.root}/custom/app/**"]
+    # rubocop:enable Rails/FilePath
+    config.paths['config/initializers'] << 'custom/config/initializers'
+
     # Settings in config/environments/* take precedence over those specified here.
     # Application configuration can go into files in config/initializers
     # -- all .rb files in that directory are automatically loaded after loading

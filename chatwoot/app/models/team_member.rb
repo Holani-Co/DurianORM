@@ -21,3 +21,4 @@ class TeamMember < ApplicationRecord
 end
 
 TeamMember.include_mod_with('Audit::TeamMember')
+TeamMember.include_mod_with('Concerns::TeamMember')

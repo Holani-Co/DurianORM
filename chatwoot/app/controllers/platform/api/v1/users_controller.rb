@@ -55,3 +55,5 @@ class Platform::Api::V1::UsersController < PlatformController
     params.permit(:name, :display_name, :email, :password, custom_attributes: {})
   end
 end
+
+Platform::Api::V1::UsersController.prepend_mod_with('Platform::Api::V1::UsersController')

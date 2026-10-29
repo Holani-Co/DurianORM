@@ -116,3 +116,10 @@ remove_orphan_conversations_job:
   cron: '0 */12 * * *'
   class: 'Internal::RemoveOrphanConversationsJob'
   queue: housekeeping
+
+# Durian OS: daily ping report (contract 6.3; a ping is also sent when the worker starts).
+# Sends nothing unless OS_REPORT_URL, OS_REPORT_KEY and OS_REPORT_KEY_ID are set.
+durian_os_ping_job:
+  cron: '15 3 * * *'
+  class: 'DurianOs::PingJob'
+  queue: scheduled_jobs
