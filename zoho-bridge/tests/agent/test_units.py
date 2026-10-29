@@ -3411,3 +3411,75 @@ def test_idle_followup_draft_falls_back_on_unsafe_text(monkeypatch):
     assert asyncio.run(idle._draft(conv, msgs, "fhc")).startswith("Hi Disha, shall we")
     monkeypatch.setattr(idle.sa, "_client", client("Hi Disha, our kitchens start at ₹1,20,000!"))
     assert asyncio.run(idle._draft(conv, msgs, "fhc")) == idle._FALLBACK["fhc"].format(name=" Disha")
+
+
+def test_closed_deal_frees_its_line_for_a_new_enquiry(monkeypatch):
+    """conv 6205: a returning FHC customer (old deal Closed Lost) asked for a
+    call from the Delhi studio — "already registered" on the dead deal, no new
+    deal, and the call request vanished. A closed deal no longer holds its line."""
+    import asyncio
+    ca = {"crm_deal_id": "OLD", "phase2_category": "full_home_customization",
+          "crm_deal_stage": "Closed Lost"}
+    assert sa._deal_lines(ca) == {}
+    assert sa._deal_lines(ca, include_closed=True) == {"fhc": "OLD"}
+    assert sa._line_closed(ca, "fhc") and not sa._line_closed(ca, "doors")
+    assert sa._deal_lines({**ca, "crm_deal_stage": "Qualification"}) == {"fhc": "OLD"}
+
+    # register_enquiry: a live check finds the line's deal closed → a NEW deal
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    monkeypatch.setattr(sa.store_locator, "upcoming", lambda *a, **k: None)
+    monkeypatch.setattr(sa.store_locator, "resolve", lambda *a, **k: {"card_name": "Studio"})
+    monkeypatch.setattr(sa, "chatwoot", _DealFakeChatwoot())
+    calls = []
+
+    async def creator(conv_id, agent_name="", allow_duplicate=False):
+        calls.append(allow_duplicate)
+        return {"deal_id": "NEW", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+
+    async def stage(deal_id):
+        return "Closed Lost"
+    monkeypatch.setattr(sa.zoho_crm, "get_deal_stage", stage)
+    ctx = _register_ctx()
+    ctx["conv"]["custom_attributes"] = {"crm_deal_id": "OLD", "phase2_category": "full_home_customization",
+                                        "enquiry_customer_name": "Rajeshri"}
+    r = asyncio.run(sa._sk_register(ctx, line="fhc", city="Delhi", name="Rajeshri",
+                                    name_confirmed=True))
+    assert r.get("deal_created") is True and not r.get("already_registered")
+    assert calls == [True]                              # a fresh deal, not the old one back
+    assert ctx["conv"]["custom_attributes"]["crm_closed_deals"] == ["OLD"]
+
+    # an OPEN deal on the line is still "already registered"
+    async def open_stage(deal_id):
+        return "Qualification"
+    monkeypatch.setattr(sa.zoho_crm, "get_deal_stage", open_stage)
+    ctx2 = _register_ctx()
+    ctx2["conv"]["custom_attributes"] = {"crm_deal_id": "OPEN", "phase2_category": "full_home_customization",
+                                         "enquiry_customer_name": "Rajeshri"}
+    r2 = asyncio.run(sa._sk_register(ctx2, line="fhc", city="Delhi", name="Rajeshri",
+                                     name_confirmed=True))
+    assert r2.get("already_registered") is True
+
+
+def test_pending_handoff_keeps_agent_needed(monkeypatch):
+    """The agent's next reply must not clear a hand-over still waiting on us."""
+    import asyncio
+    removed = []
+
+    class _CW:
+        async def get_profile(self):
+            return {"id": 1}
+
+        async def assign_agent(self, *a):
+            pass
+
+        async def remove_label(self, conv_id, lbl):
+            removed.append(lbl)
+    monkeypatch.setattr(sa, "chatwoot", _CW())
+    pending = {"labels": ["agent-needed"], "custom_attributes": {sa._HANDOFF_SENT_ATTR: "x"},
+               "meta": {"assignee": {"name": "DurianAI"}}}
+    asyncio.run(sa._mark_agent_owned(pending, 1, "whatsapp"))
+    assert removed == []
+    asyncio.run(sa._mark_agent_owned({"labels": ["agent-needed"], "custom_attributes": {},
+                                      "meta": {"assignee": {"name": "DurianAI"}}}, 1, "whatsapp"))
+    assert removed == ["agent-needed", "agent-needed-whatsapp"]
