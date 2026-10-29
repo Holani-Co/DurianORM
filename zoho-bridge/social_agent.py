@@ -210,16 +210,56 @@ def _norm_line(value) -> str:
     return ""
 
 
-def _deal_lines(ca: dict) -> dict:
+def _deal_lines(ca: dict, include_closed: bool = False) -> dict:
     """{line: crm deal id} for this conversation. Deals are one per LINE: a
     sofa and a chair share the furniture deal; a sofa and doors are two deals.
     Conversations from before this map existed carry only crm_deal_id — its
-    line is read off the category it was created under."""
+    line is read off the category it was created under. A deal that is Closed
+    Won / Lost no longer holds its line (conv 6205: a returning customer's new
+    FHC enquiry was "already registered" on a Closed Lost deal and nobody
+    called) — the next enquiry on that line is a NEW deal."""
     deals = {k: str(v) for k, v in (ca.get("crm_deals") or {}).items() if v}
     if not deals and ca.get("crm_deal_id"):
         deals[_CATEGORY_LINE.get(str(ca.get("phase2_category") or ""), "furniture")] = \
             str(ca["crm_deal_id"])
-    return deals
+    if include_closed:
+        return deals
+    closed = _closed_deal_ids(ca)
+    return {k: v for k, v in deals.items() if v not in closed}
+
+
+def _closed_deal_ids(ca: dict) -> set:
+    """Deal ids known to be closed: the current deal's synced stage, plus any
+    found closed by a live check (_deal_closed)."""
+    closed = {str(x) for x in (ca.get("crm_closed_deals") or [])}
+    if ca.get("crm_deal_id") and ca.get("crm_deal_stage") in config.ZOHO_CRM_DEAL_CLOSED_STAGES:
+        closed.add(str(ca["crm_deal_id"]))
+    return closed
+
+
+def _line_closed(ca: dict, line: str) -> bool:
+    """The line had a deal in this conversation and it is now closed."""
+    return line in _deal_lines(ca, include_closed=True) and line not in _deal_lines(ca)
+
+
+async def _deal_closed(ctx, deal_id) -> bool:
+    """Live Zoho check (the daily stage sync can be a day behind): is this deal
+    Closed Won / Lost? Remembers a closed one on the conversation. Best-effort:
+    an unreadable stage counts as open."""
+    try:
+        stage = await zoho_crm.get_deal_stage(str(deal_id))
+    except Exception:
+        stage = None
+    if stage not in config.ZOHO_CRM_DEAL_CLOSED_STAGES:
+        return False
+    ca = ctx["conv"].setdefault("custom_attributes", {})
+    ids = sorted(set(ca.get("crm_closed_deals") or []) | {str(deal_id)})
+    ca["crm_closed_deals"] = ids
+    try:
+        await chatwoot.merge_custom_attributes(ctx["conv_id"], {"crm_closed_deals": ids})
+    except Exception:
+        pass
+    return True
 
 
 def _ctx_line(ctx, line: str = "") -> str:
@@ -828,7 +868,7 @@ async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
             new_loc = (room or {}).get("location") or ""
 
     if new_loc and new_loc != cur_loc:
-        if ca.get("crm_deal_id"):
+        if "furniture" in _deal_lines(ca):
             try:
                 await chatwoot.post_private_note(
                     conv_id, f"📍 **Customer mentioned another location — {new_loc}**\n\n"
@@ -882,7 +922,7 @@ async def _showroom_change_check(ctx, cur: dict, pincode: str, city: str,
                         f"{pending.get('new')}. Call register_enquiry with the "
                         "showroom they chose and confirm=true."}
 
-    if ca.get("crm_deal_id"):
+    if "furniture" in _deal_lines(ca):
         return {"routed": True, "deal_created": True,
                 "note": "already routed and the enquiry IS registered — "
                         "reassure, do not re-route"}
@@ -907,7 +947,10 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
     phone = phone or ((ctx["profile"].get("identity") or {}).get("phone") or {}).get("value") or ""
     await _record_enquiry_phone(ctx, phone)
     ca = conv.get("custom_attributes") or {}
-    if ca.get("retail_deal_owner"):
+    furn = _deal_lines(ca, include_closed=True).get("furniture")
+    if furn and furn not in _closed_deal_ids(ca):
+        await _deal_closed(ctx, furn)   # closed in Zoho → this enquiry routes afresh
+    if ca.get("retail_deal_owner") and not _line_closed(ca, "furniture"):
         result = await _showroom_change_check(ctx, ca["retail_deal_owner"], pincode,
                                               city, showroom, bool(confirm))
         if result is not None:
@@ -1214,7 +1257,7 @@ async def _note_deal_updates(ctx, verified: list, tool_results: list) -> None:
     already carries the conversation), and at most one note per turn."""
     ca = ctx["conv"].get("custom_attributes") or {}
     deal_id = ca.get("crm_deal_id")
-    if not deal_id or ctx.get("deal_note_posted"):
+    if not deal_id or ctx.get("deal_note_posted") or str(deal_id) in _closed_deal_ids(ca):
         return
     if any(isinstance(tr.get("result"), dict) and tr["result"].get("deal_created")
            for tr in tool_results or []):
@@ -1322,9 +1365,12 @@ async def _sk_register(ctx, line: str = "", name: str = "", name_confirmed: bool
     showroom = showroom.strip() if isinstance(showroom, str) else ""
     # Pin down which line any earlier deal belongs to BEFORE this call changes
     # the conversation's category.
-    deals = _deal_lines(ca)
+    deals = _deal_lines(ca, include_closed=True)
     if deals and not ca.get("crm_deals"):
         ca["crm_deals"] = deals
+    if line in deals and line != "furniture":       # furniture checks in route_to_showroom
+        await _deal_closed(ctx, deals[line])
+    deals = _deal_lines(ca)
 
     missing = []
     if not line:
@@ -2407,7 +2453,7 @@ async def _sk_escalate(ctx, reason: str = "", category: str = "other",
     conv = ctx.get("conv") or {}
     ca = conv.setdefault("custom_attributes", {}) if isinstance(conv, dict) else {}
     if ctx.get("surface") != "comment":
-        if category in _NEEDS_REGISTRATION and not ca.get("crm_deal_id"):
+        if category in _NEEDS_REGISTRATION and not _deal_lines(ca):
             return {"escalated": False,
                     "note": "register this lead first: ask in ONE message for "
                             "whatever register_enquiry still needs (name, "
@@ -3408,6 +3454,10 @@ Hindi and Hinglish too ("kaam / kam milega", "job chahiye", "naukri") — are jo
 seekers, not customers (category job): thank them, ask in ONE message for \
 their name, the role, their experience and city (and a contact number if not \
 on WhatsApp), then hand over with `details`. Never pitch products to them.
+  • A request for a CALL BACK, or to be connected with a store / studio team, is \
+a LEAD, not a hand-over: register_enquiry (their number + city/pincode) so the \
+store's team gets it and calls them; if it is already registered, say that team \
+has their number and will call. Never escalate_to_human for it.
   • LEGAL threats (category legal); discount requests beyond listed offers \
 (one firm polite line first), collabs and anything you cannot handle \
 (category other) — hand over directly.
@@ -4197,6 +4247,10 @@ async def _mark_agent_owned(conv, conv_id, channel) -> None:
                 await chatwoot.assign_agent(conv_id, me["id"])
     except Exception:
         pass
+    # A hand-over still waiting on our team stays flagged — clearing it on the
+    # agent's next reply hid conv 6205's call request from everyone.
+    if _handoff_pending(conv):
+        return
     for lbl in ("agent-needed", f"agent-needed-{channel}"):
         try:
             await chatwoot.remove_label(conv_id, lbl)
