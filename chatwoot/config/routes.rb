@@ -11,7 +11,7 @@ Rails.application.routes.draw do
     sessions: 'devise_overrides/sessions',
     token_validations: 'devise_overrides/token_validations',
     omniauth_callbacks: 'devise_overrides/omniauth_callbacks'
-  }, via: [:get, :post]
+  }, via: [:get, :post], skip: DurianOs::Config.signin_only? ? [:registrations] : []
 
   post 'resend_confirmation', to: 'auth/resend_confirmations#create'
 
@@ -673,6 +673,9 @@ Rails.application.routes.draw do
         resources :agent_bots, only: [:index, :create, :show, :update, :destroy] do
           delete :avatar, on: :member
         end
+        # Durian OS connector (ORM appendix code change 11)
+        get 'durian_os/status', to: 'durian_os#status'
+        post 'durian_os/users/:id/end_sessions', to: 'durian_os#end_sessions'
         resources :accounts, only: [:index, :create, :show, :update, :destroy] do
           resources :account_users, only: [:index, :create] do
             collection do

@@ -32,3 +32,5 @@ class DeviseOverrides::ConfirmationsController < Devise::ConfirmationsController
     "/app/auth/password/edit?config=default&redirect_url=&reset_password_token=#{token}"
   end
 end
+
+DeviseOverrides::ConfirmationsController.prepend_mod_with('DeviseOverrides::ConfirmationsController')

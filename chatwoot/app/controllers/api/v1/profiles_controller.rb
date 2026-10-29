@@ -81,3 +81,5 @@ class Api::V1::ProfilesController < Api::BaseController
     )
   end
 end
+
+Api::V1::ProfilesController.prepend_mod_with('Api::V1::ProfilesController')

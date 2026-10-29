@@ -46,3 +46,5 @@ class SuperAdmin::ApplicationController < Administrate::ApplicationController
     redirect_back(fallback_location: root_path)
   end
 end
+
+SuperAdmin::ApplicationController.prepend_mod_with('SuperAdmin::ApplicationController')

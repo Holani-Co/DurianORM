@@ -88,10 +88,16 @@ class Rack::Attack
     end
   end
 
+  # With OS_SIGNIN_ONLY on, a post carrying the one-time login token from Durian OS (a single-use,
+  # 5-minute, 256-bit secret) is not a password guess; password posts keep their throttle (ORM code change 8).
+  def self.durian_os_handoff_post?(req)
+    DurianOs::Config.signin_only? && req.params['sso_auth_token'].present? && req.params['password'].blank?
+  end
+
   # ### Prevent Brute-Force Login Attacks ###
   # Exclude MFA verification attempts from regular login throttling
   throttle('login/ip', limit: ENV.fetch('RACK_ATTACK_LOGIN_IP_LIMIT', '5').to_i, period: 5.minutes) do |req|
-    if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank?
+    if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank? && !durian_os_handoff_post?(req)
       # Skip if this is an MFA verification request
       req.ip
     end
@@ -99,7 +105,7 @@ class Rack::Attack
 
   throttle('login/email', limit: ENV.fetch('RACK_ATTACK_LOGIN_EMAIL_LIMIT', '10').to_i, period: 15.minutes) do |req|
     # Skip if this is an MFA verification request
-    if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank?
+    if req.path_without_extentions == '/auth/sign_in' && req.post? && req.params['mfa_token'].blank? && !durian_os_handoff_post?(req)
       # ref: https://github.com/rack/rack-attack/issues/399
       # NOTE: This line used to throw ArgumentError /rails/action_mailbox/sendgrid/inbound_emails : invalid byte sequence in UTF-8
       # Hence placed in the if block

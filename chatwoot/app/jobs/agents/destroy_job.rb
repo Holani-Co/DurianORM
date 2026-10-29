@@ -35,3 +35,5 @@ class Agents::DestroyJob < ApplicationJob
     # rubocop:enable Rails/SkipsModelValidations
   end
 end
+
+Agents::DestroyJob.prepend_mod_with('Agents::DestroyJob')

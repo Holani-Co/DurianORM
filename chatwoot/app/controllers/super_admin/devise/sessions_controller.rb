@@ -32,3 +32,5 @@ class SuperAdmin::Devise::SessionsController < Devise::SessionsController
     false
   end
 end
+
+SuperAdmin::Devise::SessionsController.prepend_mod_with('SuperAdmin::Devise::SessionsController')

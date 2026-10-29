@@ -116,3 +116,5 @@ class DashboardController < ActionController::Base
     sensitive_paths.include?(current_path)
   end
 end
+
+DashboardController.prepend_mod_with('DashboardController')
