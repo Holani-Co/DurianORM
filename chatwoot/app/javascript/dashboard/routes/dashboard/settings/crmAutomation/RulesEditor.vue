@@ -1,7 +1,8 @@
 <script setup>
 // The rule cards: stage + field conditions → template, delay and variables.
-// Picking a template sets its language and sizes the variable list to it.
-import { computed } from 'vue';
+// Picking a template sets its language and sizes the variable list to it; a
+// rule saved against a template that later changed is re-sized on load.
+import { computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const props = defineProps({
@@ -32,16 +33,47 @@ function setArg(variable, value) {
   variable.source = `${kindOf(variable.source)}:${value}`;
 }
 
+// The house order for missing variables: {{1}} customer, {{2}} sales exec /
+// store manager, {{3}} their phone (mirrors STANDARD_VARIABLES in the bridge).
+const STANDARD_VARIABLES = [
+  { source: 'contact_name', fallback: 'there' },
+  { source: 'owner_name', fallback: 'our workspace expert' },
+  { source: 'owner_phone', fallback: 'this number' },
+];
+
+function fitVariables(rule, count) {
+  const vars = rule.variables || [];
+  if (vars.length === count) return;
+  while (vars.length < count) {
+    vars.push({
+      ...(STANDARD_VARIABLES[vars.length] || {
+        source: 'contact_name',
+        fallback: '',
+      }),
+    });
+  }
+  vars.length = count;
+  rule.variables = vars;
+}
+
 function pickTemplate(rule, name) {
   rule.template = name;
   const tpl = approved.value.find(tp => tp.name === name);
   if (!tpl) return;
   rule.language = tpl.language || '';
-  const vars = rule.variables || [];
-  while (vars.length < tpl.var_count) vars.push({ source: 'contact_name', fallback: '' });
-  vars.length = tpl.var_count;
-  rule.variables = vars;
+  fitVariables(rule, tpl.var_count);
 }
+
+watch(
+  approved,
+  () => {
+    rules.value.forEach(rule => {
+      const tpl = templateOf(rule);
+      if (tpl) fitVariables(rule, tpl.var_count);
+    });
+  },
+  { immediate: true }
+);
 
 function addRule() {
   rules.value.push({

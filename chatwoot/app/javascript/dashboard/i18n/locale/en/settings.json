@@ -341,8 +341,9 @@
       "EMPTY": "No rules yet."
     },
     "TEAM": {
-      "HINT": "The phone number the customer sees for each sales exec (the deal owner). Write the owner's name exactly as in Zoho, or their Zoho email.",
+      "HINT": "The name and phone number the customer sees for each deal owner. Write the owner's name exactly as in Zoho, or their Zoho email. Name to show is optional — use it when the Zoho owner is a studio login rather than a person.",
       "OWNER": "Deal owner (name or email)",
+      "NAME": "Name to show (optional)",
       "PHONE": "Phone to share",
       "ADD": "Add person",
       "REMOVE": "Remove",

@@ -40,7 +40,7 @@ OPS = ("equals", "contains", "not_empty")
 SOURCES = {
     "contact_name": "Customer name (the deal's contact)",
     "first_name": "Customer first name",
-    "owner_name": "Sales exec name (deal owner)",
+    "owner_name": "Sales exec name (Sales team \"Name to show\", else the Zoho owner)",
     "owner_phone": "Sales exec phone (from the Sales team list)",
     "deal_number": "Deal number",
     "deal_name": "Deal name",
@@ -51,6 +51,9 @@ _WS_STAGE_QUALIFIED = "Qualified Deal (Please Select This )"
 _WS_VARS_NAME = [{"source": "contact_name", "fallback": "there"}]
 _WS_VARS_EXEC = _WS_VARS_NAME + [{"source": "owner_name", "fallback": "our workspace expert"}]
 _WS_VARS_EXEC_PHONE = _WS_VARS_EXEC + [{"source": "owner_phone", "fallback": "this number"}]
+# The house order for template variables: {{1}} customer, {{2}} sales exec /
+# store manager, {{3}} their phone. Used to fill in variables a rule is missing.
+STANDARD_VARIABLES = _WS_VARS_EXEC_PHONE
 _WS_MATCH = [{"field": "", "op": "contains", "value": ""}]   # the team fills this in
 
 
@@ -67,7 +70,7 @@ DEFAULT_DOC = {
     "team": [],
     "rules": [
         _ws_rule("ws_qualified", "Workspaces · Qualified", _WS_STAGE_QUALIFIED,
-                 "durian_ws_qualified", _WS_VARS_EXEC),
+                 "durian_ws_qualified", _WS_VARS_EXEC_PHONE),
         _ws_rule("ws_followup_1", "Workspaces · Follow-up 1", "Follow Up",
                  "durian_ws_followup_1", _WS_VARS_EXEC_PHONE),
         _ws_rule("ws_followup_2", "Workspaces · Follow-up 2 (after 2 days)", "Follow Up",
@@ -185,13 +188,48 @@ def filters_match(rule: dict, deal: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def _owner_phone(deal: dict, team: list) -> str:
+def _team_entry(deal: dict, team: list) -> dict:
+    """The Sales team row for the deal's owner (matched by Zoho name or email)."""
     owner = deal.get("Owner") or {}
     keys = {_norm(owner.get("name")), _norm(owner.get("email"))} - {""}
-    for t in team or []:
-        if _norm(t.get("owner")) in keys:
-            return str(t.get("phone") or "").strip()
-    return ""
+    return next((t for t in team or [] if _norm(t.get("owner")) in keys), {})
+
+
+def _owner_phone(deal: dict, team: list) -> str:
+    return str(_team_entry(deal, team).get("phone") or "").strip()
+
+
+def _owner_name(deal: dict, team: list) -> str:
+    """The name customers see: the Sales team "Name to show" (a studio login
+    such as "Durian Full Home Customisation Goregaon" is not a person), else
+    the Zoho owner's name."""
+    return str(_team_entry(deal, team).get("name") or "").strip() or _value(deal, "Owner")
+
+
+def fit_variables(variables: list, count: int) -> list:
+    """`variables` sized to a template's `count`: extras dropped, missing ones
+    filled in the house order (customer, sales exec, phone)."""
+    out = [dict(v) for v in (variables or [])[:count]]
+    while len(out) < count:
+        i = len(out)
+        out.append(dict(STANDARD_VARIABLES[i]) if i < len(STANDARD_VARIABLES)
+                   else {"source": "contact_name", "fallback": ""})
+    return out
+
+
+def template_mismatches(doc: dict, templates: list) -> list[str]:
+    """Switched-on rules whose variable count differs from their approved template."""
+    out = []
+    for r in (doc or {}).get("rules") or []:
+        tpl = find_template(templates, r) if r.get("enabled") else None
+        if not tpl:
+            continue
+        want, have = template_summary(tpl)["var_count"], len(r.get("variables") or [])
+        if want != have:
+            out.append(f"{r.get('name') or r.get('id')}: template {r.get('template')} has "
+                       f"{want} variables but the rule fills {have}. Pick the template "
+                       f"again to size the list, then check each variable.")
+    return out
 
 
 def resolve_variable(var: dict, deal: dict, team: list) -> str:
@@ -200,7 +238,7 @@ def resolve_variable(var: dict, deal: dict, team: list) -> str:
     value = {
         "contact_name": contact,
         "first_name": contact.split()[0] if contact.split() else "",
-        "owner_name": _value(deal, "Owner"),
+        "owner_name": _owner_name(deal, team),
         "owner_phone": _owner_phone(deal, team),
         "deal_number": _value(deal, config.ZOHO_CRM_DEAL_NUMBER_FIELD or "Deal_No"),
         "deal_name": _value(deal, "Deal_Name"),
@@ -280,7 +318,8 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
     values = [resolve_variable(v, deal, doc.get("team") or []) for v in rule.get("variables") or []]
     if len(values) != info["var_count"]:
         return {"status": "failed", "phone": phone,
-                "detail": f"template has {info['var_count']} variables, rule fills {len(values)}"}
+                "detail": f"template has {info['var_count']} variables, rule fills {len(values)}"
+                          " — open the rule in Settings and publish it again"}
     if any(not v for v in values):
         return {"status": "skipped", "phone": phone,
                 "detail": "a variable has no value and no fallback"}
@@ -425,6 +464,8 @@ def validate(doc) -> dict:
         if r.get("enabled") and not any((m.get("field") or "").strip() for m in r.get("match") or []):
             warnings.append(f"{label}: no filter set — it will fire for EVERY deal at this stage.")
     for t in doc.get("team") or []:
+        if not str(t.get("owner") or "").strip() and (t.get("phone") or t.get("name")):
+            errors.append("Sales team: every row needs the deal owner's Zoho name or email.")
         if t.get("phone") and len(re.sub(r"\D", "", str(t["phone"]))) < 10:
             errors.append(f"Sales team: {t.get('owner') or '?'} has an invalid phone.")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
