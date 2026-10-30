@@ -1,6 +1,7 @@
 <script setup>
-// Deal owner → the name and phone customers are given ({{2}} and {{3}} in the
-// templates). The name matters when the Zoho owner is a studio login.
+// Manual overrides for the name and phone customers are given ({{2}} and {{3}}
+// in the templates). Without a row, the bridge uses the owner's store in
+// Settings → Stores, then the owner's Zoho user.
 import { useI18n } from 'vue-i18n';
 
 const team = defineModel('team', { type: Array, default: () => [] });

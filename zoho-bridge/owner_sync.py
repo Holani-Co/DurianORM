@@ -68,7 +68,12 @@ def _user(u: dict) -> dict:
     mgr = u.get("Reporting_To") or {}
     return {"id": str(u.get("id") or ""), "name": (u.get("full_name") or "").strip(),
             "email": (u.get("email") or "").strip(),
-            "reports_to": str(mgr.get("id") or "") if isinstance(mgr, dict) else ""}
+            "reports_to": str(mgr.get("id") or "") if isinstance(mgr, dict) else "",
+            # Durian's custom user fields: a store login's manager, and the
+            # user's own numbers (for a salesperson who owns deals directly).
+            "manager_name": str(u.get("Manager_Name") or "").strip(),
+            "manager_phone": str(u.get("Manager_Phone") or "").strip(),
+            "phone": str(u.get("mobile") or u.get("phone") or "").strip()}
 
 
 async def _list_users(kind: str) -> dict:
@@ -139,6 +144,13 @@ def user(owner_id) -> dict:
     u = (s.get("active") or {}).get(oid) or (s.get("inactive") or {}).get(oid) or {}
     return {"id": oid, "name": u.get("name") or (s.get("names") or {}).get(oid, ""),
             "email": u.get("email", "")}
+
+
+def contact(owner_id) -> dict:
+    """{manager_name, manager_phone, phone} from the snapshot ('' when unknown)."""
+    s, oid = _load(), str(owner_id or "")
+    u = (s.get("active") or {}).get(oid) or (s.get("inactive") or {}).get(oid) or {}
+    return {k: u.get(k, "") for k in ("manager_name", "manager_phone", "phone")}
 
 
 def successor(owner_id) -> dict | None:

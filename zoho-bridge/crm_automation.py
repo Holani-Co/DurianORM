@@ -28,6 +28,8 @@ from datetime import datetime, timedelta, timezone
 import chatwoot
 import config
 import config_store
+import owner_sync
+import store_locator
 import zoho_crm
 
 _DB_PATH = os.environ.get(
@@ -40,8 +42,8 @@ OPS = ("equals", "contains", "not_empty")
 SOURCES = {
     "contact_name": "Customer name (the deal's contact)",
     "first_name": "Customer first name",
-    "owner_name": "Sales exec name (Sales team \"Name to show\", else the Zoho owner)",
-    "owner_phone": "Sales exec phone (from the Sales team list)",
+    "owner_name": "Sales exec / store manager name (automatic from Stores and Zoho)",
+    "owner_phone": "Sales exec / store manager phone (automatic from Stores and Zoho)",
     "deal_number": "Deal number",
     "deal_name": "Deal name",
     "stage": "Deal stage",
@@ -195,15 +197,22 @@ def _team_entry(deal: dict, team: list) -> dict:
     return next((t for t in team or [] if _norm(t.get("owner")) in keys), {})
 
 
-def _owner_phone(deal: dict, team: list) -> str:
-    return str(_team_entry(deal, team).get("phone") or "").strip()
-
-
-def _owner_name(deal: dict, team: list) -> str:
-    """The name customers see: the Sales team "Name to show" (a studio login
-    such as "Durian Full Home Customisation Goregaon" is not a person), else
-    the Zoho owner's name."""
-    return str(_team_entry(deal, team).get("name") or "").strip() or _value(deal, "Owner")
+def exec_contact(deal: dict, team: list) -> dict:
+    """The sales exec / store manager the customer is pointed to: {name, phone}.
+    First found wins, per value: a Sales team row (manual override) → the store
+    this owner runs in Settings → Stores (manager + store phone) → the owner's
+    Zoho user (Manager Name / Manager Phone fields, else their own number) →
+    the Zoho owner's name. A studio login such as "Durian Full Home
+    Customisation Goregaon" is not a person, so its store's manager is shown."""
+    owner = deal.get("Owner") or {}
+    row = _team_entry(deal, team)
+    store = store_locator.store_for_owner(owner.get("id"), owner.get("name") or "") or {}
+    zoho = owner_sync.contact(owner.get("id"))
+    pick = lambda *vals: next((str(v).strip() for v in vals if str(v or "").strip()), "")
+    return {"name": pick(row.get("name"), store.get("manager"), zoho["manager_name"],
+                         _value(deal, "Owner")),
+            "phone": pick(row.get("phone"), store.get("phone"), zoho["manager_phone"],
+                          zoho["phone"])}
 
 
 def fit_variables(variables: list, count: int) -> list:
@@ -234,12 +243,13 @@ def template_mismatches(doc: dict, templates: list) -> list[str]:
 
 def resolve_variable(var: dict, deal: dict, team: list) -> str:
     src = str(var.get("source") or "")
+    exec_ = exec_contact(deal, team) if src in ("owner_name", "owner_phone") else {}
     contact = _value(deal, "Contact_Name") or str(deal.get("Deal_Name") or "").split(" — ")[0]
     value = {
         "contact_name": contact,
         "first_name": contact.split()[0] if contact.split() else "",
-        "owner_name": _owner_name(deal, team),
-        "owner_phone": _owner_phone(deal, team),
+        "owner_name": exec_.get("name"),
+        "owner_phone": exec_.get("phone"),
         "deal_number": _value(deal, config.ZOHO_CRM_DEAL_NUMBER_FIELD or "Deal_No"),
         "deal_name": _value(deal, "Deal_Name"),
         "stage": _value(deal, "Stage"),
