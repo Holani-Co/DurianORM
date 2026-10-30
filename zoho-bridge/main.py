@@ -7668,7 +7668,20 @@ async def admin_crm_automation_get(x_routing_admin_secret: Optional[str] = Heade
 async def admin_crm_automation_validate(request: Request,
                                         x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
-    return crm_automation.validate(((await request.json()) or {}).get("doc"))
+    return await _crm_automation_check(((await request.json()) or {}).get("doc"))
+
+
+async def _crm_automation_check(doc) -> dict:
+    """validate() plus: a switched-on rule must fill exactly its template's variables."""
+    v = crm_automation.validate(doc)
+    if v["ok"]:
+        try:
+            templates = await chatwoot.list_whatsapp_templates(int(doc.get("inbox_id") or 0))
+        except Exception:
+            templates = []
+        v["errors"] += crm_automation.template_mismatches(doc, templates)
+        v["ok"] = not v["errors"]
+    return v
 
 
 @app.post("/admin/crm-automation/publish")
@@ -7676,7 +7689,7 @@ async def admin_crm_automation_publish(request: Request,
                                        x_routing_admin_secret: Optional[str] = Header(None)):
     _require_routing_admin(x_routing_admin_secret)
     body = await request.json() or {}
-    v = crm_automation.validate(body.get("doc"))
+    v = await _crm_automation_check(body.get("doc"))
     if not v["ok"]:
         raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
     vid = config_store.publish(body["doc"], note=str(body.get("note") or ""),

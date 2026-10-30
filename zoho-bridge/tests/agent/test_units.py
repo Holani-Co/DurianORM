@@ -3165,6 +3165,43 @@ def test_auto_validate_and_defaults():
     assert "unique id" in errs and "stage" in errs and "0–720" in errs and "invalid phone" in errs
     nofilter = {"inbox_id": 25, "rules": [_rule(match=[])]}
     assert "EVERY deal" in ca.validate(nofilter)["warnings"][0]
+    qualified = next(r for r in ca.DEFAULT_DOC["rules"] if r["id"] == "ws_qualified")
+    assert [v["source"] for v in qualified["variables"]] == \
+        ["contact_name", "owner_name", "owner_phone"]           # matches the approved template
+
+
+def test_auto_studio_owner_shows_team_name_and_variables_fit(monkeypatch):
+    # 29 Oct test send: the approved durian_ws_qualified has {{1}} {{2}} {{3}} but the
+    # rule filled 2 ("Not sent: template has 3 variables, rule fills 2"), and {{2}} read
+    # "our store manager, Durian Full Home Customisation Goregaon" (a studio login).
+    import asyncio
+    import main
+    import crm_automation as ca
+    deal = _ws_deal(Owner={"name": "Durian Full Home Customisation Goregaon",
+                           "email": "goregaon.homestudio@durian.in"})
+    team = [{"owner": "goregaon.homestudio@durian.in", "name": "Rahul Mehta",
+             "phone": "+91 98200 00000"}]
+    rv = lambda src: ca.resolve_variable({"source": src, "fallback": ""}, deal, team)
+    assert rv("owner_name") == "Rahul Mehta" and rv("owner_phone") == "+91 98200 00000"
+    assert ca.resolve_variable({"source": "owner_name"}, deal, []) == \
+        "Durian Full Home Customisation Goregaon"            # no team row → Zoho owner
+    two = [{"source": "contact_name", "fallback": "there"}, {"source": "text:x"}]
+    assert ca.fit_variables(two, 3) == two + [{"source": "owner_phone", "fallback": "this number"}]
+    assert ca.fit_variables(two, 1) == two[:1]
+    # publish refuses a switched-on rule that no longer fits its template
+    tpl3 = dict(_WS_FU1, name="durian_ws_qualified")
+    doc = {"inbox_id": 25, "team": team, "rules": [_rule()]}
+    monkeypatch.setattr(main, "chatwoot", _AutoCW(templates=[tpl3]))
+    v = asyncio.run(main._crm_automation_check(doc))
+    assert not v["ok"] and "has 3 variables but the rule fills 2" in v["errors"][0]
+    doc["rules"][0]["variables"] = ca.fit_variables(doc["rules"][0]["variables"], 3)
+    assert asyncio.run(main._crm_automation_check(doc))["ok"]
+    # and the fitted rule sends name + manager + phone
+    ca2, cw, _ = _auto_setup(monkeypatch, doc["rules"], deal=deal, team=team,
+                             cw=_AutoCW(templates=[tpl3]))
+    assert asyncio.run(ca2.handle_deal("555"))[0]["status"] == "sent"
+    assert cw.sent[0][2]["processed_params"]["body"] == \
+        {"1": "Ravi Kumar", "2": "Rahul Mehta", "3": "+91 98200 00000"}
 
 
 def test_auto_webhook_security_and_dispatch(monkeypatch):

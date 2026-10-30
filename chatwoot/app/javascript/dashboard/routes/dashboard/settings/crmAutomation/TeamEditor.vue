@@ -1,5 +1,6 @@
 <script setup>
-// Deal owner → the phone number customers are given ({{3}} in follow-ups).
+// Deal owner → the name and phone customers are given ({{2}} and {{3}} in the
+// templates). The name matters when the Zoho owner is a studio login.
 import { useI18n } from 'vue-i18n';
 
 const team = defineModel('team', { type: Array, default: () => [] });
@@ -9,7 +10,7 @@ const input =
 
 const add = () => {
   if (!Array.isArray(team.value)) team.value = [];
-  team.value.push({ owner: '', phone: '' });
+  team.value.push({ owner: '', name: '', phone: '' });
 };
 </script>
 
@@ -29,6 +30,13 @@ const add = () => {
         type="text"
         :placeholder="t('CRM_AUTOMATION_CONFIG.TEAM.OWNER')"
         class="flex-1 min-w-[12rem]"
+        :class="input"
+      />
+      <input
+        v-model="row.name"
+        type="text"
+        :placeholder="t('CRM_AUTOMATION_CONFIG.TEAM.NAME')"
+        class="w-48"
         :class="input"
       />
       <input
