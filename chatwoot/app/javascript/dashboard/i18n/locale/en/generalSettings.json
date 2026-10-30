@@ -248,5 +248,9 @@
   "COMMON": {
     "OR": "Or",
     "CLICK_HERE": "click here"
+  },
+  "DURIAN_VIEW_AS": {
+    "MESSAGE": "Viewing as {person} · you are {admin} · recorded as you ·",
+    "STOP": "Stop"
   }
 }

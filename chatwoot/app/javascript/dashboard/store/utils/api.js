@@ -1,5 +1,4 @@
 import fromUnixTime from 'date-fns/fromUnixTime';
-import differenceInDays from 'date-fns/differenceInDays';
 import Cookies from 'js-cookie';
 import { LOCAL_STORAGE_KEYS } from 'dashboard/constants/localStorage';
 import { SESSION_STORAGE_KEYS } from 'dashboard/constants/sessionStorage';
@@ -30,8 +29,10 @@ export const getHeaderExpiry = response =>
 
 export const setAuthCredentials = response => {
   const expiryDate = getHeaderExpiry(response);
+  // The exact expiry: a whole number of days is 0 for a session shorter than a day
+  // (Durian OS View as, emergency login), which would drop the cookie at once.
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
-    expires: differenceInDays(expiryDate, new Date()),
+    expires: expiryDate,
   });
   setUser(response.data.data, expiryDate);
 };

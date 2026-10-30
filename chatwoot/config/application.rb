@@ -60,6 +60,8 @@ module Chatwoot
     config.eager_load_paths += Dir["#{Rails.root}/custom/app/**"]
     # rubocop:enable Rails/FilePath
     config.paths['config/initializers'] << 'custom/config/initializers'
+    # Durian OS view overrides (custom/app/views) come before enterprise and app views.
+    config.paths['app/views'].unshift('custom/app/views')
 
     # Settings in config/environments/* take precedence over those specified here.
     # Application configuration can go into files in config/initializers

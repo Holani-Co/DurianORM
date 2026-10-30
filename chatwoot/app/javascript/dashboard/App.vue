@@ -6,6 +6,7 @@ import UpdateBanner from './components/app/UpdateBanner.vue';
 import StatusBanner from './components/app/StatusBanner.vue';
 import PaymentPendingBanner from './components/app/PaymentPendingBanner.vue';
 import PendingEmailVerificationBanner from './components/app/PendingEmailVerificationBanner.vue';
+import DurianViewAsBar from './components/app/DurianViewAsBar.vue';
 import vueActionCable from './helper/actionCable';
 import { useRouter } from 'vue-router';
 import { useStore } from 'dashboard/composables/store';
@@ -34,6 +35,7 @@ export default {
     WootSnackbarBox,
     MessageToastContainer,
     PendingEmailVerificationBanner,
+    DurianViewAsBar,
   },
   setup() {
     const router = useRouter();
@@ -121,6 +123,8 @@ export default {
       this.reconnectService = new ReconnectService(this.store, this.router);
       window.reconnectService = this.reconnectService;
 
+      // Viewing as someone (Durian OS) must not move this browser's push subscription to them.
+      if (this.currentUser?.impersonated_by) return;
       verifyServiceWorkerExistence(registration =>
         registration.pushManager.getSubscription().then(subscription => {
           if (subscription) {
@@ -140,6 +144,7 @@ export default {
     class="flex flex-col w-full h-screen min-h-0 bg-n-background"
     :dir="isRTL ? 'rtl' : 'ltr'"
   >
+    <DurianViewAsBar v-if="currentUser?.impersonated_by" />
     <UpdateBanner :latest-chatwoot-version="latestChatwootVersion" />
     <StatusBanner />
     <template v-if="currentAccountId">

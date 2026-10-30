@@ -6,6 +6,10 @@ module Custom::Concerns::User
 
   PROTECTED_KINDS = %w[service emergency].freeze
 
+  included do
+    prepend DurianOs::ViewAsToken
+  end
+
   def os_person_id
     (custom_attributes || {})['os_person_id'].presence
   end
@@ -31,8 +35,10 @@ module Custom::Concerns::User
   end
 
   # The emergency account's sessions end as soon as the emergency login goes off (3.10).
+  # A View as session ends at imp_exp, or as soon as OS_VIEW_AS goes off.
   def valid_token?(token, client = 'default')
     return false if durian_os_emergency? && !DurianOs::Config.emergency_login_on?
+    return false unless DurianOs::ViewAs.token_usable?(tokens.is_a?(Hash) ? tokens[client] : nil)
 
     super
   end

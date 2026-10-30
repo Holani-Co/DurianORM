@@ -4,6 +4,9 @@
 # - The emergency email signs in only against OS_EMERGENCY_PASSWORD_HASH while
 #   OS_EMERGENCY_LOGIN_UNTIL is on, for one hour; otherwise it gets 404.
 # - With OS_SIGNIN_ONLY on, every other password or MFA post gets 404.
+# - A one-time token made for a View as (DurianOs::ViewAs) signs in as the person with a
+#   session marked with the admin that ends at imp_exp; with OS_VIEW_AS off or the View as
+#   ended it is refused, never signed in unmarked.
 module Custom::DeviseOverrides::SessionsController
   def create
     return durian_os_emergency_sign_in if durian_os_emergency_request?
@@ -12,6 +15,8 @@ module Custom::DeviseOverrides::SessionsController
     return durian_os_render_sso_failure if @resource.blank?
 
     super
+  ensure
+    DurianOs::Current.reset
   end
 
   private
@@ -20,7 +25,26 @@ module Custom::DeviseOverrides::SessionsController
     return durian_os_render_sso_failure if @resource.durian_os_emergency?
     return durian_os_render_sso_failure unless @resource.consume_sso_auth_token(params[:sso_auth_token])
 
+    @durian_os_pending_view_as = DurianOs::ViewAs.take(@resource, params[:sso_auth_token])
+    return durian_os_render_sso_failure if @durian_os_pending_view_as == :refused
+
     super
+  end
+
+  # Chatwoot's SSO sign-in, with the View as session when the token was made for one.
+  # The sign_in audit rows Enterprise writes next (render_create_success) get the admin
+  # through DurianOs::Current.
+  def authenticate_resource_with_sso_token
+    view_as = @durian_os_pending_view_as
+    return super unless view_as.is_a?(DurianOs::ViewAs::Session)
+
+    @token = @resource.create_token(lifespan: DurianOs::ViewAs.lifespan(view_as), os_view_as: view_as.to_record)
+    @resource.save!
+    sign_in(:user, @resource, store: false, bypass: false)
+    @durian_os_view_as = view_as
+    DurianOs::Current.view_as = view_as
+    DurianOs::Current.user = @resource
+    DurianOs::ViewAsLog.started(@resource, view_as, ip: request.remote_ip, audit: !ChatwootApp.enterprise?)
   end
 
   def durian_os_emergency_request?
