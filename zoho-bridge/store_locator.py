@@ -115,6 +115,19 @@ def all_stores() -> list:
     return _stores()
 
 
+def store_for_owner(owner_id, owner_name: str = "") -> dict | None:
+    """The store whose CRM owner is this Zoho user, or None. When one login owns
+    several stores (FHC Hyderabad also owns the Kompally furniture showroom),
+    the store whose name shares the most words with the owner's name wins."""
+    oid = str(owner_id or "")
+    mine = [s for s in _stores() if oid and str(s.get("crm_owner_id") or "") == oid]
+    if not mine:
+        return None
+    words = set(re.findall(r"[a-z]+", (owner_name or "").lower()))
+    return max(mine, key=lambda s: (len(words & set(re.findall(r"[a-z]+", (s.get("name") or "").lower()))),
+                                    bool(s.get("phone"))))
+
+
 def upcoming(vertical: str, pincode=None, city: str = None) -> dict | None:
     """An enabled 'upcoming store' entry matching the customer's location for this
     vertical, or None. Client-managed in the stores override under `upcoming`:

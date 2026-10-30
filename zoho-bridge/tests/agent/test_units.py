@@ -3204,6 +3204,46 @@ def test_auto_studio_owner_shows_team_name_and_variables_fit(monkeypatch):
         {"1": "Ravi Kumar", "2": "Rahul Mehta", "3": "+91 98200 00000"}
 
 
+def test_auto_manager_name_and_phone_found_without_a_sales_team_row(monkeypatch):
+    # The Sales team list should be an override, not a list to keep up: a studio
+    # login's manager + phone come from Settings → Stores, else from Zoho.
+    import crm_automation as ca
+    import owner_sync
+    import store_locator
+    stores = [
+        {"id": "f1", "name": "Durian Furniture - Hyderabad - Kompally", "crm_owner_id": "HYD",
+         "manager": "Furniture Mgr", "phone": "040 1111 1111"},
+        {"id": "h1", "name": "Durian Full Home Customisation - Hyderabad - Kompally",
+         "crm_owner_id": "HYD", "manager": "Studio Mgr", "phone": "040 2222 2222"},
+        {"id": "g1", "name": "Durian Full Home Customisation - Mumbai - Goregaon",
+         "crm_owner_id": "GOR", "manager": "Rahul Mehta", "phone": ""},
+    ]
+    monkeypatch.setattr(store_locator, "_stores", lambda: stores)
+    snap = {"active": {"GOR": {"manager_name": "Zoho Mgr", "manager_phone": "+91 98200 00000"},
+                       "SP": {"phone": "+91 90000 00009"}}}
+    monkeypatch.setattr(owner_sync, "_load", lambda: snap)
+    deal = lambda oid, name: _ws_deal(Owner={"id": oid, "name": name})
+    # one login owns two stores → the store named like the owner wins
+    hyd = ca.exec_contact(deal("HYD", "Durian Full Home Customisation Hyderabad"), [])
+    assert hyd == {"name": "Studio Mgr", "phone": "040 2222 2222"}
+    # store has the manager but no phone → Zoho's Manager Phone fills the gap
+    gor = ca.exec_contact(deal("GOR", "Durian Full Home Customisation Goregaon"), [])
+    assert gor == {"name": "Rahul Mehta", "phone": "+91 98200 00000"}
+    # a salesperson with no store → their own name and Zoho number
+    assert ca.exec_contact(deal("SP", "Neha Singh"), []) == \
+        {"name": "Neha Singh", "phone": "+91 90000 00009"}
+    # a Sales team row still overrides, value by value
+    row = [{"owner": "Durian Full Home Customisation Goregaon", "name": "", "phone": "+91 1"}]
+    assert ca.exec_contact(deal("GOR", "Durian Full Home Customisation Goregaon"), row) == \
+        {"name": "Rahul Mehta", "phone": "+91 1"}
+    assert ca.resolve_variable({"source": "owner_phone"},
+                               deal("HYD", "Durian Full Home Customisation Hyderabad"), []) \
+        == "040 2222 2222"
+    # nothing known anywhere → the rule's fallback
+    assert ca.resolve_variable({"source": "owner_phone", "fallback": "this number"},
+                               deal("NONE", "Somebody"), []) == "this number"
+
+
 def test_auto_webhook_security_and_dispatch(monkeypatch):
     import asyncio
     from fastapi.testclient import TestClient
