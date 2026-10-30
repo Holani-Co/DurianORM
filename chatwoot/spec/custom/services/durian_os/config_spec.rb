@@ -16,6 +16,12 @@ RSpec.describe DurianOs::Config do
       end
     end
 
+    it 'keeps View as off unless OS_VIEW_AS is on' do
+      with_modified_env(OS_VIEW_AS: nil) { expect(described_class.view_as?).to be(false) }
+      with_modified_env(OS_VIEW_AS: 'off') { expect(described_class.view_as?).to be(false) }
+      with_modified_env(OS_VIEW_AS: 'on') { expect(described_class.view_as?).to be(true) }
+    end
+
     it 'turns OS_SIGNIN_ONLY on only for on-like values' do
       with_modified_env(OS_SIGNIN_ONLY: 'on') { expect(described_class.signin_only?).to be(true) }
       with_modified_env(OS_SIGNIN_ONLY: 'off') { expect(described_class.signin_only?).to be(false) }

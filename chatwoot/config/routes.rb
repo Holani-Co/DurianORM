@@ -676,6 +676,7 @@ Rails.application.routes.draw do
         # Durian OS connector (ORM appendix code change 11)
         get 'durian_os/status', to: 'durian_os#status'
         post 'durian_os/users/:id/end_sessions', to: 'durian_os#end_sessions'
+        post 'durian_os/users/:id/view_as_login', to: 'durian_os#view_as_login'
         resources :accounts, only: [:index, :create, :show, :update, :destroy] do
           resources :account_users, only: [:index, :create] do
             collection do

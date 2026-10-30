@@ -130,7 +130,8 @@ ORM is one of the eight apps managed by Durian OS (durianos.in). The rules come 
 - There are no personal-token endpoints: ORM's description has no `tokens` section. Each user's Chatwoot API token is rotated by removal and by end-sessions.
 - Endpoints added for the connector (Platform token, `custom/app/controllers/platform/api/v1/durian_os_controller.rb`):
   - `GET /platform/api/v1/durian_os/status` returns `{"emergencyLogin":{"enabled":bool}}`;
-  - `POST /platform/api/v1/durian_os/users/:id/end_sessions` clears `users.tokens`, rotates the API token, returns `{sessionsEnded, tokensRevoked}`.
+  - `POST /platform/api/v1/durian_os/users/:id/end_sessions` clears `users.tokens`, rotates the API token, returns `{sessionsEnded, tokensRevoked}`;
+  - `POST /platform/api/v1/durian_os/users/:id/view_as_login` (only with `OS_VIEW_AS=on`, else `404`): see "View as" below.
 
 ### How sign-in works
 
@@ -138,6 +139,10 @@ ORM is one of the eight apps managed by Durian OS (durianos.in). The rules come 
 - `OS_SIGNIN_ONLY=on` (unset by default) makes Durian OS the only way in: password sign-in, MFA posts, password reset, sign-up (`/auth` registrations route), confirmation sign-in, Google/SAML (they redirect to `OS_HANDOFF_URL`, default `https://durianos.in/api/handoff/orm`) and the super admin console all answer `404`; `/app/login` without a token redirects to Durian OS (a one-minute cookie stops loops); the emergency user's API token is refused. Undo = unset it and restart `chatwoot-web` and `chatwoot-worker`.
 - The emergency admin login (3.10) is off unless `OS_EMERGENCY_LOGIN_UNTIL` is a UTC time in the future and at most 24 hours ahead, with `OS_EMERGENCY_EMAIL` and `OS_EMERGENCY_PASSWORD_HASH` (bcrypt, cost ≥ 12) set. Only that email may use the password form (`/app/login?emergency=1`) and, with `OS_SIGNIN_ONLY` on, the super admin console. The password is checked against the hash, never the database; 5 failures per 15 minutes per address and 20 in total lock it until the setting changes. Sessions last one hour and end when the setting goes off. Every use is logged, audited and reported (`emergency_login.used`). While off, the emergency email gets `404`.
 - `OS_MANAGED=on` (unset by default): Remove agent keeps the user row (no `delete_user_record`); service and emergency rows cannot be edited or removed on the agents page; `Agents::DestroyJob` skips a person who is a member again, and ends sessions and rotates the API token once the person has no account left.
+
+### View as
+
+`OS_VIEW_AS=on` (unset by default) lets a Durian OS superadmin "View as" a person in ORM (`DurianOs::ViewAs`). Durian OS posts `{by_email, by_name, imp, imp_exp}` to `view_as_login` for a person in account 1 (never a service or emergency user; `imp_exp` in the future and at most 65 minutes ahead) and gets `{url}`: the one-time link with `impersonation=true`, the View as recorded in Redis against its token. Using the link signs in as the person with a session whose `users.tokens` entry carries `os_view_as` and expires at `imp_exp` (a renewal keeps both; the token stops working at `imp_exp` or as soon as `OS_VIEW_AS` goes off). While viewing: password, API token, MFA, availability, profile/settings writes, push subscriptions and `/auth` registrations answer `403 "Not available while viewing as someone."`; audit rows get the admin in `comment`; each request is logged (`[DurianOS] view_as.*`); the current user (`/auth/validate_token`, `/api/v1/profile`) carries `impersonated_by {email, name}` and `view_as_ends_at` and no `access_token`; the dashboard shows the View as bar (Stop signs out and goes to `https://durianos.in/impersonate`). The plain `users/:id/login` link is unchanged.
 
 ### Change reports
 

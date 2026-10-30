@@ -22,6 +22,13 @@ module DurianOs::Config
     switch_on?('OS_MANAGED')
   end
 
+  # Durian OS "View as": the Platform API makes a marked one-time login link that signs
+  # in as the person until the View as ends (shared View as spec, 30 Oct 2026).
+  # Turning it off also ends every View as session still open.
+  def view_as?
+    switch_on?('OS_VIEW_AS')
+  end
+
   def account_id
     ENV.fetch('OS_ACCOUNT_ID', '1').to_i
   end
