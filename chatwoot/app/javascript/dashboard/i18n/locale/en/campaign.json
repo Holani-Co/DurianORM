@@ -145,10 +145,19 @@
     "TEMPLATES": "Templates",
     "CONSENTS": "Consent ledger"
   },
+  "DUPLICATE": {
+        "TITLE": "Duplicate campaign",
+        "COPY_NAME": "{title} (copy)",
+        "INFO": "Copied from \"{title}\". Check the details and pick a new send time. Nothing is sent until you click Create.",
+        "TEMPLATE_MISSING": "The template this campaign used is no longer approved. Please pick another one.",
+        "MEDIA_MISSING": "The file from the original campaign is no longer stored. Please upload it again."
+  },
   "TEMPLATES": {
         "NEW": "Create template",
         "SYNC": "Sync with Meta",
         "SUBMIT": "Submit",
+        "CONTINUE_EDITING": "Continue editing",
+        "DUPLICATE": "Duplicate template",
         "META": "{inbox} · {language} · {category}",
         "ALL_INBOXES": "All WhatsApp inboxes",
         "EMPTY_TITLE": "No WhatsApp templates yet",
@@ -192,10 +201,13 @@
           "BUTTON_URL_PLACEHOLDER": "https://example.com/offers/{'{{'}1{'}}'}",
           "BUTTON_PHONE_PLACEHOLDER": "+919876543210",
           "CANCEL": "Cancel",
+          "SAVE_DRAFT": "Save as draft",
+          "DRAFT_HELP": "Not finished? Add a name and inbox, then save it as a draft to continue later. Drafts stay in ORM and are not sent to Meta.",
           "SUBMIT": "Save and submit",
           "UPDATE": "Update and resubmit"
         },
         "API": {
+          "DRAFT_SAVED": "Draft saved",
           "SUBMITTED": "Template submitted to Meta for approval",
           "SYNCED": "Templates synced with Meta",
           "DELETED": "Template deleted",
@@ -267,6 +279,7 @@
         },
         "METRICS": "Audience {audience} · Sent {sent} · Delivered {delivered} · Read {read} · Replies {replies} · Failed {failed}",
         "RETRY_FAILED": "Retry failed deliveries",
+        "DUPLICATE": "Duplicate campaign",
         "STATUS": {
           "COMPLETED": "Completed",
           "SCHEDULED": "Scheduled"

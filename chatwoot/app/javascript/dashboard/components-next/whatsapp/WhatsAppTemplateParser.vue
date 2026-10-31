@@ -40,6 +40,15 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Values to start from, e.g. when duplicating a campaign.
+  initialParams: {
+    type: Object,
+    default: null,
+  },
+  initialMedia: {
+    type: Object,
+    default: null,
+  },
 });
 
 const emit = defineEmits(['sendMessage', 'resetTemplate', 'back']);
@@ -100,12 +109,22 @@ const hasVariables = computed(() => {
   return bodyText.value?.match(/{{([^}]+)}}/g) !== null;
 });
 
+const hasButtonVariables = computed(() =>
+  Boolean(processedParams.value.buttons?.length)
+);
+
 const renderedTemplate = computed(() => {
   return replaceTemplateVariables(bodyText.value, processedParams.value);
 });
 
 const isFormInvalid = computed(() => {
-  if (!hasVariables.value && !hasMediaHeader.value) return false;
+  if (
+    !hasVariables.value &&
+    !hasMediaHeader.value &&
+    !hasButtonVariables.value
+  ) {
+    return false;
+  }
 
   if (
     hasMediaHeader.value &&
@@ -144,14 +163,36 @@ const v$ = useVuelidate(
   { processedParams }
 );
 
+// Fills in only the fields this template has, so a changed template can't leave
+// stray keys behind.
+const applyInitialParams = () => {
+  const saved = props.initialParams;
+  if (!saved) return;
+
+  const { body, header, buttons } = processedParams.value;
+  Object.keys(body || {}).forEach(key => {
+    body[key] = saved.body?.[key] || '';
+  });
+  if (header) {
+    header.media_url = saved.header?.media_url || '';
+    if (isDocumentTemplate.value) {
+      header.media_name = saved.header?.media_name || '';
+    }
+  }
+  buttons?.forEach((button, index) => {
+    button.parameter = saved.buttons?.[index]?.parameter || '';
+  });
+};
+
 const initializeTemplateParameters = () => {
   processedParams.value = buildTemplateParameters(
     props.template,
     hasMediaHeader.value
   );
-  mediaBlobId.value = null;
-  mediaFileName.value = '';
+  mediaBlobId.value = props.initialMedia?.signedId || null;
+  mediaFileName.value = props.initialMedia?.filename || '';
   mediaUploadError.value = '';
+  applyInitialParams();
 };
 
 const updateMediaUrl = value => {
@@ -291,7 +332,7 @@ defineExpose({
       </div>
     </div>
 
-    <div v-if="hasVariables || hasMediaHeader">
+    <div v-if="hasVariables || hasMediaHeader || hasButtonVariables">
       <div v-if="hasMediaHeader" class="mb-4">
         <p class="mb-2.5 text-sm font-semibold">
           {{

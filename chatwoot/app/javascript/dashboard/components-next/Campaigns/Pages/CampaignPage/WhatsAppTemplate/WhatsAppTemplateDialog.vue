@@ -36,7 +36,11 @@ const state = reactive({
   headerType: existingHeader?.format || 'NONE',
   header: existingHeader?.text || '',
   mediaFile: null,
-  mediaHandle: existingHeader?.example?.header_handle?.[0] || null,
+  // A duplicate gets no handle: the source's belongs to its own upload (and is a
+  // CDN link once synced from Meta), so the copy needs a fresh sample.
+  mediaHandle: props.template?.id
+    ? existingHeader?.example?.header_handle?.[0] || null
+    : null,
   body: existingBody?.text || '',
   footer: existingFooter?.text || '',
   buttons:
@@ -47,7 +51,13 @@ const state = reactive({
     })) || [],
 });
 
-const isEdit = computed(() => Boolean(props.template));
+// Set once this dialog has saved a new template, so a retry after a failed Meta
+// submit updates that row instead of colliding with its own name.
+const savedTemplateId = ref(null);
+const isSavingDraft = ref(false);
+
+// A duplicate arrives as a template with no id: prefilled, but a new record.
+const isEdit = computed(() => Boolean(props.template?.id));
 // Meta can't rename a submitted template or change its language.
 const isSubmitted = computed(
   () => isEdit.value && props.template.status !== 'DRAFT'
@@ -190,6 +200,11 @@ const canSubmit = computed(
     buttonsValid.value &&
     !isBusy.value
 );
+// A draft only needs what identifies the row; the rest can be filled in later.
+const canSaveDraft = computed(
+  () =>
+    !isSubmitted.value && normalizedName.value && state.inboxId && !isBusy.value
+);
 
 const templateVariables = text => {
   const matches = [...text.matchAll(/\{\{(\d+)\}\}/g)].map(match =>
@@ -218,10 +233,11 @@ const buildHeader = mediaHandle => {
       ...componentExample(state.header, 'HEADER'),
     };
   }
+  // A draft may not have its media sample yet.
   return {
     type: 'HEADER',
     format: state.headerType,
-    example: { header_handle: [mediaHandle] },
+    ...(mediaHandle ? { example: { header_handle: [mediaHandle] } } : {}),
   };
 };
 
@@ -279,33 +295,55 @@ const errorMessage = error =>
   error?.message ||
   t('CAMPAIGN.WHATSAPP.TEMPLATES.API.ERROR');
 
+const saveTemplate = async () => {
+  let mediaHandle = null;
+  if (mediaHeader.value && state.mediaFile) {
+    mediaHandle = await store.dispatch('whatsappTemplates/uploadSample', {
+      inboxId: state.inboxId,
+      file: state.mediaFile,
+    });
+  } else if (hasReusableMedia.value) {
+    mediaHandle = state.mediaHandle;
+  }
+  const templatePayload = {
+    name: normalizedName.value,
+    inbox_id: state.inboxId,
+    category: state.category,
+    language: state.language,
+    components: buildComponents(mediaHandle),
+  };
+  const id = savedTemplateId.value || props.template?.id;
+  const template = id
+    ? await store.dispatch('whatsappTemplates/update', {
+        id,
+        ...templatePayload,
+      })
+    : await store.dispatch('whatsappTemplates/create', templatePayload);
+  savedTemplateId.value = template.id;
+  return template;
+};
+
+const saveDraft = async () => {
+  if (!canSaveDraft.value) return;
+
+  isSavingDraft.value = true;
+  try {
+    await saveTemplate();
+    useAlert(t('CAMPAIGN.WHATSAPP.TEMPLATES.API.DRAFT_SAVED'));
+    emit('close');
+  } catch (error) {
+    useAlert(errorMessage(error));
+  } finally {
+    isSavingDraft.value = false;
+  }
+};
+
 const submitTemplate = async () => {
   if (!canSubmit.value) return;
 
   try {
-    let mediaHandle = null;
-    if (mediaHeader.value && state.mediaFile) {
-      mediaHandle = await store.dispatch('whatsappTemplates/uploadSample', {
-        inboxId: state.inboxId,
-        file: state.mediaFile,
-      });
-    } else if (hasReusableMedia.value) {
-      mediaHandle = state.mediaHandle;
-    }
-    const templatePayload = {
-      name: normalizedName.value,
-      inbox_id: state.inboxId,
-      category: state.category,
-      language: state.language,
-      components: buildComponents(mediaHandle),
-    };
-    const template = isEdit.value
-      ? await store.dispatch('whatsappTemplates/update', {
-          id: props.template.id,
-          ...templatePayload,
-        })
-      : await store.dispatch('whatsappTemplates/create', templatePayload);
-    if (!isEdit.value || props.template.status === 'DRAFT') {
+    const template = await saveTemplate();
+    if (template.status === 'DRAFT') {
       await store.dispatch('whatsappTemplates/submit', template.id);
     }
     useAlert(t('CAMPAIGN.WHATSAPP.TEMPLATES.API.SUBMITTED'));
@@ -496,6 +534,10 @@ const submitTemplate = async () => {
         </div>
       </div>
 
+      <p v-if="!isSubmitted" class="text-xs text-n-slate-11">
+        {{ t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.DRAFT_HELP') }}
+      </p>
+
       <div class="flex items-center justify-end gap-3 pt-2">
         <Button
           type="button"
@@ -505,11 +547,21 @@ const submitTemplate = async () => {
           @click="emit('close')"
         />
         <Button
+          v-if="!isSubmitted"
+          type="button"
+          color="slate"
+          variant="faded"
+          :disabled="!canSaveDraft"
+          :is-loading="isSavingDraft"
+          :label="t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.SAVE_DRAFT')"
+          @click="saveDraft"
+        />
+        <Button
           type="submit"
           :disabled="!canSubmit"
-          :is-loading="isBusy"
+          :is-loading="isBusy && !isSavingDraft"
           :label="
-            isEdit
+            isSubmitted
               ? t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.UPDATE')
               : t('CAMPAIGN.WHATSAPP.TEMPLATES.FORM.SUBMIT')
           "

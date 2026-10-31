@@ -12,6 +12,13 @@ import ComboBox from 'dashboard/components-next/combobox/ComboBox.vue';
 import TagMultiSelectComboBox from 'dashboard/components-next/combobox/TagMultiSelectComboBox.vue';
 import WhatsAppTemplateParser from 'dashboard/components-next/whatsapp/WhatsAppTemplateParser.vue';
 
+const props = defineProps({
+  duplicateFrom: {
+    type: Object,
+    default: null,
+  },
+});
+
 const emit = defineEmits(['submit', 'cancel']);
 
 const { t } = useI18n();
@@ -33,7 +40,39 @@ const initialState = {
   testPhone: '',
 };
 
-const state = reactive({ ...initialState });
+const source = props.duplicateFrom;
+const sourceParams = source?.template_params?.processed_params || {};
+
+// Matched by name too: the campaign's template link is cleared if the template was
+// deleted and synced back from Meta as a new row.
+const sourceTemplate = source
+  ? formState.whatsappTemplates.value.find(
+      template =>
+        template.status === 'APPROVED' &&
+        template.inbox_id === source.inbox.id &&
+        (template.id === source.whatsapp_template_id ||
+          (template.name === source.template_params?.name &&
+            template.language === source.template_params?.language))
+    )
+  : null;
+
+// A duplicate copies the campaign's setup but never its send time, so nothing can
+// go out on a stale date: the user has to pick a new one.
+const duplicateState = () => {
+  if (!source) return {};
+  const labelIds = formState.labels.value.map(label => label.id);
+  return {
+    title: t('CAMPAIGN.WHATSAPP.DUPLICATE.COPY_NAME', { title: source.title }),
+    inboxId: source.inbox.id,
+    templateId: sourceTemplate?.id || null,
+    selectedAudience: (source.audience || [])
+      .filter(item => item.type === 'Label')
+      .map(item => Number(item.id))
+      .filter(id => labelIds.includes(id)),
+  };
+};
+
+const state = reactive({ ...initialState, ...duplicateState() });
 const templateParserRef = ref(null);
 const audiencePreview = ref(null);
 const isPreviewingAudience = ref(false);
@@ -98,6 +137,28 @@ const selectedTemplate = computed(() => {
   return templateOptions.value.find(option => option.value === state.templateId)
     ?.template;
 });
+
+// Only prefill while the source's own template is selected; variables and media
+// from one template don't belong on another.
+const usesSourceTemplate = computed(
+  () => sourceTemplate && state.templateId === sourceTemplate.id
+);
+const initialParams = computed(() =>
+  usesSourceTemplate.value ? sourceParams : null
+);
+const initialMedia = computed(() =>
+  usesSourceTemplate.value && source.media_signed_id
+    ? { signedId: source.media_signed_id, filename: source.media_filename }
+    : null
+);
+const isSourceMediaMissing = computed(
+  () =>
+    usesSourceTemplate.value &&
+    templateParserRef.value?.hasMediaHeader &&
+    !source.media_signed_id &&
+    !sourceParams.header?.media_url &&
+    !templateParserRef.value?.mediaBlobId
+);
 
 const formErrors = computed(() => ({
   title: v$.value.title.$error
@@ -251,6 +312,13 @@ watch(
 
 <template>
   <form class="flex flex-col gap-4" @submit.prevent="handleSubmit">
+    <p
+      v-if="source"
+      class="rounded-lg bg-n-alpha-2 p-3 text-sm text-n-slate-11"
+    >
+      {{ t('CAMPAIGN.WHATSAPP.DUPLICATE.INFO', { title: source.title }) }}
+    </p>
+
     <Input
       v-model="state.title"
       :label="t('CAMPAIGN.WHATSAPP.CREATE.FORM.TITLE.LABEL')"
@@ -290,6 +358,9 @@ watch(
       <p class="mt-1 text-xs text-n-slate-11">
         {{ t('CAMPAIGN.WHATSAPP.CREATE.FORM.TEMPLATE.INFO') }}
       </p>
+      <p v-if="source && !sourceTemplate" class="mt-1 text-xs text-n-ruby-10">
+        {{ t('CAMPAIGN.WHATSAPP.DUPLICATE.TEMPLATE_MISSING') }}
+      </p>
     </div>
 
     <!-- Template Parser -->
@@ -297,8 +368,13 @@ watch(
       v-if="selectedTemplate"
       ref="templateParserRef"
       :template="selectedTemplate"
+      :initial-params="initialParams"
+      :initial-media="initialMedia"
       allow-media-upload
     />
+    <p v-if="isSourceMediaMissing" class="text-xs text-n-ruby-10">
+      {{ t('CAMPAIGN.WHATSAPP.DUPLICATE.MEDIA_MISSING') }}
+    </p>
 
     <div v-if="selectedTemplate" class="rounded-lg border border-n-weak p-3">
       <p class="mb-2 text-sm font-medium text-n-slate-12">

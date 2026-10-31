@@ -48,7 +48,7 @@ class WhatsappTemplate < ApplicationRecord
   validate :inbox_belongs_to_account
   validate :submitted_by_belongs_to_account
   validate :components_are_an_array
-  validate :components_include_body
+  validate :components_include_body, unless: :saving_draft?
 
   before_validation :normalize_meta_fields
 
@@ -57,6 +57,10 @@ class WhatsappTemplate < ApplicationRecord
 
   def approved?
     status == 'APPROVED'
+  end
+
+  def draft?
+    status == 'DRAFT'
   end
 
   def processor_payload
@@ -103,6 +107,12 @@ class WhatsappTemplate < ApplicationRecord
 
   def components_are_an_array
     errors.add(:components, 'must be an array') unless components.is_a?(Array)
+  end
+
+  # A draft can be saved half-written; the body is only required once it goes to
+  # Meta (see TemplateManagementService#submit!, which validates with :submission).
+  def saving_draft?
+    draft? && validation_context != :submission
   end
 
   def components_include_body

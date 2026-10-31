@@ -9,8 +9,9 @@ module WhatsappCampaignMedia
   end
 
   def whatsapp_media_params(template_parameters)
-    # The local blob is purged once a campaign completes, but the Meta media id
-    # persists — so a retry can still attach the header by id without the file.
+    # Campaigns completed before the blob was kept (it's what Duplicate reuses) have
+    # lost it, but the Meta media id persists — so a retry can still attach the
+    # header by id without the file.
     return template_parameters unless media.attached? || whatsapp_media_id.present?
 
     blob = media.attached? ? media.blob : nil

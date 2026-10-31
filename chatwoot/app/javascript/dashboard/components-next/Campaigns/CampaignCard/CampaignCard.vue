@@ -59,6 +59,7 @@ const emit = defineEmits([
   'cancel',
   'retryFailed',
   'viewDeliveries',
+  'duplicate',
 ]);
 
 const { t } = useI18n();
@@ -225,6 +226,15 @@ const inboxIcon = computed(() => {
         icon="i-lucide-refresh-cw"
         :title="t('CAMPAIGN.WHATSAPP.CARD.RETRY_FAILED')"
         @click="emit('retryFailed')"
+      />
+      <Button
+        v-if="isWhatsapp"
+        variant="faded"
+        size="sm"
+        color="slate"
+        icon="i-lucide-copy"
+        :title="t('CAMPAIGN.WHATSAPP.CARD.DUPLICATE')"
+        @click="emit('duplicate')"
       />
       <Button
         v-if="isLiveChatType"

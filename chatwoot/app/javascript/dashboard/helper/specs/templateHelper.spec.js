@@ -148,6 +148,7 @@ describe('templateHelper', () => {
       const result = buildTemplateParameters(templateWithUrlButton, false);
       expect(result.buttons).toEqual([
         {
+          index: 0,
           type: 'url',
           parameter: '',
           url: 'https://example.com/{{campaign_id}}',
@@ -186,6 +187,7 @@ describe('templateHelper', () => {
       expect(result.body).toEqual({ 1: '', 2: '' });
       expect(result.buttons).toEqual([
         {
+          index: 0,
           type: 'url',
           parameter: '',
           url: 'https://example.com/{{3}}',
@@ -203,6 +205,7 @@ describe('templateHelper', () => {
       expect(result.body).toBeDefined();
       expect(result.buttons).toEqual([
         {
+          index: 0,
           type: 'copy_code',
           parameter: '',
         },
