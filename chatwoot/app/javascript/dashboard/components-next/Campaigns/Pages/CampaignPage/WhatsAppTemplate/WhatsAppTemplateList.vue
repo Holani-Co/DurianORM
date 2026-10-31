@@ -8,7 +8,7 @@ import Button from 'dashboard/components-next/button/Button.vue';
 import Select from 'dashboard/components-next/select/Select.vue';
 import Spinner from 'dashboard/components-next/spinner/Spinner.vue';
 
-const emit = defineEmits(['edit']);
+const emit = defineEmits(['edit', 'duplicate']);
 
 const { t } = useI18n();
 const store = useStore();
@@ -149,7 +149,14 @@ const deleteTemplate = async template => {
           </p>
         </div>
         <Button
-          v-if="['DRAFT', 'REJECTED', 'APPROVED'].includes(template.status)"
+          v-if="template.status === 'DRAFT'"
+          size="xs"
+          variant="faded"
+          :label="t('CAMPAIGN.WHATSAPP.TEMPLATES.CONTINUE_EDITING')"
+          @click="emit('edit', template)"
+        />
+        <Button
+          v-if="['REJECTED', 'APPROVED'].includes(template.status)"
           icon="i-lucide-pencil"
           size="xs"
           color="slate"
@@ -157,7 +164,15 @@ const deleteTemplate = async template => {
           @click="emit('edit', template)"
         />
         <Button
-          v-if="['DRAFT', 'REJECTED'].includes(template.status)"
+          icon="i-lucide-copy"
+          size="xs"
+          color="slate"
+          variant="ghost"
+          :title="t('CAMPAIGN.WHATSAPP.TEMPLATES.DUPLICATE')"
+          @click="emit('duplicate', template)"
+        />
+        <Button
+          v-if="template.status === 'REJECTED'"
           size="xs"
           variant="faded"
           :is-loading="uiFlags.isSubmitting"

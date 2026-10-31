@@ -17,6 +17,10 @@ json.execution_completed_at resource.execution_completed_at&.to_i
 json.execution_error resource.execution_error
 json.audience_snapshot_at resource.audience_snapshot_at&.to_i
 json.whatsapp_template_id resource.whatsapp_template_id
+if resource.media.attached?
+  json.media_signed_id resource.media.blob.signed_id
+  json.media_filename resource.media.filename.to_s
+end
 json.audience_count resource.audience_count
 json.eligible_count resource.eligible_count
 json.skipped_count resource.skipped_count

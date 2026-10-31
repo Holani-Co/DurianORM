@@ -8,6 +8,13 @@ import { CAMPAIGNS_EVENTS } from 'dashboard/helper/AnalyticsHelper/events.js';
 import WhatsAppCampaignForm from 'dashboard/components-next/Campaigns/Pages/CampaignPage/WhatsAppCampaign/WhatsAppCampaignForm.vue';
 import CampaignModal from 'dashboard/components-next/Campaigns/Pages/CampaignPage/CampaignModal.vue';
 
+defineProps({
+  duplicateFrom: {
+    type: Object,
+    default: null,
+  },
+});
+
 const emit = defineEmits(['close']);
 
 const store = useStore();
@@ -42,9 +49,17 @@ const handleClose = () => emit('close');
   <CampaignModal width-class="max-w-2xl" @close="handleClose">
     <div class="p-6 flex flex-col gap-6">
       <h3 class="text-base font-medium text-n-slate-12 flex-shrink-0">
-        {{ t(`CAMPAIGN.WHATSAPP.CREATE.TITLE`) }}
+        {{
+          duplicateFrom
+            ? t('CAMPAIGN.WHATSAPP.DUPLICATE.TITLE')
+            : t('CAMPAIGN.WHATSAPP.CREATE.TITLE')
+        }}
       </h3>
-      <WhatsAppCampaignForm @submit="handleSubmit" @cancel="handleClose" />
+      <WhatsAppCampaignForm
+        :duplicate-from="duplicateFrom"
+        @submit="handleSubmit"
+        @cancel="handleClose"
+      />
     </div>
   </CampaignModal>
 </template>

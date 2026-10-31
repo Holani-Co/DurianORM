@@ -28,6 +28,7 @@ const getters = useStoreGetters();
 
 const selectedCampaign = ref(null);
 const selectedTemplate = ref(null);
+const campaignToDuplicate = ref(null);
 const activeTab = ref(0);
 const [showWhatsAppCampaignDialog, toggleWhatsAppCampaignDialog] = useToggle();
 const [showWhatsAppTemplateDialog, toggleWhatsAppTemplateDialog] = useToggle();
@@ -83,6 +84,7 @@ const handleActionClick = () => {
   } else if (isConsentsTab.value) {
     toggleWhatsAppConsentDialog();
   } else {
+    campaignToDuplicate.value = null;
     toggleWhatsAppCampaignDialog();
   }
 };
@@ -90,6 +92,22 @@ const handleActionClick = () => {
 const handleEditTemplate = template => {
   selectedTemplate.value = template;
   toggleWhatsAppTemplateDialog(true);
+};
+
+// A copy with no id opens the dialog as a brand-new template.
+const handleDuplicateTemplate = template => {
+  selectedTemplate.value = {
+    ...template,
+    id: null,
+    status: 'DRAFT',
+    name: `${template.name}_copy`,
+  };
+  toggleWhatsAppTemplateDialog(true);
+};
+
+const handleDuplicateCampaign = campaign => {
+  campaignToDuplicate.value = campaign;
+  toggleWhatsAppCampaignDialog(true);
 };
 
 const closeActions = () => {
@@ -154,6 +172,8 @@ useIntervalFn(
     <template #action>
       <WhatsAppCampaignDialog
         v-if="showWhatsAppCampaignDialog && !isTemplatesTab"
+        :key="campaignToDuplicate?.id"
+        :duplicate-from="campaignToDuplicate"
         @close="toggleWhatsAppCampaignDialog(false)"
       />
       <WhatsAppTemplateDialog
@@ -189,6 +209,7 @@ useIntervalFn(
         @cancel="handleCancel"
         @retry-failed="handleRetryFailed"
         @view-deliveries="handleViewDeliveries"
+        @duplicate="handleDuplicateCampaign"
       />
       <WhatsAppCampaignEmptyState
         v-else
@@ -200,6 +221,7 @@ useIntervalFn(
     <WhatsAppTemplateList
       v-else-if="isTemplatesTab"
       @edit="handleEditTemplate"
+      @duplicate="handleDuplicateTemplate"
     />
     <WhatsAppConsentList v-else />
     <ConfirmDeleteCampaignDialog
