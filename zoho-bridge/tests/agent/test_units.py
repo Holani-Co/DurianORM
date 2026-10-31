@@ -2580,6 +2580,76 @@ def test_turn_ignore_refused_when_message_has_an_issue(monkeypatch):
     assert cw.public == [] and "agent-needed" in cw.labels
 
 
+_RANT_11545 = ("Gai ya beef ye to BJP sarkar 2nd largest beef exports karte hai aur "
+               "modi bolrai bhagwan hai to hamhindu ko kesa biswas karu")
+_REDIRECT_11545 = ("We're happy to help with anything related to Durian's furniture, "
+                   "doors, and modular interiors.")
+
+
+def _send_call(reply):
+    return ("finish", {"action": "send", "reply": reply, "confidence": 92,
+                       "reasoning": "unrelated political discussion",
+                       "profile_updates": []})
+
+
+def test_comment_prompt_ignores_hostile_rants_but_not_abuse_about_durian():
+    from datetime import datetime
+    p = sa._comment_prompt("durianfurniture_official", "furniture", datetime(2026, 10, 31),
+                           "P", "T", post_caption="Franceska dining table")
+    assert "FIRST check the tone" in p and "political, religious, caste or communal" in p
+    assert "no reply, no redirect, no hand-over" in p
+    assert "About Durian -> set the language aside" in p
+    assert "OFF-TOPIC / UNRELATED but harmless" in p
+
+
+def test_dm_prompt_ignores_hostile_rants():
+    from datetime import datetime
+    p = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                          now=datetime(2026, 10, 31), profile_block="P", templates="T",
+                          n_customer_msgs=1)
+    assert "political, religious, caste or communal rant" in p
+
+
+def test_inflammatory_redirect_only_catches_the_generic_line():
+    assert sa.is_inflammatory_redirect(_RANT_11545, _REDIRECT_11545)
+    # no politics, or a real answer, or a real issue: left alone
+    assert not sa.is_inflammatory_redirect("what's the weather today", _REDIRECT_11545)
+    assert not sa.is_inflammatory_redirect(
+        "modi ji ke ghar jaisa palang dikhao",
+        "Thank you! Please DM us and we'll help you with this bed.")
+    assert not sa.is_inflammatory_redirect("bjp ke raj me mera sofa kharab nikla",
+                                           _REDIRECT_11545)
+    assert not sa.is_inflammatory_redirect("Is the pooja mandir unit in stock?",
+                                           _REDIRECT_11545)
+
+
+def test_turn_political_rant_comment_sends_nothing(monkeypatch):
+    # conv 11545: the model sent the redirect; nothing may go out under the post
+    res, cw = _scripted_turn(monkeypatch, [_send_call(_REDIRECT_11545)],
+                             latest=_RANT_11545)
+    assert res == {"handled": "agent_ignored"}
+    assert cw.public == [] and "agent-needed" not in cw.labels
+    assert any("ignored on purpose" in m["content"] and m["attrs"].get("ai_trace")
+               for m in cw.private)
+
+
+def test_turn_harmless_offtopic_comment_still_gets_the_redirect(monkeypatch):
+    # conv 9979 stays a polite redirect: off-topic, but not hostile
+    res, cw = _scripted_turn(monkeypatch, [_send_call(_REDIRECT_11545)],
+                             latest="I don't want a house with a man who married twice")
+    assert res["handled"] == "agent_sent"
+    assert [m["content"] for m in cw.public] == [_REDIRECT_11545]
+
+
+def test_turn_rude_price_comment_gets_a_professional_reply(monkeypatch):
+    # abusive but about Durian: the reply stands
+    line = "We understand. Please DM us and we'll suggest options that suit your budget."
+    res, cw = _scripted_turn(monkeypatch, [_send_call(line)],
+                             latest="chor ho tum log, itna mehenga sofa bech rahe ho")
+    assert res["handled"] == "agent_sent"
+    assert [m["content"] for m in cw.public] == [line]
+
+
 def test_details_gate_holds_for_a_same_turn_retry(monkeypatch):
     import asyncio
     monkeypatch.setattr(sa, "chatwoot", _AttrChatwoot())
