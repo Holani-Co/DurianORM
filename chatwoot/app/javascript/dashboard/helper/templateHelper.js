@@ -58,7 +58,8 @@ export const buildTemplateParameters = (template, hasMediaHeaderValue) => {
     }
   }
 
-  // Process button variables
+  // Process button variables. Only some buttons take one, so each entry keeps its
+  // position in the template: Meta matches parameters to buttons by that index.
   const buttonComponents = template.components.filter(
     component => component.type === COMPONENT_TYPES.BUTTONS
   );
@@ -71,22 +72,24 @@ export const buildTemplateParameters = (template, hasMediaHeaderValue) => {
           const buttonVars = button.url.match(/{{([^}]+)}}/g) || [];
           if (buttonVars.length > 0) {
             if (!allVariables.buttons) allVariables.buttons = [];
-            allVariables.buttons[index] = {
+            allVariables.buttons.push({
+              index,
               type: 'url',
               parameter: '',
               url: button.url,
               variables: buttonVars.map(v => processVariable(v)),
-            };
+            });
           }
         }
 
         // Handle copy code buttons
         if (button.type === 'COPY_CODE') {
           if (!allVariables.buttons) allVariables.buttons = [];
-          allVariables.buttons[index] = {
+          allVariables.buttons.push({
+            index,
             type: 'copy_code',
             parameter: '',
-          };
+          });
         }
       });
     }

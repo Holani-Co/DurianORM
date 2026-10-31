@@ -109,12 +109,22 @@ const hasVariables = computed(() => {
   return bodyText.value?.match(/{{([^}]+)}}/g) !== null;
 });
 
+const hasButtonVariables = computed(() =>
+  Boolean(processedParams.value.buttons?.length)
+);
+
 const renderedTemplate = computed(() => {
   return replaceTemplateVariables(bodyText.value, processedParams.value);
 });
 
 const isFormInvalid = computed(() => {
-  if (!hasVariables.value && !hasMediaHeader.value) return false;
+  if (
+    !hasVariables.value &&
+    !hasMediaHeader.value &&
+    !hasButtonVariables.value
+  ) {
+    return false;
+  }
 
   if (
     hasMediaHeader.value &&
@@ -322,7 +332,7 @@ defineExpose({
       </div>
     </div>
 
-    <div v-if="hasVariables || hasMediaHeader">
+    <div v-if="hasVariables || hasMediaHeader || hasButtonVariables">
       <div v-if="hasMediaHeader" class="mb-4">
         <p class="mb-2.5 text-sm font-semibold">
           {{

@@ -117,17 +117,21 @@ class Whatsapp::TemplateProcessorService
     button_params = processed_params['buttons'].filter_map.with_index do |button, index|
       next if button.blank?
 
-      if button['type'] == 'url' || button['parameter'].present?
-        {
-          type: 'button',
-          sub_type: button['type'] || 'url',
-          index: index,
-          parameters: [parameter_builder.build_button_parameter(button)]
-        }
-      end
+      button_component(button, index) if button['type'] == 'url' || button['parameter'].present?
     end
 
     button_params.compact
+  end
+
+  # `index` is the button's position in the template, which is what Meta matches on.
+  # Params saved before it was recorded fall back to their position in the list.
+  def button_component(button, position)
+    {
+      type: 'button',
+      sub_type: button['type'] || 'url',
+      index: button['index'] || position,
+      parameters: [parameter_builder.build_button_parameter(button)]
+    }
   end
 
   def parameter_builder
