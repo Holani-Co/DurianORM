@@ -8,6 +8,21 @@ RBENV_BUNDLE="/root/.rbenv/versions/3.4.4/bin/bundle"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
+# ── Environment / .env ────────────────────────────────────────────────────────
+# Runtime config lives in $CHATWOOT_DIR/.env (git-ignored, VM-local). This
+# script does NOT create or modify it, and `git pull` never touches it — so
+# values set there SURVIVE a redeploy. The risk is a FRESH VM (or a recreated
+# .env): re-add any non-default vars below, or the app silently falls back to
+# its in-code defaults.
+#
+# Non-default env vars set on this box (keep this list in sync when adding more):
+#   WHATSAPP_CAMPAIGN_MAX_RECIPIENTS=50000
+#       Per-campaign audience cap (code default 10000, see
+#       app/services/whatsapp/campaign_audience_service.rb). Raised 2026-10-17
+#       so the ~49.7k furniture label could publish. Read by web (preview) and
+#       worker (send), so a change needs both restarted. NOT a Meta limit —
+#       Meta enforces its own per-24h tier separately.
+
 cd "$REPO_DIR"
 
 # ── 1. Pull latest code ───────────────────────────────────────────────────────
