@@ -7654,7 +7654,7 @@ async def admin_crm_automation_get(x_routing_admin_secret: Optional[str] = Heade
     doc = crm_automation.get_doc()
     try:
         templates = [crm_automation.template_summary(t) for t in
-                     await chatwoot.list_whatsapp_templates(int(doc.get("inbox_id") or 0))]
+                     await crm_automation.doc_templates(doc)]
     except Exception:
         templates = []
     return {"doc": doc,
@@ -7675,8 +7675,9 @@ async def _crm_automation_check(doc) -> dict:
     """validate() plus: a switched-on rule must fill exactly its template's variables."""
     v = crm_automation.validate(doc)
     if v["ok"]:
+        doc = crm_automation.with_lines(doc)
         try:
-            templates = await chatwoot.list_whatsapp_templates(int(doc.get("inbox_id") or 0))
+            templates = await crm_automation.doc_templates(doc)
         except Exception:
             templates = []
         v["errors"] += crm_automation.template_mismatches(doc, templates)

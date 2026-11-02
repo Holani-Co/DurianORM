@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n';
 import { useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 
+const LinesEditor = defineAsyncComponent(() => import('./LinesEditor.vue'));
 const RulesEditor = defineAsyncComponent(() => import('./RulesEditor.vue'));
 const TeamEditor = defineAsyncComponent(() => import('./TeamEditor.vue'));
 const ActivityPanel = defineAsyncComponent(() => import('./ActivityPanel.vue'));
@@ -81,7 +82,10 @@ async function publish() {
   } catch (e) {
     const detail = e?.response?.data?.detail;
     if (detail?.errors) {
-      problems.value = { errors: detail.errors, warnings: detail.warnings || [] };
+      problems.value = {
+        errors: detail.errors,
+        warnings: detail.warnings || [],
+      };
     } else {
       useAlert(t('CRM_AUTOMATION_CONFIG.SAVE.FAILED'));
     }
@@ -195,18 +199,16 @@ const tabs = computed(() =>
             <input v-model="draft.enabled" type="checkbox" />
             {{ t('CRM_AUTOMATION_CONFIG.MASTER_SWITCH') }}
           </label>
-          <label class="flex items-center gap-2 text-xs text-n-slate-11">
-            {{ t('CRM_AUTOMATION_CONFIG.INBOX') }}
-            <input
-              v-model.number="draft.inbox_id"
-              type="number"
-              class="w-20 px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
-            />
-          </label>
         </div>
+        <LinesEditor
+          v-if="activeTab === 'rules'"
+          v-model:lines="draft.lines"
+          :ops="data.ops"
+        />
         <RulesEditor
           v-if="activeTab === 'rules'"
           v-model:rules="draft.rules"
+          :lines="draft.lines"
           :templates="data.templates"
           :sources="data.sources"
           :ops="data.ops"
