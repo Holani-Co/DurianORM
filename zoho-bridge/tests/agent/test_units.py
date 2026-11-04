@@ -2945,6 +2945,21 @@ def test_whatsapp_campaign_detection():
     assert main._whatsapp_campaign(_PLAIN_CONV) == {} and main._whatsapp_campaign(None) == {}
 
 
+def test_deal_business_verticals():
+    import main
+    f = main._deal_business_verticals
+    furniture_owner = {"vertical": "Furniture"}
+    assert f({"enquiry_line": "furniture"}, "product_enquiry", "Standard", furniture_owner) == ["Furniture"]
+    # a store with no CRM owner falls back to central (vertical "") — still Furniture
+    assert f({}, "product_enquiry", "Standard", {"vertical": ""}) == ["Furniture"]
+    assert f({"enquiry_line": "doors"}, "product_enquiry", "Standard", {}) == ["Doors"]
+    assert f({}, "doors_veneer_plywood", "Standard", {}) == ["Doors"]
+    assert f({}, "general", "Standard", {"vertical": "Doors"}) == ["Doors"]
+    assert f({}, "franchise_dealership", "Standard", furniture_owner) == ["Dealership / Franchise"]
+    # Home Studio has its own Digital/Offline Blueprints
+    assert f({}, "full_home_customization", "Home Studio", {"vertical": "FHC"}) == []
+
+
 def test_campaign_integration_source(monkeypatch):
     import main
     monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
