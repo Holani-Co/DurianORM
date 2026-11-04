@@ -748,6 +748,11 @@ def _inbox_vertical_map(name: str) -> dict:
 # inbox name isn't detected by _inbox_vertical). Empty = WhatsApp stays on its
 # deterministic flows. SOCIAL_AGENT_ENABLED must also be on.
 SOCIAL_AGENT_WHATSAPP_INBOXES = _inbox_vertical_map("SOCIAL_AGENT_WHATSAPP_INBOXES")
+# Website chat (Chatwoot web-widget) inboxes the LLM agent runs on, each with its
+# vertical — e.g. SOCIAL_AGENT_WEBSITE_INBOXES=32:furniture for the furniture
+# pages of durian.in. Same "id:vertical" form. Empty → no website agent (other
+# web-widget inboxes, like the Website FHC Bot, keep their own flow).
+SOCIAL_AGENT_WEBSITE_INBOXES = _inbox_vertical_map("SOCIAL_AGENT_WEBSITE_INBOXES")
 # Live durian.in product search (Unbxd — the storefront's own search
 # service; see website_search.py). These are the site's PUBLIC client-side
 # keys, visible in durian.in's frontend JS — env-overridable if rotated.

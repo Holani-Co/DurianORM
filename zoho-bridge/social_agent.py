@@ -3232,7 +3232,28 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "store or customisation enquiry, ask for their pincode (city is a nice "
         "extra); the deal is created against their WhatsApp number."
         if channel == "whatsapp" else "")
-    guidance_block = whatsapp_rule + guidance_block
+    # Website chat: an anonymous visitor on durian.in — no number, no real name
+    # (the widget names them "falling-snow-8384"), and they are already on the
+    # website, so links open right there.
+    website_rule = (
+        "\n\nWEBSITE CHAT: you are the chat assistant on durian.in. The visitor is "
+        "anonymous — we hold NO phone number and NO name for them (the chat's "
+        "contact name is a random placeholder, never use it). Collect name, phone "
+        "number and pincode the usual way before registering an enquiry. They are "
+        "already on our website, so product links open right here; never send them "
+        "to Instagram, Facebook or WhatsApp to continue.\n"
+        "The chat opens with a menu; a tapped option arrives as their message:\n"
+        "• \"Explore Offers\" / \"SALE LIVE NOW\" → share the live offers (share_offer).\n"
+        "• \"Find the Stores near you\" → ask for their pincode, then find_showrooms.\n"
+        "• \"Talk to Durian Expert\" → a lead: ask in ONE message for name, phone, "
+        "pincode and what they are looking for, then register_enquiry.\n"
+        "• \"Shop In-Store\" → help them visit a showroom: ask for their pincode, "
+        "show the nearest store and offer to book a visit (book_store_visit).\n"
+        "• \"Track your Order\" → an order-status hand-over (escalate_to_human, "
+        "category order_status) after asking for their phone number and order or "
+        "invoice number in ONE message."
+        if channel == "website" else "")
+    guidance_block = whatsapp_rule + website_rule + guidance_block
     converge = ""
     if n_customer_msgs >= config.SOCIAL_AGENT_CONVERGE_AFTER:
         converge = ("\nCONVERGE NOW: this conversation is running long. Complete "
@@ -3526,7 +3547,17 @@ def _whatsapp_agent_vertical(conv: dict):
     switched on for (SOCIAL_AGENT_WHATSAPP_INBOXES, e.g. {"25": "fhc"}), matched
     by inbox id or name. None → the agent does NOT run on this WhatsApp inbox
     (it keeps its current behaviour)."""
-    mapping = config.SOCIAL_AGENT_WHATSAPP_INBOXES
+    return _mapped_inbox_vertical(conv, config.SOCIAL_AGENT_WHATSAPP_INBOXES)
+
+
+def website_agent_vertical(conv: dict):
+    """The vertical for a website-chat conversation whose web-widget inbox the
+    agent runs on (SOCIAL_AGENT_WEBSITE_INBOXES, e.g. {"32": "furniture"}).
+    None → not an agent website inbox (e.g. the Website FHC Bot)."""
+    return _mapped_inbox_vertical(conv, config.SOCIAL_AGENT_WEBSITE_INBOXES)
+
+
+def _mapped_inbox_vertical(conv: dict, mapping: dict):
     if not mapping:
         return None
     inbox_id = conv.get("inbox_id") or (conv.get("meta") or {}).get("inbox_id")
@@ -3543,6 +3574,9 @@ def eligible(conv: dict, channel: str) -> bool:
         # WhatsApp is agentic only on explicitly designated inboxes (e.g. the
         # FHC number); every other WhatsApp inbox keeps its current behaviour.
         if _whatsapp_agent_vertical(conv) is None:
+            return False
+    elif channel == "website":
+        if website_agent_vertical(conv) is None:
             return False
     elif channel not in config.SOCIAL_AGENT_CHANNELS:
         return False
@@ -3716,12 +3750,14 @@ async def _handle_locked(conv, conv_id, channel, surface,
         or (await chatwoot.get_inbox_name(inbox_id) if inbox_id else "") \
         or (conv.get("meta") or {}).get("channel") or ""
     vertical = _inbox_vertical(inbox_name)
-    if channel == "whatsapp":
-        # The designated WhatsApp inbox carries its vertical in the config map
-        # (an FHC WhatsApp inbox name wouldn't be detected by _inbox_vertical).
-        wa_vert = _whatsapp_agent_vertical(conv)
-        if wa_vert:
-            vertical = wa_vert
+    if channel in ("whatsapp", "website"):
+        # The designated WhatsApp / website inbox carries its vertical in the
+        # config map (an FHC WhatsApp inbox name wouldn't be detected by
+        # _inbox_vertical).
+        mapped = (_whatsapp_agent_vertical(conv) if channel == "whatsapp"
+                  else website_agent_vertical(conv))
+        if mapped:
+            vertical = mapped
 
     all_messages = await chatwoot.get_conversation_messages_raw(conv_id)
     ca = conv.get("custom_attributes") or {}
@@ -4297,8 +4333,10 @@ async def _mark_agent_owned(conv, conv_id, channel) -> None:
 # Meta's Send API rejects longer texts outright (error 100: "message sent is
 # over 1000 characters") — and the failure is invisible here: Chatwoot stores
 # the message, Instagram just never delivers it.
-_CHANNEL_CHAR_LIMITS = {"instagram": 1000, "facebook": 2000, "whatsapp": 4096}
-_CHANNEL_LABEL = {"instagram": "Instagram", "facebook": "Facebook", "whatsapp": "WhatsApp"}
+_CHANNEL_CHAR_LIMITS = {"instagram": 1000, "facebook": 2000, "whatsapp": 4096,
+                        "website": 2000}
+_CHANNEL_LABEL = {"instagram": "Instagram", "facebook": "Facebook", "whatsapp": "WhatsApp",
+                  "website": "the durian.in website chat"}
 
 
 def split_for_channel(text: str, channel: str) -> list[str]:

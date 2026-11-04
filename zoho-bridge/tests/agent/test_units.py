@@ -3033,6 +3033,55 @@ def test_campaign_lead_gets_deal_on_first_message(monkeypatch):
     assert len(calls) == 1 and fresh.merges == []
 
 
+def test_website_chat_channel(monkeypatch):
+    import main, social_agent as sa
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_WEBSITE_INBOXES", {"32": "furniture"})
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_CONTACT_ALLOWLIST", [])
+    furniture_site = {"inbox_id": 32}
+    fhc_site = {"inbox_id": 26}
+    assert main._social_channel_for("Channel::WebWidget", furniture_site) == "website"
+    assert main._social_channel_for("Channel::WebWidget", fhc_site) is None
+    assert main._social_channel_for("Channel::Instagram", fhc_site) == "instagram"
+    assert sa.eligible(furniture_site, "website") and not sa.eligible(fhc_site, "website")
+    from datetime import datetime
+    prompt = sa._system_prompt("", "Website Furniture", "furniture", datetime.now(), "", "", 1,
+                               "", "", channel="website")
+    assert "WEBSITE CHAT" in prompt and "Track your Order" in prompt
+    assert "WEBSITE CHAT" not in sa._system_prompt("", "x", "furniture", datetime.now(), "", "",
+                                                   1, "", "", channel="instagram")
+
+
+def test_website_menu_on_greeting_only(monkeypatch):
+    import asyncio, main
+    sent, merged = [], []
+
+    async def send(conv_id, text, items):
+        sent.append(items)
+
+    async def merge(conv_id, attrs):
+        merged.append(attrs)
+    monkeypatch.setattr(main.chatwoot, "send_interactive_buttons", send)
+    monkeypatch.setattr(main.chatwoot, "merge_custom_attributes", merge)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_WEBSITE_INBOXES", {"32": "furniture"})
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_CONTACT_ALLOWLIST", [])
+    conv = {"inbox_id": 32, "custom_attributes": {}, "meta": {}}
+    assert asyncio.run(main._maybe_send_website_menu(conv, 1, "Hi")) == {"handled": "website_menu"}
+    assert [i["title"] for i in sent[0]] == ["Explore Offers", "Find the Stores near you",
+                                             "Talk to Durian Expert", "Shop In-Store",
+                                             "Track your Order", "SALE LIVE NOW"]
+    assert "website_menu_sent" in merged[0]
+    # a real question goes to the agent, a repeat greeting doesn't re-send, "menu" does
+    assert asyncio.run(main._maybe_send_website_menu(conv, 1, "price of a 3 seater sofa?")) is None
+    shown = {**conv, "custom_attributes": {"website_menu_sent": "x"}}
+    assert asyncio.run(main._maybe_send_website_menu(shown, 1, "hello")) is None
+    assert asyncio.run(main._maybe_send_website_menu(shown, 1, "Menu")) == {"handled": "website_menu"}
+    # a human owns it → no bot menu
+    owned = {**conv, "meta": {"assignee": {"id": 5, "name": "Riya", "type": "user"}}}
+    assert asyncio.run(main._maybe_send_website_menu(owned, 1, "hi")) is None
+
+
 def test_campaign_integration_source(monkeypatch):
     import main
     monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
