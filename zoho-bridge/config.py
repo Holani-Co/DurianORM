@@ -125,6 +125,13 @@ ZOHO_CRM_SOURCE_FIELD = os.environ.get("ZOHO_CRM_SOURCE_FIELD", "")
 # Retail A & ID — the last is agent-set in CRM, not auto-detectable).
 # Prod: ZOHO_CRM_BUSINESS_TYPE_FIELD=Business_Type_New
 ZOHO_CRM_BUSINESS_TYPE_FIELD = os.environ.get("ZOHO_CRM_BUSINESS_TYPE_FIELD", "")
+# API name of the "Business Verticals" multi-select on Deals. The Standard
+# layout's B2C Stages Blueprint enters a deal only when this "DOESN'T CONTAIN
+# Dealership / Franchise" — which Zoho treats as FALSE when the field is empty,
+# so a deal created without it sits in no Blueprint (conv 11899, D-555209).
+# Empty = not sent.
+ZOHO_CRM_BUSINESS_VERTICALS_FIELD = os.environ.get(
+    "ZOHO_CRM_BUSINESS_VERTICALS_FIELD", "Business_Verticals")
 # API names of the Deals fields for the customer's phone / city / email. Empty
 # = not sent — a wrong/unset api_name would fail the whole create, so set these
 # to the REAL names from Setup → Developer Space → API Names → Deals. For this

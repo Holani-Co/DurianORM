@@ -8740,6 +8740,22 @@ def _blueprint_mode(custom: dict, layout_name: str) -> str:
     return mode
 
 
+def _deal_business_verticals(custom: dict, deal_category: str, layout_name: str,
+                             owner: dict) -> list:
+    """The Business Verticals a Standard-layout deal is CREATED with, so it
+    enters the client's B2C Stages Blueprint (empty → no Blueprint at all).
+    Home Studio deals have their own Blueprints and are left alone."""
+    if layout_name != "Standard":
+        return []
+    if deal_category == "franchise_dealership":
+        return ["Dealership / Franchise"]
+    if (deal_category == "doors_veneer_plywood"
+            or (custom or {}).get("enquiry_line") == "doors"
+            or (owner or {}).get("vertical") == "Doors"):
+        return ["Doors"]
+    return ["Furniture"]
+
+
 def _campaign_integration_source(conv, blueprint_mode: str = "") -> str:
     """The Integration Source a campaign lead's deal is CREATED with ("" = none).
     A confirmed studio visit (Offline Home Studio Blueprint) must keep it empty."""
@@ -9007,6 +9023,10 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     if (not is_project and config.ZOHO_CRM_BILLING_TYPE_FIELD
             and config.ZOHO_CRM_BILLING_TYPE_RETAIL):
         extra_fields[config.ZOHO_CRM_BILLING_TYPE_FIELD] = config.ZOHO_CRM_BILLING_TYPE_RETAIL
+    # Business Verticals at CREATE — Zoho picks the Blueprint from it.
+    verticals = _deal_business_verticals(custom, deal_category, layout_name, owner)
+    if config.ZOHO_CRM_BUSINESS_VERTICALS_FIELD and verticals:
+        extra_fields.setdefault(config.ZOHO_CRM_BUSINESS_VERTICALS_FIELD, verticals)
     # Pipeline — retail deals go on the Retail pipeline, project/govt deals
     # on the tender pipeline. Empty config = field not sent (Zoho uses the
     # layout's default pipeline; the entry stage exists in both).
