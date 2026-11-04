@@ -30,6 +30,10 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 # (already posted to Google) apart from a human reply (needs posting).
 AUTO_MARKER = {"source": "google_auto_reply"}
 
+# Cap on the review photos attached to a 1★/2★ store forward email, so it stays
+# well under mail-server size limits.
+_FORWARD_PHOTO_BYTES = 15 * 1024 * 1024
+
 _locations_cache: list[dict] = []
 
 
@@ -143,9 +147,11 @@ _CONCERN_CATEGORY = {
 
 
 async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
-                                   case: str = "") -> None:
+                                   case: str = "", photos: list | None = None) -> None:
     """Email a 1★/2★ review to the store's concerned person + CC. `case` is the
     review-bank case (from classification) used to name the concern category.
+    `photos` (filename, bytes, type) — the customer's review photos — ride on
+    the email as attachments, up to _FORWARD_PHOTO_BYTES in all.
     Best-effort: a forward failure never blocks ingestion or the public reply."""
     row = _match_store_forward(title)
     if not row or not row.get("email"):
@@ -177,6 +183,19 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
     has_text = bool((rv.get("comment") or "").strip())
     review_text = rv.get("comment") if has_text else "(no text — rating only)"
     concern = _CONCERN_CATEGORY.get(case, "Other") if has_text else ""
+    attach, size = [], 0
+    for p in photos or []:
+        if size + len(p[1]) > _FORWARD_PHOTO_BYTES:
+            break
+        attach.append(p)
+        size += len(p[1])
+    total_photos = len(rv.get("photos") or [])
+    photos_line = ""
+    if attach:
+        photos_line = f"• Photos: {len(attach)} shared by the customer (attached)\n"
+    elif total_photos:
+        photos_line = (f"• Photos: the customer added {total_photos} on Google — "
+                       "see the review there\n")
     subject = f"Action Required: Negative Google Review ({rv['stars']}★) — {store_name}"
     body = (
         "Dear Store Manager,\n\n"
@@ -188,7 +207,8 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
         f"• Rating: {rv['stars']} star\n"
         f"• Date: {review_date}\n"
         f'• Review: "{review_text}"\n'
-        f"• Concern category: {concern}\n\n"
+        f"• Concern category: {concern}\n"
+        f"{photos_line}\n"
         "Action required:\n"
         "1. Identify the customer from your records (enquiry/invoice) and contact "
         "them within 24–48 hours.\n"
@@ -217,8 +237,18 @@ async def _forward_low_star_review(rv: dict, title: str, conv_id: int,
             contact_id=contact_id,
             additional_attributes={"mail_subject": subject},
         )
-        await chatwoot.send_outgoing_message(
-            fwd_conv, body, to_emails=to_emails, cc_emails=cc_emails or None)
+        sent = False
+        if attach:
+            try:
+                await chatwoot.send_email_with_attachments(
+                    fwd_conv, body, to_emails, attach, cc_emails=cc_emails or None)
+                sent = True
+            except Exception as e:
+                print(f"[reviews] forward with photos failed for conv {conv_id}, "
+                      f"sending without: {e}")
+        if not sent:
+            await chatwoot.send_outgoing_message(
+                fwd_conv, body, to_emails=to_emails, cc_emails=cc_emails or None)
     except Exception as e:
         print(f"[reviews] low-star forward failed for conv {conv_id}: {e}")
         return
@@ -333,13 +363,38 @@ async def _discover_locations() -> list[dict]:
     return found
 
 
+def _photos_line(rv: dict, photos: list) -> str:
+    """Body line telling the agent about the customer's review photos — or
+    that Google has some we could not attach, so they look there instead."""
+    total = len(rv.get("photos") or [])
+    if not total:
+        return ""
+    if photos:
+        return f"📷 {len(photos)} photo{'s' if len(photos) > 1 else ''} from the customer (attached)\n"
+    return (f"📷 The customer added {total} photo{'s' if total > 1 else ''} on Google "
+            f"— they could not be attached here, open the review on Google to see them.\n")
+
+
+async def _post_review_message(conv_id: int, body: str, photos: list) -> dict:
+    """The review as the conversation's incoming message, with the customer's
+    photos attached. A failed attach never loses the review — text only."""
+    if photos:
+        try:
+            return await chatwoot.create_message_with_files(conv_id, body, photos)
+        except Exception as e:
+            print(f"[reviews] photo attach failed for conv {conv_id}, text only: {e}")
+    return await chatwoot.create_message(conv_id, body, message_type="incoming")
+
+
 async def _ingest_review(loc: dict, rv: dict):
     """Bring one new review into Chatwoot + reply or hand off."""
     title = loc["title"]
+    photos = await gr.download_review_photos(rv.get("photos") or [])
     body = (
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
         f"📍 {title}\n"
-        f"🗓 {_format_review_time(rv['create_time'])}\n\n"
+        f"🗓 {_format_review_time(rv['create_time'])}\n"
+        f"{_photos_line(rv, photos)}\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
 
@@ -365,9 +420,12 @@ async def _ingest_review(loc: dict, rv: dict):
                                "review_comment": _clip_comment(rv["comment"]),
                                "reviewer": rv["reviewer"] or "",
                                "review_created_at": rv["create_time"] or ""},
-        custom_attributes={"review_path": rv["reply_path"]},
+        # review_photos marks the photos as handled, so
+        # backfill_review_photos.py never attaches them a second time.
+        custom_attributes={"review_path": rv["reply_path"],
+                           "review_photos": len(photos)},
     )
-    review_msg = await chatwoot.create_message(conv_id, body, message_type="incoming")
+    review_msg = await _post_review_message(conv_id, body, photos)
     review_msg_id = review_msg.get("id")
 
     # Star-rating label so agents can filter by ★ in Chatwoot's sidebar
@@ -410,7 +468,7 @@ async def _ingest_review(loc: dict, rv: dict):
     # names the concern category from the AI's negative case. Best-effort.
     if rv["stars"] in (1, 2):
         _case = (drafted.get("short_code") or "").split(":")[-1]
-        await _forward_low_star_review(rv, title, conv_id, case=_case)
+        await _forward_low_star_review(rv, title, conv_id, case=_case, photos=photos)
 
     # Client policy (zero-touch): auto vs handoff is decided uniformly for ALL
     # ratings by the severity gate inside review_reply.draft() — a review
@@ -520,14 +578,17 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
     date_line = f"🗓 Posted {_format_review_time(rv['create_time'])}"
     if rv["update_time"]:
         date_line += f"  ·  ✏️ Edited {_format_review_time(rv['update_time'])}"
+    # The edited review as it now stands — its current photos come with it.
+    photos = await gr.download_review_photos(rv.get("photos") or [])
     body = (
         f"{header}\n\n"
         f"⭐ {_stars_bar(rv['stars'])}  ({rv['stars'] or '?'}/5)\n"
         f"📍 {title}\n"
-        f"{date_line}\n\n"
+        f"{date_line}\n"
+        f"{_photos_line(rv, photos)}\n"
         f"{rv['comment'] or '(no text — rating only)'}"
     )
-    review_msg = await chatwoot.create_message(conv_id, body, message_type="incoming")
+    review_msg = await _post_review_message(conv_id, body, photos)
     review_msg_id = review_msg.get("id")
 
     # Stash the edited text/rating so the "Regenerate" button re-drafts from
@@ -538,6 +599,7 @@ async def _ingest_edit(loc: dict, rv: dict, rec: dict):
         await chatwoot.merge_custom_attributes(conv_id, {
             "review_edited_comment": rv["comment"] or "",
             "review_edited_stars": rv["stars"] or 0,
+            "review_photos": len(photos),
         })
     except Exception as e:
         print(f"[reviews] edit: merge_custom_attributes failed conv {conv_id}: {e}")
