@@ -100,8 +100,35 @@ def _campaign_referral(content_attributes) -> dict:
     return ref if isinstance(ref, dict) and ref else {}
 
 
+def _is_campaign_prefill(text: str) -> bool:
+    """The message is a Meta click-to-WhatsApp ad prefill: a known prefix, or a
+    pattern for the prefills that vary per city / creative."""
+    norm = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not norm:
+        return False
+    if any(norm.startswith(p) for p in config.WHATSAPP_CAMPAIGN_PREFILLS):
+        return True
+    for pat in config.WHATSAPP_CAMPAIGN_PATTERNS:
+        try:
+            if re.search(pat, norm, re.I):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+# "...customisation services in Delhi." / "...modular interiors in Noida"
+_CAMPAIGN_CITY_RE = re.compile(r"\bin\s+([a-z][a-z .&-]{1,40}?)\s*[.!?]*\s*$", re.I)
+
+
+def _campaign_prefill_city(text: str) -> str:
+    """The city an ad prefill names at its end ("... in Delhi." → "Delhi")."""
+    m = _CAMPAIGN_CITY_RE.search(re.sub(r"\s+", " ", (text or "").strip()))
+    return m.group(1).strip().title() if m else ""
+
+
 async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
-                                       content_attributes=None) -> None:
+                                       content_attributes=None) -> bool:
     """Tag a WhatsApp conversation whose opening message is a Meta click-to-
     WhatsApp ad prefill, so campaign leads are trackable: a label (for Chatwoot's
     native Label report) + lead_source="whatsapp_campaign" (rides into the CRM
@@ -110,12 +137,11 @@ async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
     idempotent — never blocks message handling."""
     global _campaign_label_ensured
     if not config.WHATSAPP_CAMPAIGN_TRACKING_ENABLED:
-        return
-    norm = re.sub(r"\s+", " ", (text or "").strip().lower())
-    if not norm or not any(norm.startswith(p) for p in config.WHATSAPP_CAMPAIGN_PREFILLS):
-        return
+        return False
+    if not _is_campaign_prefill(text):
+        return False
     if (conv.get("custom_attributes") or {}).get("lead_source") == "whatsapp_campaign":
-        return                                  # already tagged
+        return True                             # already tagged
     if not _campaign_label_ensured:
         try:
             await chatwoot.ensure_label(config.WHATSAPP_CAMPAIGN_LABEL)
@@ -136,6 +162,65 @@ async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
         print(f"[campaign] attr merge failed for conv {conv_id}: {e}")
     print(f"[campaign] conv {conv_id}: tagged Meta WhatsApp campaign lead"
           + (f" (ad: {referral.get('headline') or referral.get('source_url')})" if referral else ""))
+    return True
+
+
+async def _capture_whatsapp_campaign_lead(conv: dict, conv_id: int, text: str) -> None:
+    """Every campaign lead on an agent-run FHC WhatsApp inbox becomes a CRM deal
+    on its FIRST message — leads that never reply again are still captured. The
+    owner is the studio of the city the prefill names ("... in Delhi." → Delhi
+    studio), via the usual FHC owner routing; the deal carries the campaign
+    marks (Integration Source + campaign columns) because the conversation is
+    already tagged. The agent then sees the FHC enquiry as registered and only
+    adds details to it. Best-effort — never blocks message handling."""
+    if not (config.WHATSAPP_CAMPAIGN_AUTO_DEAL and config.ZOHO_CRM_ENABLED):
+        return
+    inbox_id = str(conv.get("inbox_id") or (conv.get("inbox") or {}).get("id") or "")
+    if config.SOCIAL_AGENT_WHATSAPP_INBOXES.get(inbox_id) != "fhc":
+        return
+    try:
+        full = await chatwoot.get_conversation(int(conv_id))
+    except Exception as e:
+        print(f"[campaign] conv {conv_id}: could not read conversation ({e}) — no deal")
+        return
+    ca = full.get("custom_attributes") or {}
+    if ca.get("crm_deal_id") or (ca.get("crm_deals") or {}).get("fhc"):
+        return
+    sender = (full.get("meta") or {}).get("sender") or {}
+    phone = str(sender.get("phone_number") or "")
+    city = _campaign_prefill_city(text)
+    details = {**(ca.get("deal_customer_details") or {}),
+               "phone": phone or None, "captured_at": _now_iso(),
+               "source": "whatsapp_campaign"}
+    if city:
+        details["city"] = city
+    attrs = {"phase2_category": "full_home_customization", "enquiry_line": "fhc",
+             "retail_customer_phone": phone, "deal_customer_details": details}
+    if city:
+        attrs["campaign_city"] = city
+    try:
+        await chatwoot.merge_custom_attributes(int(conv_id), attrs)
+    except Exception as e:
+        print(f"[campaign] conv {conv_id}: attr merge failed ({e}) — no deal")
+        return
+    try:
+        result = await _create_crm_deal(int(conv_id), agent_name="the bridge (WhatsApp campaign)",
+                                        resolve=False)
+    except HTTPException as e:
+        print(f"[campaign] conv {conv_id}: deal needs a human ({e.status_code}: {e.detail})")
+        return
+    except Exception as e:
+        print(f"[campaign] conv {conv_id}: deal failed ({e})")
+        return
+    deal_id = str((result or {}).get("deal_id") or "")
+    if deal_id:
+        try:
+            await chatwoot.merge_custom_attributes(int(conv_id),
+                                                   {"crm_deals": {"fhc": deal_id}})
+        except Exception as e:
+            print(f"[campaign] conv {conv_id}: crm_deals merge failed ({e})")
+    print(f"[campaign] conv {conv_id}: campaign lead deal {deal_id or '?'}"
+          f" (city {city or 'not in prefill'})")
 
 
 def _ad_note_body(ref: dict) -> str:
@@ -4260,8 +4345,9 @@ async def handle_message_created(data: dict) -> dict:
     # matter which flow then handles the message. Best-effort, idempotent.
     if (social_channel == "whatsapp" and conv_id
             and data.get("message_type") in (0, "incoming")):
-        await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
-                                           data.get("content_attributes"))
+        if await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
+                                              data.get("content_attributes")):
+            await _capture_whatsapp_campaign_lead(conv, conv_id, data.get("content") or "")
         # Agent-only note showing the ad a click-to-WhatsApp lead came from.
         await _maybe_post_ad_note(conv, conv_id, data)
 
@@ -8783,7 +8869,7 @@ def _campaign_deal_fields(campaign: dict) -> dict:
 async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
                            phone="", owner_id_override="",
                            owner_label="", send_store_line=False,
-                           allow_duplicate=False):
+                           allow_duplicate=False, resolve=True):
     """Core Create-Deal logic, shared by the manual button endpoint and the
     email-channel auto-create. Raises HTTPException for the cases that need a
     human decision (409 buyer-type unclear, 422 unresolvable location) — the
@@ -9172,7 +9258,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
     # conversation so it leaves the open queue (bulk orders in particular no
     # longer forward, so deal creation is their close signal). Customer replies
     # auto-reopen in Chatwoot. Best-effort — never fail the deal response.
-    if config.RESOLVE_AFTER_DEAL:
+    if config.RESOLVE_AFTER_DEAL and resolve:
         try:
             await chatwoot.toggle_status(int(conv_id), "resolved")
         except Exception as e:
