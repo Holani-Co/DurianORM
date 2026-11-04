@@ -9,6 +9,7 @@
 # All calls are best-effort and raise RuntimeError on hard failures so the
 # poller can log and continue.
 
+import re
 import time
 import httpx
 
@@ -93,7 +94,7 @@ async def list_reviews(account_id: str, location_id: str, page_size: int = 50,
     """
     Return recent reviews for a location, newest first. Each normalized to:
       {review_id, stars(int), comment(str), reviewer(str), create_time,
-       has_reply(bool), reply_path(str)}
+       has_reply(bool), reply_path(str), photos(list[str])}
     account_id / location_id are bare numeric ids (no 'accounts/' prefix).
 
     When `summary_out` is given, the location's official aggregates from the
@@ -121,7 +122,51 @@ async def list_reviews(account_id: str, location_id: str, page_size: int = 50,
             "update_time": rv.get("updateTime", ""),
             "has_reply":  bool(rv.get("reviewReply")),
             "reply_path": f"accounts/{account_id}/locations/{location_id}/reviews/{rid}",
+            "photos":     review_photo_urls(rv),
         })
+    return out
+
+
+# Photos the customer attached to a review. Google sends only a small
+# thumbnail link per item (`=k-no` sizing suffix, ~20 KB); swapping the
+# suffix for `=s0` serves the original upload.
+MAX_REVIEW_PHOTOS = 10
+_MAX_PHOTO_BYTES = 10 * 1024 * 1024
+
+
+def _full_size(url: str) -> str:
+    tail = url.rsplit("/", 1)[-1]
+    return (re.sub(r"=[^/=]*$", "", url) if "=" in tail else url) + "=s0"
+
+
+def review_photo_urls(rv: dict) -> list[str]:
+    urls = []
+    for item in rv.get("reviewMediaItems") or []:
+        url = item.get("googleUrl") or item.get("thumbnailUrl") or ""
+        if url.startswith("https://"):
+            urls.append(_full_size(url))
+    return urls[:MAX_REVIEW_PHOTOS]
+
+
+async def download_review_photos(urls: list[str]) -> list[tuple[str, bytes, str]]:
+    """Fetch review photos as (filename, bytes, content_type) for a Chatwoot
+    attachment. Best-effort: a photo that fails to download, isn't an image or
+    is oversized is skipped, never raised."""
+    out = []
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        for i, url in enumerate(urls[:MAX_REVIEW_PHOTOS], 1):
+            try:
+                r = await client.get(url)
+                ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
+                if r.status_code != 200 or not ctype.startswith("image/") \
+                        or len(r.content) > _MAX_PHOTO_BYTES:
+                    print(f"[reviews] photo {i} skipped [{r.status_code} {ctype} "
+                          f"{len(r.content)}B]")
+                    continue
+                ext = {"image/png": "png", "image/webp": "webp"}.get(ctype, "jpg")
+                out.append((f"review-photo-{i}.{ext}", r.content, ctype))
+            except Exception as e:
+                print(f"[reviews] photo {i} download failed: {e}")
     return out
 
 

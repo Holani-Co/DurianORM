@@ -3767,3 +3767,77 @@ def test_pending_handoff_keeps_agent_needed(monkeypatch):
     asyncio.run(sa._mark_agent_owned({"labels": ["agent-needed"], "custom_attributes": {},
                                       "meta": {"assignee": {"name": "DurianAI"}}}, 1, "whatsapp"))
     assert removed == ["agent-needed", "agent-needed-whatsapp"]
+
+
+def test_review_photos_full_size_links():
+    # conv 12052: Google sends only thumbnail links; =s0 serves the original.
+    import google_reviews as gr
+    base = "https://lh3.googleusercontent.com/grass-cs/AABkm"
+    rv = {"reviewMediaItems": [
+        {"thumbnailUrl": base + "1=k-no"},
+        {"googleUrl": base + "2"},
+        {"thumbnailUrl": "http://insecure.example/x=k"},
+    ]}
+    assert gr.review_photo_urls(rv) == [base + "1=s0", base + "2=s0"]
+    assert gr.review_photo_urls({}) == []
+    many = {"reviewMediaItems": [{"thumbnailUrl": f"{base}{i}=k-no"} for i in range(15)]}
+    assert len(gr.review_photo_urls(many)) == gr.MAX_REVIEW_PHOTOS
+
+
+def test_review_message_falls_back_to_text_when_attach_fails(monkeypatch):
+    import asyncio
+    import chatwoot
+    import reviews_poller as rp
+    calls = []
+
+    async def files_fail(*a, **k):
+        raise RuntimeError("413")
+
+    async def text(conv_id, body, message_type="incoming"):
+        calls.append(body)
+        return {"id": 7}
+
+    monkeypatch.setattr(chatwoot, "create_message_with_files", files_fail)
+    monkeypatch.setattr(chatwoot, "create_message", text)
+    photo = ("review-photo-1.jpg", b"x", "image/jpeg")
+    assert asyncio.run(rp._post_review_message(1, "review", [photo])) == {"id": 7}
+    assert calls == ["review"]
+    rv = {"photos": ["a", "b"]}
+    assert "2 photos from the customer" in rp._photos_line(rv, [photo, photo])
+    assert "open the review on Google" in rp._photos_line(rv, [])
+    assert rp._photos_line({"photos": []}, []) == ""
+
+
+def test_low_star_forward_attaches_review_photos(monkeypatch):
+    import asyncio
+    import chatwoot
+    import config
+    import reviews_poller as rp
+    sent = {}
+
+    async def contact(**k): return (1, "src")
+    async def conv(**k): return 99
+    async def note(*a, **k): return {}
+
+    async def with_files(conv_id, body, to, files, cc_emails=None):
+        sent.update(body=body, files=files, to=to)
+        return {}
+
+    async def plain(*a, **k):
+        raise AssertionError("photos must go on the email")
+
+    monkeypatch.setattr(config, "REVIEW_ESCALATION_INBOX_ID", 5)
+    monkeypatch.setattr(rp, "_match_store_forward",
+                        lambda t: {"email": "store@example.com", "cc": [], "store": "JP Nagar"})
+    monkeypatch.setattr(chatwoot, "create_contact", contact)
+    monkeypatch.setattr(chatwoot, "create_conversation", conv)
+    monkeypatch.setattr(chatwoot, "post_private_note", note)
+    monkeypatch.setattr(chatwoot, "send_email_with_attachments", with_files)
+    monkeypatch.setattr(chatwoot, "send_outgoing_message", plain)
+    rv = {"review_id": "r1", "stars": 1, "comment": "poor stitching", "reviewer": "A",
+          "create_time": "", "photos": ["u1", "u2"]}
+    photos = [("review-photo-1.jpg", b"1", "image/jpeg"),
+              ("review-photo-2.jpg", b"2", "image/jpeg")]
+    asyncio.run(rp._forward_low_star_review(rv, "JP Nagar", 12, case="", photos=photos))
+    assert sent["files"] == photos and sent["to"] == "store@example.com"
+    assert "• Photos: 2 shared by the customer (attached)" in sent["body"]

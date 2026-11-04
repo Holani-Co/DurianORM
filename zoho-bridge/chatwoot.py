@@ -284,6 +284,26 @@ async def create_message(conversation_id: int, content: str,
         return r.json()
 
 
+async def create_message_with_files(conversation_id: int, content: str,
+                                    files: list[tuple[str, bytes, str]],
+                                    message_type: str = "incoming",
+                                    private: bool = False) -> dict:
+    """create_message with attachments — one bubble carrying every file. Each
+    file is (filename, bytes, content_type). Multipart: token header ONLY +
+    string flags (see send_image_bytes)."""
+    data = {"content": content, "message_type": message_type,
+            "private": "true" if private else "false"}
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            _conv_url(conversation_id, "/messages"),
+            headers={"api_access_token": config.CHATWOOT_API_TOKEN},
+            data=data, files=[("attachments[]", f) for f in files])
+        if r.status_code >= 300:
+            raise RuntimeError(
+                f"Chatwoot create_message_with_files failed [{r.status_code}]: {r.text[:300]}")
+        return r.json()
+
+
 async def send_interactive_buttons(conversation_id: int, content: str,
                                    buttons: list[dict]) -> dict:
     """Send a WhatsApp interactive message — reply buttons (≤3 items) or a list
@@ -636,16 +656,26 @@ async def send_email_with_attachment(conversation_id: int, content: str,
     attachment forces a multipart POST (string flags, token-only header — a JSON
     Content-Type on multipart makes Rails 400; see send_image_bytes). The email
     subject rides on the conversation's `mail_subject` (set at create_conversation)."""
+    return await send_email_with_attachments(
+        conversation_id, content, to_emails, [(filename, data, ctype)],
+        cc_emails=cc_emails)
+
+
+async def send_email_with_attachments(conversation_id: int, content: str,
+                                      to_emails: str,
+                                      files: list[tuple[str, bytes, str]],
+                                      cc_emails: Optional[str] = None) -> dict:
+    """send_email_with_attachment for several files — each (filename, bytes,
+    content_type), all on the one email."""
     form: dict = {"content": content, "message_type": "outgoing",
                   "private": "false", "to_emails": to_emails}
     if cc_emails:
         form["cc_emails"] = cc_emails
-    files = {"attachments[]": (filename, data, ctype)}
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(
             _conv_url(conversation_id, "/messages"),
             headers={"api_access_token": config.CHATWOOT_API_TOKEN},
-            data=form, files=files)
+            data=form, files=[("attachments[]", f) for f in files])
         if r.status_code >= 300:
             raise RuntimeError(
                 f"Chatwoot send_email_with_attachment failed [{r.status_code}]: {r.text[:300]}")
