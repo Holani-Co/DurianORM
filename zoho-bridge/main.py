@@ -623,8 +623,7 @@ async def handle_conversation_updated(data: dict) -> dict:
         try:
             full_conv = await chatwoot.get_conversation(int(conv_id))
             meta = full_conv.get("meta") or {}
-            social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(
-                meta.get("channel") or "")
+            social_channel = _social_channel_for(meta.get("channel") or "", full_conv)
             assignee = meta.get("assignee") or {}
             if (social_channel
                     and social_agent.eligible(full_conv, social_channel)
@@ -4332,11 +4331,12 @@ async def handle_message_created(data: dict) -> dict:
     # layer — customer acknowledgment + auto-forwarding — must NOT run on
     # social: those are email-only features. `is_social` gates the action layer
     # further down.
-    is_social = inbox_type in TEMPLATE_CHANNEL_FOR_INBOX_TYPE
-    social_channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(inbox_type)
-
     conv    = data.get("conversation") or {}
     conv_id = conv.get("id")
+    # A website-chat inbox the agent runs on (SOCIAL_AGENT_WEBSITE_INBOXES) is a
+    # social DM channel too ("website"); other web-widget inboxes are not.
+    social_channel = _social_channel_for(inbox_type, conv)
+    is_social = bool(social_channel)
     print(f"[msg] conv_id={conv_id}")
 
     # Meta click-to-WhatsApp ad leads: tag the opening prefill so campaign leads
@@ -4375,7 +4375,8 @@ async def handle_message_created(data: dict) -> dict:
     # whatsapp_fhc.handle as-is (state in the same wa_fhc attribute). Website
     # inbox only (Channel::WebWidget), only when no human owns the conversation.
     # Dark-launched behind WEBSITE_FHC_FLOW_ENABLED.
-    if inbox_type == "Channel::WebWidget" and config.WEBSITE_FHC_FLOW_ENABLED and conv_id:
+    if (inbox_type == "Channel::WebWidget" and config.WEBSITE_FHC_FLOW_ENABLED and conv_id
+            and social_channel != "website"):
         full_conv = await chatwoot.get_conversation(conv_id)
         assignee = (full_conv.get("meta") or {}).get("assignee") or {}
         if not assignee or social_agent.is_bot_agent(assignee):
@@ -4433,6 +4434,10 @@ async def handle_message_created(data: dict) -> dict:
         # Eligibility pre-check on the webhook's own conversation snapshot
         # (carries meta.sender) so non-allowlisted customers never cost the
         # extra full-conversation fetch.
+        if social_channel == "website" and conv_id:
+            menu = await _maybe_send_website_menu(conv, conv_id, data.get("content") or "")
+            if menu is not None:
+                return menu
         if conv_id and social_agent.eligible(conv, social_channel):
             # Debounced: a burst of quick DMs settles into ONE turn. The entry
             # re-fetches the full conversation itself (both when it defers and
@@ -4443,6 +4448,10 @@ async def handle_message_created(data: dict) -> dict:
                 latest_msg_id=data.get("id"))
             if handled is not None:
                 return handled
+        if social_channel == "website":
+            # The website chat has no template drafter / legacy DM flows — the
+            # agent is the only bot there (a human owns it once assigned).
+            return {"ignored": True, "reason": "website_agent_not_handling"}
         if (data.get("content_attributes") or {}).get("image_type") == "ig_post":
             print(f"[msg] conv {conv_id}: shared post received — awaiting the customer's question")
             return {"ignored": True, "reason": "shared_post_awaiting_question"}
@@ -5196,6 +5205,59 @@ async def handle_message_created(data: dict) -> dict:
 # Chatwoot inbox channel_type → our template-channel prefix. Instagram and
 # Facebook share Durian's `social_*` templates (the sheet is "FB & IG DM").
 # Reviews aren't here — they're handled by the reviews poller.
+def _social_channel_for(inbox_type: str, conv: dict):
+    """The agent/template channel for an inbox type: instagram / facebook /
+    whatsapp, or "website" for a web-widget inbox the agent runs on
+    (SOCIAL_AGENT_WEBSITE_INBOXES). None → not a social DM channel."""
+    channel = TEMPLATE_CHANNEL_FOR_INBOX_TYPE.get(inbox_type or "")
+    if channel:
+        return channel
+    if (inbox_type == "Channel::WebWidget"
+            and social_agent.website_agent_vertical(conv or {}) is not None):
+        return "website"
+    return None
+
+
+# The website chat's opening menu — the buttons the durian.in chatbot shows.
+# A tap comes back as the visitor's own message carrying the title, which the
+# agent then acts on (WEBSITE CHAT rule in its prompt).
+WEBSITE_MENU_TEXT = ("Welcome to Durian! What can we help you with today?\n\n"
+                     "Please choose from the options below 👇")
+WEBSITE_MENU = [
+    {"title": "Explore Offers", "value": "offers"},
+    {"title": "Find the Stores near you", "value": "stores"},
+    {"title": "Talk to Durian Expert", "value": "expert"},
+    {"title": "Shop In-Store", "value": "shop_in_store"},
+    {"title": "Track your Order", "value": "track_order"},
+    {"title": "SALE LIVE NOW", "value": "sale"},
+]
+_WEBSITE_GREETING_RE = re.compile(
+    r"^\s*(hi+|hello+|hey+|hlo|namaste|good (morning|afternoon|evening)|start|help)"
+    r"[\s!.?,]*(there|durian)?[\s!.?]*$", re.I)
+
+
+async def _maybe_send_website_menu(conv: dict, conv_id: int, text: str):
+    """Show the website chat menu when the visitor opens with a greeting (or
+    types "menu"); anything else goes straight to the agent. Only while no human
+    owns the conversation."""
+    if not social_agent.eligible(conv, "website"):
+        return None
+    assignee = (conv.get("meta") or {}).get("assignee") or {}
+    if assignee and not social_agent.is_bot_agent(assignee):
+        return None
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    sent = (conv.get("custom_attributes") or {}).get("website_menu_sent")
+    if not (t.lower() == "menu" or (not sent and (not t or _WEBSITE_GREETING_RE.match(t)))):
+        return None
+    try:
+        await chatwoot.send_interactive_buttons(conv_id, WEBSITE_MENU_TEXT, WEBSITE_MENU)
+        await chatwoot.merge_custom_attributes(conv_id, {"website_menu_sent": _now_iso()})
+    except Exception as e:
+        print(f"[website] conv {conv_id}: menu send failed ({e}) — agent replies instead")
+        return None
+    return {"handled": "website_menu"}
+
+
 TEMPLATE_CHANNEL_FOR_INBOX_TYPE = {
     # Each platform is its own template channel so the AI's candidate pool is
     # platform-specific (instagram_* / facebook_*), then split DM vs comment by

@@ -22,12 +22,32 @@ class Api::V1::Widget::MessagesController < Api::V1::Widget::BaseController
       ).perform
     else
       @message.update!(message_update_params[:message])
+      record_selected_option
     end
   rescue StandardError => e
     render json: { error: @contact.errors, message: e.message }.to_json, status: :internal_server_error
   end
 
   private
+
+  # A tap on an input_select option only edits the bot's message (message_updated),
+  # an event the ORM bridge does not subscribe to — subscribing floods the VM with
+  # every delivery/read update. Record the choice as the visitor's own message too,
+  # the way a WhatsApp button tap arrives, so bots see it as a normal reply.
+  def record_selected_option
+    return unless @message.input_select?
+
+    title = Array(@message.submitted_values).first.to_h.with_indifferent_access[:title]
+    return if title.blank?
+
+    @message.conversation.messages.create!(
+      account_id: @message.account_id,
+      inbox_id: @message.inbox_id,
+      sender: @contact,
+      content: title,
+      message_type: :incoming
+    )
+  end
 
   def build_attachment
     return if params[:message][:attachments].blank?
