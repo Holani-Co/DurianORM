@@ -884,6 +884,24 @@ except Exception as _e:
     WHATSAPP_CAMPAIGN_PREFILLS = []
 if not WHATSAPP_CAMPAIGN_PREFILLS:
     WHATSAPP_CAMPAIGN_PREFILLS = ["hello! can i get more information on this?"]
+# Ad prefills that vary per city / creative ("Hi, saw your ad on Meta and want to
+# know more about modular interiors in Delhi.") are matched by these regexes
+# (searched anywhere in the opening message, case-insensitive) on top of the
+# prefixes above. Env JSON array to override.
+try:
+    _wcr = _json.loads(os.environ.get("WHATSAPP_CAMPAIGN_PATTERNS", "") or "[]")
+    WHATSAPP_CAMPAIGN_PATTERNS = [str(s) for s in _wcr
+                                  if isinstance(_wcr, list) and str(s).strip()]
+except Exception as _e:
+    print(f"[config] WHATSAPP_CAMPAIGN_PATTERNS invalid JSON ({_e}) — using default")
+    WHATSAPP_CAMPAIGN_PATTERNS = []
+if not WHATSAPP_CAMPAIGN_PATTERNS:
+    WHATSAPP_CAMPAIGN_PATTERNS = [r"\bsaw your ad\b"]
+# Capture EVERY campaign lead on an agent-run FHC WhatsApp inbox as a CRM deal on
+# its first message — before the customer replies again — owned by the studio of
+# the city named in the ad prefill ("... in Delhi." → the Delhi studio).
+# Dark-launched.
+WHATSAPP_CAMPAIGN_AUTO_DEAL = _bool("WHATSAPP_CAMPAIGN_AUTO_DEAL", "false")
 
 # Post a one-time agent-only private note showing the Meta click-to-WhatsApp ad
 # a lead came from (headline + embedded creative), so a human agent isn't left

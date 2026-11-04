@@ -2960,6 +2960,79 @@ def test_deal_business_verticals():
     assert f({}, "full_home_customization", "Home Studio", {"vertical": "FHC"}) == []
 
 
+_DELHI_AD = "Hi, saw your ad on Meta and want to know more about modular interiors in Delhi."
+_NOIDA_AD = ("Hi, I saw your ad and would like to know more about your modular home "
+             "interior and customisation services in Noida.")
+
+
+def test_campaign_prefill_city_ads():
+    import main
+    assert main._is_campaign_prefill(_DELHI_AD) and main._is_campaign_prefill(_NOIDA_AD)
+    assert main._is_campaign_prefill("Hello! Can I get more information on this?")
+    assert not main._is_campaign_prefill("Hi, I want a modular kitchen in Delhi")
+    assert main._campaign_prefill_city(_DELHI_AD) == "Delhi"
+    assert main._campaign_prefill_city(_NOIDA_AD) == "Noida"
+    assert main._campaign_prefill_city(
+        "Hi, I saw your ad and would like to know more about your modular home interior "
+        "and customisation services in delhi") == "Delhi"
+    assert main._campaign_prefill_city("Hello! Can I get more information on this?") == ""
+
+
+def test_campaign_city_routes_to_its_fhc_studio():
+    import store_locator
+    delhi = store_locator.resolve("fhc", city="Delhi", primary_only=True)
+    noida = store_locator.resolve("fhc", city="Noida", primary_only=True)
+    assert "Kirti Nagar" in delhi["card_name"] and delhi["crm_owner_id"]
+    assert "Noida" in noida["card_name"] and noida["crm_owner_id"]
+    assert delhi["crm_owner_id"] != noida["crm_owner_id"]
+
+
+class _CampaignFakeChatwoot:
+    def __init__(self, ca=None):
+        self.ca = dict(ca or {})
+        self.merges = []
+
+    async def get_conversation(self, conv_id):
+        return {"id": conv_id, "inbox_id": 25, "custom_attributes": dict(self.ca),
+                "meta": {"sender": {"name": "Asha", "phone_number": "+919811122233"}}}
+
+    async def merge_custom_attributes(self, conv_id, attrs):
+        self.merges.append(attrs)
+        self.ca.update(attrs)
+
+
+def test_campaign_lead_gets_deal_on_first_message(monkeypatch):
+    import asyncio, main
+    fake = _CampaignFakeChatwoot({"lead_source": "whatsapp_campaign"})
+    calls = []
+
+    async def create(conv_id, **kw):
+        calls.append(kw)
+        return {"deal_id": "D1", "created": True}
+    monkeypatch.setattr(main, "chatwoot", fake)
+    monkeypatch.setattr(main, "_create_crm_deal", create)
+    monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_AUTO_DEAL", True)
+    monkeypatch.setattr(main.config, "ZOHO_CRM_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {"25": "fhc", "29": "furniture"})
+    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD))
+    assert calls == [{"agent_name": "the bridge (WhatsApp campaign)", "resolve": False}]
+    seeded = fake.merges[0]
+    assert seeded["deal_customer_details"]["city"] == "Noida"
+    assert seeded["deal_customer_details"]["phone"] == "+919811122233"
+    assert seeded["phase2_category"] == "full_home_customization" and seeded["campaign_city"] == "Noida"
+    assert fake.ca["crm_deals"] == {"fhc": "D1"}
+    # already has a deal → nothing new
+    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD))
+    assert len(calls) == 1
+    # furniture inbox / flag off → no deal
+    fresh = _CampaignFakeChatwoot({"lead_source": "whatsapp_campaign"})
+    monkeypatch.setattr(main, "chatwoot", fresh)
+    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 29}, 8, _DELHI_AD))
+    monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_AUTO_DEAL", False)
+    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 8, _DELHI_AD))
+    assert len(calls) == 1 and fresh.merges == []
+
+
 def test_campaign_integration_source(monkeypatch):
     import main
     monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
