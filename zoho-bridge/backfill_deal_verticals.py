@@ -11,27 +11,43 @@ by the broken ZOHO_CRM_SOURCE_FIELD line (Oct 28 – Nov 4 2026).
 
 Run on the VM from zoho-bridge/ (it reads the bridge's own .env):
 
-    venv/bin/python backfill_deal_verticals.py            # list only, changes nothing
-    venv/bin/python backfill_deal_verticals.py --apply    # write the fields
+    venv/bin/python backfill_deal_verticals.py                 # last 30 days, list only
+    venv/bin/python backfill_deal_verticals.py --days 60       # a wider window
+    venv/bin/python backfill_deal_verticals.py --apply         # write the fields
 
-Skips Home Studio deals, closed deals and any deal whose Business Verticals is
-already filled (never overwrites the team's own value). After --apply it reads
-each deal's Blueprint back, so the output shows whether Zoho moved it in.
+--days counts conversation activity (0 = every ORM deal ever). Deals are read
+from Zoho 100 at a time. Skips Home Studio deals, closed deals and any deal whose
+Business Verticals is already filled (never overwrites the team's own value).
+After --apply it reads each deal's Blueprint back, so the output shows whether
+Zoho moved it in.
 """
 
+import argparse
 import asyncio
-import sys
 
 import chatwoot
 import config
 import main
 import zoho_crm
 
+_BATCH = 100
 
-async def _current(deal_id: str, fields: list[str]) -> dict:
-    r = await zoho_crm._crm_request("GET", f"/Deals/{deal_id}",
-                                    params={"fields": ",".join(fields)})
-    return (r.get("data") or [{}])[0]
+
+async def _deals(ids: list[str], fields: list[str]) -> dict:
+    """{deal_id: record} for ids, read in batches (a deleted deal is just absent)."""
+    out = {}
+    for i in range(0, len(ids), _BATCH):
+        chunk = ids[i:i + _BATCH]
+        try:
+            r = await zoho_crm._crm_request(
+                "GET", "/Deals", params={"ids": ",".join(chunk), "fields": ",".join(fields)})
+        except Exception as e:
+            print(f"could not read deals {i + 1}–{i + len(chunk)}: {str(e)[:80]}")
+            continue
+        for d in r.get("data") or []:
+            out[str(d.get("id"))] = d
+        print(f"  read {min(i + _BATCH, len(ids))}/{len(ids)} deals", flush=True)
+    return out
 
 
 async def _blueprint(deal_id: str) -> str:
@@ -42,29 +58,30 @@ async def _blueprint(deal_id: str) -> str:
         return "no Blueprint" if "RECORD_NOT_IN_PROCESS" in str(e) else f"? ({str(e)[:60]})"
 
 
-async def run(apply: bool) -> None:
+async def run(apply: bool, days: int) -> None:
     bv_field = config.ZOHO_CRM_BUSINESS_VERTICALS_FIELD
     src_field = config.ZOHO_CRM_SOURCE_FIELD
     if not bv_field:
         print("ZOHO_CRM_BUSINESS_VERTICALS_FIELD is empty — nothing to do.")
         return
-    convs = await chatwoot.list_deal_conversations(max_age_days=0)
-    print(f"{len(convs)} conversations with a deal.\n")
-    done = failed = 0
-    for conv in convs:
-        custom = conv.get("custom_attributes") or {}
-        deal_id = str(custom.get("crm_deal_id") or "")
-        if not deal_id:
-            continue
-        try:
-            deal = await _current(deal_id, ["Layout", "Stage", bv_field, "Lead_Source"])
-        except Exception as e:
-            print(f"conv {conv.get('id')} · deal {deal_id} · could not read deal: {str(e)[:80]}")
+    convs = await chatwoot.list_deal_conversations(max_age_days=days)
+    by_deal = {str((c.get("custom_attributes") or {}).get("crm_deal_id") or ""): c
+               for c in convs}
+    by_deal.pop("", None)
+    window = f"active in the last {days} days" if days else "of any age"
+    print(f"{len(by_deal)} ORM deals {window}. Reading them from Zoho…")
+    deals = await _deals(list(by_deal), ["Layout", "Stage", bv_field, "Lead_Source"])
+
+    todo = []
+    for deal_id, conv in by_deal.items():
+        deal = deals.get(deal_id)
+        if not deal:
             continue
         layout = (deal.get("Layout") or {}).get("name") or ""
         stage = str(deal.get("Stage") or "")
         if layout != "Standard" or stage.startswith("Closed") or deal.get(bv_field):
             continue
+        custom = conv.get("custom_attributes") or {}
         category = (custom.get("email_category_v2") or {}).get("category") \
             or custom.get("phase2_category") or ""
         owner = custom.get("retail_deal_owner") or {}
@@ -74,24 +91,37 @@ async def run(apply: bool) -> None:
             source = main._enquiry_source_for(conv)
             if source:
                 fields[src_field] = source
-        print(f"conv {conv.get('id')} · deal {deal_id} · {stage}\n    → {fields}")
-        if not apply or not fields:
-            continue
+        if fields:
+            todo.append((conv, deal_id, stage, fields))
+
+    print(f"\n{len(todo)} open Standard deals have no Business Verticals:\n")
+    for conv, deal_id, stage, fields in todo:
+        print(f"conv {conv.get('id')} · deal {deal_id} · {stage} → {fields}")
+    if not apply:
+        print(f"\nList only — nothing changed. Re-run with --apply to write these "
+              f"{len(todo)} deals.")
+        return
+
+    done = failed = 0
+    for conv, deal_id, stage, fields in todo:
         # Business Verticals and Enquiry Source in separate updates, so one
         # refused value never costs the other.
         results = [await zoho_crm.update_deal(deal_id, {k: v})
                    for k, v in fields.items()]
         if all(results):
             done += 1
-            print(f"    ✓ now in: {await _blueprint(deal_id)}")
+            print(f"conv {conv.get('id')} · deal {deal_id} ✓ now in: {await _blueprint(deal_id)}")
         else:
             failed += 1
-            print("    ✗ part of this update was refused — see the [crm] line above")
-    if apply:
-        print(f"\nUpdated {done}, failed {failed}.")
-    else:
-        print("\nList only — nothing changed. Re-run with --apply to write these fields.")
+            print(f"conv {conv.get('id')} · deal {deal_id} ✗ part of this update was "
+                  f"refused — see the [crm] line above")
+    print(f"\nUpdated {done}, failed {failed}.")
 
 
 if __name__ == "__main__":
-    asyncio.run(run(apply="--apply" in sys.argv[1:]))
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--apply", action="store_true", help="write the fields (default: list only)")
+    ap.add_argument("--days", type=int, default=30,
+                    help="only deals whose conversation was active in the last N days (0 = all)")
+    a = ap.parse_args()
+    asyncio.run(run(apply=a.apply, days=a.days))
