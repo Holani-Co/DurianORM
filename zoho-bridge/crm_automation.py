@@ -3,15 +3,19 @@
 # Zoho CRM calls the ORM when a Deal's Stage changes (a Zoho Workflow Rule
 # webhook → Chatwoot's public /webhooks/crm_stage → this bridge). Each enabled
 # RULE that matches the deal's new stage (and its field filters) sends an
-# approved WhatsApp template to the deal's Mobile, from the configured inbox,
-# INSIDE the customer's ORM conversation — so it is logged and replies land in
+# approved WhatsApp template to the deal's Mobile, from its product line's
+# WhatsApp number, INSIDE the customer's ORM conversation — so it is logged and replies land in
 # the ORM like any chat. A rule with a delay is scheduled instead and, when due,
 # sent only if the deal is still in that stage (follow-ups stop once a lead
 # moves on). Every rule fires at most once per deal.
 #
 # Rules are a versioned config_store document edited in the UI (rollback like
-# the other Settings editors). DEFAULT_DOC pre-fills the Durian Workspaces
-# rules, switched off until the team sets which deals they apply to.
+# the other Settings editors). DEFAULT_DOC pre-fills the rules, switched off.
+#
+# A PRODUCT LINE says who a set of rules is for: its filters pick the deals (FHC =
+# the Home Studio layout) and its inbox is the number that speaks for it. Templates
+# belong to one WhatsApp account, so a rule can only send what its own number has.
+# A deal outside every line gets nothing, and each line has its own off switch.
 #
 # Consent: the CRM lead form counts as consent; anyone who replied STOP
 # (Chatwoot records OPTED_OUT) is never sent an automated message.
@@ -36,7 +40,7 @@ _DB_PATH = os.environ.get(
     "CRM_AUTOMATION_DB", os.path.join(os.path.dirname(__file__), "crm_automation.db"))
 _lock = threading.Lock()
 
-OPS = ("equals", "contains", "not_empty")
+OPS = ("equals", "contains", "blank_or_contains", "not_empty")
 # Where a template variable's value comes from. "field:<API_Name>" reads any
 # Deal field; "text:<words>" is a fixed value.
 SOURCES = {
@@ -51,48 +55,92 @@ SOURCES = {
 
 _WS_STAGE_QUALIFIED = "Qualified Deal (Please Select This )"
 _WS_VARS_NAME = [{"source": "contact_name", "fallback": "there"}]
-_WS_VARS_EXEC = _WS_VARS_NAME + [{"source": "owner_name", "fallback": "our workspace expert"}]
+_WS_VARS_EXEC = _WS_VARS_NAME + [{"source": "owner_name", "fallback": "our team"}]
 _WS_VARS_EXEC_PHONE = _WS_VARS_EXEC + [{"source": "owner_phone", "fallback": "this number"}]
 # The house order for template variables: {{1}} customer, {{2}} sales exec /
 # store manager, {{3}} their phone. Used to fill in variables a rule is missing.
 STANDARD_VARIABLES = _WS_VARS_EXEC_PHONE
-_WS_MATCH = [{"field": "", "op": "contains", "value": ""}]   # the team fills this in
+_NO_FILTER = [{"field": "", "op": "contains", "value": ""}]
 
 
-def _ws_rule(rid, name, stage, template, variables, delay_hours=0):
-    return {"id": rid, "name": name, "enabled": False, "stage": stage,
-            "match": [dict(m) for m in _WS_MATCH], "template": template, "language": "",
+def _rule(rid, line, name, stage, template, variables, delay_hours=0):
+    return {"id": rid, "line": line, "name": name, "enabled": False, "stage": stage,
+            "match": [dict(m) for m in _NO_FILTER], "template": template, "language": "",
             "delay_hours": delay_hours, "only_if_still_in_stage": True,
             "header_media_url": "", "variables": [dict(v) for v in variables]}
 
 
+# Deals by vertical on the Standard layout: Furniture, plus blanks, because the
+# Facebook lead forms (Durian Furniture Tier 1/2) leave Business Verticals empty.
+# Doors, Franchise and Laminates deals carry their own value and stay out.
+DEFAULT_LINES = [
+    {"id": "fhc", "name": "Full Home Customisation", "enabled": True, "inbox_id": 25,
+     "match": [{"field": "Layout", "op": "equals", "value": "Home Studio"}]},
+    {"id": "furniture", "name": "Furniture", "enabled": False, "inbox_id": 29,
+     "match": [{"field": "Layout", "op": "equals", "value": "Standard"},
+               {"field": "Business_Verticals", "op": "blank_or_contains", "value": "Furniture"},
+               {"field": "Business_Type_New", "op": "blank_or_contains", "value": "Retail"}]},
+]
+FURNITURE_RULES = [
+    _rule("fur_qualified", "furniture", "Furniture · Qualified", _WS_STAGE_QUALIFIED,
+          "fur_crm_qualified", _WS_VARS_EXEC_PHONE),
+    _rule("fur_followup_1", "furniture", "Furniture · Follow-up 1", "Follow Up",
+          "fur_crm_followup_1", _WS_VARS_EXEC_PHONE),
+    _rule("fur_followup_2", "furniture", "Furniture · Follow-up 2 (after 2 days)", "Follow Up",
+          "fur_crm_followup_2", _WS_VARS_EXEC_PHONE, delay_hours=48),
+    _rule("fur_followup_3", "furniture", "Furniture · Follow-up 3 (after 5 days)", "Follow Up",
+          "fur_crm_followup_3", _WS_VARS_EXEC_PHONE, delay_hours=120),
+    _rule("fur_interested", "furniture", "Furniture · Interested", "Interested",
+          "fur_crm_interested", _WS_VARS_NAME),
+    _rule("fur_closed_lost", "furniture", "Furniture · Closed Lost", "Closed Lost",
+          "fur_crm_closed_lost", _WS_VARS_NAME),
+    _rule("fur_closed_won", "furniture", "Furniture · Closed Won", "Closed Won",
+          "fur_crm_closed_won", _WS_VARS_NAME),
+]
 DEFAULT_DOC = {
     "enabled": False,
-    "inbox_id": 25,          # Whatsapp FHC
     "team": [],
+    "lines": DEFAULT_LINES,
     "rules": [
-        _ws_rule("ws_qualified", "Workspaces · Qualified", _WS_STAGE_QUALIFIED,
-                 "durian_ws_qualified", _WS_VARS_EXEC_PHONE),
-        _ws_rule("ws_followup_1", "Workspaces · Follow-up 1", "Follow Up",
-                 "durian_ws_followup_1", _WS_VARS_EXEC_PHONE),
-        _ws_rule("ws_followup_2", "Workspaces · Follow-up 2 (after 2 days)", "Follow Up",
-                 "durian_ws_followup_2", _WS_VARS_EXEC_PHONE, delay_hours=48),
-        _ws_rule("ws_followup_3", "Workspaces · Follow-up 3 (after 5 days)", "Follow Up",
-                 "durian_ws_followup_3", _WS_VARS_EXEC_PHONE, delay_hours=120),
-        _ws_rule("ws_interested", "Workspaces · Interested", "Interested",
-                 "durian_ws_interested", _WS_VARS_NAME),
-        _ws_rule("ws_closed_lost", "Workspaces · Closed Lost", "Closed Lost",
-                 "durian_ws_closed_lost", _WS_VARS_NAME),
-        _ws_rule("ws_closed_won", "Workspaces · Closed Won", "Closed Won",
-                 "durian_ws_closed_won", _WS_VARS_NAME),
-    ],
+        _rule("ws_qualified", "fhc", "Workspaces · Qualified", _WS_STAGE_QUALIFIED,
+              "durian_ws_qualified", _WS_VARS_EXEC_PHONE),
+        _rule("ws_followup_1", "fhc", "Workspaces · Follow-up 1", "Follow Up",
+              "durian_ws_followup_1", _WS_VARS_EXEC_PHONE),
+        _rule("ws_followup_2", "fhc", "Workspaces · Follow-up 2 (after 2 days)", "Follow Up",
+              "durian_ws_followup_2", _WS_VARS_EXEC_PHONE, delay_hours=48),
+        _rule("ws_followup_3", "fhc", "Workspaces · Follow-up 3 (after 5 days)", "Follow Up",
+              "durian_ws_followup_3", _WS_VARS_EXEC_PHONE, delay_hours=120),
+        _rule("ws_interested", "fhc", "Workspaces · Interested", "Interested",
+              "durian_ws_interested", _WS_VARS_NAME),
+        _rule("ws_closed_lost", "fhc", "Workspaces · Closed Lost", "Closed Lost",
+              "durian_ws_closed_lost", _WS_VARS_NAME),
+        _rule("ws_closed_won", "fhc", "Workspaces · Closed Won", "Closed Won",
+              "durian_ws_closed_won", _WS_VARS_NAME),
+    ] + FURNITURE_RULES,
 }
+
+
+def with_lines(doc: dict) -> dict:
+    """`doc` with product lines. A document published before lines existed sent
+    every rule from one inbox: those rules become FHC, on that inbox, with the
+    Home Studio filter, and the furniture rules arrive switched off."""
+    if doc.get("lines"):
+        return doc
+    out = json.loads(json.dumps(doc))
+    out["lines"] = json.loads(json.dumps(DEFAULT_LINES))
+    out["lines"][0]["inbox_id"] = int(doc.get("inbox_id") or 25)
+    out.pop("inbox_id", None)
+    for rule in out.get("rules") or []:
+        rule.setdefault("line", "fhc")
+    out["rules"] = (out.get("rules") or []) + json.loads(json.dumps(FURNITURE_RULES))
+    return out
 
 
 def get_doc() -> dict:
     """The published rules document, or the pre-filled default."""
     doc = config_store.get_active_override(config_store.CRM_AUTOMATION)
-    return doc if isinstance(doc.get("rules"), list) else json.loads(json.dumps(DEFAULT_DOC))
+    return with_lines(doc) if isinstance(doc.get("rules"), list) \
+        else json.loads(json.dumps(DEFAULT_DOC))
 
 
 # ── run log (sqlite): one row per (deal, rule) — the once-per-deal guarantee ──
@@ -184,10 +232,27 @@ def filters_match(rule: dict, deal: dict) -> tuple[bool, str]:
         have = _value(deal, field)
         ok = (bool(have.strip()) if op == "not_empty"
               else _norm(want) in _norm(have) if op == "contains"
+              else not have.strip() or _norm(want) in _norm(have) if op == "blank_or_contains"
               else _norm(have) == _norm(want))
         if not ok:
             return False, f"{field} is {have!r}, rule needs {op} {want!r}"
     return True, ""
+
+
+def line_of(doc: dict, rule: dict) -> dict | None:
+    return next((ln for ln in doc.get("lines") or [] if ln.get("id") == rule.get("line")), None)
+
+
+def rule_applies(doc: dict, rule: dict, deal: dict) -> tuple[bool, str]:
+    """(applies, why-not): the rule's product line is on and takes this deal, and
+    the rule's own filters match."""
+    line = line_of(doc, rule)
+    if not line:
+        return False, "the rule has no product line"
+    if not line.get("enabled"):
+        return False, f"{line.get('name') or line.get('id')} is switched off"
+    ok, why = filters_match(line, deal)
+    return filters_match(rule, deal) if ok else (False, why)
 
 
 def _team_entry(deal: dict, team: list) -> dict:
@@ -226,11 +291,17 @@ def fit_variables(variables: list, count: int) -> list:
     return out
 
 
+def _on_number(doc: dict, rule: dict, templates: list) -> list:
+    """The templates this rule can use: only those on its line's WhatsApp number."""
+    inbox_id = (line_of(doc, rule) or {}).get("inbox_id")
+    return [t for t in templates or [] if t.get("inbox_id") in (None, inbox_id)]
+
+
 def template_mismatches(doc: dict, templates: list) -> list[str]:
     """Switched-on rules whose variable count differs from their approved template."""
     out = []
     for r in (doc or {}).get("rules") or []:
-        tpl = find_template(templates, r) if r.get("enabled") else None
+        tpl = find_template(_on_number(doc, r, templates), r) if r.get("enabled") else None
         if not tpl:
             continue
         want, have = template_summary(tpl)["var_count"], len(r.get("variables") or [])
@@ -278,7 +349,7 @@ def template_summary(t: dict) -> dict:
     body = next((c.get("text") or "" for c in comps if str(c.get("type")).upper() == "BODY"), "")
     header = next((c for c in comps if str(c.get("type")).upper() == "HEADER"), None)
     return {"name": t.get("name"), "language": t.get("language"), "status": t.get("status"),
-            "category": t.get("category"), "body": body,
+            "category": t.get("category"), "body": body, "inbox_id": t.get("inbox_id"),
             "var_count": len(set(re.findall(r"\{\{\s*(\d+)\s*\}\}", body))),
             "header_format": str((header or {}).get("format") or "").upper()}
 
@@ -290,6 +361,15 @@ def find_template(templates: list, rule: dict) -> dict | None:
                 and (not lang or _norm(t.get("language")) == lang):
             return t
     return None
+
+
+async def doc_templates(doc: dict) -> list:
+    """Templates on every line's number, each carrying the inbox it belongs to."""
+    out = []
+    for inbox_id in sorted({int(ln.get("inbox_id") or 0) for ln in doc.get("lines") or []} - {0}):
+        out += [{**t, "inbox_id": inbox_id}
+                for t in await chatwoot.list_whatsapp_templates(inbox_id)]
+    return out
 
 
 def _render(body: str, values: list) -> str:
@@ -313,7 +393,7 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
     """Send one rule's template for this deal. Returns {status, detail, phone,
     conv_id}; status = sent | skipped | failed. `to_phone` + test=True sends to
     a test number instead of the customer (consent not checked)."""
-    inbox_id = int(doc.get("inbox_id") or 0)
+    inbox_id = int((line_of(doc, rule) or {}).get("inbox_id") or 0)
     phone = re.sub(r"\D", "", to_phone) if to_phone else customer_phone(deal)
     if not phone:
         return {"status": "skipped", "detail": "the deal has no valid mobile number", "phone": ""}
@@ -371,7 +451,7 @@ async def handle_deal(deal_id: str) -> list[dict]:
     deal = await _fetch_deal(str(deal_id))
     out = []
     for rule in _active_rules(doc):
-        if not stage_matches(rule, deal) or not filters_match(rule, deal)[0]:
+        if not stage_matches(rule, deal) or not rule_applies(doc, rule, deal)[0]:
             continue
         delay = max(0, int(rule.get("delay_hours") or 0))
         due = (_now() + timedelta(hours=delay)).isoformat()
@@ -411,6 +491,10 @@ async def run_due() -> int:
             _finish(job["deal_id"], job["rule_id"], "cancelled",
                     f"deal moved to “{_value(deal, 'Stage')}” before this was due")
             continue
+        applies, why = rule_applies(doc, rule, deal)
+        if not applies:
+            _finish(job["deal_id"], job["rule_id"], "cancelled", why)
+            continue
         _finish(job["deal_id"], job["rule_id"], "sending")
         res = await send_rule(rule, deal, doc)
         _finish(job["deal_id"], job["rule_id"], res["status"], res.get("detail", ""),
@@ -422,11 +506,11 @@ async def preview(deal_id: str) -> dict:
     """What each rule would do for this deal right now — nothing is sent."""
     doc = get_doc()
     deal = await _fetch_deal(str(deal_id))
-    templates = await chatwoot.list_whatsapp_templates(int(doc.get("inbox_id") or 0))
+    templates = await doc_templates(doc)
     rows = []
     for rule in doc.get("rules") or []:
-        ok_f, why = filters_match(rule, deal)
-        tpl = find_template(templates, rule)
+        ok_f, why = rule_applies(doc, rule, deal)
+        tpl = find_template(_on_number(doc, rule, templates), rule)
         rows.append({
             "rule": rule.get("id"), "name": rule.get("name"), "enabled": bool(rule.get("enabled")),
             "stage_matches": stage_matches(rule, deal), "filters_match": ok_f, "why_not": why,
@@ -445,16 +529,26 @@ def validate(doc) -> dict:
     errors, warnings = [], []
     if not isinstance(doc, dict) or not isinstance(doc.get("rules"), list):
         return {"ok": False, "errors": ["The document must have a rules list."], "warnings": []}
-    try:
-        int(doc.get("inbox_id") or 0) or errors.append("Choose the WhatsApp inbox to send from.")
-    except (TypeError, ValueError):
-        errors.append("The inbox must be a number.")
+    doc = with_lines(doc)
+    for ln in doc["lines"]:
+        label = ln.get("name") or ln.get("id") or "A product line"
+        try:
+            int(ln.get("inbox_id") or 0) or errors.append(f"{label}: choose the WhatsApp number.")
+        except (TypeError, ValueError):
+            errors.append(f"{label}: the inbox must be a number.")
+        if not any((m.get("field") or "").strip() for m in ln.get("match") or []):
+            errors.append(f"{label}: needs a filter, or its rules would reach every deal.")
+        for m in ln.get("match") or []:
+            if m.get("op") not in OPS:
+                errors.append(f"{label}: unknown filter {m.get('op')!r}.")
     seen = set()
     for i, r in enumerate(doc["rules"], 1):
         label = r.get("name") or f"rule {i}"
         if not r.get("id") or r["id"] in seen:
             errors.append(f"{label}: needs a unique id.")
         seen.add(r.get("id"))
+        if not line_of(doc, r):
+            errors.append(f"{label}: choose a product line.")
         if not str(r.get("stage") or "").strip():
             errors.append(f"{label}: set the CRM stage.")
         if not str(r.get("template") or "").strip():
@@ -471,8 +565,6 @@ def validate(doc) -> dict:
         for m in r.get("match") or []:
             if m.get("op") not in OPS:
                 errors.append(f"{label}: unknown filter {m.get('op')!r}.")
-        if r.get("enabled") and not any((m.get("field") or "").strip() for m in r.get("match") or []):
-            warnings.append(f"{label}: no filter set — it will fire for EVERY deal at this stage.")
     for t in doc.get("team") or []:
         if not str(t.get("owner") or "").strip() and (t.get("phone") or t.get("name")):
             errors.append("Sales team: every row needs the deal owner's Zoho name or email.")

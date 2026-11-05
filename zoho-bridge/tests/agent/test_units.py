@@ -3204,7 +3204,7 @@ def _ws_deal(stage="Qualified Deal (Please Select This )", **extra):
     d = {"id": "555", "Stage": stage, "Deal_Name": "Ravi — DurianORM · WhatsApp",
          "Contact_Name": {"name": "Ravi Kumar", "id": "9"}, "Mobile": "98765 43210",
          "Owner": {"name": "Neha Singh", "email": "neha@durian.in"}, "Deal_No": "D-1",
-         "Integration_Source": "Workspaces Office Form"}
+         "Integration_Source": "Workspaces Office Form", "Layout": {"name": "Home Studio"}}
     d.update(extra)
     return d
 
@@ -3364,14 +3364,16 @@ def test_auto_refuses_mismatched_or_unready_templates(monkeypatch):
 def test_auto_validate_and_defaults():
     import crm_automation as ca
     v = ca.validate(ca.DEFAULT_DOC)
-    assert v["ok"] and len(ca.DEFAULT_DOC["rules"]) == 7
+    assert v["ok"] and len(ca.DEFAULT_DOC["rules"]) == 14
     assert not any(r["enabled"] for r in ca.DEFAULT_DOC["rules"])   # off until filters are set
     bad = {"inbox_id": 25, "rules": [_rule(stage=""), _rule(delay=9999)],
            "team": [{"owner": "X", "phone": "12"}]}
     errs = " ".join(ca.validate(bad)["errors"])
     assert "unique id" in errs and "stage" in errs and "0–720" in errs and "invalid phone" in errs
-    nofilter = {"inbox_id": 25, "rules": [_rule(match=[])]}
-    assert "EVERY deal" in ca.validate(nofilter)["warnings"][0]
+    open_line = {"lines": [{"id": "fhc", "inbox_id": 25, "match": []}], "rules": []}
+    assert "needs a filter" in ca.validate(open_line)["errors"][0]
+    orphan = {"lines": ca.DEFAULT_LINES, "rules": [_rule(line="doors")]}
+    assert "choose a product line" in ca.validate(orphan)["errors"][0]
     qualified = next(r for r in ca.DEFAULT_DOC["rules"] if r["id"] == "ws_qualified")
     assert [v["source"] for v in qualified["variables"]] == \
         ["contact_name", "owner_name", "owner_phone"]           # matches the approved template
@@ -3398,7 +3400,7 @@ def test_auto_studio_owner_shows_team_name_and_variables_fit(monkeypatch):
     # publish refuses a switched-on rule that no longer fits its template
     tpl3 = dict(_WS_FU1, name="durian_ws_qualified")
     doc = {"inbox_id": 25, "team": team, "rules": [_rule()]}
-    monkeypatch.setattr(main, "chatwoot", _AutoCW(templates=[tpl3]))
+    monkeypatch.setattr(ca, "chatwoot", _AutoCW(templates=[tpl3]))
     v = asyncio.run(main._crm_automation_check(doc))
     assert not v["ok"] and "has 3 variables but the rule fills 2" in v["errors"][0]
     doc["rules"][0]["variables"] = ca.fit_variables(doc["rules"][0]["variables"], 3)
@@ -3409,6 +3411,105 @@ def test_auto_studio_owner_shows_team_name_and_variables_fit(monkeypatch):
     assert asyncio.run(ca2.handle_deal("555"))[0]["status"] == "sent"
     assert cw.sent[0][2]["processed_params"]["body"] == \
         {"1": "Ravi Kumar", "2": "Rahul Mehta", "3": "+91 98200 00000"}
+
+
+def _line_doc(rules, furniture_on=True):
+    import crm_automation as ca
+    lines = [dict(ln) for ln in ca.DEFAULT_LINES]
+    lines[1]["enabled"] = furniture_on
+    return {"enabled": True, "team": [], "lines": lines, "rules": rules}
+
+
+_FUR = dict(Layout={"name": "Standard"}, Business_Verticals=["Furniture"],
+            Business_Type_New="Retail")
+
+
+def test_auto_lines_keep_each_deal_with_its_own_product():
+    import crm_automation as ca
+    doc = _line_doc([])
+    fhc, fur = {"line": "fhc"}, {"line": "furniture"}
+    home = _ws_deal()
+    furniture = _ws_deal(**_FUR)
+    assert ca.rule_applies(doc, fhc, home)[0] and not ca.rule_applies(doc, fhc, furniture)[0]
+    assert ca.rule_applies(doc, fur, furniture)[0] and not ca.rule_applies(doc, fur, home)[0]
+    # Facebook lead forms leave the vertical blank: still a furniture deal
+    assert ca.rule_applies(doc, fur, _ws_deal(Layout={"name": "Standard"}))[0]
+    for other in ({"Business_Verticals": ["Doors"]}, {"Business_Verticals": ["Franchise"]},
+                  {"Business_Verticals": ["Laminates"]}, {"Business_Type_New": "Project"}):
+        assert not ca.rule_applies(doc, fur, _ws_deal(**{**_FUR, **other}))[0]
+    assert not ca.rule_applies(doc, {"line": "doors"}, furniture)[0]
+    off = _line_doc([], furniture_on=False)
+    ok, why = ca.rule_applies(off, fur, furniture)
+    assert not ok and "switched off" in why
+
+
+def test_auto_old_document_becomes_fhc_with_the_home_studio_filter(monkeypatch):
+    import asyncio
+    ca, cw, state = _auto_setup(monkeypatch, [_rule(match=[])], deal=_ws_deal(**_FUR))
+    doc = ca.get_doc()
+    assert doc["rules"][0]["line"] == "fhc" and doc["lines"][0]["inbox_id"] == 25
+    assert not doc["lines"][1]["enabled"]
+    assert not any(r["enabled"] for r in doc["rules"] if r["line"] == "furniture")
+    assert asyncio.run(ca.handle_deal("555")) == [] and not cw.sent     # furniture deal
+    state["deal"] = _ws_deal()
+    assert asyncio.run(ca.handle_deal("555"))[0]["status"] == "sent"
+
+
+class _PerInboxCW(_AutoCW):
+    def __init__(self, by_inbox):
+        super().__init__()
+        self.by_inbox, self.inboxes = by_inbox, []
+
+    async def list_whatsapp_templates(self, inbox_id):
+        return self.by_inbox.get(inbox_id, [])
+
+    async def ensure_whatsapp_conversation(self, inbox_id, phone, name=""):
+        self.inboxes.append(inbox_id)
+        return 70, 700
+
+
+def test_auto_each_line_sends_its_own_template_from_its_own_number(monkeypatch):
+    import asyncio
+    import config_store
+    fur_tpl = dict(_WS_TPL, name="fur_crm_qualified")
+    cw = _PerInboxCW({25: [_WS_TPL], 29: [fur_tpl]})
+    rules = [_rule(match=[], line="fhc"),
+             _rule("fur_qualified", template="fur_crm_qualified", match=[], line="furniture")]
+    ca, cw, state = _auto_setup(monkeypatch, rules, cw=cw)
+    config_store.publish(_line_doc(rules), domain=config_store.CRM_AUTOMATION)
+    state["deal"] = _ws_deal(**_FUR)
+    assert [r["rule"] for r in asyncio.run(ca.handle_deal("1"))] == ["fur_qualified"]
+    assert cw.inboxes == [29] and cw.sent[0][2]["name"] == "fur_crm_qualified"
+
+
+def test_auto_a_template_on_the_other_number_is_never_used(monkeypatch):
+    import asyncio
+    import config_store
+    cw = _PerInboxCW({25: [_WS_TPL], 29: []})
+    rules = [_rule("fur_qualified", match=[], line="furniture")]     # FHC's template
+    ca, cw, state = _auto_setup(monkeypatch, rules, cw=cw)
+    config_store.publish(_line_doc(rules), domain=config_store.CRM_AUTOMATION)
+    state["deal"] = _ws_deal(**_FUR)
+    res = asyncio.run(ca.handle_deal("1"))
+    assert res[0]["status"] == "skipped" and "not approved" in res[0]["detail"] and not cw.sent
+
+
+def test_auto_due_follow_up_cancelled_when_the_line_is_switched_off(monkeypatch):
+    import asyncio
+    import config_store
+    rules = [_rule("fur_followup_2", stage="Follow Up", template="durian_ws_followup_1",
+                   delay=48, match=[], line="furniture")]
+    ca, cw, state = _auto_setup(monkeypatch, rules, deal=_ws_deal("Follow Up", **_FUR))
+    config_store.publish(_line_doc(rules), domain=config_store.CRM_AUTOMATION)
+    assert asyncio.run(ca.handle_deal("1"))[0]["status"] == "scheduled"
+    config_store.publish(_line_doc(rules, furniture_on=False), domain=config_store.CRM_AUTOMATION)
+    with ca._conn() as c:
+        c.execute("UPDATE runs SET due_at = '2000-01-01T00:00:00+00:00'")
+    asyncio.run(ca.run_due())
+    assert not cw.sent
+    with ca._conn() as c:
+        row = c.execute("SELECT status, detail FROM runs").fetchone()
+    assert row["status"] == "cancelled" and "switched off" in row["detail"]
 
 
 def test_auto_manager_name_and_phone_found_without_a_sales_team_row(monkeypatch):

@@ -1,14 +1,17 @@
 <script setup>
 // The rule cards: stage + field conditions → template, delay and variables.
 // Picking a template sets its language and sizes the variable list to it; a
-// rule saved against a template that later changed is re-sized on load.
-import { computed, watch } from 'vue';
+// rule saved against a template that later changed is re-sized on load. Rules are
+// shown one product line at a time, and offer only that line's number's templates.
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import FilterRows from './FilterRows.vue';
 
 const props = defineProps({
   templates: { type: Array, default: () => [] },
   sources: { type: Object, default: () => ({}) },
   ops: { type: Array, default: () => [] },
+  lines: { type: Array, default: () => [] },
 });
 const rules = defineModel('rules', { type: Array, required: true });
 
@@ -17,7 +20,17 @@ const { t } = useI18n();
 const approved = computed(() =>
   props.templates.filter(tp => String(tp.status).toUpperCase() === 'APPROVED')
 );
-const templateOf = rule => approved.value.find(tp => tp.name === rule.template);
+const activeLine = ref(props.lines[0]?.id || '');
+const visibleRules = computed(() =>
+  rules.value.filter(rule => rule.line === activeLine.value)
+);
+const templatesFor = rule => {
+  const line = props.lines.find(item => item.id === rule.line);
+  return approved.value.filter(tp => tp.inbox_id === line?.inbox_id);
+};
+const lineTemplates = computed(() => templatesFor({ line: activeLine.value }));
+const templateOf = rule =>
+  templatesFor(rule).find(tp => tp.name === rule.template);
 
 const kindOf = src => {
   if (String(src).startsWith('field:')) return 'field';
@@ -37,7 +50,7 @@ function setArg(variable, value) {
 // store manager, {{3}} their phone (mirrors STANDARD_VARIABLES in the bridge).
 const STANDARD_VARIABLES = [
   { source: 'contact_name', fallback: 'there' },
-  { source: 'owner_name', fallback: 'our workspace expert' },
+  { source: 'owner_name', fallback: 'our team' },
   { source: 'owner_phone', fallback: 'this number' },
 ];
 
@@ -58,7 +71,7 @@ function fitVariables(rule, count) {
 
 function pickTemplate(rule, name) {
   rule.template = name;
-  const tpl = approved.value.find(tp => tp.name === name);
+  const tpl = templateOf(rule);
   if (!tpl) return;
   rule.language = tpl.language || '';
   fitVariables(rule, tpl.var_count);
@@ -78,6 +91,7 @@ watch(
 function addRule() {
   rules.value.push({
     id: `rule_${Date.now().toString(36)}`,
+    line: activeLine.value,
     name: '',
     enabled: false,
     stage: '',
@@ -90,11 +104,7 @@ function addRule() {
     variables: [],
   });
 }
-const removeRule = i => rules.value.splice(i, 1);
-const addFilter = rule => {
-  rule.match = rule.match || [];
-  rule.match.push({ field: '', op: 'contains', value: '' });
-};
+const removeRule = rule => rules.value.splice(rules.value.indexOf(rule), 1);
 
 const input =
   'px-2 py-1.5 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12';
@@ -102,12 +112,28 @@ const input =
 
 <template>
   <div class="flex flex-col gap-3">
-    <p v-if="!rules.length" class="text-sm text-n-slate-11">
+    <div class="flex flex-wrap gap-2">
+      <button
+        v-for="line in lines"
+        :key="line.id"
+        type="button"
+        class="px-3 py-1.5 text-sm border rounded-lg"
+        :class="
+          activeLine === line.id
+            ? 'border-n-brand text-n-slate-12 font-medium'
+            : 'border-n-weak text-n-slate-11'
+        "
+        @click="activeLine = line.id"
+      >
+        {{ line.name }}
+      </button>
+    </div>
+    <p v-if="!visibleRules.length" class="text-sm text-n-slate-11">
       {{ t('CRM_AUTOMATION_CONFIG.RULES.EMPTY') }}
     </p>
 
     <section
-      v-for="(rule, i) in rules"
+      v-for="rule in visibleRules"
       :key="rule.id"
       class="p-4 border rounded-xl border-n-weak"
       :class="rule.enabled ? '' : 'opacity-80'"
@@ -127,7 +153,7 @@ const input =
         <button
           type="button"
           class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:bg-n-alpha-2"
-          @click="removeRule(i)"
+          @click="removeRule(rule)"
         >
           {{ t('CRM_AUTOMATION_CONFIG.RULES.REMOVE') }}
         </button>
@@ -136,7 +162,12 @@ const input =
       <div class="grid gap-3 mt-3 sm:grid-cols-2">
         <label class="text-xs text-n-slate-11">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.STAGE') }}
-          <input v-model="rule.stage" type="text" class="w-full mt-1" :class="input" />
+          <input
+            v-model="rule.stage"
+            type="text"
+            class="w-full mt-1"
+            :class="input"
+          />
         </label>
         <label class="text-xs text-n-slate-11">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.DELAY') }}
@@ -162,46 +193,11 @@ const input =
         <div class="text-xs text-n-slate-11">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.FILTERS') }}
         </div>
-        <div
-          v-for="(m, j) in rule.match"
-          :key="j"
-          class="flex flex-wrap items-center gap-2 mt-1"
-        >
-          <input
-            v-model="m.field"
-            type="text"
-            :placeholder="t('CRM_AUTOMATION_CONFIG.RULES.FIELD_PLACEHOLDER')"
-            class="w-48"
-            :class="input"
-          />
-          <select v-model="m.op" :class="input">
-            <option v-for="op in ops" :key="op" :value="op">
-              {{ t(`CRM_AUTOMATION_CONFIG.RULES.OPS.${op}`) }}
-            </option>
-          </select>
-          <input
-            v-if="m.op !== 'not_empty'"
-            v-model="m.value"
-            type="text"
-            :placeholder="t('CRM_AUTOMATION_CONFIG.RULES.VALUE_PLACEHOLDER')"
-            class="flex-1 min-w-[10rem]"
-            :class="input"
-          />
-          <button
-            type="button"
-            class="px-2 text-xs text-n-slate-11 hover:text-n-ruby-11"
-            @click="rule.match.splice(j, 1)"
-          >
-            ✕
-          </button>
-        </div>
-        <button
-          type="button"
-          class="mt-1 text-xs text-n-brand"
-          @click="addFilter(rule)"
-        >
-          {{ t('CRM_AUTOMATION_CONFIG.RULES.ADD_FILTER') }}
-        </button>
+        <FilterRows
+          v-model:match="rule.match"
+          :ops="ops"
+          :input-class="input"
+        />
         <p class="mt-1 text-xs text-n-slate-10">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.FILTERS_HINT') }}
         </p>
@@ -224,7 +220,11 @@ const input =
           >
             {{ rule.template }}
           </option>
-          <option v-for="tp in approved" :key="tp.name + tp.language" :value="tp.name">
+          <option
+            v-for="tp in lineTemplates"
+            :key="tp.name + tp.language"
+            :value="tp.name"
+          >
             {{ tp.name }} · {{ tp.category }} · {{ tp.language }}
           </option>
         </select>
@@ -243,7 +243,11 @@ const input =
       </p>
 
       <label
-        v-if="['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateOf(rule)?.header_format)"
+        v-if="
+          ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(
+            templateOf(rule)?.header_format
+          )
+        "
         class="block mt-3 text-xs text-n-slate-11"
       >
         {{

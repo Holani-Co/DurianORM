@@ -292,7 +292,12 @@
     "MASTER_SWITCH": "Send messages automatically",
     "VERSION_INFO": "Live: version {version} by {actor} · {when}",
     "NO_VERSION": "Not published yet — showing the pre-filled Durian Workspaces rules.",
-    "INBOX": "Send from WhatsApp inbox (ID)",
+    "LINES": {
+      "TITLE": "Product lines",
+      "HINT": "Each line picks its own deals and sends from its own WhatsApp number. A deal outside every line gets no message.",
+      "INBOX": "Send from",
+      "FILTERS": "Deals in this line"
+    },
     "WEBHOOK": {
       "TITLE": "Connect Zoho CRM (one-time)",
       "NOT_READY": "The webhook secret is not set on the server yet (CRM_AUTOMATION_WEBHOOK_SECRET in the bridge .env). Until it is, Zoho calls are refused.",
@@ -316,18 +321,19 @@
       "NAME": "Rule name",
       "STAGE": "When the deal reaches stage (exactly as in Zoho)",
       "FILTERS": "Only for deals where",
-      "FILTERS_HINT": "Use a Zoho field API name, e.g. Integration_Source contains Workspaces. Without a filter the rule fires for every deal at this stage.",
+      "FILTERS_HINT": "Optional, on top of the product line's own conditions. Use a Zoho field API name, e.g. City contains Mumbai.",
       "ADD_FILTER": "Add condition",
       "FIELD_PLACEHOLDER": "Field API name",
       "VALUE_PLACEHOLDER": "Value",
       "OPS": {
         "equals": "equals",
         "contains": "contains",
+        "blank_or_contains": "is blank or contains",
         "not_empty": "is filled"
       },
       "TEMPLATE": "Send template",
       "TEMPLATE_PLACEHOLDER": "Choose an approved template",
-      "TEMPLATE_MISSING": "This template is not approved in the inbox yet — the rule will skip until it is.",
+      "TEMPLATE_MISSING": "This template is not approved on this line's WhatsApp number yet, so the rule will skip until it is.",
       "DELAY": "Delay (hours, 0 = immediately)",
       "STILL_IN_STAGE": "Only send if the deal is still at this stage when due",
       "HEADER_MEDIA": "Header media URL (the template has a {format} header)",
