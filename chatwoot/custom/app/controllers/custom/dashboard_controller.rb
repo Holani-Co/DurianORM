@@ -28,6 +28,7 @@ module Custom::DashboardController
 
   # The same login page as every Durian app (29 Oct 2026): email + password checked by Durian OS
   # (one password everywhere), or Sign in with Durian OS. No sign-up, no Google.
+  # The Durian logo is Durian OS's own file (durianos.in/durian-logo.jpg, what its sign-in page shows), not a copy here.
   def durian_os_login_page
     os = 'https://durianos.in'
     back = "#{request.base_url}#{LOGIN_PATH}"
@@ -38,13 +39,14 @@ module Custom::DashboardController
       <title>Durian · ORM</title><style>
       *{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%)}
       .card{background:#fff;border-radius:16px;padding:40px 36px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+      .logo{display:block;width:56px;height:56px;margin:0 auto 14px;border-radius:14px;object-fit:cover}
       h1{margin:0 0 24px;text-align:center;font-size:22px;color:#1a1a2e}label{display:block;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#444;margin:14px 0 6px}
       input{width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:10px;font-size:14px}input:focus{outline:none;border-color:#0f3460}
       button,.os{display:block;width:100%;margin-top:20px;padding:13px;border-radius:10px;font-size:14px;font-weight:700;text-align:center;text-decoration:none;cursor:pointer}
       button{border:0;color:#fff;background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%)}.os{margin-top:0;border:2px solid #0f3460;color:#0f3460;background:#fff}
       .or{display:flex;align-items:center;gap:12px;margin:20px 0;color:#999;font-size:11px;text-transform:uppercase;letter-spacing:1px}.or:before,.or:after{content:"";flex:1;height:1px;background:#e0e0e0}
       .foot{text-align:center;margin-top:20px;font-size:12px;color:#888}.err{background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:13px;margin:0 0 8px}
-      </style></head><body><div class="card"><h1>ORM</h1>#{error}
+      </style></head><body><div class="card"><img class="logo" src="#{os}/durian-logo.jpg" alt="Durian" width="56" height="56"><h1>ORM</h1>#{error}
       <form method="POST" action="#{os}/api/auth/app-signin"><input type="hidden" name="app" value="orm"><input type="hidden" name="back" value="#{ERB::Util.html_escape(back)}">
       <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
       <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
