@@ -30,6 +30,7 @@
 #   (flags combine, e.g. --update --prune)
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -68,11 +69,17 @@ def _load_bank_entries() -> dict:
     return entries
 
 
+# A reply-bank code (review_<vertical>_<case>_NN). One that is not in the YAML
+# was added in the UI — an extra variant, or a reply of a category created in
+# Settings → Review Categories — so --prune must never delete it.
+_RE_BANK_CODE = re.compile(r"^review_(furniture|fhc|doors)_.+_\d+$")
+
+
 def _is_prunable(short_code: str, current: set) -> bool:
     """A canned response to remove under --prune: an orphaned `reviewbank_*`
-    code, or a `review_*` code that is not a current bank entry (the retired
-    flat 8). Never matches social_* or unrelated codes."""
-    if short_code in current:
+    code, or a retired flat `review_*` code (review_positive_5star, …). Never
+    matches a bank-shaped code, social_* or unrelated codes."""
+    if short_code in current or _RE_BANK_CODE.match(short_code):
         return False
     return short_code.startswith("reviewbank_") or short_code.startswith("review_")
 
