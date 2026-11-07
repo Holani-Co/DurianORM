@@ -199,6 +199,73 @@ RSpec.describe 'Durian OS AI connections', type: :request do
       expect(response.body).not_to include('/rails/active_storage/')
     end
 
+    context 'with a provider CDN link, which opens with no sign-in' do
+      # ORM's Channel::Instagram also subscribes to comments, which the factory's stub does not cover.
+      before { stub_request(:post, %r{\Ahttps://graph\.instagram\.com/.+/subscribed_apps}) }
+
+      def note
+        '(file: open it in ORM)'
+      end
+
+      def fb_link
+        'https://scontent.xx.fbcdn.net/v/t1.15752-9/photo.jpg?_nc_cat=1&oh=00_AbCSigned&oe=6700AAAA'
+      end
+
+      def first_attachment(body)
+        body['payload'].flat_map { |message| message['attachments'] || [] }.first
+      end
+
+      it 'replaces the link of an incoming Instagram file kept in ORM, in messages and in attachment lists' do
+        ig_chat = create(:conversation, account: account, inbox: create(:channel_instagram, account: account).inbox)
+        message = create(:message, :with_attachment, account: account, inbox: ig_chat.inbox, conversation: ig_chat, message_type: :incoming)
+        message.attachments.first.update!(external_url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=17999&signature=AbCdEfSigned')
+        get "#{v1}/conversations/#{ig_chat.display_id}/messages", headers: tara.create_new_auth_token
+        expect(response.body).to include('lookaside.fbsbx.com')
+
+        ai_get("#{v1}/conversations/#{ig_chat.display_id}/messages", pass_for(tara_sub))
+        expect(first_attachment(response.parsed_body)).to include('data_url' => note, 'thumb_url' => note, 'file_type' => 'image',
+                                                                  'extension' => 'png', 'file_size' => be_positive)
+        ai_get("#{v1}/conversations/#{ig_chat.display_id}/attachments", pass_for(tara_sub))
+        expect(response.parsed_body['payload'].first).to include('data_url' => note, 'thumb_url' => note, 'file_type' => 'image')
+        ai_get("#{v1}/contacts/#{ig_chat.contact_id}/attachments", pass_for(tara_sub))
+        expect(response.parsed_body['payload'].first).to include('data_url' => note, 'thumb_url' => note)
+        ai_get("#{v1}/conversations/#{ig_chat.display_id}", pass_for(tara_sub))
+        expect(response).to have_http_status(:ok)
+        expect(response.body).not_to include('fbsbx.com', 'signature=')
+      end
+
+      it 'replaces the link of a file never downloaded, a story and an ad, and keeps a plain link' do
+        message = create(:message, account: account, inbox: sales, conversation: sales_chat, message_type: :incoming)
+        message.attachments.create!(account_id: account.id, file_type: :image, external_url: fb_link)
+        referral = { headline: 'Sofa sale', image_url: fb_link, source_url: 'https://durian.in/sofas' }
+        create(:message, account: account, inbox: sales, conversation: sales_chat, message_type: :incoming, content: 'Loved this',
+                         content_attributes: { story_url: fb_link, referral: referral })
+
+        ai_get("#{v1}/conversations/#{sales_chat.display_id}/messages", pass_for(tara_sub))
+        expect(response).to have_http_status(:ok)
+        expect(response.body).not_to include('fbcdn.net', 'oh=00_')
+        expect(first_attachment(response.parsed_body)).to include('data_url' => note, 'thumb_url' => '', 'file_type' => 'image')
+        story = response.parsed_body['payload'].find { |item| item['content'] == 'Loved this' }
+        expect(story['content_attributes']).to include('story_url' => note)
+        expect(story['content_attributes']['referral']).to eq(referral.stringify_keys.merge('image_url' => note))
+      end
+    end
+
+    it 'never sends a campaign media signed id, which opens the file for good' do
+      campaign = create(:campaign, account: account, inbox: sales)
+      blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new('promo'), filename: 'promo.jpg', content_type: 'image/jpeg')
+      ActiveStorage::Attachment.create!(name: 'media', record: campaign, blob: blob)
+
+      get "#{v1}/campaigns", headers: tara.create_new_auth_token
+      signed_id = response.parsed_body.first['media_signed_id']
+      expect(signed_id).to be_present
+
+      ai_get("#{v1}/campaigns", pass_for(tara_sub))
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.first).to include('media_filename' => 'promo.jpg')
+      expect(response.body).not_to include('media_signed_id', signed_id)
+    end
+
     it 'sends no session token and leaves users.tokens alone' do
       tara.create_new_auth_token
       tokens = tara.reload.tokens

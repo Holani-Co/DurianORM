@@ -2,8 +2,8 @@
   "version": 1,
   "source": "chatwoot/custom/config/mcp_registry.yml",
   "counts": {
-    "read": 163,
-    "write": 190,
+    "read": 165,
+    "write": 191,
     "web_only": 414
   },
   "tools": [
@@ -2028,6 +2028,36 @@
       "description": "Checks a draft of the AI agents' prompts for errors, saving nothing. Administrators only.",
       "method": "POST",
       "path": "/api/v1/accounts/:account_id/integrations/agent_prompts_config/validate",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "doc",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The draft, in the editor's shape."
+        }
+      ]
+    },
+    {
+      "name": "get_review_reply_categories",
+      "title": "Show the Google-review reply categories",
+      "description": "The categories the bridge drafts Google-review replies by: the built-in ones per vertical, the published override and its version. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/review_categories_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "check_review_reply_categories",
+      "title": "Check a review categories draft",
+      "description": "Checks a draft of the Google-review reply categories for errors, saving nothing. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/review_categories_config/validate",
       "who": "admin",
       "feature": null,
       "account_param": "account_id",

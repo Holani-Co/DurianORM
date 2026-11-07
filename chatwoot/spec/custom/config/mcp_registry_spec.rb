@@ -121,8 +121,8 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
   end
 
   it 'keeps its counts' do
-    expect([registry.reads.size, registry.writes.size, registry.web_only.size]).to eq([163, 190, 414])
-    expect(registry.reads.count { |entry| entry.http_method == 'POST' }).to eq(11)
+    expect([registry.reads.size, registry.writes.size, registry.web_only.size]).to eq([165, 191, 414])
+    expect(registry.reads.count { |entry| entry.http_method == 'POST' }).to eq(12)
   end
 
   it 'matches mcp_server/tools.json, which rake durian_os:mcp_tools writes' do

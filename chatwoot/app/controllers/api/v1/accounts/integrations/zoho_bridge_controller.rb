@@ -12,7 +12,7 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   def resolve_ticket_decision
     response = HTTParty.post(
       "#{bridge_url}/chatwoot/resolve-ticket-decision",
-      body: request.raw_post,
+      body: bridge_payload.to_json,
       headers: { 'Content-Type' => 'application/json' },
       timeout: 20
     )
@@ -29,7 +29,7 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   def regenerate_review_reply
     response = HTTParty.post(
       "#{bridge_url}/reviews/regenerate",
-      body: request.raw_post,
+      body: bridge_payload.to_json,
       headers: { 'Content-Type' => 'application/json' },
       timeout: 30
     )
@@ -44,8 +44,8 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   # Emails a bad Google review to the team ("Escalate to team" button). The
   # acting agent's name is added server-side for the audit note.
   def escalate_review
-    payload = params.permit(:conversation_id, :to_emails, :cc_emails, :subject,
-                            :body, :include_history).to_h
+    payload = params.permit(:to_emails, :cc_emails, :subject, :body, :include_history).to_h
+    payload[:conversation_id] = @conversation.display_id
     payload[:agent] = Current.user&.available_name
     response = HTTParty.post(
       "#{bridge_url}/reviews/escalate",
@@ -66,11 +66,7 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   def resolve_category_decision
     # Inject the acting agent's name so the bridge can attribute the decision
     # ("Marked as <category> by <agent>") and tag it `manually-sent`.
-    payload = begin
-      JSON.parse(request.raw_post)
-    rescue JSON::ParserError
-      {}
-    end
+    payload = bridge_payload
     payload['agent_name'] = Current.user&.name
 
     response = HTTParty.post(
@@ -139,11 +135,7 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   # Shared proxy helper for the CRM endpoints — injects the acting agent's
   # name for audit ("Created by <agent>") and forwards to the bridge.
   def proxy_to_bridge(bridge_path, timeout_seconds)
-    payload = begin
-      JSON.parse(request.raw_post)
-    rescue JSON::ParserError
-      {}
-    end
+    payload = bridge_payload
     payload['agent_name'] = Current.user&.name
 
     response = HTTParty.post(
@@ -156,6 +148,19 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   rescue StandardError => e
     Rails.logger.error("[zoho-bridge proxy] #{bridge_path} failed: #{e.message}")
     render json: { error: 'bridge unavailable', detail: e.message }, status: :bad_gateway
+  end
+
+  # The request body for the bridge, naming the conversation check_authorization checked. The bridge reads the
+  # conversation the body names with its own ORM token, and Rails takes params[:conversation_id] from the query
+  # string before the body, so a body naming another conversation is never forwarded.
+  def bridge_payload
+    payload = begin
+      JSON.parse(request.raw_post.presence || '{}')
+    rescue JSON::ParserError
+      {}
+    end
+    payload = {} unless payload.is_a?(Hash)
+    payload.merge('conversation_id' => @conversation.display_id)
   end
 
   def set_conversation

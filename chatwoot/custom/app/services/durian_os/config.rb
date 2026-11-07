@@ -39,11 +39,20 @@ module DurianOs::Config
     switch_on?('ORM_OS_PASS')
   end
 
-  # At most this many AI requests at once in all (2 per person); keep it at most
-  # RAILS_MAX_THREADS - 2 so Customer Support always has threads.
+  # At most this many AI requests at once in all (2 per person): ORM_AI_CONCURRENCY, 2 when unset, and never more
+  # than ai_concurrency_cap, so Customer Support always has threads.
   def ai_concurrency
-    value = ENV.fetch('ORM_AI_CONCURRENCY', '3').to_i
-    value.positive? ? value : 3
+    value = ENV.fetch('ORM_AI_CONCURRENCY', '').to_i
+    value = 2 unless value.positive?
+    [value, ai_concurrency_cap].min
+  end
+
+  # Puma's threads (RAILS_MAX_THREADS, 5 when unset, times WEB_CONCURRENCY workers, at least 1) less 2, at least 1.
+  def ai_concurrency_cap
+    threads = ENV.fetch('RAILS_MAX_THREADS', '').to_i
+    threads = 5 unless threads.positive?
+    workers = [ENV.fetch('WEB_CONCURRENCY', '').to_i, 1].max
+    [(threads * workers) - 2, 1].max
   end
 
   def os_issuer

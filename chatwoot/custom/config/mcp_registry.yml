@@ -833,6 +833,21 @@ read:
     post: "validation only; saves nothing"
     args:
       - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: get_review_reply_categories
+    action: api/v1/accounts/integrations/review_categories_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/review_categories_config
+    title: "Show the Google-review reply categories"
+    description: "The categories the bridge drafts Google-review replies by: the built-in ones per vertical, the published override and its version. Administrators only."
+    who: admin
+  - name: check_review_reply_categories
+    action: api/v1/accounts/integrations/review_categories_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/review_categories_config/validate
+    title: "Check a review categories draft"
+    description: "Checks a draft of the Google-review reply categories for errors, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
   - name: get_crm_automation_rules
     action: api/v1/accounts/integrations/crm_automation_config#show
     route: GET /api/v1/accounts/:account_id/integrations/crm_automation_config
@@ -1503,6 +1518,7 @@ write:
   - {name: restore_store_settings, action: api/v1/accounts/integrations/stores_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/rollback", who: admin}
   - {name: publish_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/publish", who: admin}
   - {name: restore_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/rollback", who: admin}
+  - {name: publish_review_reply_categories, action: api/v1/accounts/integrations/review_categories_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/review_categories_config/publish", who: admin}
   - {name: publish_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/publish", who: admin}
   - {name: restore_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/rollback", who: admin}
   - {name: send_crm_automation_test, action: api/v1/accounts/integrations/crm_automation_config#test_send, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/test_send", who: admin, note: "sends WhatsApp"}

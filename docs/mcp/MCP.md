@@ -2,7 +2,10 @@
 
 **Status, 8 November 2026: built, tested, not merged, not deployed.** The Rails side (sections 1 to 11 and 13 to 14,
 specs green in Docker) and the MCP server (section 12, its own pytest suite) are on branch `feat/orm-mcp`, from
-`origin/main` 70d1600b4. This is plan step 2 for ORM ("ORM: build a new MCP"). Durian OS's AI front door (step 3) is
+`origin/main` 70d1600b4, with `origin/main` 1e8454937 merged in (the review reply categories, listed in the registry).
+The review's findings are fixed: provider CDN links and blob signed ids no longer reach an AI answer (section 5), the
+Zoho bridge proxy forwards only the conversation it checked (section 13), and the AI slots are capped by Puma's
+threads (section 10). This is plan step 2 for ORM ("ORM: build a new MCP"). Durian OS's AI front door (step 3) is
 live since 6 November and only needs `orm` added to its upstreams once this ships (section 16).
 
 An AI reaches ORM through Durian OS's front door (`https://durianos.in/mcp`). It **acts as the person** who connected
@@ -44,12 +47,13 @@ Claude / ChatGPT ──HTTPS──▶ Durian OS /mcp (168.144.81.194; the person
    and the tools they may call.
 7. **The switch** is `ORM_OS_PASS`, off by default. Off, every pass is 401.
 8. **Replay and load.** The jti is spent once in Redis (`SET NX EX 150`). At most 2 AI requests at once per person
-   and 3 in all (`ORM_AI_CONCURRENCY`), held as Redis slots.
+   and 2 in all (`ORM_AI_CONCURRENCY`, never more than Puma's threads less 2), held as Redis slots.
 9. **Reads cannot write.** Every AI request runs inside `ActiveRecord::Base.while_preventing_writes`; the
-   year-in-review read never stores. Secrets and signed file links are removed from every AI answer. A role refusal
-   is 403, never 401.
+   year-in-review read never stores. Secrets, blob signed ids and file links (every link under a file key such as
+   `data_url`, and any ORM, signed or Meta CDN link anywhere) are removed from every AI answer. A role refusal is 403,
+   never 401.
 10. **One log line** per AI request on Rails' stdout (`ai {...}`), refusals included, never the pass or the path.
-11. **The tools.** 163 reads offered, 190 writes listed and refused, 414 browser-only: 767 registry entries.
+11. **The tools.** 165 reads offered, 191 writes listed and refused, 414 browser-only: 770 registry entries.
 12. **The MCP server.** `mcp_server/` at the repository root (Content Studio's sidecar, with tools generated from
     `tools.json`), systemd `orm-mcp` on 127.0.0.1:8432, its own venv `/opt/orm-mcp/venv` and its own `.env` holding
     a copy of the public key set. nginx `location = /mcp` lets only Durian OS's server in.
@@ -169,10 +173,16 @@ writes to the database" is enforced, not just audited. Redis, outbound calls and
   never tells the AI to reconnect over a role.
 - JSON answers lose every key named `access_token`, `secret`, `hmac_token`, `auth_token`, `account_sid`,
   `api_key_sid`, `api_key_secret`, `imap_password`, `smtp_password`, `provider_config`, `pubsub_token`, `password`,
-  `auth_config`, `client_secret`, `refresh_token`, `verify_token`, `webhook_secret`, `app_secret` and `api_key`, at
-  any depth. Any string holding a signed file link (`/rails/active_storage/`, `X-Amz-Signature=`,
-  `X-Goog-Signature=`) becomes `"(file: open it in ORM)"`. A file's name, type and size reach the AI; the file never
-  does.
+  `auth_config`, `client_secret`, `refresh_token`, `verify_token`, `webhook_secret`, `app_secret`, `api_key`,
+  `signed_id` and `media_signed_id` (a blob's signed id opens its file with no sign-in and never expires), at any depth.
+- File links are decided by key first: any non-blank string under `data_url`, `thumb_url`, `external_url`,
+  `download_url`, `file_url`, `media_url`, `story_url`, `image_url`, `video_url`, `audio_url`, `thumbnail_url`,
+  `thumbnail` or `avatar_url` becomes `"(file: open it in ORM)"`, whatever its host. An incoming Instagram attachment
+  (even one stored in ORM), an attachment never downloaded, an Instagram story and a click-to-WhatsApp ad carry the
+  provider's CDN link there, and it opens with no sign-in. Then by pattern, under any key: a string holding
+  `/rails/active_storage/`, `X-Amz-Signature=`, `X-Goog-Signature=`, `fbcdn.net`, `fbsbx.com` or `cdninstagram.com`
+  becomes the same note. A file's name, type, extension and size reach the AI, and a location its coordinates; the
+  file never does. A plain link under another key (an ad's `source_url`, a link in a message) stays.
 - A read that answers anything but JSON is 502 (`not_json`), so a file never leaves by mistake.
 - The response headers `access-token`, `client`, `uid`, `expiry`, `token-type`, `authorization` and `set-cookie` are
   dropped.
@@ -297,7 +307,7 @@ YAML or Rails' environment.
   SAML settings; MFA; notification subscriptions; account webhooks; integration apps and hooks; Captain custom tools;
   and every action under `platform/`, `super_admin/`, `devise*`, `api/v1/widget/`, `public/` and `webhooks/`;
 - every `feature` exists in `config/features.yml`;
-- the counts are pinned (163 reads, 190 writes, and the browser-only count `bin/rails routes` gives);
+- the counts are pinned (165 reads, 12 of them POST, 191 writes, and the browser-only count `bin/rails routes` gives);
 - `mcp_server/tools.json` is what the rake task makes, and this page names every read and write tool;
 - the AI middleware is the last in the stack.
 
@@ -333,14 +343,16 @@ browser session gets the same shape (`auth_kind` `session`, `client` and `ceilin
   namespace `alfred`; Redis on 127.0.0.1:6379). Not set means used: 401 `replayed`. 150 s covers the whole window a
   pass can be taken in (60 s of life plus 30 s of skew each side). It is spent before the person is read, so a pass
   refused further on is still used. Redis unreachable: 503 `redis`, failing closed.
-- **Concurrency.** At most 2 AI requests at once for one person and `ORM_AI_CONCURRENCY` (default 3) in all. Past
+- **Concurrency.** At most 2 AI requests at once for one person and `ORM_AI_CONCURRENCY` (default 2) in all. Past
   either: `429 ORM is answering other AI requests. Try again in a moment.` with `Retry-After: 2`. Slots are Redis keys
   `orm_os_pass:slot:p:<sub>:<n>` and `orm_os_pass:slot:all:<n>`, taken with `SET NX EX 60` and given back in an
   `ensure` (60 s outlives any request, which rack-timeout ends at 15 s), so they hold across Puma workers and heal if
   a process dies. A slot is taken after the signature and claims check out and before the jti is spent: a 429 never
-  uses a pass, and junk never holds a slot. Puma runs one process with `RAILS_MAX_THREADS` threads (default 5;
-  `WEB_CONCURRENCY` unset): keep `ORM_AI_CONCURRENCY` at most `RAILS_MAX_THREADS` − 2, so Customer Support always has
-  threads.
+  uses a pass, and junk never holds a slot. Puma runs `RAILS_MAX_THREADS` threads (default 5) in
+  max(`WEB_CONCURRENCY`, 1) processes, and rack-timeout lets an AI request hold one for up to 15 s (bridge, Linear and
+  Shopify reads can run that long). So `DurianOs::Config.ai_concurrency` never goes above threads × max(workers, 1) − 2
+  (at least 1), whatever `ORM_AI_CONCURRENCY` says, and Customer Support always has 2 threads; release step 4 writes
+  the value explicitly.
 - **The log line.** One per AI request, refusals included, to stdout at INFO whatever `LOG_LEVEL` says (on the box
   it lands in `/var/log/chatwoot-web.log`):
 
@@ -361,13 +373,13 @@ browser session gets the same shape (`auth_kind` `session`, `client` and `ceilin
 
 ## 11. The tools
 
-**767 registry entries: 163 read tools (offered), 190 write tools (listed, refused for every pass) and 414
-browser-only (147 in the signed-in API, 267 outside it).** The signed-in API part is `config/routes.rb` at 70d1600b4
-(494 actions) plus MFA's 5 and the new `ai#me`. The part outside it (devise, Active Storage, Action Mailbox, mounts,
+**770 registry entries: 165 read tools (offered), 191 write tools (listed, refused for every pass) and 414
+browser-only (147 in the signed-in API, 267 outside it).** The signed-in API part is `config/routes.rb` at 1e8454937
+(497 actions) plus MFA's 5 and the new `ai#me`. The part outside it (devise, Active Storage, Action Mailbox, mounts,
 widget, platform, super admin, webhooks) is exactly what `bin/rails routes` mounts with enterprise on; the spec pins
 the counts.
 
-Who sees how many: an administrator at `administer` with every feature on, 163; a plain agent, 88; an agent whose
+Who sees how many: an administrator at `administer` with every feature on, 165; a plain agent, 88; an agent whose
 custom role has reports, 112. Fewer while Captain, the help center, companies, SLA, custom roles, audit logs, Linear
 or Shopify are off for the account.
 
@@ -399,7 +411,7 @@ account.
 - **No lookup by name.** A pass is good for one call, so no tool can find something by name and then read it. Ids come
   from the list and search tools.
 
-### 11.2 Read tools (163, offered)
+### 11.2 Read tools (165, offered)
 
 #### Who this is
 
@@ -552,6 +564,8 @@ account.
 | `list_agent_prompt_versions` | List agent prompt versions | GET `{v1}/integrations/agent_prompts_config/versions` | Admin | The published versions of the AI agents' prompts, newest first. |
 | `get_agent_prompt_version` | Show an agent prompts version | GET `{v1}/integrations/agent_prompts_config/version` | Admin | One published version of the AI agents' prompts. |
 | `check_agent_prompts` | Check an agent prompts draft | POST `{v1}/integrations/agent_prompts_config/validate` | Admin | Checks a draft of the AI agents' prompts for errors, saving nothing. |
+| `get_review_reply_categories` | Show the Google-review reply categories | GET `{v1}/integrations/review_categories_config` | Admin | The categories the bridge drafts Google-review replies by: the built-in ones per vertical, the published override and its version. |
+| `check_review_reply_categories` | Check a review categories draft | POST `{v1}/integrations/review_categories_config/validate` | Admin | Checks a draft of the Google-review reply categories for errors, saving nothing. |
 | `get_crm_automation_rules` | Show the CRM automation rules | GET `{v1}/integrations/crm_automation_config` | Admin | The rules that send WhatsApp messages when a Zoho CRM deal changes stage, with their templates. |
 | `list_crm_automation_versions` | List CRM automation versions | GET `{v1}/integrations/crm_automation_config/versions` | Admin | The published versions of the CRM automation rules, newest first. |
 | `get_crm_automation_version` | Show a CRM automation version | GET `{v1}/integrations/crm_automation_config/version` | Admin | One published version of the CRM automation rules. |
@@ -634,7 +648,7 @@ account.
 | `list_forwarded_email_categories` | List forwarded email categories | GET `{v1}/forwarded_email_report/categories` | Reports | The email categories the Forwarded Emails report covers, from the bridge's routing rules. |
 | `get_my_year_in_review` | Show my year in review | GET `{v2}/year_in_review` | Any member | The person's Year in Review for one year: conversations handled, busiest times and highlights. |
 
-### 11.3 Write tools (190, listed, refused for now)
+### 11.3 Write tools (191, listed, refused for now)
 
 Every one of these answers 403 `read_only` to every pass in v1. They are named now so the registry is complete and
 the names are settled when writes come (section 17). "Who" is ORM's own rule for the route.
@@ -813,6 +827,7 @@ the names are settled when writes come (section 17). "Who" is ORM's own rule for
 | `restore_store_settings` | POST `{v1}/integrations/stores_config/rollback` | Admin |
 | `publish_agent_prompts` | POST `{v1}/integrations/agent_prompts_config/publish` | Admin |
 | `restore_agent_prompts` | POST `{v1}/integrations/agent_prompts_config/rollback` | Admin |
+| `publish_review_reply_categories` | POST `{v1}/integrations/review_categories_config/publish` | Admin |
 | `publish_crm_automation_rules` | POST `{v1}/integrations/crm_automation_config/publish` | Admin |
 | `restore_crm_automation_rules` | POST `{v1}/integrations/crm_automation_config/rollback` | Admin |
 | `send_crm_automation_test` | POST `{v1}/integrations/crm_automation_config/test_send` | Admin; sends WhatsApp |
@@ -1110,10 +1125,10 @@ python -m pytest mcp_server/tests -q                                    # no net
 ORM_API_URL=http://127.0.0.1:3000 OS_JWKS_JSON='{"keys":[...]}' PORT=8432 python -m mcp_server.server
 ```
 
-**Tool list.** The tools are exactly the 163 reads of section 11.2, built at start-up from `mcp_server/tools.json`
-(generated by `bundle exec rake durian_os:mcp_tools` from `chatwoot/custom/config/mcp_registry.yml`; committed). The 190
+**Tool list.** The tools are exactly the 165 reads of section 11.2, built at start-up from `mcp_server/tools.json`
+(generated by `bundle exec rake durian_os:mcp_tools` from `chatwoot/custom/config/mcp_registry.yml`; committed). The 191
 writes and 414 browser-only entries are not in `tools.json` and never become tools. A client's `tools/list` is cut to
-what `GET /api/v1/ai/me` names for the person (an administrator at `administer` with every feature on: 163; a plain
+what `GET /api/v1/ai/me` names for the person (an administrator at `administer` with every feature on: 165; a plain
 agent: 88). `tests/test_registry.py` fails while `tools.json` differs from the registry, so a read added or changed
 in the registry without the export is caught here, and the Rails spec catches it from the other side.
 
@@ -1142,14 +1157,15 @@ change is undone by `git reset --keep pre-orm-mcp-<date>` as in section 15, then
 | `custom/app/services/durian_os/ai/registry.rb` | loads `custom/config/mcp_registry.yml`; `entry_for(action)`, `tools_for(caller)`, `export` |
 | `custom/app/services/durian_os/ai/caller.rb` | the caller: user id, email, sub, client, ceiling, ref, own role, `acts_as` |
 | `custom/app/services/durian_os/ai/slots.rb` | the Redis slots and the jti guard |
-| `custom/app/services/durian_os/ai/clean.rb` | secret keys, signed file links, response headers, the 401 to 403 rewrite |
-| `custom/app/services/durian_os/config.rb` | adds `os_pass?` (`ORM_OS_PASS`), `ai_concurrency` (`ORM_AI_CONCURRENCY`), `os_issuer` (`OS_ISSUER`), `os_jwks_json` (`OS_JWKS_JSON`) |
+| `custom/app/services/durian_os/ai/clean.rb` | secret keys and signed ids, file links by key and by pattern, response headers |
+| `custom/app/services/durian_os/config.rb` | adds `os_pass?` (`ORM_OS_PASS`), `ai_concurrency` (`ORM_AI_CONCURRENCY`, capped by `ai_concurrency_cap`: `RAILS_MAX_THREADS` × max(`WEB_CONCURRENCY`, 1) − 2), `os_issuer` (`OS_ISSUER`), `os_jwks_json` (`OS_JWKS_JSON`) |
 | `custom/app/services/durian_os/current.rb` | adds `attribute :ai` |
 | `custom/app/models/custom/account_user.rb` | the ceiling (section 4) |
 | `custom/app/controllers/custom/concerns/application_controller_concern.rb` | adds the AI sign-in hook and the read-only wrap (section 5) |
 | `custom/app/controllers/api/v1/ai_controller.rb` | `GET /api/v1/ai/me` |
 | `custom/app/controllers/custom/api/v2/accounts/year_in_reviews_controller.rb` | the AI path never stores the year in review; plus a `prepend_mod_with` line at the end of `app/controllers/api/v2/accounts/year_in_reviews_controller.rb` |
 | `config/routes.rb` | `get 'ai/me', to: 'ai#me'` in `api/v1`, marked `# Durian —` |
+| `app/controllers/api/v1/accounts/integrations/zoho_bridge_controller.rb` | `bridge_payload`: every action forwards the conversation `check_authorization` checked, never another one the body names (Rails reads `conversation_id` from the query string first, and the bridge reads the body's with its own ORM token) |
 | `custom/config/mcp_registry.yml` | the registry (section 8) |
 | `lib/tasks/durian_os_mcp.rake` | `durian_os:mcp_tools` writes `../mcp_server/tools.json` |
 | `spec/custom/…` | section 14 |
@@ -1167,16 +1183,19 @@ Rails specs (made-up people only, such as Tara Fern and Omar Quill at `@orm.test
 | Spec | What |
 |---|---|
 | `spec/custom/services/durian_os/ai/pass_spec.rb` | a good pass; each refusal of section 2: switch off, malformed, alg, kid, unknown kid, empty key set, signature, iss, aud as a string and as a list, header and claim `typ`, life over 60 s, expired, not yet valid, View as claims, jti, sub |
-| `spec/custom/requests/durian_os_ai_door_spec.rb` (through the whole stack) | an agent's pass sees only their inboxes' and teams' conversations (list, show, search, messages; another inbox's conversation is refused); an administrator at `administer` sees all; at `edit` and `view` they act as a plain agent (scoped like one; admin and reports tools 403); an agent keeps their custom role; a `report_manage` custom role reaches reports; replayed jti; switch off; unknown person; service, emergency and offboarded users; no row in account 1; account 2 in the path; a write route 403 for `view`, `edit` and `administer`; a browser-only route; an unlisted route; `HEAD`; a `.csv` format; mounted apps (`/cable`, `/monitoring/sidekiq`, `/rails/active_storage/…`); two Authorization headers; a cookie, devise headers and another user's `api_access_token` ignored; no auth header in the answer and `users.tokens` unchanged; a Pundit refusal is 403, not 401; an API inbox's secret and a WhatsApp `provider_config` never in the answer; signed file links replaced; `year_in_review` never writes `ui_settings`; a read that writes is 403 `would_write`; a third concurrent request of one person is 429 and its pass still works afterwards; the log line has `ref` and `refused` and no pass or path; `ai/me` for a pass and a session; the middleware is last |
+| `spec/custom/requests/durian_os_ai_door_spec.rb` (through the whole stack) | an agent's pass sees only their inboxes' and teams' conversations (list, show, search, messages; another inbox's conversation is refused); an administrator at `administer` sees all; at `edit` and `view` they act as a plain agent (scoped like one; admin and reports tools 403); an agent keeps their custom role; a `report_manage` custom role reaches reports; replayed jti; switch off; unknown person; service, emergency and offboarded users; no row in account 1; account 2 in the path; a write route 403 for `view`, `edit` and `administer`; a browser-only route; an unlisted route; `HEAD`; a `.csv` format; mounted apps (`/cable`, `/monitoring/sidekiq`, `/rails/active_storage/…`); two Authorization headers; a cookie, devise headers and another user's `api_access_token` ignored; no auth header in the answer and `users.tokens` unchanged; a Pundit refusal is 403, not 401; an API inbox's secret and a WhatsApp `provider_config` never in the answer; signed file links replaced; an incoming Instagram file's CDN link (messages, conversation and contact attachment lists, the conversation), a file never downloaded, a story and an ad replaced while a plain link stays; a campaign's `media_signed_id` never in the answer; `year_in_review` never writes `ui_settings`; a read that writes is 403 `would_write`; a third concurrent request of one person is 429 and its pass still works afterwards; the log line has `ref` and `refused` and no pass or path; `ai/me` for a pass and a session; the middleware is last |
 | `spec/custom/models/account_user_ai_ceiling_spec.rb` | the overrides apply only to the caller's own rows, only below `administer`, only to an administrator, and not at all without `DurianOs::Current.ai` |
 | `spec/custom/config/mcp_registry_spec.rb` | section 8 |
+| `spec/custom/services/durian_os/ai/clean_spec.rb` | the answer's cleaning on its own: file keys whatever the host, lists under a file key, blank links and coordinates kept, signed and CDN links under any key, plain text kept, secrets and signed ids at any depth, headers |
+| `spec/custom/requests/zoho_bridge_proxy_spec.rb` | every Zoho bridge action forwards the conversation it checked when the query and the body name different ones, for a session and for an AI pass; the rest of the body is kept; a conversation the person cannot open is refused and nothing is sent |
+| `spec/custom/services/durian_os/config_spec.rb` | `ai_concurrency`: 2 when unset or unreadable, never more than Puma's threads less 2, at least 1 |
 | run again | `spec/custom`, `spec/models/account_user_spec.rb`, `spec/finders/conversation_finder_spec.rb`, the permission filter specs (core and enterprise), `spec/controllers/api/v1/accounts/conversations_controller_spec.rb`, the year in review controller spec |
 
 MCP server tests (`mcp_server/tests/`, pytest; no network beyond 127.0.0.1; 45 tests): the door (`test_passes.py`),
 the front door's exchange through the real app against a fake ORM that refuses a pass it has seen (`test_door.py`: 401
 with nothing reaching ORM, one-message JSON calls, the list from one `ai/me`, read-only labels, one call per tool with
 the pass unchanged, a second header, ORM's refusals in words, bad arguments, the Host check), the tools
-(`test_tools.py`: each of the 163 reads calls its own route once with the account filled in from the setting, path ids,
+(`test_tools.py`: each of the 165 reads calls its own route once with the account filled in from the setting, path ids,
 query, arrays as `labels[]`, booleans and POST bodies go where the registry says, paths that would leave the API,
 email HTML left out, answers cut to fit), the registry (`test_registry.py`: `tools.json` equals what the YAML exports,
 the counts, only reads, the instructions name only real tools) and an end-to-end run over real sockets in front of a
@@ -1225,7 +1244,10 @@ ORM runs from `/root/DurianORM` (branch `main`): systemd `chatwoot-web` (Puma on
 `/var/log/chatwoot-web.log`), `chatwoot-worker` (Sidekiq), `zoho-bridge`, `orm-support`, nginx `orm.durianos.in`.
 Never print a `.env` value. The commands run in `/root/DurianORM`.
 
-1. **Merge** `feat/orm-mcp` into `main` (squash; we own the repo) and push.
+1. **Merge** `feat/orm-mcp` into `main` (squash; we own the repo) and push. First, if `origin/main` has moved since
+   1e8454937: merge it into `feat/orm-mcp`, list every route it adds in the registry (the registry spec names them),
+   run `bundle exec rake durian_os:mcp_tools`, `bundle exec rspec spec/custom` in Docker and
+   `python -m pytest mcp_server/tests -q`, and push; squash only when all are green.
 2. **Back up** to `/root/backup-orm-mcp-<date>/`: `git rev-parse HEAD`, `git status --short`, `chatwoot/.env`
    (`cp -p`), the nginx site file, `systemctl cat chatwoot-web`; then `git tag -f pre-orm-mcp-<date>`. v1 has no
    migration; if a release ever carries one, `pg_dump` first.
@@ -1234,13 +1256,19 @@ Never print a `.env` value. The commands run in `/root/DurianORM`.
    `/root/.rbenv/versions/3.4.4/bin/ruby -c` each changed `.rb`. v1 changes no gem, JavaScript or migration, so
    `redeploy.sh`'s bundle, pnpm, asset build and migrate are not needed; if the merged diff touches `Gemfile.lock`,
    `app/javascript` or `db/migrate`, run `redeploy.sh` instead.
-4. **Rails settings, switch off.** Append to `chatwoot/.env`, printing nothing: `ORM_OS_PASS=off`, and
+4. **Rails settings, switch off.** Read what Puma runs with, printing nothing else:
+   `tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value chatwoot-web)/environ | grep -E '^(RAILS_MAX_THREADS|WEB_CONCURRENCY)='`
+   and the same two names in `chatwoot/.env` (unset means 5 threads and 1 process). Append to `chatwoot/.env`,
+   printing nothing: `ORM_AI_CONCURRENCY=2` (never above threads × max(workers, 1) − 2; with the defaults that is 3,
+   and ORM caps it there anyway), `ORM_OS_PASS=off`, and
    `OS_JWKS_JSON='<the set>'`, Durian OS's public key set:
    `jwks=$(curl -fsS https://durianos.in/.well-known/jwks.json | tr -d '\n') && [ -n "$jwks" ] && printf "OS_JWKS_JSON='%s'\n" "$jwks" >> chatwoot/.env`.
 5. **Restart** `chatwoot-web` and `chatwoot-worker` (the `AccountUser` module loads in both; it acts only with an AI
    caller). Check: both active; `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health` is 200 and
    `/app/login` 200; `/api/v1/ai/me` with `Authorization: Bearer a.b.c` is 401 and logs `refused: not_configured`; no
-   new errors in `/var/log/chatwoot-web.log`; a person can still sign in from Durian OS.
+   new errors in `/var/log/chatwoot-web.log`; a person can still sign in from Durian OS;
+   in a login shell (`bash -l`), `cd chatwoot && RAILS_ENV=production bin/rails runner 'puts DurianOs::Config.ai_concurrency'`
+   prints the value written in step 4 (or the cap, if that is lower).
 6. **The MCP server.** `python3 -m venv /opt/orm-mcp/venv`;
    `/opt/orm-mcp/venv/bin/pip install -r /root/DurianORM/mcp_server/requirements.txt`;
    `install -m 600 mcp_server/.env.example mcp_server/.env`, then `grep '^OS_JWKS_JSON=' chatwoot/.env >> mcp_server/.env`;
@@ -1279,26 +1307,26 @@ know.
 
 ## 17. Not built yet, and open points
 
-- **AI writes.** The 190 write tools are listed, not offered. They need confirm-first previews; a "via AI" mark on
+- **AI writes.** The 191 write tools are listed, not offered. They need confirm-first previews; a "via AI" mark on
   messages (`content_attributes`) and on audit rows (as `DurianOs::ViewAsLog.mark_audit` marks a View as);
   destructive labels on everything that reaches a customer or another system (`send_message`, campaigns, forwards,
   transcripts, offers, Zoho creates); a look at what model calls cost; `view` passes still read only;
-  `update_inbox_settings` must refuse channel credentials.
+  `update_inbox_settings` must refuse channel credentials. The Zoho bridge actions they would use already forward only
+  the conversation `ZohoBridgeController` checked (`bridge_payload`), never one the body names.
 - **Personal Chatwoot API tokens** (Profile settings, Access Token) still work without Durian OS, at full power and in
   accounts 2 and 3, until plan step 7 turns them off for people.
 - **Files** stay in the browser. Exports have JSON counterparts in the summary reports.
 - **Feature-gated tools.** Captain, the help center, companies, SLA, custom roles, audit logs, Linear and Shopify tools
   show only while the account has the feature; `get_account_settings` shows which are on.
-- **Load.** `RAILS_MAX_THREADS` on the box was not read for this design; `ORM_AI_CONCURRENCY` must stay at most that
-  minus 2. AI calls come from 127.0.0.1, which Rack::Attack lets through, so the slots are the only limit.
-- **Many tools for administrators** (up to 163). Durian OS shows only the person's apps and tools; a
+- **Load.** `RAILS_MAX_THREADS` and `WEB_CONCURRENCY` on the box are read at release (step 4), not before;
+  `ai_concurrency` is capped at threads × max(workers, 1) − 2 either way. AI calls come from 127.0.0.1, which
+  Rack::Attack lets through, so the slots are the only limit.
+- **Many tools for administrators** (up to 165). Durian OS shows only the person's apps and tools; a
   search-then-call step can come later if clients struggle.
-- **Routes added on `main` after this branch** (8 November): `origin/main` 1e8454937 adds
-  `api/v1/accounts/integrations/review_categories_config#show,validate,publish` (the Google-review reply categories,
-  an admin proxy to the bridge). The merge must list them, or the registry spec fails: as the routing rules are,
-  `get_review_reply_categories` (read, `admin`), `check_review_reply_categories` (read, POST, `post: "validation only;
-  saves nothing"`, `admin`) and `publish_review_reply_categories` (write, `admin`); then the pinned counts (164 reads,
-  12 POST reads, 191 writes), `rake durian_os:mcp_tools` and their lines on this page.
+- **Routes added on `main` after this branch** (8 November): `origin/main` 1e8454937 is merged into `feat/orm-mcp`,
+  and its `review_categories_config#show,validate,publish` are listed (`get_review_reply_categories`,
+  `check_review_reply_categories`, `publish_review_reply_categories`). Anything `main` adds later is release step 1's
+  first part.
 - **The MCP server** (section 12), `redeploy.sh`'s `orm-mcp` block and the release (section 15) are the next steps.
   `mcp_server/.env` is already ignored by the root `.gitignore` (its `.env` line matches at any depth).
 - Found on the box, not this change: Sidekiq's metrics port listens on 0.0.0.0:7433; nginx trusts `X-Forwarded-For`
