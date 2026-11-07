@@ -3942,3 +3942,35 @@ def test_low_star_forward_attaches_review_photos(monkeypatch):
     asyncio.run(rp._forward_low_star_review(rv, "JP Nagar", 12, case="", photos=photos))
     assert sent["files"] == photos and sent["to"] == "store@example.com"
     assert "• Photos: 2 shared by the customer (attached)" in sent["body"]
+
+
+def test_website_fhc_runs_on_agent(monkeypatch):
+    # The FHC website section moves off the menu bot onto the agent: its own
+    # greeting + buttons, and the prompt explains those buttons, not furniture's.
+    import asyncio, main, social_agent as sa
+    from datetime import datetime
+    sent = []
+
+    async def send(conv_id, text, items):
+        sent.append((text, [i["title"] for i in items]))
+
+    async def merge(conv_id, attrs):
+        pass
+    monkeypatch.setattr(main.chatwoot, "send_interactive_buttons", send)
+    monkeypatch.setattr(main.chatwoot, "merge_custom_attributes", merge)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_WEBSITE_INBOXES",
+                        {"32": "furniture", "26": "fhc"})
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_CONTACT_ALLOWLIST", [])
+    fhc_site = {"inbox_id": 26, "custom_attributes": {}, "meta": {}}
+    assert main._social_channel_for("Channel::WebWidget", fhc_site) == "website"
+    assert sa.eligible(fhc_site, "website")
+    assert asyncio.run(main._maybe_send_website_menu(fhc_site, 1, "hi")) == {"handled": "website_menu"}
+    text, titles = sent[0]
+    assert "Full Home" in text and titles == ["Product enquiry", "Store address", "Other help"]
+    fhc = sa._system_prompt("", "Website FHC Bot", "fhc", datetime.now(), "", "", 1,
+                            "", "", channel="website")
+    assert "Product enquiry" in fhc and "Track your Order" not in fhc
+    furniture = sa._system_prompt("", "Furniture Bot", "furniture", datetime.now(), "", "", 1,
+                                  "", "", channel="website")
+    assert "Track your Order" in furniture and "Product enquiry" not in furniture

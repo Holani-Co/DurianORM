@@ -3209,6 +3209,26 @@ to the comment, never paste the framing):
 {templates}"""
 
 
+# What each website section's menu buttons mean (main.WEBSITE_MENUS).
+_WEBSITE_FURNITURE_MENU_RULE = (
+    "• \"Explore Offers\" / \"SALE LIVE NOW\" → share the live offers (share_offer).\n"
+    "• \"Find the Stores near you\" → ask for their pincode, then find_showrooms.\n"
+    "• \"Talk to Durian Expert\" → a lead: ask in ONE message for name, phone, "
+    "pincode and what they are looking for, then register_enquiry.\n"
+    "• \"Shop In-Store\" → help them visit a showroom: ask for their pincode, "
+    "show the nearest store and offer to book a visit (book_store_visit).\n"
+    "• \"Track your Order\" → an order-status hand-over (escalate_to_human, "
+    "category order_status) after asking for their phone number and order or "
+    "invoice number in ONE message.")
+_WEBSITE_FHC_MENU_RULE = (
+    "• \"Product enquiry\" → a customisation lead: ask in ONE message what they "
+    "want designed (kitchen, wardrobe, entertainment unit, a whole home…), their "
+    "name, phone and pincode, then register_enquiry.\n"
+    "• \"Store address\" → ask for their pincode, then find_showrooms for the "
+    "nearest design studio, and offer to book a visit (book_store_visit).\n"
+    "• \"Other help\" → ask what they need help with.")
+
+
 def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
                    profile_block: str, templates: str, n_customer_msgs: int,
                    post_caption: str = "", client_guidance: str = "",
@@ -3243,15 +3263,7 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "already on our website, so product links open right here; never send them "
         "to Instagram, Facebook or WhatsApp to continue.\n"
         "The chat opens with a menu; a tapped option arrives as their message:\n"
-        "• \"Explore Offers\" / \"SALE LIVE NOW\" → share the live offers (share_offer).\n"
-        "• \"Find the Stores near you\" → ask for their pincode, then find_showrooms.\n"
-        "• \"Talk to Durian Expert\" → a lead: ask in ONE message for name, phone, "
-        "pincode and what they are looking for, then register_enquiry.\n"
-        "• \"Shop In-Store\" → help them visit a showroom: ask for their pincode, "
-        "show the nearest store and offer to book a visit (book_store_visit).\n"
-        "• \"Track your Order\" → an order-status hand-over (escalate_to_human, "
-        "category order_status) after asking for their phone number and order or "
-        "invoice number in ONE message."
+        + (_WEBSITE_FHC_MENU_RULE if vertical == "fhc" else _WEBSITE_FURNITURE_MENU_RULE)
         if channel == "website" else "")
     guidance_block = whatsapp_rule + website_rule + guidance_block
     converge = ""
