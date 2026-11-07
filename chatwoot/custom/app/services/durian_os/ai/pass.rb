@@ -82,7 +82,7 @@ module DurianOs::Ai::Pass
     nbf = claims['nbf']
     return false unless [iat, exp].all?(Integer)
     return false unless (exp - iat).positive? && exp - iat <= MAX_LIFETIME
-    return false unless iat - CLOCK_SKEW <= now && now <= exp + CLOCK_SKEW
+    return false unless now.between?(iat - CLOCK_SKEW, exp + CLOCK_SKEW)
 
     nbf.nil? || (nbf.is_a?(Integer) && nbf <= now + CLOCK_SKEW)
   end

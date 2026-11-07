@@ -3,7 +3,7 @@ require 'rails_helper'
 # ORM's AI tool registry is complete (docs/mcp/MCP.md, section 8): every route Rails mounts is listed exactly once in
 # custom/config/mcp_registry.yml, as a read tool, a write tool or browser-only. When this fails on a new route, list it
 # in the same change; after changing a read, run `bundle exec rake durian_os:mcp_tools` and name the tool on the page.
-RSpec.describe 'ORM AI tool registry' do
+RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
   let(:registry) { DurianOs::Ai::Registry }
   let(:raw) { Psych.safe_load(Rails.root.join(DurianOs::Ai::Registry::PATH).read, permitted_classes: [], aliases: false) }
   let(:listed) do
@@ -64,7 +64,7 @@ RSpec.describe 'ORM AI tool registry' do
       end
       expect(route).to be_present, "#{entry.name}: #{entry.route} is not a mounted route of #{entry.key}"
       expect(route.app).to be_a(ActionDispatch::Routing::RouteSet::Dispatcher), "#{entry.name}: a read has no request constraints"
-      expect(%w[GET POST]).to include(entry.http_method)
+      expect(entry.http_method).to match(/\A(?:GET|POST)\z/), entry.name
       expect(entry.data['post']).to be_present, "#{entry.name}: a POST read needs a post: reason" if entry.http_method == 'POST'
     end
   end

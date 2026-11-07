@@ -1,7 +1,8 @@
 # ORM: AI connections and the MCP server (design, v1)
 
-**Status, 7 November 2026: design.** Branch `feat/orm-mcp`, from `origin/main` 70d1600b4 (what production runs).
-Nothing here is built or deployed yet. This is plan step 2 for ORM ("ORM: build a new MCP"). Durian OS's AI front
+**Status, 8 November 2026: the Rails side is built** (sections 1 to 11 and 13 to 14, specs green in Docker) on branch
+`feat/orm-mcp`, from `origin/main` 70d1600b4. The MCP server (section 12) is not built yet; nothing is merged or
+deployed. This is plan step 2 for ORM ("ORM: build a new MCP"). Durian OS's AI front
 door (step 3) is live since 6 November and only needs `orm` added to its upstreams once this ships (section 16).
 
 An AI reaches ORM through Durian OS's front door (`https://durianos.in/mcp`). It **acts as the person** who connected
@@ -48,7 +49,7 @@ Claude / ChatGPT ──HTTPS──▶ Durian OS /mcp (168.144.81.194; the person
    year-in-review read never stores. Secrets and signed file links are removed from every AI answer. A role refusal
    is 403, never 401.
 10. **One log line** per AI request on Rails' stdout (`ai {...}`), refusals included, never the pass or the path.
-11. **The tools.** 163 reads offered, 190 writes listed and refused, 395 browser-only: 748 registry entries.
+11. **The tools.** 163 reads offered, 190 writes listed and refused, 414 browser-only: 767 registry entries.
 12. **The MCP server.** `mcp_server/` at the repository root (Content Studio's sidecar, with tools generated from
     `tools.json`), systemd `orm-mcp` on 127.0.0.1:8432, its own venv `/opt/orm-mcp/venv` and its own `.env` holding
     a copy of the public key set. nginx `location = /mcp` lets only Durian OS's server in.
@@ -62,8 +63,9 @@ An AI request carries `Authorization: Bearer <credential>` where the credential 
 - Integrations (zoho-bridge, orm-support, the Durian OS connector) send `api_access_token` and are untouched.
 - Every other request passes straight through; the middleware costs it one header check.
 
-For an AI request the middleware first deletes every other credential from the request (`Cookie`, `api_access_token`,
-`access-token`, `client`, `uid`, `expiry`, `token-type`), so nothing but the pass can sign it in. A bad pass is 401 and
+For an AI request the middleware first deletes every other credential from the request (`Cookie`, `api_access_token`
+both as a header and as the bare env key `request.headers[:api_access_token]` also reads, `access-token`, `client`,
+`uid`, `expiry`, `token-type`), so nothing but the pass can sign it in. A bad pass is 401 and
 never falls back to another sign-in. A header that is not exactly one `Bearer <JWT>` (two Authorization headers
 arrive joined by a comma; an empty token) is 401.
 
@@ -359,11 +361,11 @@ browser session gets the same shape (`auth_kind` `session`, `client` and `ceilin
 
 ## 11. The tools
 
-**748 registry entries: 163 read tools (offered), 190 write tools (listed, refused for every pass) and 395
-browser-only (147 in the signed-in API, 248 outside it).** The signed-in API part is `config/routes.rb` at 70d1600b4
+**767 registry entries: 163 read tools (offered), 190 write tools (listed, refused for every pass) and 414
+browser-only (147 in the signed-in API, 267 outside it).** The signed-in API part is `config/routes.rb` at 70d1600b4
 (494 actions) plus MFA's 5 and the new `ai#me`. The part outside it (devise, Active Storage, Action Mailbox, mounts,
-widget, platform, super admin, webhooks) was listed by hand; the build replaces it with exactly what
-`bin/rails routes` mounts with enterprise on, and the spec pins the final count.
+widget, platform, super admin, webhooks) is exactly what `bin/rails routes` mounts with enterprise on; the spec pins
+the counts.
 
 Who sees how many: an administrator at `administer` with every feature on, 163; a plain agent, 88; an agent whose
 custom role has reports, 112. Fewer while Captain, the help center, companies, SLA, custom roles, audit logs, Linear
@@ -887,7 +889,7 @@ the names are settled when writes come (section 17). "Who" is ORM's own rule for
 | `send_forwarded_email_report` | POST `{v1}/forwarded_email_report/deliver` | Reports; sends email |
 | `set_follow_up_report_labels` | PATCH/PUT `{v1}/follow_up_report` | Reports |
 
-### 11.4 Browser-only (395), and why
+### 11.4 Browser-only (414), and why
 
 | Reason | Words the gate adds |
 |---|---|
@@ -927,21 +929,20 @@ the names are settled when writes come (section 17). "Who" is ORM's own rule for
 | `secrets` (24) | GET `{v1}/webhooks`; POST `{v1}/webhooks`; PATCH/PUT `{v1}/webhooks/:id`; DELETE `{v1}/webhooks/:id`; DELETE `{v1}/integrations/linear/destroy`; POST `{v1}/integrations/shopify/auth`; DELETE `{v1}/integrations/shopify`; DELETE `{v1}/integrations/notion/destroy`; GET `{v1}/integrations/apps`; GET `{v1}/integrations/apps/:id`; GET `{v1}/integrations/hooks/:id`; POST `{v1}/integrations/hooks`; PATCH/PUT `{v1}/integrations/hooks/:id`; DELETE `{v1}/integrations/hooks/:id`; POST `{v1}/integrations/slack`; PATCH/PUT `{v1}/integrations/slack`; DELETE `{v1}/integrations/slack`; GET `{v1}/integrations/slack/list_all_channels`; GET `{v1}/captain/custom_tools`; GET `{v1}/captain/custom_tools/:id`; POST `{v1}/captain/custom_tools`; PATCH/PUT `{v1}/captain/custom_tools/:id`; DELETE `{v1}/captain/custom_tools/:id`; POST `{v1}/captain/custom_tools/test` |
 | `machine` (1) | POST `{v1}/google_review_store_stats` |
 
-**Outside the signed-in API (248).** Listed by hand from `config/routes.rb` and the gems' route files; the build
-replaces this with exactly what `bin/rails routes` mounts.
+**Outside the signed-in API (267).** Exactly what `bin/rails routes` mounts with enterprise on (in Docker, 7 November).
 
 | Reason | Keys |
 |---|---|
-| `sign_in` (21) | `devise_overrides/sessions#new,create,destroy`, `devise_overrides/passwords#new,edit,update,create`, `devise_token_auth/registrations#cancel,new,edit,update,destroy,create`, `devise_overrides/confirmations#new,show,create`, `devise_overrides/token_validations#validate_token`, `devise_overrides/omniauth_callbacks#redirect_callbacks,omniauth_failure`, `GET /auth/:provider (redirect)`, `auth/resend_confirmations#create` |
-| `super_admin` (64) | `super_admin/devise/sessions#new,create,destroy`, `super_admin/dashboard#index`, `super_admin/app_configs#show,create`, `super_admin/push_diagnostics#show,create,destroy_subscriptions`, `super_admin/accounts#index,new,create,show,edit,update,destroy,seed,reset_cache`, `super_admin/users#index,new,create,show,edit,update,destroy,destroy_avatar`, `super_admin/access_tokens#index,show`, `super_admin/installation_configs#index,new,create,show,edit,update`, `super_admin/agent_bots#index,new,create,show,edit,update,destroy,destroy_avatar`, `super_admin/platform_apps#index,new,create,show,edit,update,destroy`, `super_admin/platform_banners#index,new,create,show,edit,update,destroy`, `super_admin/instance_status#show`, `super_admin/settings#show,refresh`, `super_admin/account_users#new,create,show,destroy`, `mount /monitoring/sidekiq` |
+| `sign_in` (25) | `devise_overrides/sessions#new,create,destroy`, `devise_overrides/passwords#new,edit,update,create`, `devise_token_auth/registrations#cancel,new,edit,update,destroy,create`, `devise_overrides/confirmations#new,show,create`, `devise_overrides/token_validations#validate_token`, `devise_overrides/omniauth_callbacks#redirect_callbacks,omniauth_failure,omniauth_success`, `devise/omniauth_callbacks#passthru,google_oauth2,saml`, `GET\|POST /auth/:provider` (a redirect), `auth/resend_confirmations#create` |
+| `super_admin` (77) | `super_admin/devise/sessions#new,create,destroy`, the super admins' Devise pages `devise/passwords#new,edit,update,create`, `devise/registrations#cancel,new,edit,update,destroy,create` and `devise/confirmations#new,show,create`, `super_admin/dashboard#index`, `super_admin/app_configs#show,create`, `super_admin/push_diagnostics#show,create,destroy_subscriptions`, `super_admin/accounts#index,new,create,show,edit,update,destroy,seed,reset_cache`, `super_admin/users#index,new,create,show,edit,update,destroy,destroy_avatar`, `super_admin/access_tokens#index,show`, `super_admin/installation_configs#index,new,create,show,edit,update`, `super_admin/agent_bots#index,new,create,show,edit,update,destroy,destroy_avatar`, `super_admin/platform_apps#index,new,create,show,edit,update,destroy`, `super_admin/platform_banners#index,new,create,show,edit,update,destroy`, `super_admin/instance_statuses#show`, `super_admin/settings#show,refresh`, `super_admin/account_users#new,create,show,destroy`, `mount /monitoring/sidekiq` |
 | `platform` (24) | `platform/api/v1/users#create,show,update,destroy,login,token`, `platform/api/v1/agent_bots#index,create,show,update,destroy,avatar`, `platform/api/v1/durian_os#status,end_sessions,view_as_login`, `platform/api/v1/accounts#index,create,show,update,destroy`, `platform/api/v1/account_users#index,create,destroy`, `platform/api/v1/email_channel_migrations#create` |
 | `public` (54) | `api/v1/widget/direct_uploads#create`, `api/v1/widget/configs#create`, `api/v1/widget/campaigns#index`, `api/v1/widget/events#create`, `api/v1/widget/messages#index,create,update`, `api/v1/widget/conversations#index,create,destroy_custom_attributes,set_custom_attributes,update_last_seen,toggle_typing,transcript,toggle_status`, `api/v1/widget/contacts#show,update,destroy_custom_attributes,set_user`, `api/v1/widget/inbox_members#index`, `api/v1/widget/labels#create,destroy`, `api/v1/widget/integrations/dyte#add_participant_to_meeting`, `public/api/v1/inboxes#index,new,create,show,edit,update,destroy`, `public/api/v1/inboxes/contacts#create,show,update`, `public/api/v1/inboxes/conversations#index,create,show,toggle_status,toggle_typing,update_last_seen`, `public/api/v1/inboxes/messages#index,create,update`, `public/api/v1/csat_survey#show,update`, `public/api/v1/portals#show,sitemap`, `public/api/v1/portals/articles#index,tracking_pixel,show_markdown,show`, `public/api/v1/portals/categories#index,show`, `widgets#show`, `survey/responses#show` |
-| `webhooks` (29) | `api/v1/webhooks#twitter_crc,twitter_events`, `webhooks/line#process_payload`, `webhooks/telegram#process_payload`, `webhooks/sms#process_payload`, `webhooks/whatsapp#verify,process_payload`, `webhooks/instagram#verify,events`, `webhooks/tiktok#events`, `webhooks/crm_stage#process_payload`, `webhooks/shopify#events`, `twilio/callback#create`, `twilio/delivery_status#create`, `twilio/voice#call_twiml,status,conference_status,recording_status`, `api/v1/integrations/webhooks#create`, `enterprise/webhooks/stripe#process_payload`, `enterprise/webhooks/firecrawl#process_payload`, `mount /bot`, `action_mailbox/ingresses/postmark/inbound_emails#create`, `action_mailbox/ingresses/relay/inbound_emails#create`, `action_mailbox/ingresses/sendgrid/inbound_emails#create`, `action_mailbox/ingresses/mandrill/inbound_emails#health_check,create`, `action_mailbox/ingresses/mailgun/inbound_emails#create`, `action_mailbox/ingresses/ses/inbound_emails#create` |
+| `webhooks` (30) | `mount /` (the AWS SES inbound mail engine, `Aws::ActionMailbox::SES::Engine`), `api/v1/webhooks#twitter_crc,twitter_events`, `webhooks/line#process_payload`, `webhooks/telegram#process_payload`, `webhooks/sms#process_payload`, `webhooks/whatsapp#verify,process_payload`, `webhooks/instagram#verify,events`, `webhooks/tiktok#events`, `webhooks/crm_stage#process_payload`, `webhooks/shopify#events`, `twilio/callback#create`, `twilio/delivery_status#create`, `twilio/voice#call_twiml,status,conference_status,recording_status`, `api/v1/integrations/webhooks#create`, `enterprise/webhooks/stripe#process_payload`, `enterprise/webhooks/firecrawl#process_payload`, `mount /bot`, `action_mailbox/ingresses/postmark/inbound_emails#create`, `action_mailbox/ingresses/relay/inbound_emails#create`, `action_mailbox/ingresses/sendgrid/inbound_emails#create`, `action_mailbox/ingresses/mandrill/inbound_emails#health_check,create`, `action_mailbox/ingresses/mailgun/inbound_emails#create`, `action_mailbox/ingresses/ses/inbound_emails#create` |
 | `machine` (1) | `internal/dm_bot#webhook` |
 | `billing` (12) | `enterprise/api/v1/accounts#index,new,create,show,edit,update,destroy,checkout,subscription,limits,toggle_deletion,topup_checkout` |
 | `channels` (8) | `twitter/callbacks#show`, `linear/callbacks#show`, `shopify/callbacks#show`, `microsoft/callbacks#show`, `google/callbacks#show`, `instagram/callbacks#show`, `tiktok/callbacks#show`, `notion/callbacks#show` |
 | `files` (8) | `active_storage/blobs/redirect#show`, `active_storage/blobs/proxy#show`, `active_storage/representations/redirect#show`, `active_storage/representations/proxy#show`, `active_storage/disk#show,update`, `active_storage/direct_uploads#create`, `slack_uploads#show` |
-| `pages` (19) | `dashboard#index`, `health#show`, `api#index`, `android_app#assetlinks`, `apple_app#site_association`, `microsoft#identity_association`, `custom_domains#verify`, `installation/onboarding#index,create`, `swagger#respond`, `widget_tests#index`, `rails/conductor/action_mailbox/inbound_emails#index,new,show,create`, `rails/conductor/action_mailbox/inbound_emails/sources#new,create`, `rails/conductor/action_mailbox/reroutes#create`, `rails/conductor/action_mailbox/incinerates#create` |
+| `pages` (20) | `mount /assets` (Sprockets), `dashboard#index`, `health#show`, `api#index`, `android_app#assetlinks`, `apple_app#site_association`, `microsoft#identity_association`, `custom_domains#verify`, `installation/onboarding#index,create`, `swagger#respond`, `widget_tests#index`, `rails/conductor/action_mailbox/inbound_emails#index,new,show,create`, `rails/conductor/action_mailbox/inbound_emails/sources#new,create`, `rails/conductor/action_mailbox/reroutes#create`, `rails/conductor/action_mailbox/incinerates#create` |
 | `none` (8) | `accounts#index,new,create,show,edit,update,destroy`, `conversations#show` |
 
 ## 12. The MCP server (`mcp_server/`)
@@ -1257,6 +1258,14 @@ know.
   minus 2. AI calls come from 127.0.0.1, which Rack::Attack lets through, so the slots are the only limit.
 - **Many tools for administrators** (up to 163). Durian OS shows only the person's apps and tools; a
   search-then-call step can come later if clients struggle.
+- **Routes added on `main` after this branch** (8 November): `origin/main` 1e8454937 adds
+  `api/v1/accounts/integrations/review_categories_config#show,validate,publish` (the Google-review reply categories,
+  an admin proxy to the bridge). The merge must list them, or the registry spec fails: as the routing rules are,
+  `get_review_reply_categories` (read, `admin`), `check_review_reply_categories` (read, POST, `post: "validation only;
+  saves nothing"`, `admin`) and `publish_review_reply_categories` (write, `admin`); then the pinned counts (164 reads,
+  12 POST reads, 191 writes), `rake durian_os:mcp_tools` and their lines on this page.
+- **The MCP server** (section 12), `redeploy.sh`'s `orm-mcp` block and the release (section 15) are the next steps.
+  `mcp_server/.env` is already ignored by the root `.gitignore` (its `.env` line matches at any depth).
 - Found on the box, not this change: Sidekiq's metrics port listens on 0.0.0.0:7433; nginx trusts `X-Forwarded-For`
   from the old ORM server 168.144.78.165 (`set_real_ip_from`), which the `/mcp` and `/platform/` fences rely on, so
   that line should go once the old box is retired.

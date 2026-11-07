@@ -37,8 +37,8 @@ RSpec.describe 'Durian OS AI connections', type: :request do
     end
   end
 
-  def pass_for(sub, **options)
-    ai_pass(sub: sub, **options)
+  def pass_for(sub, **)
+    ai_pass(sub: sub, **)
   end
 
   def ai_get(path, pass, params: {}, headers: {})
@@ -271,7 +271,7 @@ RSpec.describe 'Durian OS AI connections', type: :request do
       post "#{v1}/agents", params: { name: 'New Person', email: 'new.person@orm.test' }, headers: ai_headers(pass_for(tara_sub))
       expect(response).to have_http_status(:forbidden)
       expect(lines.last).to include('refused' => 'web_only')
-      expect(User.find_by(email: 'new.person@orm.test')).to be_nil
+      expect(User.from_email('new.person@orm.test')).to be_nil
 
       ai_get("#{v1}/agent_bots", pass_for(tara_sub))
       expect(response).to have_http_status(:forbidden)

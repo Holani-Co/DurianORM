@@ -2,7 +2,7 @@ require 'rails_helper'
 
 # The ceiling of a Durian OS AI connection (docs/mcp/MCP.md, section 4): only the caller's own rows, only below
 # administer, only an administrator, and nothing at all without DurianOs::Current.ai.
-RSpec.describe Custom::AccountUser do
+RSpec.describe Custom::AccountUser do # rubocop:disable RSpec/SpecFilePathFormat
   let(:account) { create(:account) }
   let(:tara) { create(:user, account: account, role: :administrator, name: 'Tara Fern', email: 'tara.fern@orm.test') }
   let(:omar) { create(:user, account: account, role: :agent, name: 'Omar Quill', email: 'omar.quill@orm.test') }

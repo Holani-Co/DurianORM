@@ -24,7 +24,7 @@ class DurianOs::Ai::Slots
   end
 
   def self.redis(&)
-    $alfred.with(&)
+    $alfred.with(&) # rubocop:disable Style/GlobalVars
   rescue Redis::BaseError, ConnectionPool::TimeoutError, Errno::ECONNREFUSED
     DurianOs::Ai.refuse!(503, 'redis', DurianOs::Ai::UNAVAILABLE)
   end

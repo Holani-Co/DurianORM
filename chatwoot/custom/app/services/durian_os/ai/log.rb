@@ -14,7 +14,8 @@ module DurianOs::Ai::Log
     line = "ai #{JSON.generate(ordered(fields))}"
     return Rails.logger.info(line) if Rails.env.test?
 
-    $stdout.write("#{line}\n")
+    # Stdout on purpose: one line per AI request whatever LOG_LEVEL says (docs/mcp/MCP.md, section 10).
+    $stdout.write("#{line}\n") # rubocop:disable Rails/Output
     $stdout.flush
   end
 
