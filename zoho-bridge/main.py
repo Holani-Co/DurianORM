@@ -7592,6 +7592,106 @@ async def admin_agent_prompts_config_rollback(request: Request,
     return {"ok": True, "version_id": int(vid)}
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Review-categories admin API — backs "Settings → Review Categories": add new
+# Google-review reply categories (with a "use when" description for the
+# classifier), describe or switch off existing ones. The doc is
+# {vertical: {case: {sentiment, description, disabled}}}, merged by
+# review_reply.review_categories() onto review_reply_bank.yaml. The replies of a
+# category are canned responses review_<vertical>_<case>_NN (Chatwoot side).
+# ─────────────────────────────────────────────────────────────────────────
+
+_REVIEW_CASE_KEY_RE = re.compile(r"^(positive|negative)_[a-z][a-z0-9_]{1,48}$")
+REVIEW_CATEGORY_DESC_MAX = 300
+
+
+def _validate_review_categories_doc(doc) -> dict:
+    """{ok, errors, warnings} for a review-categories document. Errors block publish."""
+    errors, warnings = [], []
+    if not isinstance(doc, dict):
+        return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
+    bank = review_reply._load_review_bank()
+    for vert, cases in doc.items():
+        builtin = ((bank.get(vert) or {}).get("cases")) or {}
+        if not builtin:
+            errors.append(f"{vert}: unknown vertical.")
+            continue
+        if not isinstance(cases, dict):
+            errors.append(f"{vert}: categories must be an object.")
+            continue
+        for key, c in cases.items():
+            if not isinstance(c, dict):
+                errors.append(f"{vert} · {key}: must be an object.")
+                continue
+            if key not in builtin:
+                if not _REVIEW_CASE_KEY_RE.match(key) or re.search(r"_\d+$", key):
+                    errors.append(f"{vert} · {key}: name must be lowercase letters, digits "
+                                  "and underscores, start with positive_ or negative_, "
+                                  "and not end in a number.")
+                elif c.get("sentiment") != key.split("_", 1)[0]:
+                    errors.append(f"{vert} · {key}: sentiment must be "
+                                  f"'{key.split('_', 1)[0]}'.")
+            desc = c.get("description") or ""
+            if not isinstance(desc, str):
+                errors.append(f"{vert} · {key}: description must be text.")
+            elif len(desc) > REVIEW_CATEGORY_DESC_MAX:
+                errors.append(f"{vert} · {key}: description is too long "
+                              f"({len(desc)}/{REVIEW_CATEGORY_DESC_MAX} characters).")
+            elif any(_invisible_control(ch) for ch in desc):
+                errors.append(f"{vert} · {key}: remove control characters.")
+            elif key not in builtin and not desc.strip():
+                errors.append(f"{vert} · {key}: a new category needs a description "
+                              "so the AI knows when to use it.")
+        on = [k for k in builtin if not (cases.get(k) or {}).get("disabled")] + \
+             [k for k, c in cases.items()
+              if k not in builtin and isinstance(c, dict) and not c.get("disabled")]
+        for sentiment in ("positive", "negative"):
+            if not any(k.startswith(sentiment + "_") for k in on):
+                errors.append(f"{vert}: keep at least one {sentiment} category switched on.")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+@app.get("/admin/review-categories-config")
+async def admin_review_categories_config_get(x_routing_admin_secret: Optional[str] = Header(None)):
+    """Current state for the Review Categories editor: the built-in categories
+    per vertical (from the YAML), the active override and its version."""
+    _require_routing_admin(x_routing_admin_secret)
+    bank = review_reply._load_review_bank()
+    return {
+        "builtin": {vert: {key: {"sentiment": (cfg or {}).get("sentiment") or ""}
+                           for key, cfg in ((v or {}).get("cases") or {}).items()}
+                    for vert, v in bank.items()},
+        "override":       config_store.get_active_override(config_store.REVIEW_CATEGORIES),
+        "active_version": config_store.active_version(config_store.REVIEW_CATEGORIES),
+        "description_max": REVIEW_CATEGORY_DESC_MAX,
+    }
+
+
+@app.post("/admin/review-categories-config/validate")
+async def admin_review_categories_config_validate(request: Request,
+                                                  x_routing_admin_secret: Optional[str] = Header(None)):
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    return _validate_review_categories_doc((body or {}).get("doc"))
+
+
+@app.post("/admin/review-categories-config/publish")
+async def admin_review_categories_config_publish(request: Request,
+                                                 x_routing_admin_secret: Optional[str] = Header(None)):
+    """Validate then save `doc` as the active review-categories override (used
+    from the next review — review_reply reads it per draft). 422 on errors."""
+    _require_routing_admin(x_routing_admin_secret)
+    body = await request.json()
+    doc = (body or {}).get("doc")
+    v = _validate_review_categories_doc(doc)
+    if not v["ok"]:
+        raise HTTPException(status_code=422, detail={"message": "validation failed", **v})
+    vid = config_store.publish(doc, note=str((body or {}).get("note") or ""),
+                               actor=str((body or {}).get("actor") or ""),
+                               domain=config_store.REVIEW_CATEGORIES)
+    return {"ok": True, "version_id": vid, "warnings": v["warnings"]}
+
+
 # ── Product catalog (Settings → Product Catalog) ───────────────────────────
 # The price list the agent uses for EMI, product-name recognition and showroom
 # prices of products not on durian.in. Published from a link-shared Google Sheet
