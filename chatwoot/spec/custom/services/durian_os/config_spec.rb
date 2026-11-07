@@ -28,6 +28,27 @@ RSpec.describe DurianOs::Config do
     end
   end
 
+  describe '.ai_concurrency' do
+    def concurrency(limit, threads, workers)
+      with_modified_env(ORM_AI_CONCURRENCY: limit, RAILS_MAX_THREADS: threads, WEB_CONCURRENCY: workers) { described_class.ai_concurrency }
+    end
+
+    it 'is 2 when unset or unreadable' do
+      expect(concurrency(nil, nil, nil)).to eq(2)
+      expect(concurrency('0', '5', nil)).to eq(2)
+      expect(concurrency('many', '5', '0')).to eq(2)
+    end
+
+    it 'never leaves Customer Support fewer than 2 of Puma\'s threads, and is at least 1' do
+      expect(concurrency('3', nil, nil)).to eq(3)
+      expect(concurrency('5', '5', '0')).to eq(3)
+      expect(concurrency('5', '4', nil)).to eq(2)
+      expect(concurrency('2', '3', nil)).to eq(1)
+      expect(concurrency('2', '2', nil)).to eq(1)
+      expect(concurrency('9', '5', '2')).to eq(8)
+    end
+  end
+
   describe '.emergency_login_on?' do
     it 'is off by default, even with the email and hash configured' do
       with_modified_env(**emergency_env, OS_EMERGENCY_LOGIN_UNTIL: nil) do

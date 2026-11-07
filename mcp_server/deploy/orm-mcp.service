@@ -1,0 +1,42 @@
+# ORM's MCP server (docs/mcp/MCP.md, section 12). nginx's `location = /mcp` on orm.durianos.in proxies to
+# 127.0.0.1:8432; the server calls ORM's Rails app on 127.0.0.1:3000 with each caller's Durian OS pass. Secretless: a
+# dynamic user that sees only its own code (mcp_server/, which holds tools.json), read-only; /root is hidden.
+# Mount point, made once: install -d /opt/orm-mcp/app/mcp_server
+[Unit]
+Description=ORM MCP server (Durian OS AI front door)
+After=network-online.target chatwoot-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/root/DurianORM/mcp_server/.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+BindReadOnlyPaths=/root/DurianORM/mcp_server:/opt/orm-mcp/app/mcp_server
+WorkingDirectory=/opt/orm-mcp/app
+ExecStart=/opt/orm-mcp/venv/bin/python -m mcp_server.server
+Restart=always
+RestartSec=3
+MemoryMax=300M
+TasksMax=64
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -24,3 +24,5 @@ class Api::V2::Accounts::YearInReviewsController < Api::V1::Accounts::BaseContro
     end
   end
 end
+
+Api::V2::Accounts::YearInReviewsController.prepend_mod_with('Api::V2::Accounts::YearInReviewsController')

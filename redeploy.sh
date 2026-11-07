@@ -80,6 +80,19 @@ else
   log "zoho-bridge has no systemd unit — skipping"
 fi
 
+# ── 8b. ORM MCP server (sync deps + restart if a systemd unit exists) ─────────
+MCP_DIR="$REPO_DIR/mcp_server"
+if systemctl list-unit-files orm-mcp.service --quiet 2>/dev/null | grep -q orm-mcp; then
+  if [ -f "$MCP_DIR/requirements.txt" ]; then
+    log "Installing orm-mcp Python deps..."
+    /opt/orm-mcp/venv/bin/pip install -q -r "$MCP_DIR/requirements.txt"
+  fi
+  log "Restarting orm-mcp..."
+  systemctl restart orm-mcp
+else
+  log "orm-mcp has no systemd unit — skipping"
+fi
+
 # ── 9. Health check ───────────────────────────────────────────────────────────
 log "Waiting for web server to come up..."
 for i in $(seq 1 15); do

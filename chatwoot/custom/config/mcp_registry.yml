@@ -1,0 +1,2009 @@
+# ORM's AI tool registry (docs/mcp/MCP.md, section 8): every route Rails mounts, listed exactly once.
+#
+# - read: offered to AI connections (Durian OS shows them as orm__<name>). A read is GET, or POST with a `post:`
+#   reason (it only looks up or validates). `who`: everyone | admin | reports | kb (section 6). `feature`: listed in
+#   ai/me only while that account feature is on. `account_param`: where the managed account is in the path
+#   (default account_id; none for ai#me). `args`: what the MCP server offers and checks (section 11.1).
+# - write: listed with its future name, refused (403) for every AI connection in v1.
+# - web_only: reason => keys; browser only, never a tool. The words for each reason are in
+#   DurianOs::Ai::Registry::WEB_ONLY_REASONS and the design page, section 11.4.
+#
+# Keys are `controller#action` as `bin/rails routes` prints them; `mount /path` for mounted Rack apps and engines;
+# `VERB /path` for redirect routes. spec/custom/config/mcp_registry_spec.rb fails on a mounted route that is not
+# listed, a key listed twice or a key no longer mounted. After changing a read, run
+# `bundle exec rake durian_os:mcp_tools` (writes ../mcp_server/tools.json) and name the tool on the design page.
+version: 1
+read:
+  - name: get_my_orm_access
+    action: api/v1/ai#me
+    route: GET /api/v1/ai/me
+    title: "Show who this connection acts as"
+    description: "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. It only reads, for now."
+    who: everyone
+    account_param: none
+  - name: get_account_settings
+    action: api/v1/accounts#show
+    route: GET /api/v1/accounts/:id
+    title: "Show the account settings"
+    description: "The Durian account in ORM: its name, language, support email, enabled features and account settings."
+    who: everyone
+    account_param: id
+  - name: list_conversations
+    action: api/v1/accounts/conversations#index
+    route: GET /api/v1/accounts/:account_id/conversations
+    title: "List conversations"
+    description: "Conversations as the inbox screen lists them: by status, assignee (mine, unassigned, all), inbox, team, labels and conversation type, 25 per page, with counts. Only conversations the person can see."
+    who: everyone
+    args:
+      - {name: status, in: query, type: "string", enum: ["open", "resolved", "pending", "snoozed", "all"], description: "Conversation status; open unless given."}
+      - {name: assignee_type, in: query, type: "string", enum: ["me", "unassigned", "assigned", "all"], description: "Whose conversations."}
+      - {name: inbox_id, in: query, type: "integer", description: "Only this inbox."}
+      - {name: team_id, in: query, type: "integer", description: "Only this team."}
+      - {name: labels, in: query, type: "array", items: "string", description: "Only conversations with any of these labels."}
+      - {name: conversation_type, in: query, type: "string", enum: ["mention", "participating", "unattended"], description: "A special view."}
+      - {name: sort_by, in: query, type: "string", enum: ["last_activity_at_desc", "last_activity_at_asc", "created_at_desc", "created_at_asc", "priority_desc", "priority_asc", "waiting_since_desc", "waiting_since_asc"]}
+      - {name: updated_within, in: query, type: "integer", description: "Only conversations updated in the last N seconds."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: count_conversations
+    action: api/v1/accounts/conversations#meta
+    route: GET /api/v1/accounts/:account_id/conversations/meta
+    title: "Count conversations"
+    description: "How many conversations match the inbox screen's filters: mine, assigned, unassigned and all. Only conversations the person can see."
+    who: everyone
+    args:
+      - {name: status, in: query, type: "string", enum: ["open", "resolved", "pending", "snoozed", "all"], description: "Conversation status; open unless given."}
+      - {name: assignee_type, in: query, type: "string", enum: ["me", "unassigned", "assigned", "all"], description: "Whose conversations."}
+      - {name: inbox_id, in: query, type: "integer", description: "Only this inbox."}
+      - {name: team_id, in: query, type: "integer", description: "Only this team."}
+      - {name: labels, in: query, type: "array", items: "string", description: "Only conversations with any of these labels."}
+      - {name: conversation_type, in: query, type: "string", enum: ["mention", "participating", "unattended"], description: "A special view."}
+  - name: find_conversations_with_text
+    action: api/v1/accounts/conversations#search
+    route: GET /api/v1/accounts/:account_id/conversations/search
+    title: "Find conversations by message text"
+    description: "Conversations whose messages contain the given text, with the inbox screen's status, inbox and assignee filters. Only conversations the person can see."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: status, in: query, type: "string", enum: ["open", "resolved", "pending", "snoozed", "all"], description: "Conversation status; open unless given."}
+      - {name: assignee_type, in: query, type: "string", enum: ["me", "unassigned", "assigned", "all"], description: "Whose conversations."}
+      - {name: inbox_id, in: query, type: "integer", description: "Only this inbox."}
+      - {name: team_id, in: query, type: "integer", description: "Only this team."}
+      - {name: labels, in: query, type: "array", items: "string", description: "Only conversations with any of these labels."}
+      - {name: conversation_type, in: query, type: "string", enum: ["mention", "participating", "unattended"], description: "A special view."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: filter_conversations
+    action: api/v1/accounts/conversations#filter
+    route: POST /api/v1/accounts/:account_id/conversations/filter
+    title: "Filter conversations"
+    description: "Conversations matching conditions on status, assignee, inbox, team, labels, priority, dates, contact or custom attributes, as the screen's filter builds them. Only conversations the person can see."
+    who: everyone
+    post: "the body is the filter; it creates nothing"
+    args:
+      - {name: payload, in: body, type: "array", items: "object", required: true, description: "Conditions as the filter screen builds them: attribute_key, filter_operator, values, query_operator."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: get_conversation
+    action: api/v1/accounts/conversations#show
+    route: GET /api/v1/accounts/:account_id/conversations/:id
+    title: "Open a conversation"
+    description: "One conversation by its number: status, priority, contact, assignee, team, inbox, labels, SLA, custom attributes and ORM's own details such as Zoho tickets and the email category."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: list_messages
+    action: api/v1/accounts/conversations/messages#index
+    route: GET /api/v1/accounts/:account_id/conversations/:conversation_id/messages
+    title: "Read a conversation's messages"
+    description: "A conversation's messages, 20 at a time (older ones with before=<message id>): customer messages, replies, private notes and activity, with attachment details."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: before, in: query, type: "integer", description: "Only messages older than this message id."}
+      - {name: after, in: query, type: "integer", description: "Only messages newer than this message id."}
+  - name: list_conversation_attachments
+    action: api/v1/accounts/conversations#attachments
+    route: GET /api/v1/accounts/:account_id/conversations/:id/attachments
+    title: "List a conversation's attachments"
+    description: "The files sent in a conversation, newest first, 100 per page: type, name, size and the message each came with. The files themselves stay in ORM."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: list_conversation_labels
+    action: api/v1/accounts/conversations/labels#index
+    route: GET /api/v1/accounts/:account_id/conversations/:conversation_id/labels
+    title: "List a conversation's labels"
+    description: "The labels on one conversation."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: list_conversation_participants
+    action: api/v1/accounts/conversations/participants#show
+    route: GET /api/v1/accounts/:account_id/conversations/:conversation_id/participants
+    title: "List a conversation's participants"
+    description: "The agents taking part in a conversation besides its assignee."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: get_my_conversation_draft
+    action: api/v1/accounts/conversations/draft_messages#show
+    route: GET /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages
+    title: "Show my draft reply"
+    description: "The person's own unsent reply draft for a conversation, if they left one."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: list_conversation_events
+    action: api/v1/accounts/conversations#reporting_events
+    route: GET /api/v1/accounts/:account_id/conversations/:id/reporting_events
+    title: "List a conversation's timing events"
+    description: "A conversation's reporting events in order: first response, resolutions and reopenings with their times, as the reports count them."
+    who: everyone
+    args:
+      - {name: conversation_id, in: path, param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: get_conversation_assistant
+    action: api/v1/accounts/conversations#inbox_assistant
+    route: GET /api/v1/accounts/:account_id/conversations/:id/inbox_assistant
+    title: "Show the conversation's Captain assistant"
+    description: "Which Captain AI assistant answers in the conversation's inbox, if any."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: conversation_id, in: path, param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - name: search_orm
+    action: api/v1/accounts/search#index
+    route: GET /api/v1/accounts/:account_id/search
+    title: "Search ORM"
+    description: "One search across contacts, conversations, messages and help articles, as the search screen does. Conversations and messages only from the person's inboxes."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+  - name: search_conversations
+    action: api/v1/accounts/search#conversations
+    route: GET /api/v1/accounts/:account_id/search/conversations
+    title: "Search conversations"
+    description: "Conversations whose number, or whose contact's name, email, phone number or identifier, matches the search, 15 per page. Only the person's inboxes."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: search_messages
+    action: api/v1/accounts/search#messages
+    route: GET /api/v1/accounts/:account_id/search/messages
+    title: "Search messages"
+    description: "Messages whose text matches the search, newest first. Only the person's inboxes."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: search_contacts
+    action: api/v1/accounts/search#contacts
+    route: GET /api/v1/accounts/:account_id/search/contacts
+    title: "Search contacts"
+    description: "Contacts whose name, email, phone number or identifier matches the search."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: search_help_articles
+    action: api/v1/accounts/search#articles
+    route: GET /api/v1/accounts/:account_id/search/articles
+    title: "Search help articles"
+    description: "Help center articles whose title or text matches the search."
+    who: everyone
+    feature: help_center
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: list_contacts
+    action: api/v1/accounts/contacts#index
+    route: GET /api/v1/accounts/:account_id/contacts
+    title: "List contacts"
+    description: "The account's contacts as the Contacts screen lists them, 15 per page, sortable by name, email, phone, last activity or created date, optionally only those with a label."
+    who: everyone
+    args:
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+      - {name: sort, in: query, type: "string", enum: ["name", "-name", "email", "-email", "phone_number", "-phone_number", "last_activity_at", "-last_activity_at", "created_at", "-created_at", "company", "-company"], description: "Sort order; a leading '-' is descending."}
+      - {name: labels, in: query, type: "array", items: "string", description: "Only contacts with these labels."}
+  - name: find_contacts
+    action: api/v1/accounts/contacts#search
+    route: GET /api/v1/accounts/:account_id/contacts/search
+    title: "Find contacts"
+    description: "Contacts whose name, email, phone number, identifier or company matches the search, sorted and paged as the Contacts screen does (15 per page)."
+    who: everyone
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+      - {name: sort, in: query, type: "string", enum: ["name", "-name", "email", "-email", "phone_number", "-phone_number", "last_activity_at", "-last_activity_at", "created_at", "-created_at", "company", "-company"], description: "Sort order; a leading '-' is descending."}
+  - name: filter_contacts
+    action: api/v1/accounts/contacts#filter
+    route: POST /api/v1/accounts/:account_id/contacts/filter
+    title: "Filter contacts"
+    description: "Contacts matching conditions on name, email, phone, identifier, location, labels, dates or custom attributes, as the Contacts filter builds them."
+    who: everyone
+    post: "the body is the filter; it creates nothing"
+    args:
+      - {name: payload, in: body, type: "array", items: "object", required: true, description: "Conditions as the filter screen builds them: attribute_key, filter_operator, values, query_operator."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: list_online_contacts
+    action: api/v1/accounts/contacts#active
+    route: GET /api/v1/accounts/:account_id/contacts/active
+    title: "List contacts online now"
+    description: "Contacts who are online on the website chat right now."
+    who: everyone
+    args:
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: get_contact
+    action: api/v1/accounts/contacts#show
+    route: GET /api/v1/accounts/:account_id/contacts/:id
+    title: "Show a contact"
+    description: "One contact: name, email, phone, identifier, company, location, labels, custom and additional attributes and the inboxes they write from."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_contactable_inboxes
+    action: api/v1/accounts/contacts#contactable_inboxes
+    route: GET /api/v1/accounts/:account_id/contacts/:id/contactable_inboxes
+    title: "List inboxes that can reach a contact"
+    description: "The inboxes a new conversation with this contact could start from, with the contact's id in each."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_contact_conversations
+    action: api/v1/accounts/contacts/conversations#index
+    route: GET /api/v1/accounts/:account_id/contacts/:contact_id/conversations
+    title: "List a contact's conversations"
+    description: "A contact's conversations, newest first. Only those the person can see."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, type: "integer", required: true}
+  - name: list_contact_labels
+    action: api/v1/accounts/contacts/labels#index
+    route: GET /api/v1/accounts/:account_id/contacts/:contact_id/labels
+    title: "List a contact's labels"
+    description: "The labels on one contact."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, type: "integer", required: true}
+  - name: list_contact_notes
+    action: api/v1/accounts/contacts/notes#index
+    route: GET /api/v1/accounts/:account_id/contacts/:contact_id/notes
+    title: "List a contact's notes"
+    description: "The notes agents wrote on a contact, newest first, with who wrote each."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, type: "integer", required: true}
+  - name: get_contact_note
+    action: api/v1/accounts/contacts/notes#show
+    route: GET /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id
+    title: "Show a contact note"
+    description: "One note on a contact."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, type: "integer", required: true}
+      - {name: note_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_contact_attachments
+    action: api/v1/accounts/contacts/attachments#index
+    route: GET /api/v1/accounts/:account_id/contacts/:contact_id/attachments
+    title: "List a contact's attachments"
+    description: "Files from all of a contact's conversations the person can see, newest first, 100 per page. The files themselves stay in ORM."
+    who: everyone
+    args:
+      - {name: contact_id, in: path, type: "integer", required: true}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: find_contact_by_source_id
+    action: api/v1/accounts/contact_inboxes#filter
+    route: POST /api/v1/accounts/:account_id/contact_inboxes/filter
+    title: "Find a contact by channel id"
+    description: "The contact behind a channel's own id in one inbox, such as a WhatsApp number or an Instagram user id. Only inboxes the person can see."
+    who: everyone
+    post: "a lookup by inbox and source id; it creates nothing"
+    args:
+      - {name: inbox_id, in: body, type: "integer", required: true}
+      - {name: source_id, in: body, type: "string", required: true, description: "The channel's own id for the contact, such as a WhatsApp number."}
+  - name: list_companies
+    action: api/v1/accounts/companies#index
+    route: GET /api/v1/accounts/:account_id/companies
+    title: "List companies"
+    description: "The account's companies with their domain, description and contact count, 25 per page, sortable."
+    who: everyone
+    feature: companies
+  - name: search_companies
+    action: api/v1/accounts/companies#search
+    route: GET /api/v1/accounts/:account_id/companies/search
+    title: "Search companies"
+    description: "Companies whose name or domain matches the search."
+    who: everyone
+    feature: companies
+  - name: get_company
+    action: api/v1/accounts/companies#show
+    route: GET /api/v1/accounts/:account_id/companies/:id
+    title: "Show a company"
+    description: "One company with its details and custom attributes."
+    who: everyone
+    feature: companies
+    args:
+      - {name: company_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_company_contacts
+    action: api/v1/accounts/companies/contacts#index
+    route: GET /api/v1/accounts/:account_id/companies/:company_id/contacts
+    title: "List a company's contacts"
+    description: "The contacts linked to a company."
+    who: everyone
+    feature: companies
+    args:
+      - {name: company_id, in: path, type: "integer", required: true}
+  - name: search_company_contacts
+    action: api/v1/accounts/companies/contacts#search
+    route: GET /api/v1/accounts/:account_id/companies/:company_id/contacts/search
+    title: "Search contacts from a company"
+    description: "Contacts matching a search by name, email or phone, as a company's page searches them."
+    who: everyone
+    feature: companies
+    args:
+      - {name: company_id, in: path, type: "integer", required: true}
+  - name: list_company_conversations
+    action: api/v1/accounts/companies/conversations#index
+    route: GET /api/v1/accounts/:account_id/companies/:company_id/conversations
+    title: "List a company's conversations"
+    description: "The conversations of a company's contacts. Only those the person can see."
+    who: everyone
+    feature: companies
+    args:
+      - {name: company_id, in: path, type: "integer", required: true}
+  - name: list_company_notes
+    action: api/v1/accounts/companies/notes#index
+    route: GET /api/v1/accounts/:account_id/companies/:company_id/notes
+    title: "List a company's notes"
+    description: "The notes written on a company's contacts."
+    who: everyone
+    feature: companies
+    args:
+      - {name: company_id, in: path, type: "integer", required: true}
+  - name: list_inboxes
+    action: api/v1/accounts/inboxes#index
+    route: GET /api/v1/accounts/:account_id/inboxes
+    title: "List inboxes"
+    description: "The inboxes the person can see (all of them for administrators): channel type, name, greeting, working hours, CSAT and assignment settings. Credentials are never included."
+    who: everyone
+  - name: get_inbox
+    action: api/v1/accounts/inboxes#show
+    route: GET /api/v1/accounts/:account_id/inboxes/:id
+    title: "Show an inbox"
+    description: "One inbox the person can see, with its channel settings. Credentials are never included."
+    who: everyone
+    args:
+      - {name: inbox_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_inbox_agents
+    action: api/v1/accounts/inbox_members#show
+    route: GET /api/v1/accounts/:account_id/inbox_members/:inbox_id
+    title: "List an inbox's agents"
+    description: "The agents who are members of an inbox the person can see."
+    who: everyone
+    args:
+      - {name: inbox_id, in: path, type: "integer", required: true}
+  - name: list_inbox_campaigns
+    action: api/v1/accounts/inboxes#campaigns
+    route: GET /api/v1/accounts/:account_id/inboxes/:id/campaigns
+    title: "List an inbox's campaigns"
+    description: "The campaigns that send through one inbox. Administrators only."
+    who: admin
+    args:
+      - {name: inbox_id, in: path, param: "id", type: "integer", required: true}
+  - name: get_whatsapp_inbox_health
+    action: api/v1/accounts/inboxes#health
+    route: GET /api/v1/accounts/:account_id/inboxes/:id/health
+    title: "Check a WhatsApp inbox's health"
+    description: "Meta's live health check of a WhatsApp inbox: number status, quality rating, messaging limits and errors. Administrators only."
+    who: admin
+    args:
+      - {name: inbox_id, in: path, param: "id", type: "integer", required: true}
+  - name: get_inbox_csat_template
+    action: api/v1/accounts/inbox_csat_templates#show
+    route: GET /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template
+    title: "Show an inbox's CSAT template"
+    description: "The WhatsApp customer-satisfaction survey template of an inbox and its approval status at Meta or Twilio."
+    who: everyone
+    args:
+      - {name: inbox_id, in: path, type: "integer", required: true}
+  - name: get_inbox_assignment_policy
+    action: api/v1/accounts/inboxes/assignment_policies#show
+    route: GET /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy
+    title: "Show an inbox's assignment policy"
+    description: "The automatic-assignment policy an inbox uses. Administrators only."
+    who: admin
+    args:
+      - {name: inbox_id, in: path, type: "integer", required: true}
+  - name: list_agents
+    action: api/v1/accounts/agents#index
+    route: GET /api/v1/accounts/:account_id/agents
+    title: "List the agents"
+    description: "Everyone in the ORM account: name, display name, email, role (administrator or agent), availability and whether they confirmed their email."
+    who: everyone
+  - name: list_assignable_agents
+    action: api/v1/accounts/assignable_agents#index
+    route: GET /api/v1/accounts/:account_id/assignable_agents
+    title: "List agents who can be assigned"
+    description: "The agents who can be assigned conversations in the given inboxes."
+    who: everyone
+    args:
+      - {name: inbox_ids, in: query, type: "array", items: "integer", required: true}
+  - name: list_teams
+    action: api/v1/accounts/teams#index
+    route: GET /api/v1/accounts/:account_id/teams
+    title: "List teams"
+    description: "The account's teams with their description and whether auto-assignment is on."
+    who: everyone
+  - name: get_team
+    action: api/v1/accounts/teams#show
+    route: GET /api/v1/accounts/:account_id/teams/:id
+    title: "Show a team"
+    description: "One team."
+    who: everyone
+    args:
+      - {name: team_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_team_members
+    action: api/v1/accounts/team_members#index
+    route: GET /api/v1/accounts/:account_id/teams/:team_id/team_members
+    title: "List a team's members"
+    description: "The agents in a team."
+    who: everyone
+    args:
+      - {name: team_id, in: path, type: "integer", required: true}
+  - name: list_assignment_policies
+    action: api/v1/accounts/assignment_policies#index
+    route: GET /api/v1/accounts/:account_id/assignment_policies
+    title: "List assignment policies"
+    description: "How conversations are assigned automatically: each policy's order, fair-distribution limits and inboxes. Administrators only."
+    who: admin
+  - name: get_assignment_policy
+    action: api/v1/accounts/assignment_policies#show
+    route: GET /api/v1/accounts/:account_id/assignment_policies/:id
+    title: "Show an assignment policy"
+    description: "One automatic-assignment policy. Administrators only."
+    who: admin
+    args:
+      - {name: assignment_policy_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_assignment_policy_inboxes
+    action: api/v1/accounts/assignment_policies/inboxes#index
+    route: GET /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes
+    title: "List an assignment policy's inboxes"
+    description: "The inboxes that use one assignment policy. Administrators only."
+    who: admin
+    args:
+      - {name: assignment_policy_id, in: path, type: "integer", required: true}
+  - name: list_agent_capacity_policies
+    action: api/v1/accounts/agent_capacity_policies#index
+    route: GET /api/v1/accounts/:account_id/agent_capacity_policies
+    title: "List agent capacity policies"
+    description: "Limits on how many open conversations agents get, per inbox, and whom each applies to. Administrators only."
+    who: admin
+  - name: get_agent_capacity_policy
+    action: api/v1/accounts/agent_capacity_policies#show
+    route: GET /api/v1/accounts/:account_id/agent_capacity_policies/:id
+    title: "Show an agent capacity policy"
+    description: "One agent capacity policy and its inbox limits. Administrators only."
+    who: admin
+    args:
+      - {name: capacity_policy_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_capacity_policy_agents
+    action: api/v1/accounts/agent_capacity_policies/users#index
+    route: GET /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users
+    title: "List a capacity policy's agents"
+    description: "The agents one capacity policy applies to. Administrators only."
+    who: admin
+    args:
+      - {name: agent_capacity_policy_id, in: path, type: "integer", required: true}
+  - name: list_custom_roles
+    action: api/v1/accounts/custom_roles#index
+    route: GET /api/v1/accounts/:account_id/custom_roles
+    title: "List custom roles"
+    description: "The custom roles agents can hold and the permissions each grants. Administrators only."
+    who: admin
+    feature: custom_roles
+  - name: get_custom_role
+    action: api/v1/accounts/custom_roles#show
+    route: GET /api/v1/accounts/:account_id/custom_roles/:id
+    title: "Show a custom role"
+    description: "One custom role and its permissions. Administrators only."
+    who: admin
+    feature: custom_roles
+    args:
+      - {name: custom_role_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_labels
+    action: api/v1/accounts/labels#index
+    route: GET /api/v1/accounts/:account_id/labels
+    title: "List labels"
+    description: "The account's labels with their description, colour and whether they show in the sidebar."
+    who: everyone
+  - name: get_label
+    action: api/v1/accounts/labels#show
+    route: GET /api/v1/accounts/:account_id/labels/:id
+    title: "Show a label"
+    description: "One label. Administrators only."
+    who: admin
+    args:
+      - {name: label_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_canned_responses
+    action: api/v1/accounts/canned_responses#index
+    route: GET /api/v1/accounts/:account_id/canned_responses
+    title: "List canned responses"
+    description: "The account's saved replies (short code and text), optionally only those matching a search."
+    who: everyone
+    args:
+      - {name: search, in: query, type: "string", description: "Only replies whose short code or text matches."}
+  - name: list_macros
+    action: api/v1/accounts/macros#index
+    route: GET /api/v1/accounts/:account_id/macros
+    title: "List macros"
+    description: "The macros the person can run: the account's shared macros and their own, with their actions."
+    who: everyone
+  - name: get_macro
+    action: api/v1/accounts/macros#show
+    route: GET /api/v1/accounts/:account_id/macros/:id
+    title: "Show a macro"
+    description: "One macro and the actions it runs, if it is shared or the person's own."
+    who: everyone
+    args:
+      - {name: macro_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_custom_attribute_definitions
+    action: api/v1/accounts/custom_attribute_definitions#index
+    route: GET /api/v1/accounts/:account_id/custom_attribute_definitions
+    title: "List custom attributes"
+    description: "The custom attributes defined for conversations or contacts: key, name, type and allowed values."
+    who: everyone
+  - name: get_custom_attribute_definition
+    action: api/v1/accounts/custom_attribute_definitions#show
+    route: GET /api/v1/accounts/:account_id/custom_attribute_definitions/:id
+    title: "Show a custom attribute"
+    description: "One custom attribute definition."
+    who: everyone
+    args:
+      - {name: attribute_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_saved_filters
+    action: api/v1/accounts/custom_filters#index
+    route: GET /api/v1/accounts/:account_id/custom_filters
+    title: "List my saved filters"
+    description: "The person's saved conversation and contact filters (folders and segments) with their conditions."
+    who: everyone
+  - name: get_saved_filter
+    action: api/v1/accounts/custom_filters#show
+    route: GET /api/v1/accounts/:account_id/custom_filters/:id
+    title: "Show a saved filter"
+    description: "One of the person's saved filters."
+    who: everyone
+    args:
+      - {name: filter_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_automation_rules
+    action: api/v1/accounts/automation_rules#index
+    route: GET /api/v1/accounts/:account_id/automation_rules
+    title: "List automation rules"
+    description: "The account's automation rules: their event, conditions, actions and whether each is on. Administrators only."
+    who: admin
+  - name: get_automation_rule
+    action: api/v1/accounts/automation_rules#show
+    route: GET /api/v1/accounts/:account_id/automation_rules/:id
+    title: "Show an automation rule"
+    description: "One automation rule. Administrators only."
+    who: admin
+    args:
+      - {name: rule_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_sla_policies
+    action: api/v1/accounts/sla_policies#index
+    route: GET /api/v1/accounts/:account_id/sla_policies
+    title: "List SLA policies"
+    description: "The account's SLA policies: first response, next response and resolution targets, and whether business hours count."
+    who: everyone
+    feature: sla
+  - name: get_sla_policy
+    action: api/v1/accounts/sla_policies#show
+    route: GET /api/v1/accounts/:account_id/sla_policies/:id
+    title: "Show an SLA policy"
+    description: "One SLA policy."
+    who: everyone
+    feature: sla
+    args:
+      - {name: sla_policy_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_dashboard_apps
+    action: api/v1/accounts/dashboard_apps#index
+    route: GET /api/v1/accounts/:account_id/dashboard_apps
+    title: "List dashboard apps"
+    description: "The dashboard apps (embedded pages) shown beside conversations, with their URLs."
+    who: everyone
+  - name: get_dashboard_app
+    action: api/v1/accounts/dashboard_apps#show
+    route: GET /api/v1/accounts/:account_id/dashboard_apps/:id
+    title: "Show a dashboard app"
+    description: "One dashboard app."
+    who: everyone
+    args:
+      - {name: dashboard_app_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_offers
+    action: api/v1/accounts/offers#index
+    route: GET /api/v1/accounts/:account_id/offers
+    title: "List the offers"
+    description: "The promotional offers ORM shows on greetings: title, text, validity and whether each has an image."
+    who: everyone
+  - name: list_mail_drafts
+    action: api/v1/accounts/mail_drafts#index
+    route: GET /api/v1/accounts/:account_id/mail_drafts
+    title: "List saved email drafts"
+    description: "The saved, unsent email drafts of the compose flow (the Drafts folder), shared across the account."
+    who: everyone
+  - name: list_my_notifications
+    action: api/v1/accounts/notifications#index
+    route: GET /api/v1/accounts/:account_id/notifications
+    title: "List my notifications"
+    description: "The person's notifications, newest first, 15 per page: mentions, assignments, new messages and SLA alerts, read or unread."
+    who: everyone
+    args:
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: count_my_unread_notifications
+    action: api/v1/accounts/notifications#unread_count
+    route: GET /api/v1/accounts/:account_id/notifications/unread_count
+    title: "Count my unread notifications"
+    description: "How many of the person's notifications are unread."
+    who: everyone
+  - name: get_my_notification_settings
+    action: api/v1/accounts/notification_settings#show
+    route: GET /api/v1/accounts/:account_id/notification_settings
+    title: "Show my notification settings"
+    description: "Which events email or push-notify the person in this account."
+    who: everyone
+  - name: list_audit_logs
+    action: api/v1/accounts/audit_logs#show
+    route: GET /api/v1/accounts/:account_id/audit_logs
+    title: "List the audit log"
+    description: "Who changed what in ORM's settings and records, newest first, 15 per page. Administrators only."
+    who: admin
+    feature: audit_logs
+    args:
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: list_campaigns
+    action: api/v1/accounts/campaigns#index
+    route: GET /api/v1/accounts/:account_id/campaigns
+    title: "List campaigns"
+    description: "The account's campaigns, WhatsApp campaigns included: inbox, audience, template, schedule, status and delivery counts. Administrators only."
+    who: admin
+  - name: get_campaign
+    action: api/v1/accounts/campaigns#show
+    route: GET /api/v1/accounts/:account_id/campaigns/:id
+    title: "Show a campaign"
+    description: "One campaign with its audience, template and delivery counts. Administrators only."
+    who: admin
+    args:
+      - {name: campaign_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_campaign_deliveries
+    action: api/v1/accounts/campaign_deliveries#index
+    route: GET /api/v1/accounts/:account_id/campaigns/:campaign_id/deliveries
+    title: "List a campaign's deliveries"
+    description: "Each recipient of a WhatsApp campaign with their status (queued, sent, delivered, read, replied, failed or skipped) and errors; filter by status or search. Administrators only."
+    who: admin
+    args:
+      - {name: campaign_id, in: path, type: "integer", required: true}
+      - {name: status, in: query, type: "string", enum: ["queued", "sent", "delivered", "read", "replied", "failed", "skipped"]}
+      - {name: q, in: query, type: "string", description: "Name, phone or error text."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: preview_campaign_audience
+    action: api/v1/accounts/campaigns#preview_audience
+    route: POST /api/v1/accounts/:account_id/campaigns/preview_audience
+    title: "Preview a campaign's audience"
+    description: "How many contacts a WhatsApp campaign audience would reach and how many would be skipped, without creating anything. Administrators only."
+    who: admin
+    post: "the body is the audience; it creates nothing"
+    args:
+      - {name: inbox_id, in: body, type: "integer", required: true}
+      - {name: audience, in: body, type: "object", required: true, description: "The audience as the campaign form builds it."}
+  - name: list_whatsapp_templates
+    action: api/v1/accounts/whatsapp_templates#index
+    route: GET /api/v1/accounts/:account_id/whatsapp_templates
+    title: "List WhatsApp templates"
+    description: "The WhatsApp message templates, optionally for one inbox: name, language, category, body and approval status. Administrators only."
+    who: admin
+    args:
+      - {name: inbox_id, in: query, type: "integer", description: "Only this inbox."}
+  - name: get_whatsapp_template
+    action: api/v1/accounts/whatsapp_templates#show
+    route: GET /api/v1/accounts/:account_id/whatsapp_templates/:id
+    title: "Show a WhatsApp template"
+    description: "One WhatsApp message template. Administrators only."
+    who: admin
+    args:
+      - {name: template_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_whatsapp_consents
+    action: api/v1/accounts/whatsapp_consents#index
+    route: GET /api/v1/accounts/:account_id/whatsapp_consents
+    title: "List WhatsApp consents"
+    description: "The recorded WhatsApp marketing consents (opt-ins and opt-outs) by contact and inbox. Administrators only."
+    who: admin
+  - name: list_contact_crm_deals
+    action: api/v1/accounts/integrations/zoho_bridge#contact_deals
+    route: POST /api/v1/accounts/:account_id/integrations/zoho_bridge/contact_deals
+    title: "List a contact's Zoho CRM deals"
+    description: "The Zoho CRM deals already linked to a conversation's contact, read live from Zoho through the bridge. Only conversations the person can see."
+    who: everyone
+    post: "documented \"Read-only ... Creates nothing\""
+    args:
+      - {name: conversation_id, in: body, type: "integer", required: true}
+  - name: list_forward_recipients
+    action: api/v1/accounts/integrations/zoho_bridge#forward_recipients
+    route: POST /api/v1/accounts/:account_id/integrations/zoho_bridge/forward_recipients
+    title: "List preset forward addresses"
+    description: "The internal email addresses an agent can pick when forwarding a conversation."
+    who: everyone
+    post: "returns the preset list; it sends nothing"
+    args:
+      - {name: conversation_id, in: body, type: "integer", required: true}
+  - name: get_email_routing_rules
+    action: api/v1/accounts/integrations/routing_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/routing_config
+    title: "Show the email routing rules"
+    description: "The bridge's published email routing rules: categories, keywords and forward and CC addresses by product line. Administrators only."
+    who: admin
+  - name: list_email_routing_rule_versions
+    action: api/v1/accounts/integrations/routing_config#versions
+    route: GET /api/v1/accounts/:account_id/integrations/routing_config/versions
+    title: "List routing rule versions"
+    description: "The published versions of the routing rules, newest first, with who published each and why. Administrators only."
+    who: admin
+  - name: get_email_routing_rule_version
+    action: api/v1/accounts/integrations/routing_config#version
+    route: GET /api/v1/accounts/:account_id/integrations/routing_config/version
+    title: "Show a routing rules version"
+    description: "One published version of the routing rules. Administrators only."
+    who: admin
+    args:
+      - {name: version_id, in: query, type: "integer", required: true}
+  - name: check_email_routing_rules
+    action: api/v1/accounts/integrations/routing_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/routing_config/validate
+    title: "Check a routing rules draft"
+    description: "Checks a draft of the routing rules for errors, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: get_crm_owner_check
+    action: api/v1/accounts/integrations/routing_config#owner_sync
+    route: GET /api/v1/accounts/:account_id/integrations/routing_config/owner_sync
+    title: "Check CRM deal owners"
+    description: "Deal-owner slots in the routing rules and store settings whose Zoho user is deactivated or deleted, with suggested successors. Administrators only."
+    who: admin
+  - name: get_store_settings
+    action: api/v1/accounts/integrations/stores_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/stores_config
+    title: "Show the store settings"
+    description: "The stores and showrooms the bridge routes enquiries to, with their locations and Zoho deal owners. Administrators only."
+    who: admin
+  - name: list_store_settings_versions
+    action: api/v1/accounts/integrations/stores_config#versions
+    route: GET /api/v1/accounts/:account_id/integrations/stores_config/versions
+    title: "List store settings versions"
+    description: "The published versions of the store settings, newest first. Administrators only."
+    who: admin
+  - name: get_store_settings_version
+    action: api/v1/accounts/integrations/stores_config#version
+    route: GET /api/v1/accounts/:account_id/integrations/stores_config/version
+    title: "Show a store settings version"
+    description: "One published version of the store settings. Administrators only."
+    who: admin
+    args:
+      - {name: version_id, in: query, type: "integer", required: true}
+  - name: check_store_settings
+    action: api/v1/accounts/integrations/stores_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/stores_config/validate
+    title: "Check a store settings draft"
+    description: "Checks a draft of the store settings for errors, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: list_zoho_crm_users
+    action: api/v1/accounts/integrations/stores_config#zoho_owners
+    route: GET /api/v1/accounts/:account_id/integrations/stores_config/zoho_owners
+    title: "List Zoho CRM users"
+    description: "The Zoho CRM users that can own deals, as the store settings editor offers them. Administrators only."
+    who: admin
+  - name: get_agent_prompts
+    action: api/v1/accounts/integrations/agent_prompts_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/agent_prompts_config
+    title: "Show the AI agents' prompts"
+    description: "The prompts the bridge's AI agents (social DMs and email replies) answer with, as published. Administrators only."
+    who: admin
+  - name: list_agent_prompt_versions
+    action: api/v1/accounts/integrations/agent_prompts_config#versions
+    route: GET /api/v1/accounts/:account_id/integrations/agent_prompts_config/versions
+    title: "List agent prompt versions"
+    description: "The published versions of the AI agents' prompts, newest first. Administrators only."
+    who: admin
+  - name: get_agent_prompt_version
+    action: api/v1/accounts/integrations/agent_prompts_config#version
+    route: GET /api/v1/accounts/:account_id/integrations/agent_prompts_config/version
+    title: "Show an agent prompts version"
+    description: "One published version of the AI agents' prompts. Administrators only."
+    who: admin
+    args:
+      - {name: version_id, in: query, type: "integer", required: true}
+  - name: check_agent_prompts
+    action: api/v1/accounts/integrations/agent_prompts_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/validate
+    title: "Check an agent prompts draft"
+    description: "Checks a draft of the AI agents' prompts for errors, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: get_review_reply_categories
+    action: api/v1/accounts/integrations/review_categories_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/review_categories_config
+    title: "Show the Google-review reply categories"
+    description: "The categories the bridge drafts Google-review replies by: the built-in ones per vertical, the published override and its version. Administrators only."
+    who: admin
+  - name: check_review_reply_categories
+    action: api/v1/accounts/integrations/review_categories_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/review_categories_config/validate
+    title: "Check a review categories draft"
+    description: "Checks a draft of the Google-review reply categories for errors, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: get_crm_automation_rules
+    action: api/v1/accounts/integrations/crm_automation_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/crm_automation_config
+    title: "Show the CRM automation rules"
+    description: "The rules that send WhatsApp messages when a Zoho CRM deal changes stage, with their templates. Administrators only."
+    who: admin
+  - name: list_crm_automation_versions
+    action: api/v1/accounts/integrations/crm_automation_config#versions
+    route: GET /api/v1/accounts/:account_id/integrations/crm_automation_config/versions
+    title: "List CRM automation versions"
+    description: "The published versions of the CRM automation rules, newest first. Administrators only."
+    who: admin
+  - name: get_crm_automation_version
+    action: api/v1/accounts/integrations/crm_automation_config#version
+    route: GET /api/v1/accounts/:account_id/integrations/crm_automation_config/version
+    title: "Show a CRM automation version"
+    description: "One published version of the CRM automation rules. Administrators only."
+    who: admin
+    args:
+      - {name: version_id, in: query, type: "integer", required: true}
+  - name: check_crm_automation_rules
+    action: api/v1/accounts/integrations/crm_automation_config#validate
+    route: POST /api/v1/accounts/:account_id/integrations/crm_automation_config/validate
+    title: "Check a CRM automation draft"
+    description: "Checks a draft of the CRM automation rules, and that each rule fills its template, saving nothing. Administrators only."
+    who: admin
+    post: "validation only; saves nothing"
+    args:
+      - {name: doc, in: body, type: "object", required: true, description: "The draft, in the editor's shape."}
+  - name: preview_crm_automation_for_deal
+    action: api/v1/accounts/integrations/crm_automation_config#preview
+    route: POST /api/v1/accounts/:account_id/integrations/crm_automation_config/preview
+    title: "Preview CRM automation for a deal"
+    description: "What each CRM automation rule would do right now for one Zoho deal id; nothing is sent. Administrators only."
+    who: admin
+    post: "documented \"nothing is sent\"; reads the deal from Zoho"
+    args:
+      - {name: deal_id, in: body, type: "string", required: true, pattern: "^[0-9]{1,30}$"}
+  - name: get_product_catalog
+    action: api/v1/accounts/integrations/product_catalog_config#show
+    route: GET /api/v1/accounts/:account_id/integrations/product_catalog_config
+    title: "Show the product price list"
+    description: "The live price list the bridge quotes from (SKU, name, family, category, MRP and sale price), where it came from and its sync state. Administrators only."
+    who: admin
+  - name: list_product_catalog_versions
+    action: api/v1/accounts/integrations/product_catalog_config#versions
+    route: GET /api/v1/accounts/:account_id/integrations/product_catalog_config/versions
+    title: "List price list versions"
+    description: "The published versions of the price list, newest first. Administrators only."
+    who: admin
+  - name: get_product_catalog_version
+    action: api/v1/accounts/integrations/product_catalog_config#version
+    route: GET /api/v1/accounts/:account_id/integrations/product_catalog_config/version
+    title: "Show a price list version"
+    description: "One published version of the price list. Administrators only."
+    who: admin
+    args:
+      - {name: version_id, in: query, type: "integer", required: true}
+  - name: list_contact_shopify_orders
+    action: api/v1/accounts/integrations/shopify#orders
+    route: GET /api/v1/accounts/:account_id/integrations/shopify/orders
+    title: "List a contact's Shopify orders"
+    description: "The Shopify orders of the store customer matching a contact's email or phone, read live from Shopify."
+    who: everyone
+    feature: shopify_integration
+    args:
+      - {name: contact_id, in: query, type: "integer", required: true}
+  - name: list_conversation_linear_issues
+    action: api/v1/accounts/integrations/linear#linked_issues
+    route: GET /api/v1/accounts/:account_id/integrations/linear/linked_issues
+    title: "List a conversation's Linear issues"
+    description: "The Linear issues linked to a conversation."
+    who: everyone
+    feature: linear_integration
+    args:
+      - {name: conversation_id, in: query, type: "integer", required: true}
+  - name: search_linear_issues
+    action: api/v1/accounts/integrations/linear#search_issue
+    route: GET /api/v1/accounts/:account_id/integrations/linear/search_issue
+    title: "Search Linear issues"
+    description: "Linear issues matching a search."
+    who: everyone
+    feature: linear_integration
+    args:
+      - {name: q, in: query, type: "string", required: true, maxLength: 200, description: "What to search for."}
+  - name: list_linear_teams
+    action: api/v1/accounts/integrations/linear#teams
+    route: GET /api/v1/accounts/:account_id/integrations/linear/teams
+    title: "List Linear teams"
+    description: "The Linear teams an issue can be filed in."
+    who: everyone
+    feature: linear_integration
+  - name: list_linear_team_options
+    action: api/v1/accounts/integrations/linear#team_entities
+    route: GET /api/v1/accounts/:account_id/integrations/linear/team_entities
+    title: "List a Linear team's options"
+    description: "A Linear team's users, projects, states and labels, as the issue form offers them."
+    who: everyone
+    feature: linear_integration
+    args:
+      - {name: team_id, in: query, type: "string", required: true}
+  - name: get_captain_settings
+    action: api/v1/accounts/captain/preferences#show
+    route: GET /api/v1/accounts/:account_id/captain/preferences
+    title: "Show Captain AI settings"
+    description: "Which Captain AI features are on for the account and the model each uses."
+    who: everyone
+    feature: captain_integration
+  - name: list_captain_assistants
+    action: api/v1/accounts/captain/assistants#index
+    route: GET /api/v1/accounts/:account_id/captain/assistants
+    title: "List Captain assistants"
+    description: "The account's Captain AI assistants with their descriptions and settings."
+    who: everyone
+    feature: captain_integration
+  - name: get_captain_assistant
+    action: api/v1/accounts/captain/assistants#show
+    route: GET /api/v1/accounts/:account_id/captain/assistants/:id
+    title: "Show a Captain assistant"
+    description: "One Captain AI assistant: its instructions, product name, feature switches and guardrails."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: assistant_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_captain_tools
+    action: api/v1/accounts/captain/assistants#tools
+    route: GET /api/v1/accounts/:account_id/captain/assistants/tools
+    title: "List Captain's built-in tools"
+    description: "The tools a Captain assistant can be given, and what each does. Administrators only."
+    who: admin
+    feature: captain_integration
+  - name: list_captain_assistant_inboxes
+    action: api/v1/accounts/captain/inboxes#index
+    route: GET /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes
+    title: "List a Captain assistant's inboxes"
+    description: "The inboxes a Captain assistant answers in."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: assistant_id, in: path, type: "integer", required: true}
+  - name: list_captain_scenarios
+    action: api/v1/accounts/captain/scenarios#index
+    route: GET /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios
+    title: "List a Captain assistant's scenarios"
+    description: "A Captain assistant's scenarios: when each applies and what the assistant should do."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: assistant_id, in: path, type: "integer", required: true}
+  - name: get_captain_scenario
+    action: api/v1/accounts/captain/scenarios#show
+    route: GET /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id
+    title: "Show a Captain scenario"
+    description: "One Captain scenario."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: assistant_id, in: path, type: "integer", required: true}
+      - {name: scenario_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_captain_faqs
+    action: api/v1/accounts/captain/assistant_responses#index
+    route: GET /api/v1/accounts/:account_id/captain/assistant_responses
+    title: "List Captain FAQs"
+    description: "The question-and-answer pairs Captain assistants answer from, with their status and source document."
+    who: everyone
+    feature: captain_integration
+  - name: get_captain_faq
+    action: api/v1/accounts/captain/assistant_responses#show
+    route: GET /api/v1/accounts/:account_id/captain/assistant_responses/:id
+    title: "Show a Captain FAQ"
+    description: "One Captain question-and-answer pair."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: faq_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_captain_documents
+    action: api/v1/accounts/captain/documents#index
+    route: GET /api/v1/accounts/:account_id/captain/documents
+    title: "List Captain documents"
+    description: "The documents and web pages Captain assistants learn from, with their status."
+    who: everyone
+    feature: captain_integration
+  - name: get_captain_document
+    action: api/v1/accounts/captain/documents#show
+    route: GET /api/v1/accounts/:account_id/captain/documents/:id
+    title: "Show a Captain document"
+    description: "One Captain document and what was learned from it."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: document_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_my_copilot_threads
+    action: api/v1/accounts/captain/copilot_threads#index
+    route: GET /api/v1/accounts/:account_id/captain/copilot_threads
+    title: "List my Copilot threads"
+    description: "The person's own Copilot conversations with Captain, newest first."
+    who: everyone
+    feature: captain_integration
+  - name: list_copilot_messages
+    action: api/v1/accounts/captain/copilot_messages#index
+    route: GET /api/v1/accounts/:account_id/captain/copilot_threads/:copilot_thread_id/copilot_messages
+    title: "Show a Copilot thread"
+    description: "The messages of one of the person's Copilot threads."
+    who: everyone
+    feature: captain_integration
+    args:
+      - {name: copilot_thread_id, in: path, type: "integer", required: true}
+  - name: list_help_center_portals
+    action: api/v1/accounts/portals#index
+    route: GET /api/v1/accounts/:account_id/portals
+    title: "List help centers"
+    description: "The account's help center portals with their name, domain, locales and article counts."
+    who: everyone
+    feature: help_center
+  - name: get_help_center_portal
+    action: api/v1/accounts/portals#show
+    route: GET /api/v1/accounts/:account_id/portals/:id
+    title: "Show a help center"
+    description: "One help center portal and its settings."
+    who: everyone
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, param: "id", type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+  - name: get_help_center_ssl_status
+    action: api/v1/accounts/portals#ssl_status
+    route: GET /api/v1/accounts/:account_id/portals/:id/ssl_status
+    title: "Check a help center's domain certificate"
+    description: "Whether a help center's custom domain has a working certificate, checked with the DNS provider. Administrators only."
+    who: admin
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, param: "id", type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+  - name: list_help_center_categories
+    action: api/v1/accounts/categories#index
+    route: GET /api/v1/accounts/:account_id/portals/:portal_id/categories
+    title: "List help center categories"
+    description: "A help center's categories by locale, with their article counts."
+    who: everyone
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+  - name: get_help_center_category
+    action: api/v1/accounts/categories#show
+    route: GET /api/v1/accounts/:account_id/portals/:portal_id/categories/:id
+    title: "Show a help center category"
+    description: "One help center category. Administrators, or a custom role with the knowledge base."
+    who: kb
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+      - {name: category_id, in: path, param: "id", type: "integer", required: true}
+  - name: list_help_center_articles
+    action: api/v1/accounts/articles#index
+    route: GET /api/v1/accounts/:account_id/portals/:portal_id/articles
+    title: "List help articles"
+    description: "A help center's articles with their status, category, author and views, by locale, category or status."
+    who: everyone
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+  - name: get_help_center_article
+    action: api/v1/accounts/articles#show
+    route: GET /api/v1/accounts/:account_id/portals/:portal_id/articles/:id
+    title: "Read a help article"
+    description: "One help article with its full content. Administrators, or a custom role with the knowledge base."
+    who: kb
+    feature: help_center
+    args:
+      - {name: portal_id, in: path, type: "string", required: true, description: "The help center portal's slug, as list_help_center_portals gives it."}
+      - {name: article_id, in: path, param: "id", type: "integer", required: true}
+  - name: get_report_summary
+    action: api/v2/accounts/reports#summary
+    route: GET /api/v2/accounts/:account_id/reports/summary
+    title: "Summarize a report"
+    description: "Totals and averages for a date range (conversations, messages, first response, resolution and reply times, resolutions) and the previous period, for the account or one agent, inbox, label or team. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: type, in: query, type: "string", enum: ["account", "agent", "inbox", "label", "team"], description: "What the report is about."}
+      - {name: id, in: query, type: "integer", description: "The agent, inbox, label or team id when type is not account."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_report_timeseries
+    action: api/v2/accounts/reports#index
+    route: GET /api/v2/accounts/:account_id/reports
+    title: "Chart a report metric over time"
+    description: "One metric (conversations, messages, first response, resolution or reply time, resolutions, bot handoffs) over a date range by day, week or month, for the account or one agent, inbox, label or team. Needs report access."
+    who: reports
+    args:
+      - {name: metric, in: query, type: "string", required: true, enum: ["conversations_count", "incoming_messages_count", "outgoing_messages_count", "avg_first_response_time", "avg_resolution_time", "reply_time", "resolutions_count", "bot_resolutions_count", "bot_handoffs_count"]}
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: type, in: query, type: "string", enum: ["account", "agent", "inbox", "label", "team"], description: "What the report is about."}
+      - {name: id, in: query, type: "integer", description: "The agent, inbox, label or team id when type is not account."}
+      - {name: group_by, in: query, type: "string", enum: ["day", "week", "month", "year"]}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+      - {name: timezone_offset, in: query, type: "number", description: "Hours from UTC; India is 5.5."}
+  - name: get_conversation_counts
+    action: api/v2/accounts/reports#conversations
+    route: GET /api/v2/accounts/:account_id/reports/conversations
+    title: "Show open and unattended counts"
+    description: "Open, unattended, unassigned and pending conversation counts now, for the account or per agent. Needs report access."
+    who: reports
+    args:
+      - {name: type, in: query, type: "string", enum: ["account", "agent", "inbox", "label", "team"], description: "What the report is about."}
+      - {name: user_id, in: query, type: "integer"}
+  - name: get_bot_report_summary
+    action: api/v2/accounts/reports#bot_summary
+    route: GET /api/v2/accounts/:account_id/reports/bot_summary
+    title: "Summarize the bots' results"
+    description: "Bot conversations, resolutions and handoffs for a date range, with the previous period. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_bot_metrics
+    action: api/v2/accounts/reports#bot_metrics
+    route: GET /api/v2/accounts/:account_id/reports/bot_metrics
+    title: "Show bot metrics"
+    description: "Bot conversation and message counts and resolution and handoff rates for a date range. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+  - name: get_inbox_label_matrix
+    action: api/v2/accounts/reports#inbox_label_matrix
+    route: GET /api/v2/accounts/:account_id/reports/inbox_label_matrix
+    title: "Count conversations by inbox and label"
+    description: "How many conversations carry each label in each inbox, for a date range. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+  - name: get_first_response_time_spread
+    action: api/v2/accounts/reports#first_response_time_distribution
+    route: GET /api/v2/accounts/:account_id/reports/first_response_time_distribution
+    title: "Show the first-response time spread"
+    description: "How many conversations got their first response within each time bucket, by channel, for a date range. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+  - name: count_outgoing_messages
+    action: api/v2/accounts/reports#outgoing_messages_count
+    route: GET /api/v2/accounts/:account_id/reports/outgoing_messages_count
+    title: "Count outgoing messages"
+    description: "Outgoing messages for a date range, grouped by agent, team, inbox or label. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: group_by, in: query, type: "string", enum: ["agent", "team", "inbox", "label"]}
+  - name: get_agent_summary_report
+    action: api/v2/accounts/summary_reports#agent
+    route: GET /api/v2/accounts/:account_id/summary_reports/agent
+    title: "Summarize agents' performance"
+    description: "Per agent for a date range: conversations, resolutions, average first response and resolution times and replies. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_team_summary_report
+    action: api/v2/accounts/summary_reports#team
+    route: GET /api/v2/accounts/:account_id/summary_reports/team
+    title: "Summarize teams' performance"
+    description: "Per team for a date range: the same measures as the agent summary. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_inbox_summary_report
+    action: api/v2/accounts/summary_reports#inbox
+    route: GET /api/v2/accounts/:account_id/summary_reports/inbox
+    title: "Summarize inboxes' performance"
+    description: "Per inbox for a date range: conversations, resolutions and average response and resolution times. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_label_summary_report
+    action: api/v2/accounts/summary_reports#label
+    route: GET /api/v2/accounts/:account_id/summary_reports/label
+    title: "Summarize labels"
+    description: "Per label for a date range: conversations, resolutions and average times. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_channel_summary_report
+    action: api/v2/accounts/summary_reports#channel
+    route: GET /api/v2/accounts/:account_id/summary_reports/channel
+    title: "Summarize channels"
+    description: "Per channel type for a date range: conversation counts by status. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_orm_overview_report
+    action: api/v2/accounts/summary_reports#orm_overview
+    route: GET /api/v2/accounts/:account_id/summary_reports/orm_overview
+    title: "Show the ORM overview"
+    description: "ORM's health board for a date range: how much the AI handled alone, handoffs to people, deals and tickets created and the reviews pulse. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_ai_performance_report
+    action: api/v2/accounts/summary_reports#ai_performance
+    route: GET /api/v2/accounts/:account_id/summary_reports/ai_performance
+    title: "Show the AI performance report"
+    description: "How the AI assistant carried the social inbox for a date range: auto-send rate, confidence, handoffs, templates used and intent gates. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_crm_funnel_report
+    action: api/v2/accounts/summary_reports#crm_funnel
+    route: GET /api/v2/accounts/:account_id/summary_reports/crm_funnel
+    title: "Show the CRM lead funnel"
+    description: "Enquiries routed to a showroom, qualified leads and Zoho deals created for a date range, by vertical and enquiry category. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_google_reviews_report
+    action: api/v2/accounts/summary_reports#reviews
+    route: GET /api/v2/accounts/:account_id/summary_reports/reviews
+    title: "Show the Google reviews report"
+    description: "Google reviews for a date range: rating spread, automatic versus manual replies, and by store location. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: business_hours, in: query, type: "boolean", description: "Count only business hours."}
+  - name: get_live_conversation_metrics
+    action: api/v2/accounts/live_reports#conversation_metrics
+    route: GET /api/v2/accounts/:account_id/live_reports/conversation_metrics
+    title: "Show live conversation metrics"
+    description: "Right now: open, unattended, unassigned and pending conversations, optionally for one team. Needs report access."
+    who: reports
+  - name: get_live_metrics_by_group
+    action: api/v2/accounts/live_reports#grouped_conversation_metrics
+    route: GET /api/v2/accounts/:account_id/live_reports/grouped_conversation_metrics
+    title: "Show live metrics by agent or team"
+    description: "Right now, per agent, team or inbox: open, unattended and unassigned conversations. Needs report access."
+    who: reports
+  - name: list_csat_responses
+    action: api/v1/accounts/csat_survey_responses#index
+    route: GET /api/v1/accounts/:account_id/csat_survey_responses
+    title: "List CSAT responses"
+    description: "Customer satisfaction ratings and feedback by conversation, agent and inbox for a date range, 25 per page. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: get_csat_metrics
+    action: api/v1/accounts/csat_survey_responses#metrics
+    route: GET /api/v1/accounts/:account_id/csat_survey_responses/metrics
+    title: "Show CSAT totals"
+    description: "For a date range: surveys sent, responses, response rate and how the ratings spread. Needs report access."
+    who: reports
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+  - name: list_applied_slas
+    action: api/v1/accounts/applied_slas#index
+    route: GET /api/v1/accounts/:account_id/applied_slas
+    title: "List SLA results"
+    description: "Conversations with an SLA applied and whether each met or missed it, for a date range. Administrators only."
+    who: admin
+    feature: sla
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: get_sla_metrics
+    action: api/v1/accounts/applied_slas#metrics
+    route: GET /api/v1/accounts/:account_id/applied_slas/metrics
+    title: "Show SLA totals"
+    description: "How many conversations met or missed their SLA, and the hit rate, for a date range. Administrators only."
+    who: admin
+    feature: sla
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+  - name: list_reporting_events
+    action: api/v1/accounts/reporting_events#index
+    route: GET /api/v1/accounts/:account_id/reporting_events
+    title: "List reporting events"
+    description: "The account's reporting events (first responses, resolutions, reopenings) with their times, for a date range. Administrators only."
+    who: admin
+    args:
+      - {name: since, in: query, type: "integer", required: true, description: "Start, as Unix seconds."}
+      - {name: until, in: query, type: "integer", required: true, description: "End, as Unix seconds."}
+      - {name: page, in: query, type: "integer", minimum: 1, description: "Page number, from 1."}
+  - name: get_follow_up_report
+    action: api/v1/accounts/follow_up_reports#show
+    route: GET /api/v1/accounts/:account_id/follow_up_report
+    title: "Show the follow-ups report"
+    description: "Open and in-range conversation counts for each follow-up label the administrators chose. Needs report access."
+    who: reports
+  - name: get_forwarded_email_report
+    action: api/v1/accounts/forwarded_email_reports#show
+    route: GET /api/v1/accounts/:account_id/forwarded_email_report
+    title: "Show the forwarded emails report"
+    description: "The weekly Forwarded Emails report for one email category: each customer email first forwarded to a team that week, who got it and what came of it. Needs report access."
+    who: reports
+    args:
+      - {name: category, in: query, type: "string", required: true}
+      - {name: week, in: query, type: "string", pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "Any day of the week (India time); last week unless given."}
+  - name: list_forwarded_email_categories
+    action: api/v1/accounts/forwarded_email_reports#categories
+    route: GET /api/v1/accounts/:account_id/forwarded_email_report/categories
+    title: "List forwarded email categories"
+    description: "The email categories the Forwarded Emails report covers, from the bridge's routing rules. Needs report access."
+    who: reports
+  - name: get_my_year_in_review
+    action: api/v2/accounts/year_in_reviews#show
+    route: GET /api/v2/accounts/:account_id/year_in_review
+    title: "Show my year in review"
+    description: "The person's Year in Review for one year: conversations handled, busiest times and highlights."
+    who: everyone
+    args:
+      - {name: year, in: query, type: "integer", description: "The year; 2025 unless given."}
+write:
+  - {name: update_account_settings, action: api/v1/accounts#update, route: "PATCH|PUT /api/v1/accounts/:id", who: admin}
+  - {name: start_conversation, action: api/v1/accounts/conversations#create, route: "POST /api/v1/accounts/:account_id/conversations", who: everyone}
+  - {name: update_conversation, action: api/v1/accounts/conversations#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:id", who: everyone}
+  - {name: delete_conversation, action: api/v1/accounts/conversations#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:id", who: admin}
+  - {name: mute_conversation, action: api/v1/accounts/conversations#mute, route: "POST /api/v1/accounts/:account_id/conversations/:id/mute", who: everyone}
+  - {name: unmute_conversation, action: api/v1/accounts/conversations#unmute, route: "POST /api/v1/accounts/:account_id/conversations/:id/unmute", who: everyone}
+  - {name: email_conversation_transcript, action: api/v1/accounts/conversations#transcript, route: "POST /api/v1/accounts/:account_id/conversations/:id/transcript", who: everyone, note: "sends email"}
+  - {name: set_conversation_status, action: api/v1/accounts/conversations#toggle_status, route: "POST /api/v1/accounts/:account_id/conversations/:id/toggle_status", who: everyone}
+  - {name: set_conversation_priority, action: api/v1/accounts/conversations#toggle_priority, route: "POST /api/v1/accounts/:account_id/conversations/:id/toggle_priority", who: everyone}
+  - {name: mark_conversation_unread, action: api/v1/accounts/conversations#unread, route: "POST /api/v1/accounts/:account_id/conversations/:id/unread", who: everyone}
+  - {name: set_conversation_attributes, action: api/v1/accounts/conversations#custom_attributes, route: "POST /api/v1/accounts/:account_id/conversations/:id/custom_attributes", who: everyone}
+  - {name: send_message, action: api/v1/accounts/conversations/messages#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages", who: everyone, note: "reaches the customer"}
+  - {name: update_message_status, action: api/v1/accounts/conversations/messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone}
+  - {name: delete_message, action: api/v1/accounts/conversations/messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone}
+  - {name: translate_message, action: api/v1/accounts/conversations/messages#translate, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/translate", who: everyone, note: "calls Google Translate and stores the translation"}
+  - {name: retry_message, action: api/v1/accounts/conversations/messages#retry, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/retry", who: everyone}
+  - {name: mark_ai_suggestion_sent, action: api/v1/accounts/conversations/messages#mark_suggestion_sent, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/mark_suggestion_sent", who: everyone}
+  - {name: assign_conversation, action: api/v1/accounts/conversations/assignments#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/assignments", who: everyone}
+  - {name: set_conversation_labels, action: api/v1/accounts/conversations/labels#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/labels", who: everyone}
+  - {name: add_conversation_participants, action: api/v1/accounts/conversations/participants#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
+  - {name: set_conversation_participants, action: api/v1/accounts/conversations/participants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
+  - {name: remove_conversation_participants, action: api/v1/accounts/conversations/participants#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
+  - {name: save_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone}
+  - {name: discard_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone}
+  - {name: bulk_update_conversations, action: api/v1/accounts/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/bulk_actions", who: everyone}
+  - {name: create_contact, action: api/v1/accounts/contacts#create, route: "POST /api/v1/accounts/:account_id/contacts", who: everyone}
+  - {name: update_contact, action: api/v1/accounts/contacts#update, route: "PATCH|PUT /api/v1/accounts/:account_id/contacts/:id", who: everyone}
+  - {name: delete_contact, action: api/v1/accounts/contacts#destroy, route: "DELETE /api/v1/accounts/:account_id/contacts/:id", who: admin}
+  - {name: remove_contact_attributes, action: api/v1/accounts/contacts#destroy_custom_attributes, route: "POST /api/v1/accounts/:account_id/contacts/:id/destroy_custom_attributes", who: everyone}
+  - {name: add_contact_to_inbox, action: api/v1/accounts/contacts/contact_inboxes#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/contact_inboxes", who: everyone}
+  - {name: set_contact_labels, action: api/v1/accounts/contacts/labels#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/labels", who: everyone}
+  - {name: add_contact_note, action: api/v1/accounts/contacts/notes#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/notes", who: everyone}
+  - {name: update_contact_note, action: api/v1/accounts/contacts/notes#update, route: "PATCH|PUT /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id", who: everyone}
+  - {name: delete_contact_note, action: api/v1/accounts/contacts/notes#destroy, route: "DELETE /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id", who: everyone}
+  - {name: merge_contacts, action: api/v1/accounts/actions/contact_merges#create, route: "POST /api/v1/accounts/:account_id/actions/contact_merge", who: everyone}
+  - {name: create_company, action: api/v1/accounts/companies#create, route: "POST /api/v1/accounts/:account_id/companies", who: everyone}
+  - {name: update_company, action: api/v1/accounts/companies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/companies/:id", who: everyone}
+  - {name: delete_company, action: api/v1/accounts/companies#destroy, route: "DELETE /api/v1/accounts/:account_id/companies/:id", who: admin}
+  - {name: remove_company_attributes, action: api/v1/accounts/companies#destroy_custom_attributes, route: "POST /api/v1/accounts/:account_id/companies/:id/destroy_custom_attributes", who: everyone}
+  - {name: add_contact_to_company, action: api/v1/accounts/companies/contacts#create, route: "POST /api/v1/accounts/:account_id/companies/:company_id/contacts", who: everyone}
+  - {name: remove_contact_from_company, action: api/v1/accounts/companies/contacts#destroy, route: "DELETE /api/v1/accounts/:account_id/companies/:company_id/contacts/:id", who: everyone}
+  - {name: update_inbox_settings, action: api/v1/accounts/inboxes#update, route: "PATCH|PUT /api/v1/accounts/:account_id/inboxes/:id", who: admin, note: "a future write must refuse channel credentials"}
+  - {name: delete_inbox, action: api/v1/accounts/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:id", who: admin}
+  - {name: sync_inbox_whatsapp_templates, action: api/v1/accounts/inboxes#sync_templates, route: "POST /api/v1/accounts/:account_id/inboxes/:id/sync_templates", who: admin}
+  - {name: create_inbox_csat_template, action: api/v1/accounts/inbox_csat_templates#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template", who: admin}
+  - {name: analyze_csat_template, action: api/v1/accounts/inbox_csat_templates#analyze, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template/analyze", who: everyone, note: "runs a Captain model call"}
+  - {name: update_inbox_working_hours, action: api/v1/accounts/working_hours#update, route: "PATCH|PUT /api/v1/accounts/:account_id/working_hours/:id", who: admin}
+  - {name: create_team, action: api/v1/accounts/teams#create, route: "POST /api/v1/accounts/:account_id/teams", who: admin}
+  - {name: update_team, action: api/v1/accounts/teams#update, route: "PATCH|PUT /api/v1/accounts/:account_id/teams/:id", who: admin}
+  - {name: delete_team, action: api/v1/accounts/teams#destroy, route: "DELETE /api/v1/accounts/:account_id/teams/:id", who: admin}
+  - {name: create_assignment_policy, action: api/v1/accounts/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/assignment_policies", who: admin}
+  - {name: update_assignment_policy, action: api/v1/accounts/assignment_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/assignment_policies/:id", who: admin}
+  - {name: delete_assignment_policy, action: api/v1/accounts/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:id", who: admin}
+  - {name: add_inbox_to_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#create, route: "POST /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes", who: admin}
+  - {name: remove_inbox_from_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes/:id", who: admin}
+  - {name: set_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin}
+  - {name: remove_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin}
+  - {name: create_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies", who: admin}
+  - {name: update_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin}
+  - {name: delete_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin}
+  - {name: add_agent_to_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users", who: admin}
+  - {name: remove_agent_from_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users/:id", who: admin}
+  - {name: set_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits", who: admin}
+  - {name: update_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin}
+  - {name: remove_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin}
+  - {name: create_label, action: api/v1/accounts/labels#create, route: "POST /api/v1/accounts/:account_id/labels", who: admin}
+  - {name: update_label, action: api/v1/accounts/labels#update, route: "PATCH|PUT /api/v1/accounts/:account_id/labels/:id", who: admin}
+  - {name: delete_label, action: api/v1/accounts/labels#destroy, route: "DELETE /api/v1/accounts/:account_id/labels/:id", who: admin}
+  - {name: create_canned_response, action: api/v1/accounts/canned_responses#create, route: "POST /api/v1/accounts/:account_id/canned_responses", who: everyone}
+  - {name: update_canned_response, action: api/v1/accounts/canned_responses#update, route: "PATCH|PUT /api/v1/accounts/:account_id/canned_responses/:id", who: everyone}
+  - {name: delete_canned_response, action: api/v1/accounts/canned_responses#destroy, route: "DELETE /api/v1/accounts/:account_id/canned_responses/:id", who: everyone}
+  - {name: create_macro, action: api/v1/accounts/macros#create, route: "POST /api/v1/accounts/:account_id/macros", who: everyone}
+  - {name: update_macro, action: api/v1/accounts/macros#update, route: "PATCH|PUT /api/v1/accounts/:account_id/macros/:id", who: everyone}
+  - {name: delete_macro, action: api/v1/accounts/macros#destroy, route: "DELETE /api/v1/accounts/:account_id/macros/:id", who: everyone}
+  - {name: run_macro, action: api/v1/accounts/macros#execute, route: "POST /api/v1/accounts/:account_id/macros/:id/execute", who: everyone}
+  - {name: create_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#create, route: "POST /api/v1/accounts/:account_id/custom_attribute_definitions", who: admin}
+  - {name: update_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin}
+  - {name: delete_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin}
+  - {name: save_filter, action: api/v1/accounts/custom_filters#create, route: "POST /api/v1/accounts/:account_id/custom_filters", who: everyone}
+  - {name: update_saved_filter, action: api/v1/accounts/custom_filters#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_filters/:id", who: everyone}
+  - {name: delete_saved_filter, action: api/v1/accounts/custom_filters#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_filters/:id", who: everyone}
+  - {name: create_automation_rule, action: api/v1/accounts/automation_rules#create, route: "POST /api/v1/accounts/:account_id/automation_rules", who: admin}
+  - {name: update_automation_rule, action: api/v1/accounts/automation_rules#update, route: "PATCH|PUT /api/v1/accounts/:account_id/automation_rules/:id", who: admin}
+  - {name: delete_automation_rule, action: api/v1/accounts/automation_rules#destroy, route: "DELETE /api/v1/accounts/:account_id/automation_rules/:id", who: admin}
+  - {name: copy_automation_rule, action: api/v1/accounts/automation_rules#clone, route: "POST /api/v1/accounts/:account_id/automation_rules/:automation_rule_id/clone", who: admin}
+  - {name: create_sla_policy, action: api/v1/accounts/sla_policies#create, route: "POST /api/v1/accounts/:account_id/sla_policies", who: admin}
+  - {name: update_sla_policy, action: api/v1/accounts/sla_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/sla_policies/:id", who: admin}
+  - {name: delete_sla_policy, action: api/v1/accounts/sla_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/sla_policies/:id", who: admin}
+  - {name: create_dashboard_app, action: api/v1/accounts/dashboard_apps#create, route: "POST /api/v1/accounts/:account_id/dashboard_apps", who: everyone}
+  - {name: update_dashboard_app, action: api/v1/accounts/dashboard_apps#update, route: "PATCH|PUT /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone}
+  - {name: delete_dashboard_app, action: api/v1/accounts/dashboard_apps#destroy, route: "DELETE /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone}
+  - {name: create_offer, action: api/v1/accounts/offers#create, route: "POST /api/v1/accounts/:account_id/offers", who: admin}
+  - {name: update_offer, action: api/v1/accounts/offers#update, route: "PATCH|PUT /api/v1/accounts/:account_id/offers/:id", who: admin}
+  - {name: delete_offer, action: api/v1/accounts/offers#destroy, route: "DELETE /api/v1/accounts/:account_id/offers/:id", who: admin}
+  - {name: send_offer_to_conversation, action: api/v1/accounts/offers#send_to_conversation, route: "POST /api/v1/accounts/:account_id/offers/:id/send_to_conversation", who: everyone, note: "reaches the customer"}
+  - {name: save_mail_draft, action: api/v1/accounts/mail_drafts#create, route: "POST /api/v1/accounts/:account_id/mail_drafts", who: everyone}
+  - {name: update_mail_draft, action: api/v1/accounts/mail_drafts#update, route: "PATCH|PUT /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone}
+  - {name: delete_mail_draft, action: api/v1/accounts/mail_drafts#destroy, route: "DELETE /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone}
+  - {name: mark_notification_read, action: api/v1/accounts/notifications#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notifications/:id", who: everyone}
+  - {name: delete_notification, action: api/v1/accounts/notifications#destroy, route: "DELETE /api/v1/accounts/:account_id/notifications/:id", who: everyone}
+  - {name: mark_all_notifications_read, action: api/v1/accounts/notifications#read_all, route: "POST /api/v1/accounts/:account_id/notifications/read_all", who: everyone}
+  - {name: delete_all_notifications, action: api/v1/accounts/notifications#destroy_all, route: "POST /api/v1/accounts/:account_id/notifications/destroy_all", who: everyone}
+  - {name: snooze_notification, action: api/v1/accounts/notifications#snooze, route: "POST /api/v1/accounts/:account_id/notifications/:id/snooze", who: everyone}
+  - {name: mark_notification_unread, action: api/v1/accounts/notifications#unread, route: "POST /api/v1/accounts/:account_id/notifications/:id/unread", who: everyone}
+  - {name: update_my_notification_settings, action: api/v1/accounts/notification_settings#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notification_settings", who: everyone}
+  - {name: create_campaign, action: api/v1/accounts/campaigns#create, route: "POST /api/v1/accounts/:account_id/campaigns", who: admin}
+  - {name: update_campaign, action: api/v1/accounts/campaigns#update, route: "PATCH|PUT /api/v1/accounts/:account_id/campaigns/:id", who: admin}
+  - {name: delete_campaign, action: api/v1/accounts/campaigns#destroy, route: "DELETE /api/v1/accounts/:account_id/campaigns/:id", who: admin}
+  - {name: send_campaign_test_message, action: api/v1/accounts/campaigns#test_message, route: "POST /api/v1/accounts/:account_id/campaigns/test_message", who: admin, note: "sends WhatsApp"}
+  - {name: pause_campaign, action: api/v1/accounts/campaigns#pause, route: "POST /api/v1/accounts/:account_id/campaigns/:id/pause", who: admin}
+  - {name: resume_campaign, action: api/v1/accounts/campaigns#resume, route: "POST /api/v1/accounts/:account_id/campaigns/:id/resume", who: admin}
+  - {name: cancel_campaign, action: api/v1/accounts/campaigns#cancel, route: "POST /api/v1/accounts/:account_id/campaigns/:id/cancel", who: admin}
+  - {name: retry_failed_campaign_messages, action: api/v1/accounts/campaigns#retry_failed, route: "POST /api/v1/accounts/:account_id/campaigns/:id/retry_failed", who: admin}
+  - {name: create_whatsapp_template, action: api/v1/accounts/whatsapp_templates#create, route: "POST /api/v1/accounts/:account_id/whatsapp_templates", who: admin}
+  - {name: update_whatsapp_template, action: api/v1/accounts/whatsapp_templates#update, route: "PATCH|PUT /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin}
+  - {name: delete_whatsapp_template, action: api/v1/accounts/whatsapp_templates#destroy, route: "DELETE /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin}
+  - {name: submit_whatsapp_template, action: api/v1/accounts/whatsapp_templates#submit, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/:id/submit", who: admin}
+  - {name: sync_whatsapp_templates, action: api/v1/accounts/whatsapp_templates#sync, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/sync", who: admin}
+  - {name: record_whatsapp_consent, action: api/v1/accounts/whatsapp_consents#create, route: "POST /api/v1/accounts/:account_id/whatsapp_consents", who: admin}
+  - {name: resolve_zoho_ticket_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_ticket_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_ticket_decision", who: everyone}
+  - {name: regenerate_review_reply, action: api/v1/accounts/integrations/zoho_bridge#regenerate_review_reply, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/regenerate_review_reply", who: everyone, note: "runs a model call"}
+  - {name: resolve_email_category_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_category_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_category_decision", who: everyone, note: "forwards the email"}
+  - {name: create_zoho_crm_deal, action: api/v1/accounts/integrations/zoho_bridge#create_crm_deal, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_deal", who: everyone}
+  - {name: escalate_google_review, action: api/v1/accounts/integrations/zoho_bridge#escalate_review, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/escalate_review", who: everyone, note: "sends email"}
+  - {name: draft_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#draft_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/draft_ticket", who: everyone, note: "creates nothing, but runs a paid model call: not a read"}
+  - {name: create_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#create_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_ticket", who: everyone}
+  - {name: forward_conversation_email, action: api/v1/accounts/integrations/zoho_bridge#forward_email, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/forward_email", who: everyone, note: "sends email"}
+  - {name: publish_email_routing_rules, action: api/v1/accounts/integrations/routing_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/publish", who: admin}
+  - {name: restore_email_routing_rules, action: api/v1/accounts/integrations/routing_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/rollback", who: admin}
+  - {name: preview_email_routing, action: api/v1/accounts/integrations/routing_config#preview, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/preview", who: admin, note: "saves nothing, but runs the email classifier model: not a read"}
+  - {name: refresh_zoho_users, action: api/v1/accounts/integrations/routing_config#owner_sync_run, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/owner_sync_run", who: admin}
+  - {name: publish_store_settings, action: api/v1/accounts/integrations/stores_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/publish", who: admin}
+  - {name: restore_store_settings, action: api/v1/accounts/integrations/stores_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/rollback", who: admin}
+  - {name: publish_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/publish", who: admin}
+  - {name: restore_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/rollback", who: admin}
+  - {name: publish_review_reply_categories, action: api/v1/accounts/integrations/review_categories_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/review_categories_config/publish", who: admin}
+  - {name: publish_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/publish", who: admin}
+  - {name: restore_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/rollback", who: admin}
+  - {name: send_crm_automation_test, action: api/v1/accounts/integrations/crm_automation_config#test_send, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/test_send", who: admin, note: "sends WhatsApp"}
+  - {name: publish_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/publish", who: admin}
+  - {name: sync_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#sync, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync", who: admin}
+  - {name: update_product_catalog_sync, action: api/v1/accounts/integrations/product_catalog_config#sync_settings, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync_settings", who: admin}
+  - {name: restore_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/rollback", who: admin}
+  - {name: create_linear_issue, action: api/v1/accounts/integrations/linear#create_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/create_issue", who: everyone}
+  - {name: link_linear_issue, action: api/v1/accounts/integrations/linear#link_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/link_issue", who: everyone}
+  - {name: unlink_linear_issue, action: api/v1/accounts/integrations/linear#unlink_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/unlink_issue", who: everyone}
+  - {name: run_integration_action, action: api/v1/accounts/integrations/hooks#process_event, route: "POST /api/v1/accounts/:account_id/integrations/hooks/:id/process_event", who: everyone, note: "e.g. the OpenAI integration: a paid model call"}
+  - {name: start_video_call, action: api/v1/accounts/integrations/dyte#create_a_meeting, route: "POST /api/v1/accounts/:account_id/integrations/dyte/create_a_meeting", who: everyone, note: "posts a meeting link to the customer"}
+  - {name: update_captain_settings, action: api/v1/accounts/captain/preferences#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/preferences", who: admin}
+  - {name: create_captain_assistant, action: api/v1/accounts/captain/assistants#create, route: "POST /api/v1/accounts/:account_id/captain/assistants", who: admin}
+  - {name: update_captain_assistant, action: api/v1/accounts/captain/assistants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:id", who: admin}
+  - {name: delete_captain_assistant, action: api/v1/accounts/captain/assistants#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:id", who: admin}
+  - {name: try_captain_assistant, action: api/v1/accounts/captain/assistants#playground, route: "POST /api/v1/accounts/:account_id/captain/assistants/:id/playground", who: everyone, note: "runs a model call"}
+  - {name: connect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes", who: admin}
+  - {name: disconnect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes/:inbox_id", who: admin}
+  - {name: create_captain_scenario, action: api/v1/accounts/captain/scenarios#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios", who: admin}
+  - {name: update_captain_scenario, action: api/v1/accounts/captain/scenarios#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin}
+  - {name: delete_captain_scenario, action: api/v1/accounts/captain/scenarios#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin}
+  - {name: create_captain_faq, action: api/v1/accounts/captain/assistant_responses#create, route: "POST /api/v1/accounts/:account_id/captain/assistant_responses", who: everyone}
+  - {name: update_captain_faq, action: api/v1/accounts/captain/assistant_responses#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone}
+  - {name: delete_captain_faq, action: api/v1/accounts/captain/assistant_responses#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone}
+  - {name: bulk_update_captain_faqs, action: api/v1/accounts/captain/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/captain/bulk_actions", who: everyone}
+  - {name: start_copilot_thread, action: api/v1/accounts/captain/copilot_threads#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads", who: everyone, note: "runs a model call"}
+  - {name: ask_copilot, action: api/v1/accounts/captain/copilot_messages#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads/:copilot_thread_id/copilot_messages", who: everyone, note: "runs a model call"}
+  - {name: add_captain_document, action: api/v1/accounts/captain/documents#create, route: "POST /api/v1/accounts/:account_id/captain/documents", who: admin}
+  - {name: delete_captain_document, action: api/v1/accounts/captain/documents#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/documents/:id", who: admin}
+  - {name: sync_captain_document, action: api/v1/accounts/captain/documents#sync, route: "POST /api/v1/accounts/:account_id/captain/documents/:id/sync", who: admin}
+  - {name: rewrite_with_captain, action: api/v1/accounts/captain/tasks#rewrite, route: "POST /api/v1/accounts/:account_id/captain/tasks/rewrite", who: everyone, note: "runs a model call"}
+  - {name: summarize_with_captain, action: api/v1/accounts/captain/tasks#summarize, route: "POST /api/v1/accounts/:account_id/captain/tasks/summarize", who: everyone, note: "runs a model call"}
+  - {name: suggest_reply_with_captain, action: api/v1/accounts/captain/tasks#reply_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/reply_suggestion", who: everyone, note: "runs a model call"}
+  - {name: suggest_labels_with_captain, action: api/v1/accounts/captain/tasks#label_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/label_suggestion", who: everyone, note: "runs a model call"}
+  - {name: suggest_follow_up_with_captain, action: api/v1/accounts/captain/tasks#follow_up, route: "POST /api/v1/accounts/:account_id/captain/tasks/follow_up", who: everyone, note: "runs a model call"}
+  - {name: create_help_center_portal, action: api/v1/accounts/portals#create, route: "POST /api/v1/accounts/:account_id/portals", who: admin}
+  - {name: update_help_center_portal, action: api/v1/accounts/portals#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:id", who: kb}
+  - {name: delete_help_center_portal, action: api/v1/accounts/portals#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:id", who: admin}
+  - {name: archive_help_center_portal, action: api/v1/accounts/portals#archive, route: "PATCH /api/v1/accounts/:account_id/portals/:id/archive", who: admin}
+  - {name: send_help_center_domain_instructions, action: api/v1/accounts/portals#send_instructions, route: "POST /api/v1/accounts/:account_id/portals/:id/send_instructions", who: admin, note: "sends email"}
+  - {name: create_help_center_category, action: api/v1/accounts/categories#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories", who: kb}
+  - {name: update_help_center_category, action: api/v1/accounts/categories#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb}
+  - {name: delete_help_center_category, action: api/v1/accounts/categories#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb}
+  - {name: reorder_help_center_categories, action: api/v1/accounts/categories#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories/reorder", who: kb}
+  - {name: create_help_article, action: api/v1/accounts/articles#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles", who: kb}
+  - {name: update_help_article, action: api/v1/accounts/articles#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb}
+  - {name: delete_help_article, action: api/v1/accounts/articles#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb}
+  - {name: reorder_help_articles, action: api/v1/accounts/articles#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/reorder", who: kb}
+  - {name: translate_help_articles, action: api/v1/accounts/articles/bulk_actions#translate, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/translate", who: kb, note: "runs a model call"}
+  - {name: set_help_articles_status, action: api/v1/accounts/articles/bulk_actions#update_status, route: "PATCH /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/update_status", who: kb}
+  - {name: delete_help_articles, action: api/v1/accounts/articles/bulk_actions#delete_articles, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/delete_articles", who: kb}
+  - {name: update_csat_review_notes, action: api/v1/accounts/csat_survey_responses#update, route: "PATCH /api/v1/accounts/:account_id/csat_survey_responses/:id", who: reports}
+  - {name: send_forwarded_email_report, action: api/v1/accounts/forwarded_email_reports#deliver, route: "POST /api/v1/accounts/:account_id/forwarded_email_report/deliver", who: reports, note: "sends email"}
+  - {name: set_follow_up_report_labels, action: api/v1/accounts/follow_up_reports#update, route: "PATCH|PUT /api/v1/accounts/:account_id/follow_up_report", who: reports}
+web_only:
+  access:
+    - "api/v1/accounts#create"
+    - "api/v1/accounts/inboxes#set_agent_bot"
+    - "api/v1/accounts/inbox_members#create"
+    - "api/v1/accounts/inbox_members#destroy"
+    - "api/v1/accounts/inbox_members#update"
+    - "api/v1/accounts/agents#create"
+    - "api/v1/accounts/agents#update"
+    - "api/v1/accounts/agents#destroy"
+    - "api/v1/accounts/agents#bulk_create"
+    - "api/v1/accounts/team_members#create"
+    - "api/v1/accounts/team_members#destroy"
+    - "api/v1/accounts/team_members#update"
+    - "api/v1/accounts/custom_roles#create"
+    - "api/v1/accounts/custom_roles#update"
+    - "api/v1/accounts/custom_roles#destroy"
+    - "api/v1/accounts/agent_bots#create"
+    - "api/v1/accounts/agent_bots#update"
+    - "api/v1/accounts/agent_bots#destroy"
+    - "api/v2/accounts#create"
+  browser_state:
+    - "api/v1/accounts#update_active_at"
+    - "api/v1/accounts#cache_keys"
+    - "api/v1/accounts/conversations#toggle_typing_status"
+    - "api/v1/accounts/conversations#update_last_seen"
+    - "api/v1/profiles#availability"
+    - "api/v1/profiles#auto_offline"
+    - "api/v1/profiles#set_active_account"
+    - "api/v1/notification_subscriptions#create"
+    - "api/v1/notification_subscriptions#destroy"
+  files:
+    - "api/v1/accounts/conversations/direct_uploads#create"
+    - "api/v1/accounts/contacts#import"
+    - "api/v1/accounts/contacts#avatar"
+    - "api/v1/accounts/companies#avatar"
+    - "api/v1/accounts/inboxes#avatar"
+    - "api/v1/accounts/agent_bots#avatar"
+    - "api/v1/accounts/whatsapp_templates#upload_sample"
+    - "api/v1/accounts/whatsapp_consents#import"
+    - "api/v1/accounts/integrations/product_catalog_config#preview"
+    - "api/v1/accounts/portals#logo"
+    - "api/v1/profiles#avatar"
+    - "api/v1/accounts/upload#create"
+    - "active_storage/blobs/redirect#show"
+    - "active_storage/blobs/proxy#show"
+    - "active_storage/representations/redirect#show"
+    - "active_storage/representations/proxy#show"
+    - "active_storage/disk#show"
+    - "active_storage/disk#update"
+    - "active_storage/direct_uploads#create"
+    - "slack_uploads#show"
+  bytes:
+    - "api/v1/accounts/contacts#export"
+    - "api/v1/accounts/campaign_deliveries#export"
+    - "api/v1/accounts/integrations/product_catalog_config#export"
+    - "api/v2/accounts/reports#agents"
+    - "api/v2/accounts/reports#inboxes"
+    - "api/v2/accounts/reports#labels"
+    - "api/v2/accounts/reports#teams"
+    - "api/v2/accounts/reports#conversations_summary"
+    - "api/v2/accounts/reports#conversation_traffic"
+    - "api/v1/accounts/csat_survey_responses#download"
+    - "api/v1/accounts/applied_slas#download"
+    - "api/v1/accounts/reviews_reports#show"
+    - "api/v1/accounts/orm_exports#deals"
+    - "api/v1/accounts/orm_exports#tickets"
+    - "api/v1/accounts/orm_exports#emi"
+    - "api/v1/accounts/orm_exports#overview"
+    - "api/v1/accounts/orm_exports#monthly"
+  none:
+    - "api/v1/accounts/contacts/notes#new"
+    - "api/v1/accounts/contacts/notes#edit"
+    - "api/v1/accounts/teams#new"
+    - "api/v1/accounts/teams#edit"
+    - "api/v1/accounts/assignment_policies#new"
+    - "api/v1/accounts/assignment_policies#edit"
+    - "api/v1/accounts/captain/assistants#new"
+    - "api/v1/accounts/captain/assistants#edit"
+    - "api/v1/accounts/captain/scenarios#new"
+    - "api/v1/accounts/captain/scenarios#edit"
+    - "api/v1/accounts/captain/assistant_responses#new"
+    - "api/v1/accounts/captain/assistant_responses#edit"
+    - "api/v1/accounts/captain/custom_tools#new"
+    - "api/v1/accounts/captain/custom_tools#edit"
+    - "api/v1/accounts/portals#new"
+    - "api/v1/accounts/portals#edit"
+    - "api/v1/accounts/categories#new"
+    - "api/v1/accounts/categories#edit"
+    - "api/v1/accounts/articles#new"
+    - "api/v1/accounts/articles#edit"
+    - "accounts#index"
+    - "accounts#new"
+    - "accounts#create"
+    - "accounts#show"
+    - "accounts#edit"
+    - "accounts#update"
+    - "accounts#destroy"
+    - "conversations#show"
+  voice:
+    - "api/v1/accounts/contacts/calls#create"
+    - "api/v1/accounts/conference#create"
+    - "api/v1/accounts/conference#destroy"
+    - "api/v1/accounts/conference#token"
+    - "api/v1/accounts/whatsapp_calls#show"
+    - "api/v1/accounts/whatsapp_calls#accept"
+    - "api/v1/accounts/whatsapp_calls#reject"
+    - "api/v1/accounts/whatsapp_calls#terminate"
+    - "api/v1/accounts/whatsapp_calls#upload_recording"
+    - "api/v1/accounts/whatsapp_calls#initiate"
+  channels:
+    - "api/v1/accounts/inboxes#create"
+    - "api/v1/accounts/inboxes#register_webhook"
+    - "api/v1/accounts/channels/twilio_channels#create"
+    - "api/v1/accounts/twitter/authorizations#create"
+    - "api/v1/accounts/microsoft/authorizations#create"
+    - "api/v1/accounts/google/authorizations#create"
+    - "api/v1/accounts/instagram/authorizations#create"
+    - "api/v1/accounts/tiktok/authorizations#create"
+    - "api/v1/accounts/notion/authorizations#create"
+    - "api/v1/accounts/whatsapp/authorizations#create"
+    - "api/v1/accounts/callbacks#register_facebook_page"
+    - "api/v1/accounts/callbacks#facebook_pages"
+    - "api/v1/accounts/callbacks#reauthorize_page"
+    - "twitter/callbacks#show"
+    - "linear/callbacks#show"
+    - "shopify/callbacks#show"
+    - "microsoft/callbacks#show"
+    - "google/callbacks#show"
+    - "instagram/callbacks#show"
+    - "tiktok/callbacks#show"
+    - "notion/callbacks#show"
+  duplicate:
+    - "api/v1/accounts/inboxes#assignable_agents"
+  tokens:
+    - "api/v1/accounts/inboxes#agent_bot"
+    - "api/v1/accounts/inboxes#reset_secret"
+    - "api/v1/accounts/agent_bots#index"
+    - "api/v1/accounts/agent_bots#show"
+    - "api/v1/accounts/agent_bots#reset_access_token"
+    - "api/v1/accounts/agent_bots#reset_secret"
+    - "api/v1/accounts/integrations/dyte#add_participant_to_meeting"
+    - "api/v1/profiles#show"
+    - "api/v1/profiles#reset_access_token"
+  sign_in:
+    - "api/v1/accounts/saml_settings#show"
+    - "api/v1/accounts/saml_settings#create"
+    - "api/v1/accounts/saml_settings#update"
+    - "api/v1/accounts/saml_settings#destroy"
+    - "api/v1/profiles#update"
+    - "api/v1/profiles#resend_confirmation"
+    - "api/v1/profile/mfa#show"
+    - "api/v1/profile/mfa#create"
+    - "api/v1/profile/mfa#destroy"
+    - "api/v1/profile/mfa#verify"
+    - "api/v1/profile/mfa#backup_codes"
+    - "api/v1/auth#saml_login"
+    - "devise_overrides/sessions#new"
+    - "devise_overrides/sessions#create"
+    - "devise_overrides/sessions#destroy"
+    - "devise_overrides/passwords#new"
+    - "devise_overrides/passwords#edit"
+    - "devise_overrides/passwords#update"
+    - "devise_overrides/passwords#create"
+    - "devise_token_auth/registrations#cancel"
+    - "devise_token_auth/registrations#new"
+    - "devise_token_auth/registrations#edit"
+    - "devise_token_auth/registrations#update"
+    - "devise_token_auth/registrations#destroy"
+    - "devise_token_auth/registrations#create"
+    - "devise_overrides/confirmations#new"
+    - "devise_overrides/confirmations#show"
+    - "devise_overrides/confirmations#create"
+    - "devise_overrides/token_validations#validate_token"
+    - "devise_overrides/omniauth_callbacks#redirect_callbacks"
+    - "devise_overrides/omniauth_callbacks#omniauth_failure"
+    - "devise_overrides/omniauth_callbacks#omniauth_success"
+    - "devise/omniauth_callbacks#passthru"
+    - "devise/omniauth_callbacks#google_oauth2"
+    - "devise/omniauth_callbacks#saml"
+    - "GET|POST /auth/:provider"
+    - "auth/resend_confirmations#create"
+  secrets:
+    - "api/v1/accounts/webhooks#index"
+    - "api/v1/accounts/webhooks#create"
+    - "api/v1/accounts/webhooks#update"
+    - "api/v1/accounts/webhooks#destroy"
+    - "api/v1/accounts/integrations/linear#destroy"
+    - "api/v1/accounts/integrations/shopify#auth"
+    - "api/v1/accounts/integrations/shopify#destroy"
+    - "api/v1/accounts/integrations/notion#destroy"
+    - "api/v1/accounts/integrations/apps#index"
+    - "api/v1/accounts/integrations/apps#show"
+    - "api/v1/accounts/integrations/hooks#show"
+    - "api/v1/accounts/integrations/hooks#create"
+    - "api/v1/accounts/integrations/hooks#update"
+    - "api/v1/accounts/integrations/hooks#destroy"
+    - "api/v1/accounts/integrations/slack#create"
+    - "api/v1/accounts/integrations/slack#update"
+    - "api/v1/accounts/integrations/slack#destroy"
+    - "api/v1/accounts/integrations/slack#list_all_channels"
+    - "api/v1/accounts/captain/custom_tools#index"
+    - "api/v1/accounts/captain/custom_tools#show"
+    - "api/v1/accounts/captain/custom_tools#create"
+    - "api/v1/accounts/captain/custom_tools#update"
+    - "api/v1/accounts/captain/custom_tools#destroy"
+    - "api/v1/accounts/captain/custom_tools#test"
+  machine:
+    - "api/v1/accounts/google_review_store_stats#create"
+    - "internal/dm_bot#webhook"
+  super_admin:
+    - "super_admin/devise/sessions#new"
+    - "super_admin/devise/sessions#create"
+    - "super_admin/devise/sessions#destroy"
+    - "devise/passwords#new"
+    - "devise/passwords#edit"
+    - "devise/passwords#update"
+    - "devise/passwords#create"
+    - "devise/registrations#cancel"
+    - "devise/registrations#new"
+    - "devise/registrations#edit"
+    - "devise/registrations#update"
+    - "devise/registrations#destroy"
+    - "devise/registrations#create"
+    - "devise/confirmations#new"
+    - "devise/confirmations#show"
+    - "devise/confirmations#create"
+    - "super_admin/dashboard#index"
+    - "super_admin/app_configs#show"
+    - "super_admin/app_configs#create"
+    - "super_admin/push_diagnostics#show"
+    - "super_admin/push_diagnostics#create"
+    - "super_admin/push_diagnostics#destroy_subscriptions"
+    - "super_admin/accounts#index"
+    - "super_admin/accounts#new"
+    - "super_admin/accounts#create"
+    - "super_admin/accounts#show"
+    - "super_admin/accounts#edit"
+    - "super_admin/accounts#update"
+    - "super_admin/accounts#destroy"
+    - "super_admin/accounts#seed"
+    - "super_admin/accounts#reset_cache"
+    - "super_admin/users#index"
+    - "super_admin/users#new"
+    - "super_admin/users#create"
+    - "super_admin/users#show"
+    - "super_admin/users#edit"
+    - "super_admin/users#update"
+    - "super_admin/users#destroy"
+    - "super_admin/users#destroy_avatar"
+    - "super_admin/access_tokens#index"
+    - "super_admin/access_tokens#show"
+    - "super_admin/installation_configs#index"
+    - "super_admin/installation_configs#new"
+    - "super_admin/installation_configs#create"
+    - "super_admin/installation_configs#show"
+    - "super_admin/installation_configs#edit"
+    - "super_admin/installation_configs#update"
+    - "super_admin/agent_bots#index"
+    - "super_admin/agent_bots#new"
+    - "super_admin/agent_bots#create"
+    - "super_admin/agent_bots#show"
+    - "super_admin/agent_bots#edit"
+    - "super_admin/agent_bots#update"
+    - "super_admin/agent_bots#destroy"
+    - "super_admin/agent_bots#destroy_avatar"
+    - "super_admin/platform_apps#index"
+    - "super_admin/platform_apps#new"
+    - "super_admin/platform_apps#create"
+    - "super_admin/platform_apps#show"
+    - "super_admin/platform_apps#edit"
+    - "super_admin/platform_apps#update"
+    - "super_admin/platform_apps#destroy"
+    - "super_admin/platform_banners#index"
+    - "super_admin/platform_banners#new"
+    - "super_admin/platform_banners#create"
+    - "super_admin/platform_banners#show"
+    - "super_admin/platform_banners#edit"
+    - "super_admin/platform_banners#update"
+    - "super_admin/platform_banners#destroy"
+    - "super_admin/instance_statuses#show"
+    - "super_admin/settings#show"
+    - "super_admin/settings#refresh"
+    - "super_admin/account_users#new"
+    - "super_admin/account_users#create"
+    - "super_admin/account_users#show"
+    - "super_admin/account_users#destroy"
+    - "mount /monitoring/sidekiq"
+  platform:
+    - "platform/api/v1/users#create"
+    - "platform/api/v1/users#show"
+    - "platform/api/v1/users#update"
+    - "platform/api/v1/users#destroy"
+    - "platform/api/v1/users#login"
+    - "platform/api/v1/users#token"
+    - "platform/api/v1/agent_bots#index"
+    - "platform/api/v1/agent_bots#create"
+    - "platform/api/v1/agent_bots#show"
+    - "platform/api/v1/agent_bots#update"
+    - "platform/api/v1/agent_bots#destroy"
+    - "platform/api/v1/agent_bots#avatar"
+    - "platform/api/v1/durian_os#status"
+    - "platform/api/v1/durian_os#end_sessions"
+    - "platform/api/v1/durian_os#view_as_login"
+    - "platform/api/v1/accounts#index"
+    - "platform/api/v1/accounts#create"
+    - "platform/api/v1/accounts#show"
+    - "platform/api/v1/accounts#update"
+    - "platform/api/v1/accounts#destroy"
+    - "platform/api/v1/account_users#index"
+    - "platform/api/v1/account_users#create"
+    - "platform/api/v1/account_users#destroy"
+    - "platform/api/v1/email_channel_migrations#create"
+  public:
+    - "api/v1/widget/direct_uploads#create"
+    - "api/v1/widget/configs#create"
+    - "api/v1/widget/campaigns#index"
+    - "api/v1/widget/events#create"
+    - "api/v1/widget/messages#index"
+    - "api/v1/widget/messages#create"
+    - "api/v1/widget/messages#update"
+    - "api/v1/widget/conversations#index"
+    - "api/v1/widget/conversations#create"
+    - "api/v1/widget/conversations#destroy_custom_attributes"
+    - "api/v1/widget/conversations#set_custom_attributes"
+    - "api/v1/widget/conversations#update_last_seen"
+    - "api/v1/widget/conversations#toggle_typing"
+    - "api/v1/widget/conversations#transcript"
+    - "api/v1/widget/conversations#toggle_status"
+    - "api/v1/widget/contacts#show"
+    - "api/v1/widget/contacts#update"
+    - "api/v1/widget/contacts#destroy_custom_attributes"
+    - "api/v1/widget/contacts#set_user"
+    - "api/v1/widget/inbox_members#index"
+    - "api/v1/widget/labels#create"
+    - "api/v1/widget/labels#destroy"
+    - "api/v1/widget/integrations/dyte#add_participant_to_meeting"
+    - "public/api/v1/inboxes#index"
+    - "public/api/v1/inboxes#new"
+    - "public/api/v1/inboxes#create"
+    - "public/api/v1/inboxes#show"
+    - "public/api/v1/inboxes#edit"
+    - "public/api/v1/inboxes#update"
+    - "public/api/v1/inboxes#destroy"
+    - "public/api/v1/inboxes/contacts#create"
+    - "public/api/v1/inboxes/contacts#show"
+    - "public/api/v1/inboxes/contacts#update"
+    - "public/api/v1/inboxes/conversations#index"
+    - "public/api/v1/inboxes/conversations#create"
+    - "public/api/v1/inboxes/conversations#show"
+    - "public/api/v1/inboxes/conversations#toggle_status"
+    - "public/api/v1/inboxes/conversations#toggle_typing"
+    - "public/api/v1/inboxes/conversations#update_last_seen"
+    - "public/api/v1/inboxes/messages#index"
+    - "public/api/v1/inboxes/messages#create"
+    - "public/api/v1/inboxes/messages#update"
+    - "public/api/v1/csat_survey#show"
+    - "public/api/v1/csat_survey#update"
+    - "public/api/v1/portals#show"
+    - "public/api/v1/portals#sitemap"
+    - "public/api/v1/portals/articles#index"
+    - "public/api/v1/portals/categories#index"
+    - "public/api/v1/portals/categories#show"
+    - "public/api/v1/portals/articles#tracking_pixel"
+    - "public/api/v1/portals/articles#show_markdown"
+    - "public/api/v1/portals/articles#show"
+    - "widgets#show"
+    - "survey/responses#show"
+  webhooks:
+    - "mount /"
+    - "api/v1/webhooks#twitter_crc"
+    - "api/v1/webhooks#twitter_events"
+    - "webhooks/line#process_payload"
+    - "webhooks/telegram#process_payload"
+    - "webhooks/sms#process_payload"
+    - "webhooks/whatsapp#verify"
+    - "webhooks/whatsapp#process_payload"
+    - "webhooks/instagram#verify"
+    - "webhooks/instagram#events"
+    - "webhooks/tiktok#events"
+    - "webhooks/crm_stage#process_payload"
+    - "webhooks/shopify#events"
+    - "twilio/callback#create"
+    - "twilio/delivery_status#create"
+    - "twilio/voice#call_twiml"
+    - "twilio/voice#status"
+    - "twilio/voice#conference_status"
+    - "twilio/voice#recording_status"
+    - "api/v1/integrations/webhooks#create"
+    - "enterprise/webhooks/stripe#process_payload"
+    - "enterprise/webhooks/firecrawl#process_payload"
+    - "mount /bot"
+    - "action_mailbox/ingresses/postmark/inbound_emails#create"
+    - "action_mailbox/ingresses/relay/inbound_emails#create"
+    - "action_mailbox/ingresses/sendgrid/inbound_emails#create"
+    - "action_mailbox/ingresses/mandrill/inbound_emails#health_check"
+    - "action_mailbox/ingresses/mandrill/inbound_emails#create"
+    - "action_mailbox/ingresses/mailgun/inbound_emails#create"
+    - "action_mailbox/ingresses/ses/inbound_emails#create"
+  billing:
+    - "enterprise/api/v1/accounts#index"
+    - "enterprise/api/v1/accounts#new"
+    - "enterprise/api/v1/accounts#create"
+    - "enterprise/api/v1/accounts#show"
+    - "enterprise/api/v1/accounts#edit"
+    - "enterprise/api/v1/accounts#update"
+    - "enterprise/api/v1/accounts#destroy"
+    - "enterprise/api/v1/accounts#checkout"
+    - "enterprise/api/v1/accounts#subscription"
+    - "enterprise/api/v1/accounts#limits"
+    - "enterprise/api/v1/accounts#toggle_deletion"
+    - "enterprise/api/v1/accounts#topup_checkout"
+  pages:
+    - "dashboard#index"
+    - "health#show"
+    - "api#index"
+    - "android_app#assetlinks"
+    - "apple_app#site_association"
+    - "microsoft#identity_association"
+    - "custom_domains#verify"
+    - "installation/onboarding#index"
+    - "installation/onboarding#create"
+    - "swagger#respond"
+    - "widget_tests#index"
+    - "rails/conductor/action_mailbox/inbound_emails#index"
+    - "rails/conductor/action_mailbox/inbound_emails#new"
+    - "rails/conductor/action_mailbox/inbound_emails#show"
+    - "rails/conductor/action_mailbox/inbound_emails#create"
+    - "rails/conductor/action_mailbox/inbound_emails/sources#new"
+    - "rails/conductor/action_mailbox/inbound_emails/sources#create"
+    - "rails/conductor/action_mailbox/reroutes#create"
+    - "rails/conductor/action_mailbox/incinerates#create"
+    - "mount /assets"

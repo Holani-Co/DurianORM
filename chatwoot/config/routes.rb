@@ -544,6 +544,9 @@ Rails.application.routes.draw do
       # Frontend API endpoint to trigger SAML authentication flow
       post 'auth/saml_login', to: 'auth#saml_login'
 
+      # Durian — who a Durian OS AI connection (or a session) acts as, and its tools (docs/mcp/MCP.md, section 9).
+      get 'ai/me', to: 'ai#me'
+
       resource :profile, only: [:show, :update] do
         delete :avatar, on: :collection
         member do
