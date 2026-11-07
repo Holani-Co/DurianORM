@@ -148,6 +148,12 @@ ORM is one of the eight apps managed by Durian OS (durianos.in). The rules come 
 
 `DurianOs::Reportable` hooks `AccountUser`, `InboxMember` and `TeamMember` (`after_commit`, account 1 only) and queues `DurianOs::ChangeReportJob`, which posts `person.created | person.changed | person.deactivated` (and `emergency_login.used`, `ping`) to `OS_REPORT_URL` signed with HMAC-SHA256 (`OS_REPORT_KEY`, 32 bytes base64url, and `OS_REPORT_KEY_ID`; the app refuses to start with a bad key). Retries: 1, 5, 15 minutes, then hourly for 24 hours. A ping is sent when Sidekiq starts and daily (`config/schedule.yml`). Nothing is sent unless all three variables are set. Reports never carry access data; Durian OS re-reads the person. There is no outbox table: a report lost before it is queued is caught by Durian OS's 10-minute check.
 
+### AI connections
+
+An AI reaches ORM through Durian OS's AI front door with `Authorization: Bearer <pass>`, a one-use EdDSA JWT (`aud pat:orm`, 60 s) checked by the `DurianOsAiDoor` middleware (logic in `DurianOs::Ai::*`, design in `docs/mcp/MCP.md`). It acts as the person (`os_person_id`) through the browser's own controllers and policies, below `administer` an administrator acts as a plain agent, and in v1 it only reads. `ORM_OS_PASS=on` turns it on (off by default: every pass is 401); `OS_JWKS_JSON` pins Durian OS's public keys; `ORM_AI_CONCURRENCY` (default 3) caps AI requests at once.
+
+**The rule: every route goes in `custom/config/mcp_registry.yml` in the same change**, as a read tool, a write tool or browser-only with a reason. `spec/custom/config/mcp_registry_spec.rb` fails on a mounted route that is not listed, a key listed twice or a key no longer mounted. After adding or changing a read, run `bundle exec rake durian_os:mcp_tools` (it writes `../mcp_server/tools.json`) and name the tool in `docs/mcp/MCP.md`. Anything that changes access, sign-in, tokens or secrets is never a tool.
+
 ### Where the code is
 
 - Everything lives in `custom/` and is loaded as `Custom::` modules by `prepend_mod_with` / `include_mod_with` (the same mechanism as `enterprise/`); `config/application.rb` adds `custom/app/**` and `custom/config/initializers`. Shared helpers are `DurianOs::*` under `custom/app/services`, `custom/app/jobs` and `custom/app/models`.
