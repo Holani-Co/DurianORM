@@ -5231,6 +5231,12 @@ WEBSITE_MENU = [
     {"title": "Track your Order", "value": "track_order"},
     {"title": "SALE LIVE NOW", "value": "sale"},
 ]
+# Opening menu per website section (SOCIAL_AGENT_WEBSITE_INBOXES vertical). The
+# FHC section keeps the greeting and buttons its menu bot used to show.
+WEBSITE_MENUS = {
+    "furniture": (WEBSITE_MENU_TEXT, WEBSITE_MENU),
+    "fhc": (whatsapp_fhc._GREETING, whatsapp_fhc._MENU),
+}
 _WEBSITE_GREETING_RE = re.compile(
     r"^\s*(hi+|hello+|hey+|hlo|namaste|good (morning|afternoon|evening)|start|help)"
     r"[\s!.?,]*(there|durian)?[\s!.?]*$", re.I)
@@ -5249,8 +5255,10 @@ async def _maybe_send_website_menu(conv: dict, conv_id: int, text: str):
     sent = (conv.get("custom_attributes") or {}).get("website_menu_sent")
     if not (t.lower() == "menu" or (not sent and (not t or _WEBSITE_GREETING_RE.match(t)))):
         return None
+    menu_text, menu = WEBSITE_MENUS.get(social_agent.website_agent_vertical(conv),
+                                        WEBSITE_MENUS["furniture"])
     try:
-        await chatwoot.send_interactive_buttons(conv_id, WEBSITE_MENU_TEXT, WEBSITE_MENU)
+        await chatwoot.send_interactive_buttons(conv_id, menu_text, menu)
         await chatwoot.merge_custom_attributes(conv_id, {"website_menu_sent": _now_iso()})
     except Exception as e:
         print(f"[website] conv {conv_id}: menu send failed ({e}) — agent replies instead")
