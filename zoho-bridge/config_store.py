@@ -14,6 +14,9 @@
 #                 data/product_catalog.json floor whole — never merged.
 #   - "catalog_sync" : the linked Google Sheet URL + daily auto-sync switch.
 #   - "crm_automation" : CRM stage → WhatsApp template rules (crm_automation.py).
+#   - "review_categories" : Google-review reply categories added / described /
+#                 switched off in Settings → Review Categories; review_reply
+#                 merges them onto the review_reply_bank.yaml floor.
 # An absent, empty, or broken override => the FLOOR wins, so a bad edit can never
 # crash the store or routing path. Every publish is a new version → one-click
 # rollback; domains never touch each other's active row.
@@ -40,6 +43,7 @@ AGENT_PROMPTS = "agent_prompts"
 CATALOG = "catalog"
 CATALOG_SYNC = "catalog_sync"
 CRM_AUTOMATION = "crm_automation"
+REVIEW_CATEGORIES = "review_categories"
 
 
 @contextmanager

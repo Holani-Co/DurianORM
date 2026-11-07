@@ -20,6 +20,7 @@ import macros from './macros/macros.routes';
 import routingConfig from './routingConfig/routingConfig.routes';
 import storesConfig from './storesConfig/storesConfig.routes';
 import agentPromptsConfig from './agentPromptsConfig/agentPromptsConfig.routes';
+import reviewCategoriesConfig from './reviewCategoriesConfig/reviewCategoriesConfig.routes';
 import productCatalogConfig from './productCatalogConfig/productCatalogConfig.routes';
 import crmAutomation from './crmAutomation/crmAutomation.routes';
 import offers from './offers/offers.routes';
@@ -68,6 +69,7 @@ export default {
     ...routingConfig.routes,
     ...storesConfig.routes,
     ...agentPromptsConfig.routes,
+    ...reviewCategoriesConfig.routes,
     ...productCatalogConfig.routes,
     ...crmAutomation.routes,
     ...offers.routes,

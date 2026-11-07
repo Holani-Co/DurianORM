@@ -3942,3 +3942,129 @@ def test_low_star_forward_attaches_review_photos(monkeypatch):
     asyncio.run(rp._forward_low_star_review(rv, "JP Nagar", 12, case="", photos=photos))
     assert sent["files"] == photos and sent["to"] == "store@example.com"
     assert "• Photos: 2 shared by the customer (attached)" in sent["body"]
+
+
+def test_website_fhc_runs_on_agent(monkeypatch):
+    # The FHC website section moves off the menu bot onto the agent: its own
+    # greeting + buttons, and the prompt explains those buttons, not furniture's.
+    import asyncio, main, social_agent as sa
+    from datetime import datetime
+    sent = []
+
+    async def send(conv_id, text, items):
+        sent.append((text, [i["title"] for i in items]))
+
+    async def merge(conv_id, attrs):
+        pass
+    monkeypatch.setattr(main.chatwoot, "send_interactive_buttons", send)
+    monkeypatch.setattr(main.chatwoot, "merge_custom_attributes", merge)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_WEBSITE_INBOXES",
+                        {"32": "furniture", "26": "fhc"})
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_AGENT_CONTACT_ALLOWLIST", [])
+    fhc_site = {"inbox_id": 26, "custom_attributes": {}, "meta": {}}
+    assert main._social_channel_for("Channel::WebWidget", fhc_site) == "website"
+    assert sa.eligible(fhc_site, "website")
+    assert asyncio.run(main._maybe_send_website_menu(fhc_site, 1, "hi")) == {"handled": "website_menu"}
+    text, titles = sent[0]
+    assert "Full Home" in text and titles == ["Product enquiry", "Store address", "Other help"]
+    fhc = sa._system_prompt("", "Website FHC Bot", "fhc", datetime.now(), "", "", 1,
+                            "", "", channel="website")
+    assert "Product enquiry" in fhc and "Track your Order" not in fhc
+    furniture = sa._system_prompt("", "Furniture Bot", "furniture", datetime.now(), "", "", 1,
+                                  "", "", channel="website")
+    assert "Track your Order" in furniture and "Product enquiry" not in furniture
+
+
+def _review_categories_store(monkeypatch, doc=None):
+    import os, tempfile, config_store
+    monkeypatch.setattr(config_store, "_DB_PATH",
+                        os.path.join(tempfile.mkdtemp(), "config_store.db"))
+    config_store.init()
+    if doc is not None:
+        config_store.publish(doc, domain=config_store.REVIEW_CATEGORIES)
+
+
+def test_review_categories_merge_ui_added_and_disabled(monkeypatch):
+    # Settings → Review Categories adds a category (with a "use when" line) and
+    # switches a built-in one off; the YAML cases stay the floor.
+    import review_reply as rr
+    _review_categories_store(monkeypatch, {"furniture": {
+        "positive_warranty": {"sentiment": "positive", "description": "praises the warranty"},
+        "positive_price": {"disabled": True},
+        "positive_staff": {"description": "names a salesperson"},
+    }})
+    cases = rr.review_categories("furniture")
+    assert cases["positive_warranty"]["options"] == [] and not cases["positive_warranty"]["builtin"]
+    assert "positive_price" not in cases
+    assert cases["positive_staff"]["description"] == "names a salesperson"
+    assert len(cases["positive_staff"]["options"]) == 10
+    assert "positive_warranty" not in rr.review_categories("doors")
+    prompt = rr._review_case_prompt("furniture", cases, 5)
+    assert "positive_warranty  (positive) — use when: praises the warranty" in prompt
+
+
+def test_review_new_category_offered_only_with_replies(monkeypatch):
+    # A new category is offered to the classifier only once it has a reply
+    # (its canned responses); then its reply is what goes out.
+    import asyncio, json, types, review_reply as rr, reviews_state
+    _review_categories_store(monkeypatch, {"furniture": {
+        "positive_warranty": {"sentiment": "positive", "description": "praises the warranty"}}})
+    seen = {}
+
+    async def create(**kw):
+        enum = kw["response_format"]["json_schema"]["schema"]["properties"]["case"]["enum"]
+        seen["enum"] = enum
+        pick = "positive_warranty" if "positive_warranty" in enum else "positive_generic"
+        content = json.dumps({"case": pick, "needs_human": False, "staff_member": "",
+                              "product": "", "reasoning": "r"})
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(
+            message=types.SimpleNamespace(content=content))])
+    monkeypatch.setattr(rr.client.chat.completions, "create", create)
+    monkeypatch.setattr(reviews_state, "next_reply_index", lambda key, n: 0)
+
+    async def live(): return {}
+    monkeypatch.setattr(rr, "_review_bank_live", live)
+    asyncio.run(rr.draft_review("great warranty", "Asha", 5, "Durian Furniture - Pune - X"))
+    assert "positive_warranty" not in seen["enum"]
+
+    async def live2(): return {"furniture": {"positive_warranty": ["Thanks [Name], 5 years of cover!"]}}
+    monkeypatch.setattr(rr, "_review_bank_live", live2)
+    out = asyncio.run(rr.draft_review("great warranty", "Asha", 5, "Durian Furniture - Pune - X"))
+    assert "positive_warranty" in seen["enum"]
+    assert out["reply"] == "Thanks Asha, 5 years of cover!" and out["action"] == "auto"
+
+
+def test_review_categories_validation():
+    import main
+    ok = main._validate_review_categories_doc({"fhc": {
+        "negative_site_cleanup": {"sentiment": "negative", "description": "mess left after install"},
+        "positive_staff": {"disabled": True}}})
+    assert ok["ok"], ok
+    bad = main._validate_review_categories_doc({
+        "furniture": {"positive_Bad Name": {"sentiment": "positive", "description": "x"},
+                      "negative_late_2": {"sentiment": "negative", "description": "x"},
+                      "positive_quiet": {"sentiment": "negative", "description": "x"},
+                      "positive_no_desc": {"sentiment": "positive", "description": " "}},
+        "sofas": {}})
+    text = " | ".join(bad["errors"])
+    assert not bad["ok"]
+    for frag in ("positive_Bad Name: name must", "negative_late_2: name must",
+                 "positive_quiet: sentiment must be 'positive'", "positive_no_desc: a new category",
+                 "sofas: unknown vertical"):
+        assert frag in text, frag
+    all_neg_off = {k: {"disabled": True} for k in
+                   ("negative_product_quality", "negative_delivery", "negative_after_sales",
+                    "negative_rating_only")}
+    r = main._validate_review_categories_doc({"doors": all_neg_off})
+    assert "doors: keep at least one negative category switched on." in r["errors"]
+
+
+def test_review_bank_prune_spares_ui_added_codes():
+    import sync_review_bank as srb
+    current = {"review_furniture_positive_staff_01"}
+    assert not srb._is_prunable("review_furniture_positive_staff_11", current)
+    assert not srb._is_prunable("review_fhc_negative_site_cleanup_01", current)
+    assert srb._is_prunable("review_positive_5star", current)
+    assert srb._is_prunable("reviewbank_furniture_x_01", current)
+    assert not srb._is_prunable("social_greeting", current)

@@ -453,6 +453,12 @@ Rails.application.routes.draw do
                 post :rollback
               end
             end
+            resource :review_categories_config, controller: 'review_categories_config', only: [:show] do
+              collection do
+                post :validate
+                post :publish
+              end
+            end
             resource :crm_automation_config, controller: 'crm_automation_config', only: [:show] do
               collection do
                 post :validate

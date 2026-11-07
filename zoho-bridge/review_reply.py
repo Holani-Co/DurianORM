@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 import config
+import config_store
 import chatwoot
 # Instrumented client: review LLM calls are traced to Langfuse and nest under
 # their conversation trace via explicit ids (lf_parent), like every other
@@ -698,9 +699,10 @@ async def draft(channel: str, message: str, contact_name: str,
 # — UI edits win. The YAML is the structural SEED (which verticals/cases exist,
 # each case's sentiment) AND the fallback text: if a case has no canned responses
 # synced (or the fetch fails), draft_review falls back to the YAML options, so a
-# missing/un-synced template can never break the drafter. Adding a whole new CASE
-# still needs a YAML change (the classifier reads the case list + sentiment from
-# YAML); editing or adding VARIANTS within an existing case is fully UI-driven.
+# missing/un-synced template can never break the drafter. New CASES are added (with
+# a "use when" description) and existing ones switched off in Settings → Review
+# Categories (review_categories() merges them onto the YAML); editing or adding
+# VARIANTS within a case is done in Canned Responses. Both are fully UI-driven.
 _REVIEW_BANK_PATH = Path(__file__).parent / "review_reply_bank.yaml"
 _review_bank_cache = None
 
@@ -753,6 +755,34 @@ async def _review_bank_live() -> dict:
             for vert, cases in buckets.items()}
     _live_bank_cache.update(at=now, data=data)
     return data
+
+
+def review_categories(vertical: str) -> dict:
+    """{case: {sentiment, description, options, builtin}} the classifier picks
+    from for `vertical`: the YAML seed cases plus categories added in Settings →
+    Review Categories (config_store), with any switched off there removed. An
+    added category has no YAML options — its replies are its canned responses.
+    A broken / unreadable override never hides the YAML cases."""
+    base = ((_load_review_bank().get(vertical) or {}).get("cases")) or {}
+    cases = {key: {"sentiment": (cfg or {}).get("sentiment") or "",
+                   "description": "", "options": (cfg or {}).get("options") or [],
+                   "builtin": True}
+             for key, cfg in base.items()}
+    try:
+        over = (config_store.get_active_override(config_store.REVIEW_CATEGORIES)
+                or {}).get(vertical) or {}
+    except Exception as e:
+        print(f"[review-bank] category override unreadable: {e}")
+        over = {}
+    for key, o in over.items():
+        if not isinstance(o, dict):
+            continue
+        c = cases.get(key) or {"sentiment": o.get("sentiment") or "",
+                               "options": [], "builtin": False}
+        c["description"] = (o.get("description") or "").strip()
+        c["disabled"] = bool(o.get("disabled"))
+        cases[key] = c
+    return {k: c for k, c in cases.items() if not c.get("disabled")}
 
 
 def review_vertical_for(location: str) -> str:
@@ -825,7 +855,9 @@ def _review_case_prompt(vertical: str, cases: dict, stars: int) -> str:
         "Pick the single best-fitting CASE:",
     ]
     for key, cfg in cases.items():
-        lines.append(f"  - {key}  ({(cfg or {}).get('sentiment','')})")
+        desc = (cfg or {}).get("description") or ""
+        lines.append(f"  - {key}  ({(cfg or {}).get('sentiment','')})"
+                     + (f" — use when: {desc}" if desc else ""))
     lines += [
         "",
         "Also extract, for personalising the reply (empty string if not present):",
@@ -854,11 +886,13 @@ async def draft_review(message: str, contact_name: str, stars: int = 0,
     import reviews_state as _state
 
     vertical = review_vertical_for(location)
-    bank = _load_review_bank()
-    cases = ((bank.get(vertical) or {}).get("cases")) or {}
     # UI-editable variant text (canned responses) overlaid per (vertical, case);
     # falls back to the YAML seed below when a case has none synced.
     live_vert = (await _review_bank_live()).get(vertical) or {}
+    # Only offer categories that have at least one reply to send — a category
+    # just added in Settings with no replies yet is skipped, never picked.
+    cases = {k: c for k, c in review_categories(vertical).items()
+             if live_vert.get(k) or c["options"]}
     reviewer = (contact_name or "").strip()
     store = _store_display(location)
 
