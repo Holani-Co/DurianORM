@@ -9,9 +9,10 @@
 #    are removed, auth headers dropped, and a read that answers anything but JSON is 502;
 # 6. the slot is given back and one log line is written (DurianOs::Ai::Log), refusals included.
 class DurianOs::Ai::Door
-  # Session and token credentials a browser or an integration could send (Rack env names).
+  # Session and token credentials a browser or an integration could send (Rack env names), and the bare
+  # `api_access_token` key that Api::BaseController's `request.headers[:api_access_token]` also reads.
   CREDENTIALS = %w[
-    HTTP_COOKIE HTTP_API_ACCESS_TOKEN HTTP_ACCESS_TOKEN HTTP_CLIENT HTTP_UID HTTP_EXPIRY HTTP_TOKEN_TYPE
+    HTTP_COOKIE HTTP_API_ACCESS_TOKEN api_access_token HTTP_ACCESS_TOKEN HTTP_CLIENT HTTP_UID HTTP_EXPIRY HTTP_TOKEN_TYPE
   ].freeze
   # Cookies Rack or Rails may already have parsed and cached in the env.
   PARSED_COOKIES = %w[rack.request.cookie_hash rack.request.cookie_string action_dispatch.cookies].freeze
