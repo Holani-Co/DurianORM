@@ -1,0 +1,11 @@
+# Content Studio's MCP server (docs/mcp/MCP.md), in its own virtual environment: never the backend's, whose
+# FastAPI pins its own Starlette. Pinned to the set its tests pass with (the same as IOF Desk's sidecar): the
+# one-call-per-request rule (backend.py, guard.py) leans on how the MCP SDK runs a request, so move these together
+# and run mcp_server/tests when you do.
+fastmcp==3.4.11
+mcp==1.30.0
+starlette==1.10.0
+uvicorn==0.54.0
+httpx==0.28.1
+# The Durian OS pass at the door: an EdDSA JWT. The crypto extra verifies Ed25519.
+PyJWT[crypto]==2.15.1

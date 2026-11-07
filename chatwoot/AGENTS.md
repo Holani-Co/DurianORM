@@ -154,6 +154,8 @@ An AI reaches ORM through Durian OS's AI front door with `Authorization: Bearer 
 
 **The rule: every route goes in `custom/config/mcp_registry.yml` in the same change**, as a read tool, a write tool or browser-only with a reason. `spec/custom/config/mcp_registry_spec.rb` fails on a mounted route that is not listed, a key listed twice or a key no longer mounted. After adding or changing a read, run `bundle exec rake durian_os:mcp_tools` (it writes `../mcp_server/tools.json`) and name the tool in `docs/mcp/MCP.md`. Anything that changes access, sign-in, tokens or secrets is never a tool.
 
+**A new screen action updates the registry and its tool in the same change.** The tool is the registry's read: it exists only through `mcp_server/tools.json` (committed), which `mcp_server/tests/test_registry.py` and the registry spec both check against the YAML, so a read added to the YAML without the export fails twice over. Run `bundle exec rake durian_os:mcp_tools`, then `python -m pytest mcp_server/tests -q` (setup in `docs/mcp/MCP.md`, section 12.1), and commit the YAML, `tools.json` and the design page together. A write or browser-only entry needs no tool, only its place in the registry.
+
 ### Where the code is
 
 - Everything lives in `custom/` and is loaded as `Custom::` modules by `prepend_mod_with` / `include_mod_with` (the same mechanism as `enterprise/`); `config/application.rb` adds `custom/app/**` and `custom/config/initializers`. Shared helpers are `DurianOs::*` under `custom/app/services`, `custom/app/jobs` and `custom/app/models`.
