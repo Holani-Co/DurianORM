@@ -1,0 +1,3430 @@
+{
+  "version": 1,
+  "source": "chatwoot/custom/config/mcp_registry.yml",
+  "counts": {
+    "read": 163,
+    "write": 190,
+    "web_only": 414
+  },
+  "tools": [
+    {
+      "name": "get_my_orm_access",
+      "title": "Show who this connection acts as",
+      "description": "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. It only reads, for now.",
+      "method": "GET",
+      "path": "/api/v1/ai/me",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "none",
+      "args": []
+    },
+    {
+      "name": "get_account_settings",
+      "title": "Show the account settings",
+      "description": "The Durian account in ORM: its name, language, support email, enabled features and account settings.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "id",
+      "args": []
+    },
+    {
+      "name": "list_conversations",
+      "title": "List conversations",
+      "description": "Conversations as the inbox screen lists them: by status, assignee (mine, unassigned, all), inbox, team, labels and conversation type, 25 per page, with counts. Only conversations the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "status",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "open",
+            "resolved",
+            "pending",
+            "snoozed",
+            "all"
+          ],
+          "description": "Conversation status; open unless given."
+        },
+        {
+          "name": "assignee_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "me",
+            "unassigned",
+            "assigned",
+            "all"
+          ],
+          "description": "Whose conversations."
+        },
+        {
+          "name": "inbox_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this inbox."
+        },
+        {
+          "name": "team_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this team."
+        },
+        {
+          "name": "labels",
+          "in": "query",
+          "type": "array",
+          "items": "string",
+          "description": "Only conversations with any of these labels."
+        },
+        {
+          "name": "conversation_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "mention",
+            "participating",
+            "unattended"
+          ],
+          "description": "A special view."
+        },
+        {
+          "name": "sort_by",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "last_activity_at_desc",
+            "last_activity_at_asc",
+            "created_at_desc",
+            "created_at_asc",
+            "priority_desc",
+            "priority_asc",
+            "waiting_since_desc",
+            "waiting_since_asc"
+          ]
+        },
+        {
+          "name": "updated_within",
+          "in": "query",
+          "type": "integer",
+          "description": "Only conversations updated in the last N seconds."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "count_conversations",
+      "title": "Count conversations",
+      "description": "How many conversations match the inbox screen's filters: mine, assigned, unassigned and all. Only conversations the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/meta",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "status",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "open",
+            "resolved",
+            "pending",
+            "snoozed",
+            "all"
+          ],
+          "description": "Conversation status; open unless given."
+        },
+        {
+          "name": "assignee_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "me",
+            "unassigned",
+            "assigned",
+            "all"
+          ],
+          "description": "Whose conversations."
+        },
+        {
+          "name": "inbox_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this inbox."
+        },
+        {
+          "name": "team_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this team."
+        },
+        {
+          "name": "labels",
+          "in": "query",
+          "type": "array",
+          "items": "string",
+          "description": "Only conversations with any of these labels."
+        },
+        {
+          "name": "conversation_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "mention",
+            "participating",
+            "unattended"
+          ],
+          "description": "A special view."
+        }
+      ]
+    },
+    {
+      "name": "find_conversations_with_text",
+      "title": "Find conversations by message text",
+      "description": "Conversations whose messages contain the given text, with the inbox screen's status, inbox and assignee filters. Only conversations the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/search",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "open",
+            "resolved",
+            "pending",
+            "snoozed",
+            "all"
+          ],
+          "description": "Conversation status; open unless given."
+        },
+        {
+          "name": "assignee_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "me",
+            "unassigned",
+            "assigned",
+            "all"
+          ],
+          "description": "Whose conversations."
+        },
+        {
+          "name": "inbox_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this inbox."
+        },
+        {
+          "name": "team_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this team."
+        },
+        {
+          "name": "labels",
+          "in": "query",
+          "type": "array",
+          "items": "string",
+          "description": "Only conversations with any of these labels."
+        },
+        {
+          "name": "conversation_type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "mention",
+            "participating",
+            "unattended"
+          ],
+          "description": "A special view."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "filter_conversations",
+      "title": "Filter conversations",
+      "description": "Conversations matching conditions on status, assignee, inbox, team, labels, priority, dates, contact or custom attributes, as the screen's filter builds them. Only conversations the person can see.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/filter",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "payload",
+          "in": "body",
+          "type": "array",
+          "items": "object",
+          "required": true,
+          "description": "Conditions as the filter screen builds them: attribute_key, filter_operator, values, query_operator."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "get_conversation",
+      "title": "Open a conversation",
+      "description": "One conversation by its number: status, priority, contact, assignee, team, inbox, labels, SLA, custom attributes and ORM's own details such as Zoho tickets and the email category.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "list_messages",
+      "title": "Read a conversation's messages",
+      "description": "A conversation's messages, 20 at a time (older ones with before=<message id>): customer messages, replies, private notes and activity, with attachment details.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/messages",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "before",
+          "in": "query",
+          "type": "integer",
+          "description": "Only messages older than this message id."
+        },
+        {
+          "name": "after",
+          "in": "query",
+          "type": "integer",
+          "description": "Only messages newer than this message id."
+        }
+      ]
+    },
+    {
+      "name": "list_conversation_attachments",
+      "title": "List a conversation's attachments",
+      "description": "The files sent in a conversation, newest first, 100 per page: type, name, size and the message each came with. The files themselves stay in ORM.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/attachments",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "list_conversation_labels",
+      "title": "List a conversation's labels",
+      "description": "The labels on one conversation.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/labels",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "list_conversation_participants",
+      "title": "List a conversation's participants",
+      "description": "The agents taking part in a conversation besides its assignee.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/participants",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "get_my_conversation_draft",
+      "title": "Show my draft reply",
+      "description": "The person's own unsent reply draft for a conversation, if they left one.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "list_conversation_events",
+      "title": "List a conversation's timing events",
+      "description": "A conversation's reporting events in order: first response, resolutions and reopenings with their times, as the reports count them.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/reporting_events",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "get_conversation_assistant",
+      "title": "Show the conversation's Captain assistant",
+      "description": "Which Captain AI assistant answers in the conversation's inbox, if any.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/inbox_assistant",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ]
+    },
+    {
+      "name": "search_orm",
+      "title": "Search ORM",
+      "description": "One search across contacts, conversations, messages and help articles, as the search screen does. Conversations and messages only from the person's inboxes.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/search",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        }
+      ]
+    },
+    {
+      "name": "search_conversations",
+      "title": "Search conversations",
+      "description": "Conversations whose number, or whose contact's name, email, phone number or identifier, matches the search, 15 per page. Only the person's inboxes.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/search/conversations",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "search_messages",
+      "title": "Search messages",
+      "description": "Messages whose text matches the search, newest first. Only the person's inboxes.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/search/messages",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "search_contacts",
+      "title": "Search contacts",
+      "description": "Contacts whose name, email, phone number or identifier matches the search.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/search/contacts",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "search_help_articles",
+      "title": "Search help articles",
+      "description": "Help center articles whose title or text matches the search.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/search/articles",
+      "who": "everyone",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "list_contacts",
+      "title": "List contacts",
+      "description": "The account's contacts as the Contacts screen lists them, 15 per page, sortable by name, email, phone, last activity or created date, optionally only those with a label.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        },
+        {
+          "name": "sort",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "name",
+            "-name",
+            "email",
+            "-email",
+            "phone_number",
+            "-phone_number",
+            "last_activity_at",
+            "-last_activity_at",
+            "created_at",
+            "-created_at",
+            "company",
+            "-company"
+          ],
+          "description": "Sort order; a leading '-' is descending."
+        },
+        {
+          "name": "labels",
+          "in": "query",
+          "type": "array",
+          "items": "string",
+          "description": "Only contacts with these labels."
+        }
+      ]
+    },
+    {
+      "name": "find_contacts",
+      "title": "Find contacts",
+      "description": "Contacts whose name, email, phone number, identifier or company matches the search, sorted and paged as the Contacts screen does (15 per page).",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/search",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        },
+        {
+          "name": "sort",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "name",
+            "-name",
+            "email",
+            "-email",
+            "phone_number",
+            "-phone_number",
+            "last_activity_at",
+            "-last_activity_at",
+            "created_at",
+            "-created_at",
+            "company",
+            "-company"
+          ],
+          "description": "Sort order; a leading '-' is descending."
+        }
+      ]
+    },
+    {
+      "name": "filter_contacts",
+      "title": "Filter contacts",
+      "description": "Contacts matching conditions on name, email, phone, identifier, location, labels, dates or custom attributes, as the Contacts filter builds them.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contacts/filter",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "payload",
+          "in": "body",
+          "type": "array",
+          "items": "object",
+          "required": true,
+          "description": "Conditions as the filter screen builds them: attribute_key, filter_operator, values, query_operator."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "list_online_contacts",
+      "title": "List contacts online now",
+      "description": "Contacts who are online on the website chat right now.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/active",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "get_contact",
+      "title": "Show a contact",
+      "description": "One contact: name, email, phone, identifier, company, location, labels, custom and additional attributes and the inboxes they write from.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contactable_inboxes",
+      "title": "List inboxes that can reach a contact",
+      "description": "The inboxes a new conversation with this contact could start from, with the contact's id in each.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:id/contactable_inboxes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contact_conversations",
+      "title": "List a contact's conversations",
+      "description": "A contact's conversations, newest first. Only those the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/conversations",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contact_labels",
+      "title": "List a contact's labels",
+      "description": "The labels on one contact.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/labels",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contact_notes",
+      "title": "List a contact's notes",
+      "description": "The notes agents wrote on a contact, newest first, with who wrote each.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/notes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_contact_note",
+      "title": "Show a contact note",
+      "description": "One note on a contact.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/notes/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "note_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contact_attachments",
+      "title": "List a contact's attachments",
+      "description": "Files from all of a contact's conversations the person can see, newest first, 100 per page. The files themselves stay in ORM.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/attachments",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "find_contact_by_source_id",
+      "title": "Find a contact by channel id",
+      "description": "The contact behind a channel's own id in one inbox, such as a WhatsApp number or an Instagram user id. Only inboxes the person can see.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contact_inboxes/filter",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "body",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "source_id",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "description": "The channel's own id for the contact, such as a WhatsApp number."
+        }
+      ]
+    },
+    {
+      "name": "list_companies",
+      "title": "List companies",
+      "description": "The account's companies with their domain, description and contact count, 25 per page, sortable.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "search_companies",
+      "title": "Search companies",
+      "description": "Companies whose name or domain matches the search.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/search",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_company",
+      "title": "Show a company",
+      "description": "One company with its details and custom attributes.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/:id",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_company_contacts",
+      "title": "List a company's contacts",
+      "description": "The contacts linked to a company.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/contacts",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "search_company_contacts",
+      "title": "Search contacts from a company",
+      "description": "Contacts matching a search by name, email or phone, as a company's page searches them.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/contacts/search",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_company_conversations",
+      "title": "List a company's conversations",
+      "description": "The conversations of a company's contacts. Only those the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/conversations",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_company_notes",
+      "title": "List a company's notes",
+      "description": "The notes written on a company's contacts.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/notes",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_inboxes",
+      "title": "List inboxes",
+      "description": "The inboxes the person can see (all of them for administrators): channel type, name, greeting, working hours, CSAT and assignment settings. Credentials are never included.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_inbox",
+      "title": "Show an inbox",
+      "description": "One inbox the person can see, with its channel settings. Credentials are never included.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_inbox_agents",
+      "title": "List an inbox's agents",
+      "description": "The agents who are members of an inbox the person can see.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inbox_members/:inbox_id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_inbox_campaigns",
+      "title": "List an inbox's campaigns",
+      "description": "The campaigns that send through one inbox. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes/:id/campaigns",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_whatsapp_inbox_health",
+      "title": "Check a WhatsApp inbox's health",
+      "description": "Meta's live health check of a WhatsApp inbox: number status, quality rating, messaging limits and errors. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes/:id/health",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_inbox_csat_template",
+      "title": "Show an inbox's CSAT template",
+      "description": "The WhatsApp customer-satisfaction survey template of an inbox and its approval status at Meta or Twilio.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_inbox_assignment_policy",
+      "title": "Show an inbox's assignment policy",
+      "description": "The automatic-assignment policy an inbox uses. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_agents",
+      "title": "List the agents",
+      "description": "Everyone in the ORM account: name, display name, email, role (administrator or agent), availability and whether they confirmed their email.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/agents",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_assignable_agents",
+      "title": "List agents who can be assigned",
+      "description": "The agents who can be assigned conversations in the given inboxes.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/assignable_agents",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_ids",
+          "in": "query",
+          "type": "array",
+          "items": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_teams",
+      "title": "List teams",
+      "description": "The account's teams with their description and whether auto-assignment is on.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/teams",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_team",
+      "title": "Show a team",
+      "description": "One team.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/teams/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "team_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_team_members",
+      "title": "List a team's members",
+      "description": "The agents in a team.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/teams/:team_id/team_members",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "team_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_assignment_policies",
+      "title": "List assignment policies",
+      "description": "How conversations are assigned automatically: each policy's order, fair-distribution limits and inboxes. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/assignment_policies",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_assignment_policy",
+      "title": "Show an assignment policy",
+      "description": "One automatic-assignment policy. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/assignment_policies/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assignment_policy_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_assignment_policy_inboxes",
+      "title": "List an assignment policy's inboxes",
+      "description": "The inboxes that use one assignment policy. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assignment_policy_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_agent_capacity_policies",
+      "title": "List agent capacity policies",
+      "description": "Limits on how many open conversations agents get, per inbox, and whom each applies to. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/agent_capacity_policies",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_agent_capacity_policy",
+      "title": "Show an agent capacity policy",
+      "description": "One agent capacity policy and its inbox limits. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/agent_capacity_policies/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "capacity_policy_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_capacity_policy_agents",
+      "title": "List a capacity policy's agents",
+      "description": "The agents one capacity policy applies to. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "agent_capacity_policy_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_custom_roles",
+      "title": "List custom roles",
+      "description": "The custom roles agents can hold and the permissions each grants. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_roles",
+      "who": "admin",
+      "feature": "custom_roles",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_custom_role",
+      "title": "Show a custom role",
+      "description": "One custom role and its permissions. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_roles/:id",
+      "who": "admin",
+      "feature": "custom_roles",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "custom_role_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_labels",
+      "title": "List labels",
+      "description": "The account's labels with their description, colour and whether they show in the sidebar.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/labels",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_label",
+      "title": "Show a label",
+      "description": "One label. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/labels/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "label_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_canned_responses",
+      "title": "List canned responses",
+      "description": "The account's saved replies (short code and text), optionally only those matching a search.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/canned_responses",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "search",
+          "in": "query",
+          "type": "string",
+          "description": "Only replies whose short code or text matches."
+        }
+      ]
+    },
+    {
+      "name": "list_macros",
+      "title": "List macros",
+      "description": "The macros the person can run: the account's shared macros and their own, with their actions.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/macros",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_macro",
+      "title": "Show a macro",
+      "description": "One macro and the actions it runs, if it is shared or the person's own.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/macros/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "macro_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_custom_attribute_definitions",
+      "title": "List custom attributes",
+      "description": "The custom attributes defined for conversations or contacts: key, name, type and allowed values.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_attribute_definitions",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_custom_attribute_definition",
+      "title": "Show a custom attribute",
+      "description": "One custom attribute definition.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_attribute_definitions/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "attribute_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_saved_filters",
+      "title": "List my saved filters",
+      "description": "The person's saved conversation and contact filters (folders and segments) with their conditions.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_filters",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_saved_filter",
+      "title": "Show a saved filter",
+      "description": "One of the person's saved filters.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/custom_filters/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "filter_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_automation_rules",
+      "title": "List automation rules",
+      "description": "The account's automation rules: their event, conditions, actions and whether each is on. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/automation_rules",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_automation_rule",
+      "title": "Show an automation rule",
+      "description": "One automation rule. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/automation_rules/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "rule_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_sla_policies",
+      "title": "List SLA policies",
+      "description": "The account's SLA policies: first response, next response and resolution targets, and whether business hours count.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/sla_policies",
+      "who": "everyone",
+      "feature": "sla",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_sla_policy",
+      "title": "Show an SLA policy",
+      "description": "One SLA policy.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/sla_policies/:id",
+      "who": "everyone",
+      "feature": "sla",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "sla_policy_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_dashboard_apps",
+      "title": "List dashboard apps",
+      "description": "The dashboard apps (embedded pages) shown beside conversations, with their URLs.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/dashboard_apps",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_dashboard_app",
+      "title": "Show a dashboard app",
+      "description": "One dashboard app.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/dashboard_apps/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "dashboard_app_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_offers",
+      "title": "List the offers",
+      "description": "The promotional offers ORM shows on greetings: title, text, validity and whether each has an image.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/offers",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_mail_drafts",
+      "title": "List saved email drafts",
+      "description": "The saved, unsent email drafts of the compose flow (the Drafts folder), shared across the account.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/mail_drafts",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_my_notifications",
+      "title": "List my notifications",
+      "description": "The person's notifications, newest first, 15 per page: mentions, assignments, new messages and SLA alerts, read or unread.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/notifications",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "count_my_unread_notifications",
+      "title": "Count my unread notifications",
+      "description": "How many of the person's notifications are unread.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/notifications/unread_count",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_my_notification_settings",
+      "title": "Show my notification settings",
+      "description": "Which events email or push-notify the person in this account.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/notification_settings",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_audit_logs",
+      "title": "List the audit log",
+      "description": "Who changed what in ORM's settings and records, newest first, 15 per page. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/audit_logs",
+      "who": "admin",
+      "feature": "audit_logs",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "list_campaigns",
+      "title": "List campaigns",
+      "description": "The account's campaigns, WhatsApp campaigns included: inbox, audience, template, schedule, status and delivery counts. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/campaigns",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_campaign",
+      "title": "Show a campaign",
+      "description": "One campaign with its audience, template and delivery counts. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/campaigns/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "campaign_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_campaign_deliveries",
+      "title": "List a campaign's deliveries",
+      "description": "Each recipient of a WhatsApp campaign with their status (queued, sent, delivered, read, replied, failed or skipped) and errors; filter by status or search. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/campaigns/:campaign_id/deliveries",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "campaign_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "queued",
+            "sent",
+            "delivered",
+            "read",
+            "replied",
+            "failed",
+            "skipped"
+          ]
+        },
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "description": "Name, phone or error text."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "preview_campaign_audience",
+      "title": "Preview a campaign's audience",
+      "description": "How many contacts a WhatsApp campaign audience would reach and how many would be skipped, without creating anything. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/campaigns/preview_audience",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "body",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "audience",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The audience as the campaign form builds it."
+        }
+      ]
+    },
+    {
+      "name": "list_whatsapp_templates",
+      "title": "List WhatsApp templates",
+      "description": "The WhatsApp message templates, optionally for one inbox: name, language, category, body and approval status. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/whatsapp_templates",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "inbox_id",
+          "in": "query",
+          "type": "integer",
+          "description": "Only this inbox."
+        }
+      ]
+    },
+    {
+      "name": "get_whatsapp_template",
+      "title": "Show a WhatsApp template",
+      "description": "One WhatsApp message template. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/whatsapp_templates/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "template_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_whatsapp_consents",
+      "title": "List WhatsApp consents",
+      "description": "The recorded WhatsApp marketing consents (opt-ins and opt-outs) by contact and inbox. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/whatsapp_consents",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_contact_crm_deals",
+      "title": "List a contact's Zoho CRM deals",
+      "description": "The Zoho CRM deals already linked to a conversation's contact, read live from Zoho through the bridge. Only conversations the person can see.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/zoho_bridge/contact_deals",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "body",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_forward_recipients",
+      "title": "List preset forward addresses",
+      "description": "The internal email addresses an agent can pick when forwarding a conversation.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/zoho_bridge/forward_recipients",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "body",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_email_routing_rules",
+      "title": "Show the email routing rules",
+      "description": "The bridge's published email routing rules: categories, keywords and forward and CC addresses by product line. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/routing_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_email_routing_rule_versions",
+      "title": "List routing rule versions",
+      "description": "The published versions of the routing rules, newest first, with who published each and why. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/routing_config/versions",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_email_routing_rule_version",
+      "title": "Show a routing rules version",
+      "description": "One published version of the routing rules. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/routing_config/version",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "version_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "check_email_routing_rules",
+      "title": "Check a routing rules draft",
+      "description": "Checks a draft of the routing rules for errors, saving nothing. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/routing_config/validate",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "doc",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The draft, in the editor's shape."
+        }
+      ]
+    },
+    {
+      "name": "get_crm_owner_check",
+      "title": "Check CRM deal owners",
+      "description": "Deal-owner slots in the routing rules and store settings whose Zoho user is deactivated or deleted, with suggested successors. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/routing_config/owner_sync",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_store_settings",
+      "title": "Show the store settings",
+      "description": "The stores and showrooms the bridge routes enquiries to, with their locations and Zoho deal owners. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/stores_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_store_settings_versions",
+      "title": "List store settings versions",
+      "description": "The published versions of the store settings, newest first. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/stores_config/versions",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_store_settings_version",
+      "title": "Show a store settings version",
+      "description": "One published version of the store settings. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/stores_config/version",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "version_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "check_store_settings",
+      "title": "Check a store settings draft",
+      "description": "Checks a draft of the store settings for errors, saving nothing. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/stores_config/validate",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "doc",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The draft, in the editor's shape."
+        }
+      ]
+    },
+    {
+      "name": "list_zoho_crm_users",
+      "title": "List Zoho CRM users",
+      "description": "The Zoho CRM users that can own deals, as the store settings editor offers them. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/stores_config/zoho_owners",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_agent_prompts",
+      "title": "Show the AI agents' prompts",
+      "description": "The prompts the bridge's AI agents (social DMs and email replies) answer with, as published. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/agent_prompts_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_agent_prompt_versions",
+      "title": "List agent prompt versions",
+      "description": "The published versions of the AI agents' prompts, newest first. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/agent_prompts_config/versions",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_agent_prompt_version",
+      "title": "Show an agent prompts version",
+      "description": "One published version of the AI agents' prompts. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/agent_prompts_config/version",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "version_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "check_agent_prompts",
+      "title": "Check an agent prompts draft",
+      "description": "Checks a draft of the AI agents' prompts for errors, saving nothing. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/agent_prompts_config/validate",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "doc",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The draft, in the editor's shape."
+        }
+      ]
+    },
+    {
+      "name": "get_crm_automation_rules",
+      "title": "Show the CRM automation rules",
+      "description": "The rules that send WhatsApp messages when a Zoho CRM deal changes stage, with their templates. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/crm_automation_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_crm_automation_versions",
+      "title": "List CRM automation versions",
+      "description": "The published versions of the CRM automation rules, newest first. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/crm_automation_config/versions",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_crm_automation_version",
+      "title": "Show a CRM automation version",
+      "description": "One published version of the CRM automation rules. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/crm_automation_config/version",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "version_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "check_crm_automation_rules",
+      "title": "Check a CRM automation draft",
+      "description": "Checks a draft of the CRM automation rules, and that each rule fills its template, saving nothing. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/crm_automation_config/validate",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "doc",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "The draft, in the editor's shape."
+        }
+      ]
+    },
+    {
+      "name": "preview_crm_automation_for_deal",
+      "title": "Preview CRM automation for a deal",
+      "description": "What each CRM automation rule would do right now for one Zoho deal id; nothing is sent. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/integrations/crm_automation_config/preview",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "deal_id",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "pattern": "^[0-9]{1,30}$"
+        }
+      ]
+    },
+    {
+      "name": "get_product_catalog",
+      "title": "Show the product price list",
+      "description": "The live price list the bridge quotes from (SKU, name, family, category, MRP and sale price), where it came from and its sync state. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/product_catalog_config",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_product_catalog_versions",
+      "title": "List price list versions",
+      "description": "The published versions of the price list, newest first. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/product_catalog_config/versions",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_product_catalog_version",
+      "title": "Show a price list version",
+      "description": "One published version of the price list. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/product_catalog_config/version",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "version_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_contact_shopify_orders",
+      "title": "List a contact's Shopify orders",
+      "description": "The Shopify orders of the store customer matching a contact's email or phone, read live from Shopify.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/shopify/orders",
+      "who": "everyone",
+      "feature": "shopify_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_conversation_linear_issues",
+      "title": "List a conversation's Linear issues",
+      "description": "The Linear issues linked to a conversation.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/linear/linked_issues",
+      "who": "everyone",
+      "feature": "linear_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "search_linear_issues",
+      "title": "Search Linear issues",
+      "description": "Linear issues matching a search.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/linear/search_issue",
+      "who": "everyone",
+      "feature": "linear_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "q",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "maxLength": 200,
+          "description": "What to search for."
+        }
+      ]
+    },
+    {
+      "name": "list_linear_teams",
+      "title": "List Linear teams",
+      "description": "The Linear teams an issue can be filed in.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/linear/teams",
+      "who": "everyone",
+      "feature": "linear_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_linear_team_options",
+      "title": "List a Linear team's options",
+      "description": "A Linear team's users, projects, states and labels, as the issue form offers them.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/integrations/linear/team_entities",
+      "who": "everyone",
+      "feature": "linear_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "team_id",
+          "in": "query",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_captain_settings",
+      "title": "Show Captain AI settings",
+      "description": "Which Captain AI features are on for the account and the model each uses.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/preferences",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_captain_assistants",
+      "title": "List Captain assistants",
+      "description": "The account's Captain AI assistants with their descriptions and settings.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_captain_assistant",
+      "title": "Show a Captain assistant",
+      "description": "One Captain AI assistant: its instructions, product name, feature switches and guardrails.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants/:id",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assistant_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_captain_tools",
+      "title": "List Captain's built-in tools",
+      "description": "The tools a Captain assistant can be given, and what each does. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants/tools",
+      "who": "admin",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_captain_assistant_inboxes",
+      "title": "List a Captain assistant's inboxes",
+      "description": "The inboxes a Captain assistant answers in.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assistant_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_captain_scenarios",
+      "title": "List a Captain assistant's scenarios",
+      "description": "A Captain assistant's scenarios: when each applies and what the assistant should do.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assistant_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_captain_scenario",
+      "title": "Show a Captain scenario",
+      "description": "One Captain scenario.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "assistant_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "scenario_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_captain_faqs",
+      "title": "List Captain FAQs",
+      "description": "The question-and-answer pairs Captain assistants answer from, with their status and source document.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistant_responses",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_captain_faq",
+      "title": "Show a Captain FAQ",
+      "description": "One Captain question-and-answer pair.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/assistant_responses/:id",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "faq_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_captain_documents",
+      "title": "List Captain documents",
+      "description": "The documents and web pages Captain assistants learn from, with their status.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/documents",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_captain_document",
+      "title": "Show a Captain document",
+      "description": "One Captain document and what was learned from it.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/documents/:id",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "document_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_my_copilot_threads",
+      "title": "List my Copilot threads",
+      "description": "The person's own Copilot conversations with Captain, newest first.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/copilot_threads",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_copilot_messages",
+      "title": "Show a Copilot thread",
+      "description": "The messages of one of the person's Copilot threads.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/captain/copilot_threads/:copilot_thread_id/copilot_messages",
+      "who": "everyone",
+      "feature": "captain_integration",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "copilot_thread_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_help_center_portals",
+      "title": "List help centers",
+      "description": "The account's help center portals with their name, domain, locales and article counts.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals",
+      "who": "everyone",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_help_center_portal",
+      "title": "Show a help center",
+      "description": "One help center portal and its settings.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:id",
+      "who": "everyone",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "param": "id",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        }
+      ]
+    },
+    {
+      "name": "get_help_center_ssl_status",
+      "title": "Check a help center's domain certificate",
+      "description": "Whether a help center's custom domain has a working certificate, checked with the DNS provider. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:id/ssl_status",
+      "who": "admin",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "param": "id",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        }
+      ]
+    },
+    {
+      "name": "list_help_center_categories",
+      "title": "List help center categories",
+      "description": "A help center's categories by locale, with their article counts.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:portal_id/categories",
+      "who": "everyone",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        }
+      ]
+    },
+    {
+      "name": "get_help_center_category",
+      "title": "Show a help center category",
+      "description": "One help center category. Administrators, or a custom role with the knowledge base.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:portal_id/categories/:id",
+      "who": "kb",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        },
+        {
+          "name": "category_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "list_help_center_articles",
+      "title": "List help articles",
+      "description": "A help center's articles with their status, category, author and views, by locale, category or status.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:portal_id/articles",
+      "who": "everyone",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        }
+      ]
+    },
+    {
+      "name": "get_help_center_article",
+      "title": "Read a help article",
+      "description": "One help article with its full content. Administrators, or a custom role with the knowledge base.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/portals/:portal_id/articles/:id",
+      "who": "kb",
+      "feature": "help_center",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "portal_id",
+          "in": "path",
+          "type": "string",
+          "required": true,
+          "description": "The help center portal's slug, as list_help_center_portals gives it."
+        },
+        {
+          "name": "article_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "get_report_summary",
+      "title": "Summarize a report",
+      "description": "Totals and averages for a date range (conversations, messages, first response, resolution and reply times, resolutions) and the previous period, for the account or one agent, inbox, label or team. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/summary",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "account",
+            "agent",
+            "inbox",
+            "label",
+            "team"
+          ],
+          "description": "What the report is about."
+        },
+        {
+          "name": "id",
+          "in": "query",
+          "type": "integer",
+          "description": "The agent, inbox, label or team id when type is not account."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_report_timeseries",
+      "title": "Chart a report metric over time",
+      "description": "One metric (conversations, messages, first response, resolution or reply time, resolutions, bot handoffs) over a date range by day, week or month, for the account or one agent, inbox, label or team. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "metric",
+          "in": "query",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "conversations_count",
+            "incoming_messages_count",
+            "outgoing_messages_count",
+            "avg_first_response_time",
+            "avg_resolution_time",
+            "reply_time",
+            "resolutions_count",
+            "bot_resolutions_count",
+            "bot_handoffs_count"
+          ]
+        },
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "account",
+            "agent",
+            "inbox",
+            "label",
+            "team"
+          ],
+          "description": "What the report is about."
+        },
+        {
+          "name": "id",
+          "in": "query",
+          "type": "integer",
+          "description": "The agent, inbox, label or team id when type is not account."
+        },
+        {
+          "name": "group_by",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ]
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        },
+        {
+          "name": "timezone_offset",
+          "in": "query",
+          "type": "number",
+          "description": "Hours from UTC; India is 5.5."
+        }
+      ]
+    },
+    {
+      "name": "get_conversation_counts",
+      "title": "Show open and unattended counts",
+      "description": "Open, unattended, unassigned and pending conversation counts now, for the account or per agent. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/conversations",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "type",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "account",
+            "agent",
+            "inbox",
+            "label",
+            "team"
+          ],
+          "description": "What the report is about."
+        },
+        {
+          "name": "user_id",
+          "in": "query",
+          "type": "integer"
+        }
+      ]
+    },
+    {
+      "name": "get_bot_report_summary",
+      "title": "Summarize the bots' results",
+      "description": "Bot conversations, resolutions and handoffs for a date range, with the previous period. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/bot_summary",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_bot_metrics",
+      "title": "Show bot metrics",
+      "description": "Bot conversation and message counts and resolution and handoff rates for a date range. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/bot_metrics",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        }
+      ]
+    },
+    {
+      "name": "get_inbox_label_matrix",
+      "title": "Count conversations by inbox and label",
+      "description": "How many conversations carry each label in each inbox, for a date range. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/inbox_label_matrix",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        }
+      ]
+    },
+    {
+      "name": "get_first_response_time_spread",
+      "title": "Show the first-response time spread",
+      "description": "How many conversations got their first response within each time bucket, by channel, for a date range. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/first_response_time_distribution",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        }
+      ]
+    },
+    {
+      "name": "count_outgoing_messages",
+      "title": "Count outgoing messages",
+      "description": "Outgoing messages for a date range, grouped by agent, team, inbox or label. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/reports/outgoing_messages_count",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "group_by",
+          "in": "query",
+          "type": "string",
+          "enum": [
+            "agent",
+            "team",
+            "inbox",
+            "label"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "get_agent_summary_report",
+      "title": "Summarize agents' performance",
+      "description": "Per agent for a date range: conversations, resolutions, average first response and resolution times and replies. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/agent",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_team_summary_report",
+      "title": "Summarize teams' performance",
+      "description": "Per team for a date range: the same measures as the agent summary. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/team",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_inbox_summary_report",
+      "title": "Summarize inboxes' performance",
+      "description": "Per inbox for a date range: conversations, resolutions and average response and resolution times. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/inbox",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_label_summary_report",
+      "title": "Summarize labels",
+      "description": "Per label for a date range: conversations, resolutions and average times. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/label",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_channel_summary_report",
+      "title": "Summarize channels",
+      "description": "Per channel type for a date range: conversation counts by status. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/channel",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_orm_overview_report",
+      "title": "Show the ORM overview",
+      "description": "ORM's health board for a date range: how much the AI handled alone, handoffs to people, deals and tickets created and the reviews pulse. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/orm_overview",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_ai_performance_report",
+      "title": "Show the AI performance report",
+      "description": "How the AI assistant carried the social inbox for a date range: auto-send rate, confidence, handoffs, templates used and intent gates. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/ai_performance",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_crm_funnel_report",
+      "title": "Show the CRM lead funnel",
+      "description": "Enquiries routed to a showroom, qualified leads and Zoho deals created for a date range, by vertical and enquiry category. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/crm_funnel",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_google_reviews_report",
+      "title": "Show the Google reviews report",
+      "description": "Google reviews for a date range: rating spread, automatic versus manual replies, and by store location. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/summary_reports/reviews",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "business_hours",
+          "in": "query",
+          "type": "boolean",
+          "description": "Count only business hours."
+        }
+      ]
+    },
+    {
+      "name": "get_live_conversation_metrics",
+      "title": "Show live conversation metrics",
+      "description": "Right now: open, unattended, unassigned and pending conversations, optionally for one team. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/live_reports/conversation_metrics",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_live_metrics_by_group",
+      "title": "Show live metrics by agent or team",
+      "description": "Right now, per agent, team or inbox: open, unattended and unassigned conversations. Needs report access.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/live_reports/grouped_conversation_metrics",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "list_csat_responses",
+      "title": "List CSAT responses",
+      "description": "Customer satisfaction ratings and feedback by conversation, agent and inbox for a date range, 25 per page. Needs report access.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/csat_survey_responses",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "get_csat_metrics",
+      "title": "Show CSAT totals",
+      "description": "For a date range: surveys sent, responses, response rate and how the ratings spread. Needs report access.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/csat_survey_responses/metrics",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        }
+      ]
+    },
+    {
+      "name": "list_applied_slas",
+      "title": "List SLA results",
+      "description": "Conversations with an SLA applied and whether each met or missed it, for a date range. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/applied_slas",
+      "who": "admin",
+      "feature": "sla",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "get_sla_metrics",
+      "title": "Show SLA totals",
+      "description": "How many conversations met or missed their SLA, and the hit rate, for a date range. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/applied_slas/metrics",
+      "who": "admin",
+      "feature": "sla",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        }
+      ]
+    },
+    {
+      "name": "list_reporting_events",
+      "title": "List reporting events",
+      "description": "The account's reporting events (first responses, resolutions, reopenings) with their times, for a date range. Administrators only.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/reporting_events",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "since",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "Start, as Unix seconds."
+        },
+        {
+          "name": "until",
+          "in": "query",
+          "type": "integer",
+          "required": true,
+          "description": "End, as Unix seconds."
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page number, from 1."
+        }
+      ]
+    },
+    {
+      "name": "get_follow_up_report",
+      "title": "Show the follow-ups report",
+      "description": "Open and in-range conversation counts for each follow-up label the administrators chose. Needs report access.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/follow_up_report",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_forwarded_email_report",
+      "title": "Show the forwarded emails report",
+      "description": "The weekly Forwarded Emails report for one email category: each customer email first forwarded to a team that week, who got it and what came of it. Needs report access.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/forwarded_email_report",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "category",
+          "in": "query",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "week",
+          "in": "query",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Any day of the week (India time); last week unless given."
+        }
+      ]
+    },
+    {
+      "name": "list_forwarded_email_categories",
+      "title": "List forwarded email categories",
+      "description": "The email categories the Forwarded Emails report covers, from the bridge's routing rules. Needs report access.",
+      "method": "GET",
+      "path": "/api/v1/accounts/:account_id/forwarded_email_report/categories",
+      "who": "reports",
+      "feature": null,
+      "account_param": "account_id",
+      "args": []
+    },
+    {
+      "name": "get_my_year_in_review",
+      "title": "Show my year in review",
+      "description": "The person's Year in Review for one year: conversations handled, busiest times and highlights.",
+      "method": "GET",
+      "path": "/api/v2/accounts/:account_id/year_in_review",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "year",
+          "in": "query",
+          "type": "integer",
+          "description": "The year; 2025 unless given."
+        }
+      ]
+    }
+  ]
+}

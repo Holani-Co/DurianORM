@@ -33,6 +33,28 @@ module DurianOs::Config
     ENV.fetch('OS_ACCOUNT_ID', '1').to_i
   end
 
+  # AI connections (docs/mcp/MCP.md): ORM takes Durian OS passes only while this is on.
+  # Off (the default), every pass is 401.
+  def os_pass?
+    switch_on?('ORM_OS_PASS')
+  end
+
+  # At most this many AI requests at once in all (2 per person); keep it at most
+  # RAILS_MAX_THREADS - 2 so Customer Support always has threads.
+  def ai_concurrency
+    value = ENV.fetch('ORM_AI_CONCURRENCY', '3').to_i
+    value.positive? ? value : 3
+  end
+
+  def os_issuer
+    ENV.fetch('OS_ISSUER', '').strip.presence || 'https://durianos.in'
+  end
+
+  # Durian OS's public key set, pinned (Rails never fetches keys).
+  def os_jwks_json
+    ENV.fetch('OS_JWKS_JSON', '').strip.presence
+  end
+
   def handoff_url
     ENV.fetch('OS_HANDOFF_URL', 'https://durianos.in/api/handoff/orm')
   end
