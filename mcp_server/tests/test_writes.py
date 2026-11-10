@@ -18,8 +18,9 @@ class OfferTests(unittest.TestCase):
             self.assertFalse(hints.readOnlyHint, name)
             self.assertEqual(hints.destructiveHint, bool(spec['destructive']), name)
         destructive = {n for n, s in WRITE_SPECS.items() if s['destructive']}
-        self.assertTrue({'merge_contacts', 'delete_contact_note', 'delete_canned_response', 'run_macro',
-                         'set_conversation_status'} <= destructive)
+        self.assertTrue({'merge_contacts', 'delete_contact_note', 'delete_canned_response'} <= destructive)
+        self.assertNotIn('run_macro', WRITE_SPECS)
+        self.assertEqual(WRITE_SPECS['set_conversation_status']['args'][1]['enum'], ['open', 'pending', 'snoozed'])
         self.assertNotIn('add_private_note', destructive)
 
     def test_nothing_that_reaches_a_customer_or_an_outside_system_is_a_tool(self):
@@ -84,7 +85,8 @@ class CallTests(unittest.TestCase):
         async def scenario(session, client):
             return [await session.call('add_private_note', {'conversation_id': 41, 'content': 'x', 'private': False}),
                     await session.call('add_private_note', {'conversation_id': 41}),
-                    await session.call('run_macro', {'macro_id': 3, 'conversation_ids': list(range(1, 12))}),
+                    await session.call('run_macro', {'macro_id': 3, 'conversation_ids': [1]}),
+                    await session.call('set_conversation_status', {'conversation_id': 41, 'status': 'resolved'}),
                     await session.call('set_conversation_status', {'conversation_id': 41, 'status': 'deleted'})]
 
         results, api, _ = run(scenario)

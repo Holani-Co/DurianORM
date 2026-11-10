@@ -31,7 +31,7 @@ INSTRUCTIONS = (
     "connected it, with their own ORM role (administrator or agent, their inboxes and teams), checked on every call. "
     "It always reads. It can change things only on a connection with Full access, and only everyday support work: "
     "assign, change status or priority, labels, custom attributes, mute, participants and private notes on a "
-    "conversation; contacts, their labels and notes, merging; companies; canned responses; labels; running macros. "
+    "conversation; contacts, their labels and notes, merging; companies; canned responses; labels. "
     "Before a change marked destructive (it cannot be undone), say what it will change and wait for the person's "
     "go-ahead. Anything that reaches a customer (a reply, a campaign, a transcript), AI drafts, Zoho tickets and "
     "deals, deleting conversations or contacts, bulk actions and settings stay in ORM's screens: the notes tool "

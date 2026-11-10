@@ -119,6 +119,7 @@ class DurianOs::Ai::Gate
     stray = body.keys - entry.body_keys
     refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} Not a field of this tool: #{stray.first(5).join(', ')}.") if stray.any?
     refuse!('write_refused', entry.fixed_refusal) unless entry.fixed.all? { |name, value| body[name] == value }
+    check_args!(entry, body)
     return if entry.guard.nil?
 
     refusal = DurianOs::Ai::WriteGuard.check(
@@ -126,6 +127,41 @@ class DurianOs::Ai::Gate
                                             account_user: account_user, params: params.symbolize_keys, body: body)
     )
     DurianOs::Ai.refuse!(*refusal) if refusal
+  end
+
+  # What the tool declares for its body fields is enforced here too, not only by the MCP server: a missing required
+  # field is refused (an empty status would toggle open and resolved, an empty label list would clear the labels),
+  # and a value of another type, outside its enum or too long is refused. A field that is not required may be null.
+  def check_args!(entry, body)
+    entry.args.select { |arg| arg['in'] == 'body' }.each do |arg|
+      name = arg['name']
+      value = body[name]
+      if value.nil?
+        refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} #{name} is required.") if arg['required']
+        next
+      end
+      refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} #{name} is not valid.") unless valid_arg?(arg, value)
+    end
+  end
+
+  def valid_arg?(arg, value)
+    return false unless value_type?(arg['type'], value)
+    return false if arg['enum'] && arg['enum'].exclude?(value)
+    return false if arg['maxLength'] && value.is_a?(String) && value.length > arg['maxLength']
+    return false if arg['maxItems'] && value.is_a?(Array) && value.size > arg['maxItems']
+
+    value.is_a?(Array) && arg['items'] ? value.all? { |item| value_type?(arg['items'], item) } : true
+  end
+
+  def value_type?(type, value)
+    case type
+    when 'integer' then value.is_a?(Integer)
+    when 'string' then value.is_a?(String)
+    when 'boolean' then [true, false].include?(value)
+    when 'array' then value.is_a?(Array)
+    when 'object' then value.is_a?(Hash)
+    else false
+    end
   end
 
   def write_body

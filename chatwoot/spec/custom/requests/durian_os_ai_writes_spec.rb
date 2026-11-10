@@ -92,7 +92,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
       ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub, max_level: 'edit'))
       expect([response.status, error]).to eq([403, read_only_words])
       ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_status", pass_for(omar_sub, max_level: 'view'),
-               { status: 'resolved' })
+               { status: 'pending' })
       expect([response.status, error]).to eq([403, read_only_words])
       expect(sales_chat.reload).not_to be_muted
       expect(sales_chat).to be_open
@@ -122,7 +122,8 @@ RSpec.describe 'Durian OS AI writes', type: :request do
       account.enable_features!('companies')
       ai_get_me(pass_for(tara_sub))
       expect(response.parsed_body).to include('read_only' => false)
-      expect(response.parsed_body['tools']).to include('add_private_note', 'create_label', 'merge_contacts', 'create_company', 'run_macro')
+      expect(response.parsed_body['tools']).to include('add_private_note', 'create_label', 'merge_contacts', 'create_company')
+      expect(response.parsed_body['tools']).not_to include('run_macro')
 
       ai_get_me(pass_for(omar_sub))
       expect(response.parsed_body['tools']).to include('add_private_note', 'create_canned_response', 'merge_contacts')
@@ -180,16 +181,16 @@ RSpec.describe 'Durian OS AI writes', type: :request do
         expect(sales_chat.reload.label_list).to be_empty
       end
 
-      it 'resolves, assigns and mutes, and the activity says who did it and via which AI' do
+      it 'sets pending, assigns and mutes, and the activity says who did it and via which AI' do
         id = sales_chat.display_id
         perform_enqueued_jobs do
-          ai_write(:post, "#{v1}/conversations/#{id}/toggle_status", pass_for(tara_sub, client: 'Claude'), { status: 'resolved' })
+          ai_write(:post, "#{v1}/conversations/#{id}/toggle_status", pass_for(tara_sub, client: 'Claude'), { status: 'pending' })
           expect(response).to have_http_status(:ok)
           ai_write(:post, "#{v1}/conversations/#{id}/assignments", pass_for(tara_sub, client: 'Claude'), { assignee_id: omar.id })
           expect(response).to have_http_status(:ok)
           ai_write(:post, "#{v1}/conversations/#{id}/mute", pass_for(tara_sub, client: 'Claude'))
         end
-        expect(sales_chat.reload).to be_resolved
+        expect(sales_chat.reload).to be_pending
         expect(sales_chat.assignee).to eq(omar)
         activity = sales_chat.messages.where(message_type: :activity).pluck(:content)
         expect(activity).to include(a_string_including('Tara Fern via Claude'))
@@ -343,46 +344,93 @@ RSpec.describe 'Durian OS AI writes', type: :request do
     describe 'macros' do
       before { create(:label, account: account, title: 'vip') }
 
-      def macro_with(*actions)
-        create(:macro, account: account, created_by: tara, visibility: :global, name: 'Tag', actions: actions)
-      end
-
-      it 'runs a macro whose actions stay inside ORM, on conversations the person can open' do
-        macro = macro_with({ 'action_name' => 'add_label', 'action_params' => ['vip'] })
-        perform_enqueued_jobs do
-          ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(omar_sub), { conversation_ids: [sales_chat.display_id] })
-        end
-        expect(response).to have_http_status(:ok)
-        expect(sales_chat.reload.label_list).to eq(['vip'])
-        expect(lines.last).to include('tool' => 'run_macro', 'write' => 'done')
-      end
-
-      it 'refuses a macro that sends a message, an email, a file or a webhook' do
-        %w[send_message send_email_transcript send_attachment send_webhook_event].each do |name|
-          macro = macro_with({ 'action_name' => 'add_label', 'action_params' => ['vip'] }, { 'action_name' => name, 'action_params' => ['x'] })
-          ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(tara_sub), { conversation_ids: [sales_chat.display_id] })
-          expect([response.status, lines.last['refused']]).to eq([403, 'write_refused']), name
+      it 'refuses to run a macro, even one that only adds a label: a macro can send, and its run can resolve' do
+        macro = create(:macro, account: account, created_by: tara, visibility: :global, name: 'Tag',
+                               actions: [{ 'action_name' => 'add_label', 'action_params' => ['vip'] }])
+        [tara_sub, omar_sub].each do |sub|
+          perform_enqueued_jobs do
+            ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(sub), { conversation_ids: [sales_chat.display_id] })
+          end
+          expect([response.status, lines.last['refused']]).to eq([403, 'write_refused'])
+          expect(error).to eq(DurianOs::Ai::Registry::WRITE_REFUSED_REASONS['customer'])
         end
         expect(sales_chat.reload.label_list).to be_empty
         expect(enqueued_jobs.pluck('job_class')).not_to include('MacrosExecutionJob')
       end
+    end
 
-      it 'refuses a conversation the person cannot open, even though the job would run it' do
-        macro = macro_with({ 'action_name' => 'add_label', 'action_params' => ['vip'] })
-        perform_enqueued_jobs do
-          ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(omar_sub), { conversation_ids: [sales_chat.display_id, service_chat.display_id] })
+    describe 'what can reach a customer' do
+      let(:status_path) { "#{v1}/conversations/#{sales_chat.display_id}/toggle_status" }
+      let(:chat_path) { "#{v1}/conversations/#{sales_chat.display_id}" }
+
+      it 'never resolves a conversation (the satisfaction survey), however the status is sent' do
+        [{ status: 'resolved' }, {}, { status: '' }, { status: nil }, { status: ['resolved'] }, { status: 'bot' }].each do |body|
+          ai_write(:post, status_path, pass_for(tara_sub), body)
+          expect([response.status, lines.last['refused']]).to eq([403, 'bad_input']), body.inspect
         end
-        expect([response.status, lines.last['refused']]).to eq([404, 'not_found'])
-        expect([sales_chat.reload.label_list, service_chat.reload.label_list]).to eq([[], []])
-        ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(omar_sub), { conversation_ids: (1..11).to_a })
-        expect(response).to have_http_status(:unprocessable_entity)
+        ai_write(:post, status_path, pass_for(omar_sub), { status: 'resolved', snoozed_until: '2026-12-01T09:00:00Z' })
+        expect(response).to have_http_status(:forbidden)
+        expect(sales_chat.reload).to be_open
+        expect(sales_chat.messages.count).to eq(0)
       end
 
-      it 'refuses another person\'s personal macro' do
-        personal = create(:macro, account: account, created_by: tara, visibility: :personal, actions: [{ 'action_name' => 'add_label',
-                                                                                                          'action_params' => ['vip'] }])
-        ai_write(:post, "#{v1}/macros/#{personal.id}/execute", pass_for(omar_sub), { conversation_ids: [sales_chat.display_id] })
-        expect([response.status, lines.last['refused']]).to eq([403, 'role'])
+      it 'sets open, pending and snoozed' do
+        %w[pending snoozed open].each do |status|
+          ai_write(:post, status_path, pass_for(tara_sub), { status: status })
+          expect(response).to have_http_status(:ok), status
+          expect(sales_chat.reload.status).to eq(status)
+        end
+      end
+
+      it 'does not clear labels when the field is left out, and refuses a note without content' do
+        create(:label, account: account, title: 'vip')
+        sales_chat.update_labels(['vip'])
+        [{}, { labels: nil }, { labels: 'vip' }].each do |body|
+          ai_write(:post, "#{chat_path}/labels", pass_for(tara_sub), body)
+          expect([response.status, lines.last['refused']]).to eq([403, 'bad_input']), body.inspect
+        end
+        ai_write(:post, "#{chat_path}/messages", pass_for(tara_sub), { private: true })
+        expect(response).to have_http_status(:forbidden)
+        expect(sales_chat.reload.label_list).to eq(['vip'])
+      end
+
+      it 'takes values of the declared type only' do
+        ai_write(:post, "#{chat_path}/toggle_priority", pass_for(tara_sub), { priority: 'critical' })
+        expect(response).to have_http_status(:forbidden)
+        ai_write(:post, "#{chat_path}/participants", pass_for(tara_sub), { user_ids: ['1'] })
+        expect(response).to have_http_status(:forbidden)
+        ai_write(:post, "#{chat_path}/messages", pass_for(tara_sub), { content: 'x' * 5001, private: true })
+        expect(response).to have_http_status(:forbidden)
+        expect(sales_chat.reload.priority).to be_nil
+      end
+
+      it 'assigns to an agent or a team of the account, never takes the assignment away, never hands it to the bot' do
+        bot = create(:user, account: account, role: :agent, name: 'DurianAI', email: 'durian.ai@orm.test')
+        create(:inbox_member, user: bot, inbox: sales)
+        team = create(:team, account: account)
+        sales_chat.update!(assignee: omar, team: team)
+        path = "#{chat_path}/assignments"
+        [{}, { assignee_id: nil }, { team_id: nil }, { assignee_id: 0 }, { assignee_id: 999_999 }, { assignee_id: '1' },
+         { assignee_id: omar.id, assignee_type: 'AgentBot' }, { team_id: 999_999 }].each do |body|
+          ai_write(:post, path, pass_for(tara_sub), body)
+          expect([response.status, lines.last['refused']]).to eq([403, 'bad_input']), body.inspect
+        end
+        ai_write(:post, path, pass_for(tara_sub), { assignee_id: bot.id })
+        expect([response.status, lines.last['refused']]).to eq([403, 'write_refused'])
+        expect(error).to include('DurianAI')
+        expect(sales_chat.reload).to have_attributes(assignee: omar, team: team)
+
+        ai_write(:post, path, pass_for(tara_sub), { assignee_id: nora.id })
+        expect(sales_chat.reload.assignee).to eq(nora)
+        ai_write(:post, path, pass_for(tara_sub), { team_id: team.id })
+        expect(response).to have_http_status(:ok)
+      end
+
+      it 'sends no reply to the customer when a private note is added' do
+        ai_write(:post, "#{chat_path}/messages", pass_for(tara_sub), { content: 'Hi', private: true })
+        expect(response).to have_http_status(:ok)
+        expect(sales_chat.messages.where(private: false, message_type: :outgoing).count).to eq(0)
+        expect(enqueued_jobs.pluck('job_class')).not_to include('SendReplyJob', 'ConversationReplyEmailJob')
       end
     end
 
@@ -396,7 +444,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
         expect(error).to eq('You are not authorized to do this action')
         ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/messages", pass_for(omar_sub), { content: 'note' })
         expect(response).to have_http_status(:forbidden)
-        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/toggle_status", pass_for(omar_sub), { status: 'resolved' })
+        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/toggle_status", pass_for(omar_sub), { status: 'pending' })
         expect(response).to have_http_status(:forbidden)
         expect(service_chat.reload).not_to be_muted
         expect(service_chat).to be_open

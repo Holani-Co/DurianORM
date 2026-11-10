@@ -3,8 +3,8 @@
   "source": "chatwoot/custom/config/mcp_registry.yml",
   "counts": {
     "read": 165,
-    "write_offered": 28,
-    "write_refused": 163,
+    "write_offered": 27,
+    "write_refused": 164,
     "web_only": 414
   },
   "tools": [
@@ -3510,7 +3510,7 @@
     {
       "name": "set_conversation_status",
       "title": "Change a conversation's status",
-      "description": "Opens, resolves, snoozes or marks pending a conversation. As in the screen, resolving can send the inbox's satisfaction survey to the customer and run its automation rules.",
+      "description": "Opens, snoozes or marks pending a conversation; a status is always required. Resolving stays in ORM: it can send the customer the inbox's satisfaction survey.",
       "method": "POST",
       "path": "/api/v1/accounts/:account_id/conversations/:id/toggle_status",
       "who": "everyone",
@@ -3532,7 +3532,6 @@
           "required": true,
           "enum": [
             "open",
-            "resolved",
             "pending",
             "snoozed"
           ],
@@ -3546,9 +3545,9 @@
         }
       ],
       "write": true,
-      "destructive": true,
+      "destructive": false,
       "idempotent": true,
-      "open_world": true,
+      "open_world": false,
       "fixed": {}
     },
     {
@@ -3657,7 +3656,7 @@
     {
       "name": "assign_conversation",
       "title": "Assign a conversation",
-      "description": "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Taking an assignment away stays in ORM.",
+      "description": "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Give one of them. Taking an assignment away, and assigning the DurianAI bot, stay in ORM.",
       "method": "POST",
       "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/assignments",
       "who": "everyone",
@@ -4411,39 +4410,6 @@
       "write": true,
       "destructive": true,
       "idempotent": true,
-      "open_world": false,
-      "fixed": {}
-    },
-    {
-      "name": "run_macro",
-      "title": "Run a macro on conversations",
-      "description": "Runs one of the person's macros on up to 10 conversations they can see. A macro that sends a message, email, file or webhook is refused: those stay in ORM.",
-      "method": "POST",
-      "path": "/api/v1/accounts/:account_id/macros/:id/execute",
-      "who": "everyone",
-      "feature": null,
-      "account_param": "account_id",
-      "args": [
-        {
-          "name": "macro_id",
-          "in": "path",
-          "param": "id",
-          "type": "integer",
-          "required": true
-        },
-        {
-          "name": "conversation_ids",
-          "in": "body",
-          "type": "array",
-          "items": "integer",
-          "required": true,
-          "maxItems": 10,
-          "description": "Conversation numbers (display ids), at most 10."
-        }
-      ],
-      "write": true,
-      "destructive": true,
-      "idempotent": false,
       "open_world": false,
       "fixed": {}
     }

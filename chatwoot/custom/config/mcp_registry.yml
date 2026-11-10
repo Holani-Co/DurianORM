@@ -1414,14 +1414,12 @@ write:
     action: api/v1/accounts/conversations#toggle_status
     route: POST /api/v1/accounts/:account_id/conversations/:id/toggle_status
     title: "Change a conversation's status"
-    description: "Opens, resolves, snoozes or marks pending a conversation. As in the screen, resolving can send the inbox's satisfaction survey to the customer and run its automation rules."
+    description: "Opens, snoozes or marks pending a conversation; a status is always required. Resolving stays in ORM: it can send the customer the inbox's satisfaction survey."
     who: everyone
-    destructive: true
     idempotent: true
-    open_world: true
     args:
       - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
-      - {name: "status", in: "body", type: "string", required: true, enum: ["open", "resolved", "pending", "snoozed"], description: "The new status."}
+      - {name: "status", in: "body", type: "string", required: true, enum: ["open", "pending", "snoozed"], description: "The new status."}
       - {name: "snoozed_until", in: "body", type: "string", description: "For snoozed: when to wake it, such as 2026-11-12T09:00:00Z. Left out, it stays snoozed until the customer replies."}
   - name: set_conversation_priority
     action: api/v1/accounts/conversations#toggle_priority
@@ -1465,8 +1463,9 @@ write:
     action: api/v1/accounts/conversations/assignments#create
     route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/assignments
     title: "Assign a conversation"
-    description: "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Taking an assignment away stays in ORM."
+    description: "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Give one of them. Taking an assignment away, and assigning the DurianAI bot, stay in ORM."
     who: everyone
+    guard: assignment
     idempotent: true
     args:
       - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
@@ -1737,17 +1736,7 @@ write:
   - {name: create_macro, action: api/v1/accounts/macros#create, route: "POST /api/v1/accounts/:account_id/macros", who: everyone, refused: settings}
   - {name: update_macro, action: api/v1/accounts/macros#update, route: "PATCH|PUT /api/v1/accounts/:account_id/macros/:id", who: everyone, refused: settings}
   - {name: delete_macro, action: api/v1/accounts/macros#destroy, route: "DELETE /api/v1/accounts/:account_id/macros/:id", who: everyone, refused: settings}
-  - name: run_macro
-    action: api/v1/accounts/macros#execute
-    route: POST /api/v1/accounts/:account_id/macros/:id/execute
-    title: "Run a macro on conversations"
-    description: "Runs one of the person's macros on up to 10 conversations they can see. A macro that sends a message, email, file or webhook is refused: those stay in ORM."
-    who: everyone
-    guard: macro_safe
-    destructive: true
-    args:
-      - {name: "macro_id", in: "path", param: "id", type: "integer", required: true}
-      - {name: "conversation_ids", in: "body", type: "array", items: "integer", required: true, maxItems: 10, description: "Conversation numbers (display ids), at most 10."}
+  - {name: run_macro, action: api/v1/accounts/macros#execute, route: "POST /api/v1/accounts/:account_id/macros/:id/execute", who: everyone, note: "a macro can send a message, email, file or webhook, and its run can resolve a conversation", refused: customer}
   - {name: create_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#create, route: "POST /api/v1/accounts/:account_id/custom_attribute_definitions", who: admin, refused: settings}
   - {name: update_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin, refused: settings}
   - {name: delete_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin, refused: settings}

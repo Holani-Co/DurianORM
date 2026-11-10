@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(counts['web_only'], sum(len(keys) for keys in self.raw['web_only'].values()))
         self.assertEqual(counts['read'] + counts['write_offered'], len(EXPORT['tools']))
         self.assertEqual(len(self.raw['write']), 191)
-        self.assertEqual(len(refused), 163)
+        self.assertEqual(len(refused), 164)
 
     def test_every_tool_stays_in_the_api(self):
         names = [t['name'] for t in EXPORT['tools']]

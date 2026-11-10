@@ -8,7 +8,7 @@ module DurianOs::Ai::Registry
   METHODS = %w[GET POST].freeze
   WRITE_METHODS = %w[POST PATCH DELETE].freeze
   ARG_KEYS = %w[name in param type items required enum minimum maxLength maxItems pattern description].freeze
-  GUARDS = %w[conversation_attributes contact_attributes labels_known macro_safe].freeze
+  GUARDS = %w[conversation_attributes contact_attributes labels_known assignment].freeze
 
   # The words the gate adds for each browser-only reason (section 11.4).
   WEB_ONLY_REASONS = {

@@ -16,8 +16,7 @@ An AI reaches ORM through Durian OS's front door (`https://durianos.in/mcp`). It
 it, with their own ORM role (administrator or agent, custom role, inboxes and teams), read again on every call, and in
 v1 it **reads** always. It **changes** things only on a Full connection (the pass's `max_level` is `administer`), only the
 everyday support work of section 11.3 (assign, status, priority, labels, custom attributes, mute, participants and
-**private notes** on a conversation; contacts, their labels and notes, merging; companies; canned responses; labels;
-running macros), and only where ORM's own policies let that person do it. **Customer-facing sends stay in the screens for
+**private notes** on a conversation; contacts, their labels and notes, merging; companies; canned responses; labels), and only where ORM's own policies let that person do it. **Customer-facing sends stay in the screens for
 now:** an AI cannot send a reply, a transcript, an offer, a campaign or a broadcast on WhatsApp, Instagram, email or
 reviews, cannot call a paid model or an outside system (Zoho tickets and deals, AI drafts), cannot delete conversations or
 contacts, run bulk actions or change settings. Durian OS says who the person is; ORM alone judges what they may do.
@@ -241,16 +240,16 @@ fares as in the screen. Nothing the gate or the hook refuses has run.
    content type, else `bad_input`; a pinned value that is missing or different is `write_refused` with the registry's
    words (a reply is refused: `An AI connection can only add private notes to a conversation. Replies and other messages
    that reach a customer stay in ORM for now.`); `who: admin` says `Only an ORM administrator can change this, on a Durian
-   OS connection with full access.` (`admin_only`); then the entry's `guard` (`DurianOs::Ai::WriteGuard`):
+   OS connection with full access.` (`admin_only`); then every body field the tool declares is enforced (a required one present, its type, enum, length: an empty status would
+   toggle open and resolved, an empty label list would clear the labels; `bad_input`), then the entry's `guard`
+   (`DurianOs::Ai::WriteGuard`):
    - `conversation_attributes` and `contact_attributes`: only keys of the account's defined custom attributes, so an AI never
      overwrites what the Zoho bridge keeps in the same column (`zoho_tickets`, `email_category_v2`, `crm_contact_id`);
    - `labels_known`: a label not already on the record must exist in the account's labels;
-   - `macro_safe` (`run_macro`): the macro is the person's to run (`MacroPolicy#execute?`), every action in it stays inside
-     ORM (`add_label`, `remove_label`, `assign_team`, `assign_agent`, `mute_conversation`, `change_status`,
-     `remove_assigned_agent`, `remove_assigned_team`, `resolve_conversation`, `snooze_conversation`, `change_priority`,
-     `add_private_note`; a macro with `send_message`, `send_email_transcript`, `send_attachment`, `send_webhook_event` or
-     `send_email_to_team` is refused), 1 to 10 conversations, each one the person can open (`ConversationPolicy#show?`):
-     Chatwoot's own job checks none of that;
+   - `assignment` (`assign_conversation`): an `assignee_id` that is an agent of the account, or a `team_id` that is a team of the
+     account, as a number; never a null or an unknown id (that would take the assignment away), never the DurianAI bot login
+     (name as in the bridge's `SOCIAL_AGENT_BOT_AGENT_NAMES`, default `DurianAI`): assigning it, or unassigning, makes the
+     Zoho bridge's social agent answer the customer;
    - a guard's refusal is 404 `not_found`, 422 `bad_input` or 403 `role` / `write_refused`.
 6. The route then runs as the person (section 5).
 
@@ -315,7 +314,7 @@ write:                     # every write route
     action: api/v1/accounts/conversations/messages#create
     route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages
     who: everyone
-    guard: macro_safe          # optional: an extra check (section 6)
+    guard: assignment          # optional: an extra check (section 6)
     destructive: true          # cannot be undone: the AI asks first (annotation destructiveHint)
     idempotent: true           # idempotentHint
     open_world: true           # openWorldHint
@@ -433,8 +432,7 @@ browser session gets the same shape (`auth_kind` `session`, `client` and `ceilin
   conversation's activity (status, priority, labels, SLA, assignee, team, mute) the name reads `Tara Fern via Claude`
   (`Custom::ActivityMessageHandler`); a private note an AI adds carries `content_attributes.via_ai` with the client's name
   (`Custom::Message`); an audit row written during an AI request has the comment `via Claude (AI connection)`
-  (`DurianOs::Ai.mark_audit`). A macro run is a background job, so its activity shows the person without the mark; the log
-  line has the `run_macro` call. Activity messages are not redesigned.
+  (`DurianOs::Ai.mark_audit`). Activity messages are not redesigned.
 
 ## 11. The tools
 
@@ -445,7 +443,7 @@ widget, platform, super admin, webhooks) is exactly what `bin/rails routes` moun
 the counts.
 
 Who sees how many reads: an administrator at `administer` with every feature on, 165; a plain agent, 88; an agent whose
-custom role has reports, 112. On a Full connection the offered writes come on top (an administrator 28, an agent 26: no label
+custom role has reports, 112. On a Full connection the offered writes come on top (an administrator 27, an agent 25: no label
 writes; 4 fewer while the companies feature is off). Fewer while Captain, the help center, companies, SLA, custom roles, audit logs, Linear
 or Shopify are off for the account.
 
@@ -714,7 +712,7 @@ account.
 | `list_forwarded_email_categories` | List forwarded email categories | GET `{v1}/forwarded_email_report/categories` | Reports | The email categories the Forwarded Emails report covers, from the bridge's routing rules. |
 | `get_my_year_in_review` | Show my year in review | GET `{v2}/year_in_review` | Any member | The person's Year in Review for one year: conversations handled, busiest times and highlights. |
 
-### 11.3 Write tools (191: 28 offered, 163 refused)
+### 11.3 Write tools (191: 27 offered, 164 refused)
 
 A write is a tool only for a pass with Full access (`max_level` `administer`, a Full connection in Durian OS). On a lower pass
 the gate and the MCP server both refuse it in plain words (section 6) and `ai/me` does not list it. On a Full connection ORM
@@ -728,17 +726,17 @@ outside system (Zoho ticket and deal creation, AI drafts, translation, Captain),
 a conversation, contact or company. `send_message` is not a tool: the message route is offered only as `add_private_note`,
 pinned to `private: true` (a note is never sent to a channel), and a reply to it is refused with those words.
 
-#### Offered (28)
+#### Offered (27)
 
 | Tool | Route | Who | Destructive | What it takes |
 |---|---|---|---|---|
 | `mute_conversation` | POST `{v1}/conversations/:id/mute` | Any member | no | conversation_id |
 | `unmute_conversation` | POST `{v1}/conversations/:id/unmute` | Any member | no | conversation_id |
-| `set_conversation_status` | POST `{v1}/conversations/:id/toggle_status` | Any member | yes | conversation_id, status, snoozed_until |
+| `set_conversation_status` | POST `{v1}/conversations/:id/toggle_status` | Any member | no | conversation_id, status, snoozed_until |
 | `set_conversation_priority` | POST `{v1}/conversations/:id/toggle_priority` | Any member | no | conversation_id, priority |
 | `set_conversation_attributes` | POST `{v1}/conversations/:id/custom_attributes` | Any member | no | conversation_id, custom_attributes; guard conversation_attributes |
 | `add_private_note` | POST `{v1}/conversations/:conversation_id/messages` | Any member | no | conversation_id, content; pinned private: true |
-| `assign_conversation` | POST `{v1}/conversations/:conversation_id/assignments` | Any member | no | conversation_id, assignee_id, team_id |
+| `assign_conversation` | POST `{v1}/conversations/:conversation_id/assignments` | Any member | no | conversation_id, assignee_id, team_id; guard assignment |
 | `set_conversation_labels` | POST `{v1}/conversations/:conversation_id/labels` | Any member | no | conversation_id, labels; guard labels_known |
 | `add_conversation_participants` | POST `{v1}/conversations/:conversation_id/participants` | Any member | no | conversation_id, user_ids |
 | `remove_conversation_participants` | DELETE `{v1}/conversations/:conversation_id/participants` | Any member | yes | conversation_id, user_ids |
@@ -759,36 +757,36 @@ pinned to `private: true` (a note is never sent to a channel), and a reply to it
 | `create_canned_response` | POST `{v1}/canned_responses` | Any member | no | short_code, content |
 | `update_canned_response` | PATCH `{v1}/canned_responses/:id` | Any member | no | canned_response_id, short_code, content |
 | `delete_canned_response` | DELETE `{v1}/canned_responses/:id` | Any member | yes | canned_response_id |
-| `run_macro` | POST `{v1}/macros/:id/execute` | Any member | yes | macro_id, conversation_ids; guard macro_safe |
 
 What each one does is its description in `mcp_registry.yml`. Notes on the ones with side effects:
 
-- `set_conversation_status` (destructive: asks first): as in the screen, resolving can send the inbox's own satisfaction
-  survey to the customer and run its automation rules (automation that sends is the account's, set by an administrator).
-  That is the one way an AI change can reach a customer: it is Chatwoot's own rule for a resolved conversation, not a
-  message the AI writes.
-- `assign_conversation` assigns to an agent or a team; taking an assignment away, and assigning a bot, stay in ORM.
+- `set_conversation_status` takes `open`, `pending` or `snoozed`, and a status is required (the screen's route toggles open and
+  resolved when none is sent, so ORM refuses a body without one). **Resolving stays in ORM**: it can send the customer the
+  inbox's satisfaction survey. `run_macro` is refused too (`customer`): a macro can send a message, email, file or webhook,
+  its run is a background job nobody checks again, and it can resolve.
+- `assign_conversation` assigns to an agent or a team of the account; taking an assignment away, and assigning the DurianAI
+  bot (the bridge's social agent then answers the customer), stay in ORM.
 - `set_conversation_labels` and `set_contact_labels` replace the whole list (read the labels first).
 - `merge_contacts` is allowed because ORM lets any agent do it in the screen; it cannot be undone.
-- `run_macro` runs in a background job: its activity lines do not carry the `via` mark.
 - Contacts and companies take no avatar or avatar link (a link would make ORM fetch a URL), no inbox and no file.
-- Webhooks, automation rules and the account's own integrations may still react to a change exactly as they do for a screen
+- Webhooks, automation rules and the account's own integrations may still react (a priority of high or urgent makes the
+  Zoho bridge raise a ticket decision card for an agent while its approval gate is on, as it does for a screen change) to a change exactly as they do for a screen
   change (for example a `conversation_updated` event to an account webhook).
 
-#### Refused (163), by reason
+#### Refused (164), by reason
 
 A refused write answers 403 `write_refused` with its reason's words, for every role and every pass:
 
 | Reason | Why | Count |
 |---|---|---|
-| `customer` | It reaches a customer (a reply, a transcript, an offer, a campaign or another send on WhatsApp, Instagram, email or reviews). | 19 |
+| `customer` | It reaches a customer (a reply, a transcript, an offer, a campaign, a macro run or another send on WhatsApp, Instagram, email or reviews). | 20 |
 | `outside` | It calls a paid AI model or an outside system (Zoho, Meta, Linear, Google or email). | 29 |
 | `bulk` | It changes or deletes many records at once. | 5 |
 | `deletion` | Deleting conversations, contacts, companies and messages cannot be undone. | 4 |
 | `settings` | Settings and workflows: account, inboxes, teams, policies, automation, campaigns, Captain and the help center. | 84 |
 | `later` | Everyday, but not in the first set of changes an AI connection can make. | 22 |
 
-**customer (19):** `start_conversation`, `email_conversation_transcript`, `retry_message`, `send_offer_to_conversation`, `create_campaign`, `update_campaign`, `delete_campaign`, `send_campaign_test_message`, `pause_campaign`, `resume_campaign`, `cancel_campaign`, `retry_failed_campaign_messages`, `resolve_email_category_decision`, `escalate_google_review`, `forward_conversation_email`, `send_crm_automation_test`, `start_video_call`, `send_help_center_domain_instructions`, `send_forwarded_email_report`.
+**customer (20):** `run_macro`, `start_conversation`, `email_conversation_transcript`, `retry_message`, `send_offer_to_conversation`, `create_campaign`, `update_campaign`, `delete_campaign`, `send_campaign_test_message`, `pause_campaign`, `resume_campaign`, `cancel_campaign`, `retry_failed_campaign_messages`, `resolve_email_category_decision`, `escalate_google_review`, `forward_conversation_email`, `send_crm_automation_test`, `start_video_call`, `send_help_center_domain_instructions`, `send_forwarded_email_report`.
 
 **outside (29):** `translate_message`, `sync_inbox_whatsapp_templates`, `create_inbox_csat_template`, `analyze_csat_template`, `submit_whatsapp_template`, `sync_whatsapp_templates`, `resolve_zoho_ticket_decision`, `regenerate_review_reply`, `create_zoho_crm_deal`, `draft_zoho_ticket`, `create_zoho_ticket`, `preview_email_routing`, `refresh_zoho_users`, `sync_product_catalog`, `create_linear_issue`, `link_linear_issue`, `unlink_linear_issue`, `run_integration_action`, `try_captain_assistant`, `start_copilot_thread`, `ask_copilot`, `add_captain_document`, `sync_captain_document`, `rewrite_with_captain`, `summarize_with_captain`, `suggest_reply_with_captain`, `suggest_labels_with_captain`, `suggest_follow_up_with_captain`, `translate_help_articles`.
 
@@ -913,7 +911,7 @@ The rest is Content Studio's, unchanged in substance:
 > with their own ORM role (administrator or agent, their inboxes and teams), checked on every call. It always reads. It can
 > change things only on a connection with Full access, and only everyday support work: assign, change status or priority,
 > labels, custom attributes, mute, participants and private notes on a conversation; contacts, their labels and notes,
-> merging; companies; canned responses; labels; running macros. Before a change marked destructive (it cannot be undone), say
+> merging; companies; canned responses; labels. Before a change marked destructive (it cannot be undone), say
 > what it will change and wait for the person's go-ahead. Anything that reaches a customer (a reply, a campaign, a
 > transcript), AI drafts, Zoho tickets and deals, deleting conversations or contacts, bulk actions and settings stay in
 > ORM's screens: the notes tool cannot send a reply. A refusal (403) is the person's role or this connection's limits, not a
@@ -1036,7 +1034,7 @@ ORM_API_URL=http://127.0.0.1:3000 OS_JWKS_JSON='{"keys":[...]}' PORT=8432 python
 
 **Tool list.** The tools are exactly the 165 reads of section 11.2 and the 28 offered writes of section 11.3, built at
 start-up from `mcp_server/tools.json` (generated by `bundle exec rake durian_os:mcp_tools` from
-`chatwoot/custom/config/mcp_registry.yml`; committed). The 163 refused writes and 414 browser-only entries are not in
+`chatwoot/custom/config/mcp_registry.yml`; committed). The 164 refused writes and 414 browser-only entries are not in
 `tools.json` and never become tools. A client's `tools/list` is cut to what `GET /api/v1/ai/me` names for the person (an
 administrator at `administer` with every feature on: 165 reads and 28 writes; a plain agent: 88 reads, and 26 writes on a Full
 connection; any lower pass: reads only). `tests/test_registry.py` fails while `tools.json` differs from the registry, so a read added or changed
@@ -1065,7 +1063,7 @@ change is undone by `git reset --keep pre-orm-mcp-<date>` as in section 15, then
 | `custom/app/services/durian_os/ai/pass.rb` | the pass (section 2) and the pinned key set |
 | `custom/app/services/durian_os/ai/gate.rb` | route recognition and the registry decision (section 6) |
 | `custom/app/services/durian_os/ai/registry.rb` | loads `custom/config/mcp_registry.yml`; `entry_for(action)`, `tools_for(user, account, account_user, writes:)`, `offered_writes`, `refused_writes`, the write refusal reasons, `export` |
-| `custom/app/services/durian_os/ai/write_guard.rb` | the extra checks of an offered write: defined custom attributes, known labels, a safe macro on conversations the person can open |
+| `custom/app/services/durian_os/ai/write_guard.rb` | the extra checks of an offered write: defined custom attributes, known labels, an assignment to an agent or team of the account, never the bot |
 | `custom/app/models/custom/activity_message_handler.rb` | `Tara Fern via Claude` in a conversation's activity while an AI request is served |
 | `custom/app/models/custom/message.rb` | `content_attributes.via_ai` on a private note an AI adds |
 | `custom/app/services/durian_os/ai/caller.rb` | the caller: user id, email, sub, client, ceiling, ref, own role, `acts_as`; `full_access?` (`administer`), `read_only?` |

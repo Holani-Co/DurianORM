@@ -122,7 +122,7 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
 
   it 'keeps its counts' do
     expect([registry.reads.size, registry.writes.size, registry.web_only.size]).to eq([165, 191, 414])
-    expect([registry.offered_writes.size, registry.refused_writes.size]).to eq([28, 163])
+    expect([registry.offered_writes.size, registry.refused_writes.size]).to eq([27, 164])
     expect(registry.reads.count { |entry| entry.http_method == 'POST' }).to eq(12)
   end
 
@@ -153,6 +153,7 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
       api/v1/accounts/integrations/zoho_bridge#create_crm_deal api/v1/accounts/integrations/zoho_bridge#draft_ticket
       api/v1/accounts/integrations/zoho_bridge#forward_email api/v1/accounts/integrations/zoho_bridge#regenerate_review_reply
       api/v1/accounts/captain/tasks#rewrite api/v1/accounts/integrations/hooks#process_event api/v1/accounts/inboxes#update
+      api/v1/accounts/macros#execute
     ]
     present = must_stay & mounted.keys
     expect(present).not_to be_empty
@@ -173,6 +174,26 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
   it 'offers a private note, never a reply: the message route is pinned to private: true' do
     entry = registry.entry_for('api/v1/accounts/conversations/messages#create')
     expect([entry.name, entry.fixed, entry.body_keys]).to eq(['add_private_note', { 'private' => true }, %w[content private]])
+  end
+
+  it 'keeps resolving out of the status tool (the satisfaction survey) and requires a status' do
+    entry = registry.entry_for('api/v1/accounts/conversations#toggle_status')
+    status = entry.args.find { |arg| arg['name'] == 'status' }
+    expect(status['enum']).to eq(%w[open pending snoozed])
+    expect(status['required']).to be(true)
+    expect(registry.offered_writes.map(&:name)).not_to include('run_macro')
+    expect(registry.entry_for('api/v1/accounts/macros#execute').reason).to eq('customer')
+  end
+
+  it 'requires what a write needs to be safe: a label list, note content, attributes, an assignee or team guard' do
+    required = lambda do |name|
+      registry.offered_writes.find { |entry| entry.name == name }.args.select { |arg| arg['required'] }.pluck('name')
+    end
+    expect(required.call('set_conversation_labels')).to include('labels')
+    expect(required.call('set_contact_labels')).to include('labels')
+    expect(required.call('add_private_note')).to include('content')
+    expect(required.call('set_conversation_attributes')).to include('custom_attributes')
+    expect(registry.entry_for('api/v1/accounts/conversations/assignments#create').guard).to eq('assignment')
   end
 
   it 'matches mcp_server/tools.json, which rake durian_os:mcp_tools writes' do
