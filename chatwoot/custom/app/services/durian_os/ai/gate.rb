@@ -133,9 +133,12 @@ class DurianOs::Ai::Gate
     text = input ? input.read(MAX_BODY + 1).to_s : ''
     input&.rewind
     refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is too large.") if text.bytesize > MAX_BODY
+    type = @env['CONTENT_TYPE'].to_s
+    # A form or multipart body is never taken, whether or not it could be read here: Rails would parse it its own way.
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless type.empty? || JSON_TYPE.match?(type)
     return {} if text.strip.empty?
 
-    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless JSON_TYPE.match?(@env['CONTENT_TYPE'].to_s)
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless JSON_TYPE.match?(type)
     parsed = JSON.parse(text)
     parsed.is_a?(Hash) ? parsed : refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is not a JSON object.")
   rescue JSON::ParserError
