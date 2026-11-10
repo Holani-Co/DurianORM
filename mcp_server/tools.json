@@ -3,8 +3,8 @@
   "source": "chatwoot/custom/config/mcp_registry.yml",
   "counts": {
     "read": 165,
-    "write_offered": 27,
-    "write_refused": 164,
+    "write_offered": 26,
+    "write_refused": 165,
     "web_only": 414
   },
   "tools": [
@@ -3458,34 +3458,9 @@
       ]
     },
     {
-      "name": "mute_conversation",
-      "title": "Mute a conversation",
-      "description": "Mutes a conversation: agents stop being notified and new customer messages do not reopen it. Nothing is sent to the customer. Only conversations the person can see.",
-      "method": "POST",
-      "path": "/api/v1/accounts/:account_id/conversations/:id/mute",
-      "who": "everyone",
-      "feature": null,
-      "account_param": "account_id",
-      "args": [
-        {
-          "name": "conversation_id",
-          "in": "path",
-          "param": "id",
-          "type": "integer",
-          "required": true,
-          "description": "The conversation number shown in ORM (its display id)."
-        }
-      ],
-      "write": true,
-      "destructive": false,
-      "idempotent": true,
-      "open_world": false,
-      "fixed": {}
-    },
-    {
       "name": "unmute_conversation",
       "title": "Unmute a conversation",
-      "description": "Unmutes a conversation. Only conversations the person can see.",
+      "description": "Unmutes a conversation: the contact is unblocked. It does not reopen it. Only conversations the person can see.",
       "method": "POST",
       "path": "/api/v1/accounts/:account_id/conversations/:id/unmute",
       "who": "everyone",

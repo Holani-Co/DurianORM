@@ -122,7 +122,7 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
 
   it 'keeps its counts' do
     expect([registry.reads.size, registry.writes.size, registry.web_only.size]).to eq([165, 191, 414])
-    expect([registry.offered_writes.size, registry.refused_writes.size]).to eq([27, 164])
+    expect([registry.offered_writes.size, registry.refused_writes.size]).to eq([26, 165])
     expect(registry.reads.count { |entry| entry.http_method == 'POST' }).to eq(12)
   end
 
@@ -181,7 +181,8 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
     status = entry.args.find { |arg| arg['name'] == 'status' }
     expect(status['enum']).to eq(%w[open pending snoozed])
     expect(status['required']).to be(true)
-    expect(registry.offered_writes.map(&:name)).not_to include('run_macro')
+    expect(registry.offered_writes.map(&:name)).not_to include('run_macro', 'mute_conversation')
+    expect(registry.entry_for('api/v1/accounts/conversations#mute').reason).to eq('customer')
     expect(registry.entry_for('api/v1/accounts/macros#execute').reason).to eq('customer')
   end
 

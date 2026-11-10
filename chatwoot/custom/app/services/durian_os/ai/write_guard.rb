@@ -64,7 +64,7 @@ module DurianOs::Ai::WriteGuard
   def assignment(context)
     body = context.body
     if body.key?('assignee_id')
-      agent = positive_id(body['assignee_id']) && context.account.users.find_by(id: body['assignee_id'])
+      agent = context.account.users.find_by(id: body['assignee_id']) if positive_id(body['assignee_id'])
       return [422, 'bad_input', ASSIGN_WHO] if agent.nil?
 
       [403, 'write_refused', BOT_ASSIGNMENT] if bot?(agent)

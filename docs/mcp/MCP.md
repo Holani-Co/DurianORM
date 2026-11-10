@@ -15,7 +15,7 @@ live since 6 November and only needs `orm` added to its upstreams once this ship
 An AI reaches ORM through Durian OS's front door (`https://durianos.in/mcp`). It **acts as the person** who connected
 it, with their own ORM role (administrator or agent, custom role, inboxes and teams), read again on every call, and in
 v1 it **reads** always. It **changes** things only on a Full connection (the pass's `max_level` is `administer`), only the
-everyday support work of section 11.3 (assign, status, priority, labels, custom attributes, mute, participants and
+everyday support work of section 11.3 (assign, status, priority, labels, custom attributes, participants and
 **private notes** on a conversation; contacts, their labels and notes, merging; companies; canned responses; labels), and only where ORM's own policies let that person do it. **Customer-facing sends stay in the screens for
 now:** an AI cannot send a reply, a transcript, an offer, a campaign or a broadcast on WhatsApp, Instagram, email or
 reviews, cannot call a paid model or an outside system (Zoho tickets and deals, AI drafts), cannot delete conversations or
@@ -63,7 +63,7 @@ Claude / ChatGPT ──HTTPS──▶ Durian OS /mcp (168.144.81.194; the person
    never 401.
 10. **One log line** per AI request on Rails' stdout (`ai {...}`), refusals included, never the pass or the path; a
     write tool's line also says its outcome (`write`: `done`, `failed` or `refused`).
-11. **The tools.** 165 reads offered, 191 writes of which 28 offered to a Full connection and 163 listed and refused with a
+11. **The tools.** 165 reads offered, 191 writes of which 26 offered to a Full connection and 165 listed and refused with a
     reason, 414 browser-only: 770 registry entries.
 12. **The MCP server.** `mcp_server/` at the repository root (Content Studio's sidecar, with tools generated from
     `tools.json`), systemd `orm-mcp` on 127.0.0.1:8432, its own venv `/opt/orm-mcp/venv` and its own `.env` holding
@@ -360,7 +360,7 @@ YAML or Rails' environment.
   path and body arguments; every refused write has one of the six reasons and each reason is used; the writes that reach
   a customer, call a paid model or an outside system, are bulk or delete conversations or contacts are refused;
   the message route is pinned to `private: true` and named `add_private_note`;
-- the counts are pinned (165 reads, 12 of them POST, 191 writes: 28 offered and 163 refused, and the browser-only count
+- the counts are pinned (165 reads, 12 of them POST, 191 writes: 26 offered and 165 refused, and the browser-only count
   `bin/rails routes` gives);
 - `mcp_server/tools.json` is what the rake task makes, and this page names every read and write tool;
 - the AI middleware is the last in the stack.
@@ -436,14 +436,14 @@ browser session gets the same shape (`auth_kind` `session`, `client` and `ceilin
 
 ## 11. The tools
 
-**770 registry entries: 165 read tools (offered), 191 writes (28 offered to a Full connection, 163 listed and refused with a
+**770 registry entries: 165 read tools (offered), 191 writes (26 offered to a Full connection, 165 listed and refused with a
 reason) and 414 browser-only (147 in the signed-in API, 267 outside it).** The signed-in API part is `config/routes.rb` at 1e8454937
 (497 actions) plus MFA's 5 and the new `ai#me`. The part outside it (devise, Active Storage, Action Mailbox, mounts,
 widget, platform, super admin, webhooks) is exactly what `bin/rails routes` mounts with enterprise on; the spec pins
 the counts.
 
 Who sees how many reads: an administrator at `administer` with every feature on, 165; a plain agent, 88; an agent whose
-custom role has reports, 112. On a Full connection the offered writes come on top (an administrator 27, an agent 25: no label
+custom role has reports, 112. On a Full connection the offered writes come on top (an administrator 26, an agent 24: no label
 writes; 4 fewer while the companies feature is off). Fewer while Captain, the help center, companies, SLA, custom roles, audit logs, Linear
 or Shopify are off for the account.
 
@@ -712,7 +712,7 @@ account.
 | `list_forwarded_email_categories` | List forwarded email categories | GET `{v1}/forwarded_email_report/categories` | Reports | The email categories the Forwarded Emails report covers, from the bridge's routing rules. |
 | `get_my_year_in_review` | Show my year in review | GET `{v2}/year_in_review` | Any member | The person's Year in Review for one year: conversations handled, busiest times and highlights. |
 
-### 11.3 Write tools (191: 27 offered, 164 refused)
+### 11.3 Write tools (191: 26 offered, 165 refused)
 
 A write is a tool only for a pass with Full access (`max_level` `administer`, a Full connection in Durian OS). On a lower pass
 the gate and the MCP server both refuse it in plain words (section 6) and `ai/me` does not list it. On a Full connection ORM
@@ -726,11 +726,10 @@ outside system (Zoho ticket and deal creation, AI drafts, translation, Captain),
 a conversation, contact or company. `send_message` is not a tool: the message route is offered only as `add_private_note`,
 pinned to `private: true` (a note is never sent to a channel), and a reply to it is refused with those words.
 
-#### Offered (27)
+#### Offered (26)
 
 | Tool | Route | Who | Destructive | What it takes |
 |---|---|---|---|---|
-| `mute_conversation` | POST `{v1}/conversations/:id/mute` | Any member | no | conversation_id |
 | `unmute_conversation` | POST `{v1}/conversations/:id/unmute` | Any member | no | conversation_id |
 | `set_conversation_status` | POST `{v1}/conversations/:id/toggle_status` | Any member | no | conversation_id, status, snoozed_until |
 | `set_conversation_priority` | POST `{v1}/conversations/:id/toggle_priority` | Any member | no | conversation_id, priority |
@@ -764,6 +763,8 @@ What each one does is its description in `mcp_registry.yml`. Notes on the ones w
   resolved when none is sent, so ORM refuses a body without one). **Resolving stays in ORM**: it can send the customer the
   inbox's satisfaction survey. `run_macro` is refused too (`customer`): a macro can send a message, email, file or webhook,
   its run is a background job nobody checks again, and it can resolve.
+- `mute_conversation` is refused (`customer`): Chatwoot's mute resolves the conversation (the survey can go to the customer) and blocks the
+  contact. `unmute_conversation` stays: it unblocks and sends nothing.
 - `assign_conversation` assigns to an agent or a team of the account; taking an assignment away, and assigning the DurianAI
   bot (the bridge's social agent then answers the customer), stay in ORM.
 - `set_conversation_labels` and `set_contact_labels` replace the whole list (read the labels first).
@@ -773,20 +774,20 @@ What each one does is its description in `mcp_registry.yml`. Notes on the ones w
   Zoho bridge raise a ticket decision card for an agent while its approval gate is on, as it does for a screen change) to a change exactly as they do for a screen
   change (for example a `conversation_updated` event to an account webhook).
 
-#### Refused (164), by reason
+#### Refused (165), by reason
 
 A refused write answers 403 `write_refused` with its reason's words, for every role and every pass:
 
 | Reason | Why | Count |
 |---|---|---|
-| `customer` | It reaches a customer (a reply, a transcript, an offer, a campaign, a macro run or another send on WhatsApp, Instagram, email or reviews). | 20 |
+| `customer` | It reaches a customer (a reply, a transcript, an offer, a campaign, a macro run, a mute or another send on WhatsApp, Instagram, email or reviews). | 21 |
 | `outside` | It calls a paid AI model or an outside system (Zoho, Meta, Linear, Google or email). | 29 |
 | `bulk` | It changes or deletes many records at once. | 5 |
 | `deletion` | Deleting conversations, contacts, companies and messages cannot be undone. | 4 |
 | `settings` | Settings and workflows: account, inboxes, teams, policies, automation, campaigns, Captain and the help center. | 84 |
 | `later` | Everyday, but not in the first set of changes an AI connection can make. | 22 |
 
-**customer (20):** `run_macro`, `start_conversation`, `email_conversation_transcript`, `retry_message`, `send_offer_to_conversation`, `create_campaign`, `update_campaign`, `delete_campaign`, `send_campaign_test_message`, `pause_campaign`, `resume_campaign`, `cancel_campaign`, `retry_failed_campaign_messages`, `resolve_email_category_decision`, `escalate_google_review`, `forward_conversation_email`, `send_crm_automation_test`, `start_video_call`, `send_help_center_domain_instructions`, `send_forwarded_email_report`.
+**customer (21):** `run_macro`, `mute_conversation`, `start_conversation`, `email_conversation_transcript`, `retry_message`, `send_offer_to_conversation`, `create_campaign`, `update_campaign`, `delete_campaign`, `send_campaign_test_message`, `pause_campaign`, `resume_campaign`, `cancel_campaign`, `retry_failed_campaign_messages`, `resolve_email_category_decision`, `escalate_google_review`, `forward_conversation_email`, `send_crm_automation_test`, `start_video_call`, `send_help_center_domain_instructions`, `send_forwarded_email_report`.
 
 **outside (29):** `translate_message`, `sync_inbox_whatsapp_templates`, `create_inbox_csat_template`, `analyze_csat_template`, `submit_whatsapp_template`, `sync_whatsapp_templates`, `resolve_zoho_ticket_decision`, `regenerate_review_reply`, `create_zoho_crm_deal`, `draft_zoho_ticket`, `create_zoho_ticket`, `preview_email_routing`, `refresh_zoho_users`, `sync_product_catalog`, `create_linear_issue`, `link_linear_issue`, `unlink_linear_issue`, `run_integration_action`, `try_captain_assistant`, `start_copilot_thread`, `ask_copilot`, `add_captain_document`, `sync_captain_document`, `rewrite_with_captain`, `summarize_with_captain`, `suggest_reply_with_captain`, `suggest_labels_with_captain`, `suggest_follow_up_with_captain`, `translate_help_articles`.
 
@@ -910,7 +911,7 @@ The rest is Content Studio's, unchanged in substance:
 > CRM deals made from conversations, and the support reports. This connection acts as the person who connected it,
 > with their own ORM role (administrator or agent, their inboxes and teams), checked on every call. It always reads. It can
 > change things only on a connection with Full access, and only everyday support work: assign, change status or priority,
-> labels, custom attributes, mute, participants and private notes on a conversation; contacts, their labels and notes,
+> labels, custom attributes, participants and private notes on a conversation; contacts, their labels and notes,
 > merging; companies; canned responses; labels. Before a change marked destructive (it cannot be undone), say
 > what it will change and wait for the person's go-ahead. Anything that reaches a customer (a reply, a campaign, a
 > transcript), AI drafts, Zoho tickets and deals, deleting conversations or contacts, bulk actions and settings stay in
@@ -1032,11 +1033,11 @@ python -m pytest mcp_server/tests -q                                    # no net
 ORM_API_URL=http://127.0.0.1:3000 OS_JWKS_JSON='{"keys":[...]}' PORT=8432 python -m mcp_server.server
 ```
 
-**Tool list.** The tools are exactly the 165 reads of section 11.2 and the 28 offered writes of section 11.3, built at
+**Tool list.** The tools are exactly the 165 reads of section 11.2 and the 26 offered writes of section 11.3, built at
 start-up from `mcp_server/tools.json` (generated by `bundle exec rake durian_os:mcp_tools` from
-`chatwoot/custom/config/mcp_registry.yml`; committed). The 164 refused writes and 414 browser-only entries are not in
+`chatwoot/custom/config/mcp_registry.yml`; committed). The 165 refused writes and 414 browser-only entries are not in
 `tools.json` and never become tools. A client's `tools/list` is cut to what `GET /api/v1/ai/me` names for the person (an
-administrator at `administer` with every feature on: 165 reads and 28 writes; a plain agent: 88 reads, and 26 writes on a Full
+administrator at `administer` with every feature on: 165 reads and 26 writes; a plain agent: 88 reads, and 24 writes on a Full
 connection; any lower pass: reads only). `tests/test_registry.py` fails while `tools.json` differs from the registry, so a read added or changed
 in the registry without the export is caught here, and the Rails spec catches it from the other side.
 
@@ -1095,7 +1096,7 @@ Rails specs (made-up people only, such as Tara Fern and Omar Quill at `@orm.test
 |---|---|
 | `spec/custom/services/durian_os/ai/pass_spec.rb` | a good pass; each refusal of section 2: switch off, malformed, alg, kid, unknown kid, empty key set, signature, iss, aud as a string and as a list, header and claim `typ`, life over 60 s, expired, not yet valid, View as claims, jti, sub |
 | `spec/custom/requests/durian_os_ai_door_spec.rb` (through the whole stack) | an agent's pass sees only their inboxes' and teams' conversations (list, show, search, messages; another inbox's conversation is refused); an administrator at `administer` sees all; at `edit` and `view` they act as a plain agent (scoped like one; admin and reports tools 403); an agent keeps their custom role; a `report_manage` custom role reaches reports; replayed jti; switch off; unknown person; service, emergency and offboarded users; no row in account 1; account 2 in the path; a write route 403 for `view`, `edit` and `administer`; a browser-only route; an unlisted route; `HEAD`; a `.csv` format; mounted apps (`/cable`, `/monitoring/sidekiq`, `/rails/active_storage/…`); two Authorization headers; a cookie, devise headers and another user's `api_access_token` ignored; no auth header in the answer and `users.tokens` unchanged; a Pundit refusal is 403, not 401; an API inbox's secret and a WhatsApp `provider_config` never in the answer; signed file links replaced; an incoming Instagram file's CDN link (messages, conversation and contact attachment lists, the conversation), a file never downloaded, a story and an ad replaced while a plain link stays; a campaign's `media_signed_id` never in the answer; `year_in_review` never writes `ui_settings`; a read that writes is 403 `would_write`; a third concurrent request of one person is 429 and its pass still works afterwards; the log line has `ref` and `refused` and no pass or path; `ai/me` for a pass and a session; the middleware is last |
-| `spec/custom/requests/durian_os_ai_writes_spec.rb` | a pass below `administer` (`view`, `edit`, `act`, unknown, none) refuses every one of the 28 offered writes by name, for an administrator and an agent, with the read-only words, nothing changed and the log line `write: refused`; a Full connection: each kind of write works (conversation mute, status, priority, attributes, assign, labels, participants; contacts, notes, merge, attribute removal; companies; canned responses; labels; macros), a reply to a customer is refused in every shape (public, missing, string `private`, attachments, other body keys, a query, a form body, an array), the bridge's custom attribute keys and unknown labels are refused, a macro that sends and a conversation outside the person's inboxes are refused, an agent cannot write outside their inboxes or call an admin tool, a custom role covers only its conversations, another account is refused, every refused write answers its reason's words, deleting a contact or company is refused, access, token and secret routes stay browser-only, a read of a Full connection still cannot write, the activity says `via Claude`, a private note carries `via_ai`, the audit comment, `ai/me` lists writes only on a Full connection and by role |
+| `spec/custom/requests/durian_os_ai_writes_spec.rb` | a pass below `administer` (`view`, `edit`, `act`, unknown, none) refuses every one of the 26 offered writes by name, for an administrator and an agent, with the read-only words, nothing changed and the log line `write: refused`; a Full connection: each kind of write works (conversation unmute, status, priority, attributes, assign, labels, participants; contacts, notes, merge, attribute removal; companies; canned responses; labels), a reply to a customer is refused in every shape (public, missing, string `private`, attachments, other body keys, a query, a form body, an array), the bridge's custom attribute keys and unknown labels are refused, a macro run, a resolve and a conversation outside the person's inboxes are refused, an agent cannot write outside their inboxes or call an admin tool, a custom role covers only its conversations, another account is refused, every refused write answers its reason's words, deleting a contact or company is refused, access, token and secret routes stay browser-only, a read of a Full connection still cannot write, the activity says `via Claude`, a private note carries `via_ai`, the audit comment, `ai/me` lists writes only on a Full connection and by role |
 | `spec/custom/models/account_user_ai_ceiling_spec.rb` | the overrides apply only to the caller's own rows, only below `administer`, only to an administrator, and not at all without `DurianOs::Current.ai` |
 | `spec/custom/config/mcp_registry_spec.rb` | section 8 |
 | `spec/custom/services/durian_os/ai/clean_spec.rb` | the answer's cleaning on its own: file keys whatever the host, lists under a file key, blank links and coordinates kept, signed and CDN links under any key, plain text kept, secrets and signed ids at any depth, headers |
@@ -1222,7 +1223,7 @@ know.
 
 ## 17. Not built yet, and open points
 
-- **AI writes** are built (section 11.3): 28 offered to a Full connection. Still open: confirm-first previews (the AI is
+- **AI writes** are built (section 11.3): 26 offered to a Full connection. Still open: confirm-first previews (the AI is
   asked to confirm by the `destructiveHint`, and the MCP server's instructions say so, but ORM does not preview a change);
   sending anything to a customer stays in the screens until the "via AI" mark on a sent message, a look at what model and
   channel costs are, and a per-send confirmation are designed; `update_inbox_settings` must refuse channel credentials before

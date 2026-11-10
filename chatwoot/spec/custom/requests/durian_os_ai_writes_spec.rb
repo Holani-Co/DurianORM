@@ -89,21 +89,21 @@ RSpec.describe 'Durian OS AI writes', type: :request do
     end
 
     it 'refuses a working write the same way, an administrator at edit and an agent at view' do
-      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub, max_level: 'edit'))
+      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority", pass_for(tara_sub, max_level: 'edit'), { priority: 'low' })
       expect([response.status, error]).to eq([403, read_only_words])
       ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_status", pass_for(omar_sub, max_level: 'view'),
                { status: 'pending' })
       expect([response.status, error]).to eq([403, read_only_words])
-      expect(sales_chat.reload).not_to be_muted
+      expect(sales_chat.reload.priority).to be_nil
       expect(sales_chat).to be_open
     end
 
     it 'treats a missing or unknown level as read-only' do
-      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub, max_level: 'root'))
+      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority", pass_for(tara_sub, max_level: 'root'), { priority: 'low' })
       expect(error).to eq(read_only_words)
-      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub, claims: { max_level: DurianOsAiHelpers::OMIT }))
+      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority", pass_for(tara_sub, claims: { max_level: DurianOsAiHelpers::OMIT }), { priority: 'low' })
       expect(error).to eq(read_only_words)
-      expect(sales_chat.reload).not_to be_muted
+      expect(sales_chat.reload.priority).to be_nil
     end
 
     it 'does not list a write in ai/me, and says it is read-only' do
@@ -136,15 +136,16 @@ RSpec.describe 'Durian OS AI writes', type: :request do
     end
 
     describe 'conversations' do
-      it 'mutes, unmutes, sets priority, custom attributes, labels and participants' do
+      it 'refuses to mute (Chatwoot resolves the conversation and blocks the contact), and unmutes, sets priority, custom attributes, labels and participants' do
         id = sales_chat.display_id
         ai_write(:post, "#{v1}/conversations/#{id}/mute", pass_for(tara_sub))
-        expect(response).to have_http_status(:ok)
-        expect(sales_chat.reload).to be_muted
-        expect(lines.last).to include('tool' => 'mute_conversation', 'write' => 'done', 'status' => 200, 'ceiling' => 'administer')
+        expect([response.status, lines.last['refused']]).to eq([403, 'write_refused'])
+        expect(sales_chat.reload.priority).to be_nil
+        expect(sales_chat).to be_open
 
         ai_write(:post, "#{v1}/conversations/#{id}/unmute", pass_for(tara_sub))
-        expect(sales_chat.reload).not_to be_muted
+        expect(response).to have_http_status(:ok)
+        expect(lines.last).to include('tool' => 'unmute_conversation', 'write' => 'done', 'status' => 200, 'ceiling' => 'administer')
 
         ai_write(:post, "#{v1}/conversations/#{id}/toggle_priority", pass_for(tara_sub), { priority: 'urgent' })
         expect(sales_chat.reload.priority).to eq('urgent')
@@ -181,14 +182,14 @@ RSpec.describe 'Durian OS AI writes', type: :request do
         expect(sales_chat.reload.label_list).to be_empty
       end
 
-      it 'sets pending, assigns and mutes, and the activity says who did it and via which AI' do
+      it 'sets pending, assigns and sets priority, and the activity says who did it and via which AI' do
         id = sales_chat.display_id
         perform_enqueued_jobs do
           ai_write(:post, "#{v1}/conversations/#{id}/toggle_status", pass_for(tara_sub, client: 'Claude'), { status: 'pending' })
           expect(response).to have_http_status(:ok)
           ai_write(:post, "#{v1}/conversations/#{id}/assignments", pass_for(tara_sub, client: 'Claude'), { assignee_id: omar.id })
           expect(response).to have_http_status(:ok)
-          ai_write(:post, "#{v1}/conversations/#{id}/mute", pass_for(tara_sub, client: 'Claude'))
+          ai_write(:post, "#{v1}/conversations/#{id}/toggle_priority", pass_for(tara_sub, client: 'Claude'), { priority: 'low' })
         end
         expect(sales_chat.reload).to be_pending
         expect(sales_chat.assignee).to eq(omar)
@@ -408,12 +409,15 @@ RSpec.describe 'Durian OS AI writes', type: :request do
         bot = create(:user, account: account, role: :agent, name: 'DurianAI', email: 'durian.ai@orm.test')
         create(:inbox_member, user: bot, inbox: sales)
         team = create(:team, account: account)
+        [omar, nora].each { |agent| create(:team_member, team: team, user: agent) }
         sales_chat.update!(assignee: omar, team: team)
         path = "#{chat_path}/assignments"
         [{}, { assignee_id: nil }, { team_id: nil }, { assignee_id: 0 }, { assignee_id: 999_999 }, { assignee_id: '1' },
          { assignee_id: omar.id, assignee_type: 'AgentBot' }, { team_id: 999_999 }].each do |body|
           ai_write(:post, path, pass_for(tara_sub), body)
-          expect([response.status, lines.last['refused']]).to eq([403, 'bad_input']), body.inspect
+          # the gate's own checks (a stray field, a wrong type) answer 403; the assignment guard answers 422
+          gate = body[:assignee_type] || body[:assignee_id] == '1'
+          expect([response.status, lines.last['refused']]).to eq([gate ? 403 : 422, 'bad_input']), body.inspect
         end
         ai_write(:post, path, pass_for(tara_sub), { assignee_id: bot.id })
         expect([response.status, lines.last['refused']]).to eq([403, 'write_refused'])
@@ -427,34 +431,39 @@ RSpec.describe 'Durian OS AI writes', type: :request do
       end
 
       it 'sends no reply to the customer when a private note is added' do
-        ai_write(:post, "#{chat_path}/messages", pass_for(tara_sub), { content: 'Hi', private: true })
+        ActionMailer::Base.deliveries.clear
+        perform_enqueued_jobs do
+          ai_write(:post, "#{chat_path}/messages", pass_for(tara_sub), { content: 'Hi', private: true })
+        end
         expect(response).to have_http_status(:ok)
         expect(sales_chat.messages.where(private: false, message_type: :outgoing).count).to eq(0)
-        expect(enqueued_jobs.pluck('job_class')).not_to include('SendReplyJob', 'ConversationReplyEmailJob')
+        # Chatwoot queues SendReplyJob for every outgoing message, a private note included; the channel services send nothing for it.
+        expect(ActionMailer::Base.deliveries).to be_empty
+        expect(a_request(:any, /.*/)).not_to have_been_made
       end
     end
 
     describe 'by role' do
       it 'keeps an agent inside their inboxes' do
-        ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(omar_sub))
+        ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority", pass_for(omar_sub), { priority: 'low' })
         expect(response).to have_http_status(:ok)
 
-        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/mute", pass_for(omar_sub))
+        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/toggle_priority", pass_for(omar_sub), { priority: 'low' })
         expect([response.status, lines.last['refused']]).to eq([403, 'role'])
         expect(error).to eq('You are not authorized to do this action')
         ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/messages", pass_for(omar_sub), { content: 'note' })
         expect(response).to have_http_status(:forbidden)
         ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/toggle_status", pass_for(omar_sub), { status: 'pending' })
         expect(response).to have_http_status(:forbidden)
-        expect(service_chat.reload).not_to be_muted
+        expect(service_chat.reload.priority).to be_nil
         expect(service_chat).to be_open
         expect(service_chat.messages.where(private: true)).to be_empty
       end
 
       it 'lets an administrator write in every inbox' do
-        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/mute", pass_for(tara_sub))
+        ai_write(:post, "#{v1}/conversations/#{service_chat.display_id}/toggle_priority", pass_for(tara_sub), { priority: 'low' })
         expect(response).to have_http_status(:ok)
-        expect(service_chat.reload).to be_muted
+        expect(service_chat.reload.priority).to eq('low')
       end
 
       it 'follows a custom role: only the conversations it covers' do
@@ -464,22 +473,22 @@ RSpec.describe 'Durian OS AI writes', type: :request do
         mine.update_columns(assignee_id: nora.id) # rubocop:disable Rails/SkipsModelValidations
         theirs = create(:conversation, account: account, inbox: sales)
 
-        ai_write(:post, "#{v1}/conversations/#{mine.display_id}/mute", pass_for(nora_sub))
+        ai_write(:post, "#{v1}/conversations/#{mine.display_id}/toggle_priority", pass_for(nora_sub), { priority: 'low' })
         expect(response).to have_http_status(:ok)
-        ai_write(:post, "#{v1}/conversations/#{theirs.display_id}/mute", pass_for(nora_sub))
+        ai_write(:post, "#{v1}/conversations/#{theirs.display_id}/toggle_priority", pass_for(nora_sub), { priority: 'low' })
         expect([response.status, lines.last['refused']]).to eq([403, 'role'])
-        expect(theirs.reload).not_to be_muted
+        expect(theirs.reload.priority).to be_nil
 
-        ai_write(:post, "#{v1}/conversations/#{mine.display_id}/mute", pass_for(nora_sub, max_level: 'edit'))
+        ai_write(:post, "#{v1}/conversations/#{mine.display_id}/toggle_priority", pass_for(nora_sub, max_level: 'edit'), { priority: 'low' })
         expect(error).to eq(read_only_words)
       end
 
       it 'is refused another account, even for a member' do
         other = create(:conversation, account: other_account)
         create(:account_user, account: other_account, user: tara, role: :administrator)
-        ai_write(:post, "/api/v1/accounts/#{other_account.id}/conversations/#{other.display_id}/mute", pass_for(tara_sub))
+        ai_write(:post, "/api/v1/accounts/#{other_account.id}/conversations/#{other.display_id}/toggle_priority", pass_for(tara_sub), { priority: 'low' })
         expect([response.status, lines.last['refused']]).to eq([403, 'wrong_account'])
-        expect(other.reload).not_to be_muted
+        expect(other.reload.priority).to be_nil
         ai_write(:post, "/api/v1/accounts/#{other_account.id}/labels", pass_for(tara_sub), { title: 'x' })
         expect(response).to have_http_status(:forbidden)
         expect(other_account.labels).to be_empty
@@ -538,7 +547,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
     end
 
     it 'runs a write without the guard only when the gate let it through' do
-      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub))
+      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority", pass_for(tara_sub), { priority: 'low' })
       expect(response).to have_http_status(:ok)
       # the next read on the same thread is guarded again
       expect { ActiveRecord::Base.while_preventing_writes { sales_chat.update!(priority: 'low') } }.to raise_error(ActiveRecord::ReadOnlyError)

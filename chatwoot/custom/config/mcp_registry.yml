@@ -1391,20 +1391,12 @@ write:
   - {name: start_conversation, action: api/v1/accounts/conversations#create, route: "POST /api/v1/accounts/:account_id/conversations", who: everyone, refused: customer}
   - {name: update_conversation, action: api/v1/accounts/conversations#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:id", who: everyone, refused: later}
   - {name: delete_conversation, action: api/v1/accounts/conversations#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:id", who: admin, refused: deletion}
-  - name: mute_conversation
-    action: api/v1/accounts/conversations#mute
-    route: POST /api/v1/accounts/:account_id/conversations/:id/mute
-    title: "Mute a conversation"
-    description: "Mutes a conversation: agents stop being notified and new customer messages do not reopen it. Nothing is sent to the customer. Only conversations the person can see."
-    who: everyone
-    idempotent: true
-    args:
-      - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - {name: mute_conversation, action: api/v1/accounts/conversations#mute, route: "POST /api/v1/accounts/:account_id/conversations/:id/mute", who: everyone, note: "Chatwoot resolves the conversation (it can send the customer the survey) and blocks the contact", refused: customer}
   - name: unmute_conversation
     action: api/v1/accounts/conversations#unmute
     route: POST /api/v1/accounts/:account_id/conversations/:id/unmute
     title: "Unmute a conversation"
-    description: "Unmutes a conversation. Only conversations the person can see."
+    description: "Unmutes a conversation: the contact is unblocked. It does not reopen it. Only conversations the person can see."
     who: everyone
     idempotent: true
     args:

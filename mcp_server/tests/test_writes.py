@@ -20,6 +20,7 @@ class OfferTests(unittest.TestCase):
         destructive = {n for n, s in WRITE_SPECS.items() if s['destructive']}
         self.assertTrue({'merge_contacts', 'delete_contact_note', 'delete_canned_response'} <= destructive)
         self.assertNotIn('run_macro', WRITE_SPECS)
+        self.assertNotIn('mute_conversation', WRITE_SPECS)
         self.assertEqual(WRITE_SPECS['set_conversation_status']['args'][1]['enum'], ['open', 'pending', 'snoozed'])
         self.assertNotIn('add_private_note', destructive)
 
@@ -95,11 +96,11 @@ class CallTests(unittest.TestCase):
 
     def test_an_orm_refusal_comes_back_in_its_words(self):
         from mcp_server.tests.support import httpx
-        answers = {('POST', f'{ACCOUNT}/conversations/41/mute'): httpx.Response(
+        answers = {('POST', f'{ACCOUNT}/conversations/41/unmute'): httpx.Response(
             403, json={'error': 'You are not authorized to do this action'})}
 
         async def scenario(session, client):
-            return await session.call('mute_conversation', {'conversation_id': 41})
+            return await session.call('unmute_conversation', {'conversation_id': 41})
 
         (is_error, text), _, _ = run(scenario, answers=answers)
         self.assertEqual((is_error, text), (True, 'Not allowed: You are not authorized to do this action'))
