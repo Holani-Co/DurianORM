@@ -6,7 +6,7 @@
 #
 # The ceiling is the pass's max_level: `administer`, `edit` (`act`, a personal token's word, is edit) or `view`
 # (anything else). It only ever lowers: below administer an administrator acts as a plain agent
-# (Custom::AccountUser). Every AI connection reads only in v1, whatever its ceiling.
+# (Custom::AccountUser). Only an `administer` pass (a Full connection) may change anything; every other pass is read-only.
 class DurianOs::Ai::Caller
   CEILINGS = { 'view' => 'view', 'edit' => 'edit', 'act' => 'edit', 'administer' => 'administer' }.freeze
   MAX_CLIENT = 60
@@ -63,6 +63,6 @@ class DurianOs::Ai::Caller
   end
 
   def read_only?
-    true
+    !full_access?
   end
 end

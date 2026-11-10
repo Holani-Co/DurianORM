@@ -1,7 +1,7 @@
 require 'rails_helper'
 
 # ORM's AI tool registry is complete (docs/mcp/MCP.md, section 8): every route Rails mounts is listed exactly once in
-# custom/config/mcp_registry.yml, as a read tool, a write tool or browser-only. When this fails on a new route, list it
+# custom/config/mcp_registry.yml, as a read tool, a write tool (offered, or refused with a reason) or browser-only. When this fails on a new route, list it
 # in the same change; after changing a read, run `bundle exec rake durian_os:mcp_tools` and name the tool on the page.
 RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
   let(:registry) { DurianOs::Ai::Registry }
@@ -96,8 +96,8 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
     end
   end
 
-  it 'gives each read a short title and description, and says who it is for' do
-    registry.reads.each do |entry|
+  it 'gives each read and offered write a short title and description, and says who it is for' do
+    (registry.reads + registry.offered_writes).each do |entry|
       title = entry.data['title'].to_s
       description = entry.data['description'].to_s
       expect(title.split.size).to be_between(1, 7), entry.name
@@ -122,7 +122,79 @@ RSpec.describe 'ORM AI tool registry' do # rubocop:disable RSpec/DescribeClass
 
   it 'keeps its counts' do
     expect([registry.reads.size, registry.writes.size, registry.web_only.size]).to eq([165, 191, 414])
+    expect([registry.offered_writes.size, registry.refused_writes.size]).to eq([26, 165])
     expect(registry.reads.count { |entry| entry.http_method == 'POST' }).to eq(12)
+  end
+
+  it 'offers each write on a mounted route of its action, with its path ids and body described' do
+    registry.offered_writes.each do |entry|
+      route = mounted.fetch(entry.key, []).find do |candidate|
+        candidate.verb.split('|').include?(entry.http_method) && pattern(candidate) == entry.path
+      end
+      expect(route).to be_present, "#{entry.name}: #{entry.route} is not a mounted route of #{entry.key}"
+      expect(route.app).to be_a(ActionDispatch::Routing::RouteSet::Dispatcher), "#{entry.name}: no request constraints"
+      expect(DurianOs::Ai::Registry::WRITE_METHODS).to include(entry.http_method)
+      params = entry.path.scan(/:(\w+)/).flatten
+      expect(params).to include(entry.account_param)
+      path_args = entry.args.select { |arg| arg['in'] == 'path' }
+      expect(path_args.map { |arg| arg['param'] || arg['name'] }).to match_array(params - [entry.account_param]), entry.name
+      expect(entry.args.pluck('in') - %w[path body]).to be_empty, "#{entry.name}: a write sends a JSON body, never a query"
+      expect(DurianOs::Ai::WriteGuard.respond_to?(:check)).to be(true)
+    end
+  end
+
+  it 'refuses every write that reaches a customer, calls a paid model or outside system, is bulk or deletes conversations or contacts' do
+    must_stay = %w[
+      api/v1/accounts/conversations#create api/v1/accounts/conversations#destroy api/v1/accounts/conversations#transcript
+      api/v1/accounts/conversations/messages#retry api/v1/accounts/conversations/messages#translate
+      api/v1/accounts/conversations/messages#destroy api/v1/accounts/bulk_actions#create api/v1/accounts/contacts#destroy
+      api/v1/accounts/companies#destroy api/v1/accounts/offers#send_to_conversation api/v1/accounts/campaigns#create
+      api/v1/accounts/campaigns#test_message api/v1/accounts/integrations/zoho_bridge#create_ticket
+      api/v1/accounts/integrations/zoho_bridge#create_crm_deal api/v1/accounts/integrations/zoho_bridge#draft_ticket
+      api/v1/accounts/integrations/zoho_bridge#forward_email api/v1/accounts/integrations/zoho_bridge#regenerate_review_reply
+      api/v1/accounts/captain/tasks#rewrite api/v1/accounts/integrations/hooks#process_event api/v1/accounts/inboxes#update
+      api/v1/accounts/macros#execute
+    ]
+    present = must_stay & mounted.keys
+    expect(present).not_to be_empty
+    present.each do |key|
+      entry = registry.entry_for(key)
+      expect(entry).to be_refused_write, key
+      expect(DurianOs::Ai::Registry::WRITE_REFUSED_REASONS).to include(entry.reason)
+    end
+    expect(registry.offered_writes.map(&:name)).not_to include('send_message', 'start_conversation', 'delete_conversation', 'delete_contact')
+  end
+
+  it 'gives every refused write one of the known reasons, and no offered write a reason' do
+    registry.refused_writes.each { |entry| expect(DurianOs::Ai::Registry::WRITE_REFUSED_REASONS).to include(entry.reason) }
+    expect(registry.refused_writes.map(&:reason).uniq).to match_array(DurianOs::Ai::Registry::WRITE_REFUSED_REASONS.keys)
+    expect(registry.offered_writes.map(&:reason).uniq).to eq([nil])
+  end
+
+  it 'offers a private note, never a reply: the message route is pinned to private: true' do
+    entry = registry.entry_for('api/v1/accounts/conversations/messages#create')
+    expect([entry.name, entry.fixed, entry.body_keys]).to eq(['add_private_note', { 'private' => true }, %w[content private]])
+  end
+
+  it 'keeps resolving out of the status tool (the satisfaction survey) and requires a status' do
+    entry = registry.entry_for('api/v1/accounts/conversations#toggle_status')
+    status = entry.args.find { |arg| arg['name'] == 'status' }
+    expect(status['enum']).to eq(%w[open pending snoozed])
+    expect(status['required']).to be(true)
+    expect(registry.offered_writes.map(&:name)).not_to include('run_macro', 'mute_conversation')
+    expect(registry.entry_for('api/v1/accounts/conversations#mute').reason).to eq('customer')
+    expect(registry.entry_for('api/v1/accounts/macros#execute').reason).to eq('customer')
+  end
+
+  it 'requires what a write needs to be safe: a label list, note content, attributes, an assignee or team guard' do
+    required = lambda do |name|
+      registry.offered_writes.find { |entry| entry.name == name }.args.select { |arg| arg['required'] }.pluck('name')
+    end
+    expect(required.call('set_conversation_labels')).to include('labels')
+    expect(required.call('set_contact_labels')).to include('labels')
+    expect(required.call('add_private_note')).to include('content')
+    expect(required.call('set_conversation_attributes')).to include('custom_attributes')
+    expect(registry.entry_for('api/v1/accounts/conversations/assignments#create').guard).to eq('assignment')
   end
 
   it 'matches mcp_server/tools.json, which rake durian_os:mcp_tools writes' do

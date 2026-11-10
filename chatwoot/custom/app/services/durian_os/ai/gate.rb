@@ -4,11 +4,14 @@
 # route on a copy of the request (the middleware is the last in the stack, so it sees the method and path the router
 # will); the registry decides by `controller#action`. Refusals are 403:
 # - a mounted app or engine, a redirect, no route, or a key the registry does not list: `not_a_tool`;
-# - browser-only: `web_only`, with its reason; a write: `read_only`, for every ceiling and every verb;
+# - browser-only: `web_only`, with its reason; a write that is listed and refused: `write_refused`, with its reason;
+#   an offered write on a pass below `administer`: `read_only` (this connection is read-only);
 # - a read reached any other way than the registry names it (another method, path pattern or format, or a route with
 #   request constraints, which are never evaluated here): `not_a_tool`;
 # - another account than the managed one: `wrong_account`;
-# - `who` with the ceiling applied, using ORM's own checks: `admin_only`, `no_report_access`, `no_kb_access`.
+# - `who` with the ceiling applied, using ORM's own checks: `admin_only`, `no_report_access`, `no_kb_access`;
+# - an offered write also: a JSON body with only the tool's own fields, no query, the pinned values (`bad_input`,
+#   `write_refused`), and its guard (DurianOs::Ai::WriteGuard).
 # Custom::Concerns::ApplicationControllerConcern looks again at what actually runs (`recheck`), so a mismatch
 # between the router and the gate can only refuse.
 class DurianOs::Ai::Gate
@@ -20,12 +23,17 @@ class DurianOs::Ai::Gate
 
   NUMBER = /\A\d+\z/
 
-  attr_reader :route_label, :tool
+  MAX_BODY = 64 * 1024
+  JSON_TYPE = %r{\Aapplication/(?:[a-z0-9.+-]+\+)?json(?![a-z0-9])}i
+
+  attr_reader :route_label, :tool, :write
 
   def self.recheck(controller, decision)
     entry = decision&.entry
-    return 'not_a_tool' unless controller.is_a?(Api::BaseController) && entry&.read?
+    return 'not_a_tool' unless controller.is_a?(Api::BaseController) && entry&.tool?
     return 'not_a_tool' unless "#{controller.controller_path}##{controller.action_name}" == entry.key
+    return 'read_only' if entry.write? && !controller.request.env[DurianOs::Ai::ENV_KEY]&.full_access?
+    return 'write_refused' unless entry.fixed.all? { |name, value| controller.params[name] == value }
 
     request = controller.request
     return 'not_a_tool' unless request.request_method == entry.http_method && request.format.symbol == :json
@@ -51,8 +59,10 @@ class DurianOs::Ai::Gate
     @route_label = "#{@env['REQUEST_METHOD']} #{pattern(route)}"
     entry = registry_entry(route)
     @tool = entry.name if entry&.read? || entry&.write?
+    @write = entry&.write?
     check_entry!(entry, route, params)
     check_who!(entry)
+    check_write!(entry, params) if entry.offered_write?
     Decision.new(key: entry.key, entry: entry, route: @route_label)
   end
 
@@ -78,7 +88,8 @@ class DurianOs::Ai::Gate
 
   def check_entry!(entry, route, params)
     refuse!('web_only', web_only_words(entry.reason)) if entry.web_only?
-    refuse!('read_only', DurianOs::Ai::READS_ONLY) if entry.write?
+    refuse!('write_refused', DurianOs::Ai::Registry::WRITE_REFUSED_REASONS.fetch(entry.reason)) if entry.refused_write?
+    refuse!('read_only', DurianOs::Ai::READ_ONLY_PASS) if entry.offered_write? && !@caller.full_access?
 
     plain = route.app.is_a?(ActionDispatch::Routing::RouteSet::Dispatcher)
     refuse!('not_a_tool') unless plain && @env['REQUEST_METHOD'] == entry.http_method && pattern(route) == entry.path
@@ -91,9 +102,83 @@ class DurianOs::Ai::Gate
   def check_who!(entry)
     return if entry.who == 'everyone'
 
-    account_user = AccountUser.includes(:account).find_by(account_id: DurianOs::Config.account_id, user_id: @caller.user_id)
-    refusal = DurianOs::Ai::Registry.who_refusal(entry.who, @caller.user, account_user&.account, account_user)
+    refusal = DurianOs::Ai::Registry.who_refusal(entry.who, @caller.user, account_user&.account, account_user,
+                                                 write: entry.write?)
     refuse!(*refusal) if refusal
+  end
+
+  def account_user
+    @account_user ||= AccountUser.includes(:account).find_by(account_id: DurianOs::Config.account_id, user_id: @caller.user_id)
+  end
+
+  # An offered write: a JSON object with only the tool's own fields and no query, the registry's pinned values, then
+  # the guard. Nothing here changes data.
+  def check_write!(entry, params)
+    body = write_body
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} No query string is taken.") if @env['QUERY_STRING'].to_s.present?
+    stray = body.keys - entry.body_keys
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} Not a field of this tool: #{stray.first(5).join(', ')}.") if stray.any?
+    refuse!('write_refused', entry.fixed_refusal) unless entry.fixed.all? { |name, value| body[name] == value }
+    check_args!(entry, body)
+    return if entry.guard.nil?
+
+    refusal = DurianOs::Ai::WriteGuard.check(
+      DurianOs::Ai::WriteGuard::Context.new(entry: entry, account: account_user.account, user: @caller.user,
+                                            account_user: account_user, params: params.symbolize_keys, body: body)
+    )
+    DurianOs::Ai.refuse!(*refusal) if refusal
+  end
+
+  # What the tool declares for its body fields is enforced here too, not only by the MCP server: a missing required
+  # field is refused (an empty status would toggle open and resolved, an empty label list would clear the labels),
+  # and a value of another type, outside its enum or too long is refused. A field that is not required may be null.
+  def check_args!(entry, body)
+    entry.args.select { |arg| arg['in'] == 'body' }.each do |arg|
+      name = arg['name']
+      value = body[name]
+      if value.nil?
+        refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} #{name} is required.") if arg['required']
+        next
+      end
+      refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} #{name} is not valid.") unless valid_arg?(arg, value)
+    end
+  end
+
+  def valid_arg?(arg, value)
+    return false unless value_type?(arg['type'], value)
+    return false if arg['enum'] && arg['enum'].exclude?(value)
+    return false if arg['maxLength'] && value.is_a?(String) && value.length > arg['maxLength']
+    return false if arg['maxItems'] && value.is_a?(Array) && value.size > arg['maxItems']
+
+    value.is_a?(Array) && arg['items'] ? value.all? { |item| value_type?(arg['items'], item) } : true
+  end
+
+  def value_type?(type, value)
+    case type
+    when 'integer' then value.is_a?(Integer)
+    when 'string' then value.is_a?(String)
+    when 'boolean' then [true, false].include?(value)
+    when 'array' then value.is_a?(Array)
+    when 'object' then value.is_a?(Hash)
+    else false
+    end
+  end
+
+  def write_body
+    input = @env['rack.input']
+    text = input ? input.read(MAX_BODY + 1).to_s : ''
+    input&.rewind
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is too large.") if text.bytesize > MAX_BODY
+    type = @env['CONTENT_TYPE'].to_s
+    # A form or multipart body is never taken, whether or not it could be read here: Rails would parse it its own way.
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless type.empty? || JSON_TYPE.match?(type)
+    return {} if text.strip.empty?
+
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless JSON_TYPE.match?(type)
+    parsed = JSON.parse(text)
+    parsed.is_a?(Hash) ? parsed : refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is not a JSON object.")
+  rescue JSON::ParserError
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is not valid JSON.")
   end
 
   def pattern(route)

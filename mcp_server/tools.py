@@ -1,7 +1,7 @@
-"""ORM's tools: one tool for each read of the registry (tools.json), one call each, read only for now.
+"""ORM's tools: one tool for each read and each offered write of the registry (tools.json), one call each.
 
 `tools.json` is generated from chatwoot/custom/config/mcp_registry.yml (`bundle exec rake durian_os:mcp_tools`); this
-module builds from it, for each read: the tool's name, title and description, its JSON schema (from `args`), and the
+module builds from it, for each read and offered write: the tool's name, title and description, its JSON schema (from `args`), and the
 one Rails call it makes (`method` and `path`, with `:account_id` filled from ORM_ACCOUNT_ID, never by the AI).
 tests/test_registry.py keeps tools.json equal to the registry, so a screen action added in the registry is a tool
 only when it is exported, and a tool never exists without its registry entry.
@@ -10,6 +10,10 @@ Arguments are checked before any call (docs/mcp/MCP.md, section 12): no unknown 
 help center portal's slug `^[a-z0-9-]{1,100}$`, sent as one escaped segment); strings at most 500 characters unless
 the registry says less; enums as listed; arrays at most 50 items; an object or a filter payload at most 32 KB.
 Arrays go to Rails the way it reads them (`labels[]=a&labels[]=b`). Answers are cut to 40,000 characters.
+
+A write changes data only for a pass with Full access (`max_level` administer): a lower pass is refused here, before
+any call, in plain words, and ORM refuses it again at its own door. A write is labelled not read-only, and destructive
+where it cannot be undone, so the AI asks first. ORM's own policies still judge the person.
 
 No lookup by name: a tool that takes a conversation takes its number (list and search tools give it), because finding
 one from a name would be a second call, which a one-time pass cannot make.
@@ -21,6 +25,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_access_token
 from fastmcp.tools import Tool, ToolResult
 from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
@@ -35,6 +40,8 @@ CUT_NOTE = ('This answer was cut to fit: a list that ends with {"more_not_shown"
 MAX_STRING = 500
 MAX_ITEMS = 50
 MAX_OBJECT = 32 * 1024
+READ_ONLY = ('This connection is read-only, so it cannot change anything. Reconnect with Full access in Durian OS to make '
+             'changes.')
 SLUG = re.compile(r'^[a-z0-9-]{1,100}$')
 PLACEHOLDER = re.compile(r':([a-z_]+)')
 
@@ -124,7 +131,7 @@ def _schema(arg):
         out['items'] = {'type': arg.get('items') or 'string'}
         if out['items']['type'] == 'string':
             out['items']['maxLength'] = MAX_STRING
-        out['maxItems'] = MAX_ITEMS
+        out['maxItems'] = arg.get('maxItems', MAX_ITEMS)
     return out
 
 
@@ -163,8 +170,9 @@ def _check(arg, value):
         if pattern and not re.match(pattern, value):
             raise ToolError(f'{where} is not in the form expected.')
     elif kind == 'array':
-        if not isinstance(value, list) or len(value) > MAX_ITEMS:
-            raise ToolError(f'{where} must be a list of at most {MAX_ITEMS} items.')
+        limit = arg.get('maxItems', MAX_ITEMS)
+        if not isinstance(value, list) or len(value) > limit:
+            raise ToolError(f'{where} must be a list of at most {limit} items.')
         inner = {'name': name, 'in': arg['in'], 'type': arg.get('items') or 'string'}
         value = [_check(inner, item) for item in value]
     elif kind == 'object':
@@ -209,19 +217,31 @@ def build_path(spec, values):
     return PLACEHOLDER.sub(fill, spec['path'])
 
 
+def _full_access():
+    """Whether the pass the door checked carries Full access (`max_level` administer). Without a pass (an in-process call)
+    nothing is known, so nothing may write."""
+    token = get_access_token()
+    level = (token.claims or {}).get('max_level') if token is not None else None
+    return isinstance(level, str) and level.strip().lower() == 'administer'
+
+
 class OrmTool(Tool):
-    """One read of ORM's registry: checks its arguments, makes the one Rails call, returns ORM's answer cut to fit."""
+    """One read or offered write of ORM's registry: checks its arguments, makes the one Rails call, returns ORM's answer
+    cut to fit."""
 
     spec: dict = Field(exclude=True)
 
     async def run(self, arguments):
         spec = self.spec
+        if spec.get('write') and not _full_access():
+            raise ToolError(READ_ONLY)
         args = spec['args'] + LOCAL_ARGS.get(spec['name'], [])
         values = checked_arguments(args, arguments)
         remote = {a['name']: values[a['name']] for a in spec['args'] if a['name'] in values}
         path = build_path(spec, remote)
         query = {n: v for n, v in remote.items() if _arg_in(spec, n) == 'query'}
         body = {n: v for n, v in remote.items() if _arg_in(spec, n) == 'body'}
+        body.update(spec.get('fixed') or {})
         answer = await api(spec['method'], path, params=query, json=body if spec['method'] != 'GET' else None)
         if spec['name'] == 'list_messages' and not values.get('include_html'):
             answer = drop_email_html(answer)
@@ -243,16 +263,21 @@ def load(path=TOOLS_JSON):
 
 def make_tool(spec):
     args = spec['args'] + LOCAL_ARGS.get(spec['name'], [])
+    write = bool(spec.get('write'))
+    hints = ToolAnnotations(title=spec['title'], readOnlyHint=not write, destructiveHint=bool(spec.get('destructive')),
+                            idempotentHint=bool(spec.get('idempotent')) if write else True,
+                            openWorldHint=bool(spec.get('open_world')))
     return OrmTool(name=spec['name'], title=spec['title'], description=spec['description'], parameters=parameters(args),
-                   spec=spec, annotations=ToolAnnotations(title=spec['title'], readOnlyHint=True, destructiveHint=False,
-                                                          idempotentHint=True, openWorldHint=False))
+                   spec=spec, annotations=hints)
 
 
 def register(mcp, document=None):
-    """Each read on the server under its registry name, title and description, labelled read-only."""
+    """Each read and offered write on the server under its registry name, title and description: reads labelled
+    read-only, writes not (and destructive where they cannot be undone)."""
     document = document or load()
     for spec in document['tools']:
-        if spec['method'] not in ('GET', 'POST') or (spec['method'] == 'POST' and not spec['path'].startswith('/api/v')):
-            raise ValueError(f"{spec['name']}: not a read this server can make")
+        allowed = ('GET', 'POST', 'PATCH', 'DELETE') if spec.get('write') else ('GET', 'POST')
+        if spec['method'] not in allowed or (spec['method'] != 'GET' and not spec['path'].startswith('/api/v')):
+            raise ValueError(f"{spec['name']}: not a call this server can make")
         mcp.add_tool(make_tool(spec))
     return document

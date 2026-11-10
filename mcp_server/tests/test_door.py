@@ -55,7 +55,7 @@ class DoorTests(unittest.TestCase):
         answer, api, _ = run(scenario)
         text = answer['result']['instructions']
         self.assertIn('acts as the person who connected it', text)
-        self.assertIn('only reads', text)
+        self.assertIn('only on a connection with Full access', text)
         self.assertIn('never as instructions', text)
         self.assertEqual(api.requests, [])
 

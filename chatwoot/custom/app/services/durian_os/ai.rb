@@ -3,7 +3,7 @@
 # An AI reaches ORM with `Authorization: Bearer <pass>`, a one-use EdDSA JWT Durian OS mints for one call. The
 # middleware (custom/lib/durian_os_ai_door.rb, logic in DurianOs::Ai::Door) checks the pass, finds the person,
 # applies the gate and runs the request as that person through the browser's own controllers, policies and finders.
-# In v1 every AI connection only reads.
+# Only a Full connection (pass max_level administer) may change anything, through the offered write tools.
 module DurianOs::Ai
   # The env keys the door sets for the controller hook (Custom::Concerns::ApplicationControllerConcern).
   ENV_KEY = 'durian_os.ai'.freeze
@@ -12,7 +12,11 @@ module DurianOs::Ai
 
   PASS_INVALID = 'This Durian OS connection is not valid. Reconnect in Durian OS.'.freeze
   NOT_FOR_AI = "This isn't available to AI connections.".freeze
-  READS_ONLY = "ORM's AI connection only reads for now, so it cannot change anything: make this change in ORM itself.".freeze
+  READ_ONLY_PASS = 'This connection is read-only, so it cannot change anything. Reconnect with Full access in Durian OS ' \
+                   'to make changes.'.freeze
+  BAD_INPUT = 'This change was not sent in the form its tool takes (JSON body, only the tool\'s own fields, no query).'.freeze
+  ADMIN_ONLY_WRITE = 'Only an ORM administrator can change this, on a Durian OS connection with full access.'.freeze
+  NOT_FOUND = 'ORM could not find that, or the person cannot see it.'.freeze
   WRONG_ACCOUNT = "ORM's AI connection works in the Durian account only.".freeze
   ADMIN_ONLY = 'Only an ORM administrator can read this, on a Durian OS connection with full access.'.freeze
   NO_REPORT_ACCESS = 'This needs report access in ORM.'.freeze
@@ -39,5 +43,13 @@ module DurianOs::Ai
 
   def refuse!(status, code, message, headers: {})
     raise Refused.new(status, code, message, headers: headers)
+  end
+
+  # An audit row written during an AI request names the AI in its comment.
+  def mark_audit(audit)
+    caller = DurianOs::Current.ai
+    return if caller.nil?
+
+    audit.comment = ["via #{caller.client} (AI connection)", audit.comment.presence].compact.join(' · ').first(255)
   end
 end

@@ -18,7 +18,7 @@ read:
     action: api/v1/ai#me
     route: GET /api/v1/ai/me
     title: "Show who this connection acts as"
-    description: "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. It only reads, for now."
+    description: "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. Whether it may change things (Full access) shows in read_only."
     who: everyone
     account_param: none
   - name: get_account_settings
@@ -1382,198 +1382,469 @@ read:
     who: everyone
     args:
       - {name: year, in: query, type: "integer", description: "The year; 2025 unless given."}
+# write: every write route. Offered: a full entry (title, description, who, args, flags) that an AI connection with Full access
+#   (pass max_level administer) may call, if ORM's own policies allow the person; `guard` names an extra check before the route runs
+#   (DurianOs::Ai::WriteGuard), `fixed` pins body values (a private note is private: true), `destructive` asks the AI to confirm first.
+#   Refused: `refused: <reason>` (customer, outside, bulk, deletion, settings, later; the words are in DurianOs::Ai::Registry::WRITE_REFUSED_REASONS).
 write:
-  - {name: update_account_settings, action: api/v1/accounts#update, route: "PATCH|PUT /api/v1/accounts/:id", who: admin}
-  - {name: start_conversation, action: api/v1/accounts/conversations#create, route: "POST /api/v1/accounts/:account_id/conversations", who: everyone}
-  - {name: update_conversation, action: api/v1/accounts/conversations#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:id", who: everyone}
-  - {name: delete_conversation, action: api/v1/accounts/conversations#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:id", who: admin}
-  - {name: mute_conversation, action: api/v1/accounts/conversations#mute, route: "POST /api/v1/accounts/:account_id/conversations/:id/mute", who: everyone}
-  - {name: unmute_conversation, action: api/v1/accounts/conversations#unmute, route: "POST /api/v1/accounts/:account_id/conversations/:id/unmute", who: everyone}
-  - {name: email_conversation_transcript, action: api/v1/accounts/conversations#transcript, route: "POST /api/v1/accounts/:account_id/conversations/:id/transcript", who: everyone, note: "sends email"}
-  - {name: set_conversation_status, action: api/v1/accounts/conversations#toggle_status, route: "POST /api/v1/accounts/:account_id/conversations/:id/toggle_status", who: everyone}
-  - {name: set_conversation_priority, action: api/v1/accounts/conversations#toggle_priority, route: "POST /api/v1/accounts/:account_id/conversations/:id/toggle_priority", who: everyone}
-  - {name: mark_conversation_unread, action: api/v1/accounts/conversations#unread, route: "POST /api/v1/accounts/:account_id/conversations/:id/unread", who: everyone}
-  - {name: set_conversation_attributes, action: api/v1/accounts/conversations#custom_attributes, route: "POST /api/v1/accounts/:account_id/conversations/:id/custom_attributes", who: everyone}
-  - {name: send_message, action: api/v1/accounts/conversations/messages#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages", who: everyone, note: "reaches the customer"}
-  - {name: update_message_status, action: api/v1/accounts/conversations/messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone}
-  - {name: delete_message, action: api/v1/accounts/conversations/messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone}
-  - {name: translate_message, action: api/v1/accounts/conversations/messages#translate, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/translate", who: everyone, note: "calls Google Translate and stores the translation"}
-  - {name: retry_message, action: api/v1/accounts/conversations/messages#retry, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/retry", who: everyone}
-  - {name: mark_ai_suggestion_sent, action: api/v1/accounts/conversations/messages#mark_suggestion_sent, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/mark_suggestion_sent", who: everyone}
-  - {name: assign_conversation, action: api/v1/accounts/conversations/assignments#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/assignments", who: everyone}
-  - {name: set_conversation_labels, action: api/v1/accounts/conversations/labels#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/labels", who: everyone}
-  - {name: add_conversation_participants, action: api/v1/accounts/conversations/participants#create, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
-  - {name: set_conversation_participants, action: api/v1/accounts/conversations/participants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
-  - {name: remove_conversation_participants, action: api/v1/accounts/conversations/participants#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone}
-  - {name: save_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone}
-  - {name: discard_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone}
-  - {name: bulk_update_conversations, action: api/v1/accounts/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/bulk_actions", who: everyone}
-  - {name: create_contact, action: api/v1/accounts/contacts#create, route: "POST /api/v1/accounts/:account_id/contacts", who: everyone}
-  - {name: update_contact, action: api/v1/accounts/contacts#update, route: "PATCH|PUT /api/v1/accounts/:account_id/contacts/:id", who: everyone}
-  - {name: delete_contact, action: api/v1/accounts/contacts#destroy, route: "DELETE /api/v1/accounts/:account_id/contacts/:id", who: admin}
-  - {name: remove_contact_attributes, action: api/v1/accounts/contacts#destroy_custom_attributes, route: "POST /api/v1/accounts/:account_id/contacts/:id/destroy_custom_attributes", who: everyone}
-  - {name: add_contact_to_inbox, action: api/v1/accounts/contacts/contact_inboxes#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/contact_inboxes", who: everyone}
-  - {name: set_contact_labels, action: api/v1/accounts/contacts/labels#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/labels", who: everyone}
-  - {name: add_contact_note, action: api/v1/accounts/contacts/notes#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/notes", who: everyone}
-  - {name: update_contact_note, action: api/v1/accounts/contacts/notes#update, route: "PATCH|PUT /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id", who: everyone}
-  - {name: delete_contact_note, action: api/v1/accounts/contacts/notes#destroy, route: "DELETE /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id", who: everyone}
-  - {name: merge_contacts, action: api/v1/accounts/actions/contact_merges#create, route: "POST /api/v1/accounts/:account_id/actions/contact_merge", who: everyone}
-  - {name: create_company, action: api/v1/accounts/companies#create, route: "POST /api/v1/accounts/:account_id/companies", who: everyone}
-  - {name: update_company, action: api/v1/accounts/companies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/companies/:id", who: everyone}
-  - {name: delete_company, action: api/v1/accounts/companies#destroy, route: "DELETE /api/v1/accounts/:account_id/companies/:id", who: admin}
-  - {name: remove_company_attributes, action: api/v1/accounts/companies#destroy_custom_attributes, route: "POST /api/v1/accounts/:account_id/companies/:id/destroy_custom_attributes", who: everyone}
-  - {name: add_contact_to_company, action: api/v1/accounts/companies/contacts#create, route: "POST /api/v1/accounts/:account_id/companies/:company_id/contacts", who: everyone}
-  - {name: remove_contact_from_company, action: api/v1/accounts/companies/contacts#destroy, route: "DELETE /api/v1/accounts/:account_id/companies/:company_id/contacts/:id", who: everyone}
-  - {name: update_inbox_settings, action: api/v1/accounts/inboxes#update, route: "PATCH|PUT /api/v1/accounts/:account_id/inboxes/:id", who: admin, note: "a future write must refuse channel credentials"}
-  - {name: delete_inbox, action: api/v1/accounts/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:id", who: admin}
-  - {name: sync_inbox_whatsapp_templates, action: api/v1/accounts/inboxes#sync_templates, route: "POST /api/v1/accounts/:account_id/inboxes/:id/sync_templates", who: admin}
-  - {name: create_inbox_csat_template, action: api/v1/accounts/inbox_csat_templates#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template", who: admin}
-  - {name: analyze_csat_template, action: api/v1/accounts/inbox_csat_templates#analyze, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template/analyze", who: everyone, note: "runs a Captain model call"}
-  - {name: update_inbox_working_hours, action: api/v1/accounts/working_hours#update, route: "PATCH|PUT /api/v1/accounts/:account_id/working_hours/:id", who: admin}
-  - {name: create_team, action: api/v1/accounts/teams#create, route: "POST /api/v1/accounts/:account_id/teams", who: admin}
-  - {name: update_team, action: api/v1/accounts/teams#update, route: "PATCH|PUT /api/v1/accounts/:account_id/teams/:id", who: admin}
-  - {name: delete_team, action: api/v1/accounts/teams#destroy, route: "DELETE /api/v1/accounts/:account_id/teams/:id", who: admin}
-  - {name: create_assignment_policy, action: api/v1/accounts/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/assignment_policies", who: admin}
-  - {name: update_assignment_policy, action: api/v1/accounts/assignment_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/assignment_policies/:id", who: admin}
-  - {name: delete_assignment_policy, action: api/v1/accounts/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:id", who: admin}
-  - {name: add_inbox_to_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#create, route: "POST /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes", who: admin}
-  - {name: remove_inbox_from_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes/:id", who: admin}
-  - {name: set_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin}
-  - {name: remove_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin}
-  - {name: create_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies", who: admin}
-  - {name: update_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin}
-  - {name: delete_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin}
-  - {name: add_agent_to_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users", who: admin}
-  - {name: remove_agent_from_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users/:id", who: admin}
-  - {name: set_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits", who: admin}
-  - {name: update_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin}
-  - {name: remove_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin}
-  - {name: create_label, action: api/v1/accounts/labels#create, route: "POST /api/v1/accounts/:account_id/labels", who: admin}
-  - {name: update_label, action: api/v1/accounts/labels#update, route: "PATCH|PUT /api/v1/accounts/:account_id/labels/:id", who: admin}
-  - {name: delete_label, action: api/v1/accounts/labels#destroy, route: "DELETE /api/v1/accounts/:account_id/labels/:id", who: admin}
-  - {name: create_canned_response, action: api/v1/accounts/canned_responses#create, route: "POST /api/v1/accounts/:account_id/canned_responses", who: everyone}
-  - {name: update_canned_response, action: api/v1/accounts/canned_responses#update, route: "PATCH|PUT /api/v1/accounts/:account_id/canned_responses/:id", who: everyone}
-  - {name: delete_canned_response, action: api/v1/accounts/canned_responses#destroy, route: "DELETE /api/v1/accounts/:account_id/canned_responses/:id", who: everyone}
-  - {name: create_macro, action: api/v1/accounts/macros#create, route: "POST /api/v1/accounts/:account_id/macros", who: everyone}
-  - {name: update_macro, action: api/v1/accounts/macros#update, route: "PATCH|PUT /api/v1/accounts/:account_id/macros/:id", who: everyone}
-  - {name: delete_macro, action: api/v1/accounts/macros#destroy, route: "DELETE /api/v1/accounts/:account_id/macros/:id", who: everyone}
-  - {name: run_macro, action: api/v1/accounts/macros#execute, route: "POST /api/v1/accounts/:account_id/macros/:id/execute", who: everyone}
-  - {name: create_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#create, route: "POST /api/v1/accounts/:account_id/custom_attribute_definitions", who: admin}
-  - {name: update_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin}
-  - {name: delete_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin}
-  - {name: save_filter, action: api/v1/accounts/custom_filters#create, route: "POST /api/v1/accounts/:account_id/custom_filters", who: everyone}
-  - {name: update_saved_filter, action: api/v1/accounts/custom_filters#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_filters/:id", who: everyone}
-  - {name: delete_saved_filter, action: api/v1/accounts/custom_filters#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_filters/:id", who: everyone}
-  - {name: create_automation_rule, action: api/v1/accounts/automation_rules#create, route: "POST /api/v1/accounts/:account_id/automation_rules", who: admin}
-  - {name: update_automation_rule, action: api/v1/accounts/automation_rules#update, route: "PATCH|PUT /api/v1/accounts/:account_id/automation_rules/:id", who: admin}
-  - {name: delete_automation_rule, action: api/v1/accounts/automation_rules#destroy, route: "DELETE /api/v1/accounts/:account_id/automation_rules/:id", who: admin}
-  - {name: copy_automation_rule, action: api/v1/accounts/automation_rules#clone, route: "POST /api/v1/accounts/:account_id/automation_rules/:automation_rule_id/clone", who: admin}
-  - {name: create_sla_policy, action: api/v1/accounts/sla_policies#create, route: "POST /api/v1/accounts/:account_id/sla_policies", who: admin}
-  - {name: update_sla_policy, action: api/v1/accounts/sla_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/sla_policies/:id", who: admin}
-  - {name: delete_sla_policy, action: api/v1/accounts/sla_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/sla_policies/:id", who: admin}
-  - {name: create_dashboard_app, action: api/v1/accounts/dashboard_apps#create, route: "POST /api/v1/accounts/:account_id/dashboard_apps", who: everyone}
-  - {name: update_dashboard_app, action: api/v1/accounts/dashboard_apps#update, route: "PATCH|PUT /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone}
-  - {name: delete_dashboard_app, action: api/v1/accounts/dashboard_apps#destroy, route: "DELETE /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone}
-  - {name: create_offer, action: api/v1/accounts/offers#create, route: "POST /api/v1/accounts/:account_id/offers", who: admin}
-  - {name: update_offer, action: api/v1/accounts/offers#update, route: "PATCH|PUT /api/v1/accounts/:account_id/offers/:id", who: admin}
-  - {name: delete_offer, action: api/v1/accounts/offers#destroy, route: "DELETE /api/v1/accounts/:account_id/offers/:id", who: admin}
-  - {name: send_offer_to_conversation, action: api/v1/accounts/offers#send_to_conversation, route: "POST /api/v1/accounts/:account_id/offers/:id/send_to_conversation", who: everyone, note: "reaches the customer"}
-  - {name: save_mail_draft, action: api/v1/accounts/mail_drafts#create, route: "POST /api/v1/accounts/:account_id/mail_drafts", who: everyone}
-  - {name: update_mail_draft, action: api/v1/accounts/mail_drafts#update, route: "PATCH|PUT /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone}
-  - {name: delete_mail_draft, action: api/v1/accounts/mail_drafts#destroy, route: "DELETE /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone}
-  - {name: mark_notification_read, action: api/v1/accounts/notifications#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notifications/:id", who: everyone}
-  - {name: delete_notification, action: api/v1/accounts/notifications#destroy, route: "DELETE /api/v1/accounts/:account_id/notifications/:id", who: everyone}
-  - {name: mark_all_notifications_read, action: api/v1/accounts/notifications#read_all, route: "POST /api/v1/accounts/:account_id/notifications/read_all", who: everyone}
-  - {name: delete_all_notifications, action: api/v1/accounts/notifications#destroy_all, route: "POST /api/v1/accounts/:account_id/notifications/destroy_all", who: everyone}
-  - {name: snooze_notification, action: api/v1/accounts/notifications#snooze, route: "POST /api/v1/accounts/:account_id/notifications/:id/snooze", who: everyone}
-  - {name: mark_notification_unread, action: api/v1/accounts/notifications#unread, route: "POST /api/v1/accounts/:account_id/notifications/:id/unread", who: everyone}
-  - {name: update_my_notification_settings, action: api/v1/accounts/notification_settings#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notification_settings", who: everyone}
-  - {name: create_campaign, action: api/v1/accounts/campaigns#create, route: "POST /api/v1/accounts/:account_id/campaigns", who: admin}
-  - {name: update_campaign, action: api/v1/accounts/campaigns#update, route: "PATCH|PUT /api/v1/accounts/:account_id/campaigns/:id", who: admin}
-  - {name: delete_campaign, action: api/v1/accounts/campaigns#destroy, route: "DELETE /api/v1/accounts/:account_id/campaigns/:id", who: admin}
-  - {name: send_campaign_test_message, action: api/v1/accounts/campaigns#test_message, route: "POST /api/v1/accounts/:account_id/campaigns/test_message", who: admin, note: "sends WhatsApp"}
-  - {name: pause_campaign, action: api/v1/accounts/campaigns#pause, route: "POST /api/v1/accounts/:account_id/campaigns/:id/pause", who: admin}
-  - {name: resume_campaign, action: api/v1/accounts/campaigns#resume, route: "POST /api/v1/accounts/:account_id/campaigns/:id/resume", who: admin}
-  - {name: cancel_campaign, action: api/v1/accounts/campaigns#cancel, route: "POST /api/v1/accounts/:account_id/campaigns/:id/cancel", who: admin}
-  - {name: retry_failed_campaign_messages, action: api/v1/accounts/campaigns#retry_failed, route: "POST /api/v1/accounts/:account_id/campaigns/:id/retry_failed", who: admin}
-  - {name: create_whatsapp_template, action: api/v1/accounts/whatsapp_templates#create, route: "POST /api/v1/accounts/:account_id/whatsapp_templates", who: admin}
-  - {name: update_whatsapp_template, action: api/v1/accounts/whatsapp_templates#update, route: "PATCH|PUT /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin}
-  - {name: delete_whatsapp_template, action: api/v1/accounts/whatsapp_templates#destroy, route: "DELETE /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin}
-  - {name: submit_whatsapp_template, action: api/v1/accounts/whatsapp_templates#submit, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/:id/submit", who: admin}
-  - {name: sync_whatsapp_templates, action: api/v1/accounts/whatsapp_templates#sync, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/sync", who: admin}
-  - {name: record_whatsapp_consent, action: api/v1/accounts/whatsapp_consents#create, route: "POST /api/v1/accounts/:account_id/whatsapp_consents", who: admin}
-  - {name: resolve_zoho_ticket_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_ticket_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_ticket_decision", who: everyone}
-  - {name: regenerate_review_reply, action: api/v1/accounts/integrations/zoho_bridge#regenerate_review_reply, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/regenerate_review_reply", who: everyone, note: "runs a model call"}
-  - {name: resolve_email_category_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_category_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_category_decision", who: everyone, note: "forwards the email"}
-  - {name: create_zoho_crm_deal, action: api/v1/accounts/integrations/zoho_bridge#create_crm_deal, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_deal", who: everyone}
-  - {name: escalate_google_review, action: api/v1/accounts/integrations/zoho_bridge#escalate_review, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/escalate_review", who: everyone, note: "sends email"}
-  - {name: draft_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#draft_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/draft_ticket", who: everyone, note: "creates nothing, but runs a paid model call: not a read"}
-  - {name: create_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#create_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_ticket", who: everyone}
-  - {name: forward_conversation_email, action: api/v1/accounts/integrations/zoho_bridge#forward_email, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/forward_email", who: everyone, note: "sends email"}
-  - {name: publish_email_routing_rules, action: api/v1/accounts/integrations/routing_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/publish", who: admin}
-  - {name: restore_email_routing_rules, action: api/v1/accounts/integrations/routing_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/rollback", who: admin}
-  - {name: preview_email_routing, action: api/v1/accounts/integrations/routing_config#preview, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/preview", who: admin, note: "saves nothing, but runs the email classifier model: not a read"}
-  - {name: refresh_zoho_users, action: api/v1/accounts/integrations/routing_config#owner_sync_run, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/owner_sync_run", who: admin}
-  - {name: publish_store_settings, action: api/v1/accounts/integrations/stores_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/publish", who: admin}
-  - {name: restore_store_settings, action: api/v1/accounts/integrations/stores_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/rollback", who: admin}
-  - {name: publish_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/publish", who: admin}
-  - {name: restore_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/rollback", who: admin}
-  - {name: publish_review_reply_categories, action: api/v1/accounts/integrations/review_categories_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/review_categories_config/publish", who: admin}
-  - {name: publish_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/publish", who: admin}
-  - {name: restore_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/rollback", who: admin}
-  - {name: send_crm_automation_test, action: api/v1/accounts/integrations/crm_automation_config#test_send, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/test_send", who: admin, note: "sends WhatsApp"}
-  - {name: publish_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/publish", who: admin}
-  - {name: sync_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#sync, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync", who: admin}
-  - {name: update_product_catalog_sync, action: api/v1/accounts/integrations/product_catalog_config#sync_settings, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync_settings", who: admin}
-  - {name: restore_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/rollback", who: admin}
-  - {name: create_linear_issue, action: api/v1/accounts/integrations/linear#create_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/create_issue", who: everyone}
-  - {name: link_linear_issue, action: api/v1/accounts/integrations/linear#link_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/link_issue", who: everyone}
-  - {name: unlink_linear_issue, action: api/v1/accounts/integrations/linear#unlink_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/unlink_issue", who: everyone}
-  - {name: run_integration_action, action: api/v1/accounts/integrations/hooks#process_event, route: "POST /api/v1/accounts/:account_id/integrations/hooks/:id/process_event", who: everyone, note: "e.g. the OpenAI integration: a paid model call"}
-  - {name: start_video_call, action: api/v1/accounts/integrations/dyte#create_a_meeting, route: "POST /api/v1/accounts/:account_id/integrations/dyte/create_a_meeting", who: everyone, note: "posts a meeting link to the customer"}
-  - {name: update_captain_settings, action: api/v1/accounts/captain/preferences#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/preferences", who: admin}
-  - {name: create_captain_assistant, action: api/v1/accounts/captain/assistants#create, route: "POST /api/v1/accounts/:account_id/captain/assistants", who: admin}
-  - {name: update_captain_assistant, action: api/v1/accounts/captain/assistants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:id", who: admin}
-  - {name: delete_captain_assistant, action: api/v1/accounts/captain/assistants#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:id", who: admin}
-  - {name: try_captain_assistant, action: api/v1/accounts/captain/assistants#playground, route: "POST /api/v1/accounts/:account_id/captain/assistants/:id/playground", who: everyone, note: "runs a model call"}
-  - {name: connect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes", who: admin}
-  - {name: disconnect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes/:inbox_id", who: admin}
-  - {name: create_captain_scenario, action: api/v1/accounts/captain/scenarios#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios", who: admin}
-  - {name: update_captain_scenario, action: api/v1/accounts/captain/scenarios#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin}
-  - {name: delete_captain_scenario, action: api/v1/accounts/captain/scenarios#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin}
-  - {name: create_captain_faq, action: api/v1/accounts/captain/assistant_responses#create, route: "POST /api/v1/accounts/:account_id/captain/assistant_responses", who: everyone}
-  - {name: update_captain_faq, action: api/v1/accounts/captain/assistant_responses#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone}
-  - {name: delete_captain_faq, action: api/v1/accounts/captain/assistant_responses#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone}
-  - {name: bulk_update_captain_faqs, action: api/v1/accounts/captain/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/captain/bulk_actions", who: everyone}
-  - {name: start_copilot_thread, action: api/v1/accounts/captain/copilot_threads#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads", who: everyone, note: "runs a model call"}
-  - {name: ask_copilot, action: api/v1/accounts/captain/copilot_messages#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads/:copilot_thread_id/copilot_messages", who: everyone, note: "runs a model call"}
-  - {name: add_captain_document, action: api/v1/accounts/captain/documents#create, route: "POST /api/v1/accounts/:account_id/captain/documents", who: admin}
-  - {name: delete_captain_document, action: api/v1/accounts/captain/documents#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/documents/:id", who: admin}
-  - {name: sync_captain_document, action: api/v1/accounts/captain/documents#sync, route: "POST /api/v1/accounts/:account_id/captain/documents/:id/sync", who: admin}
-  - {name: rewrite_with_captain, action: api/v1/accounts/captain/tasks#rewrite, route: "POST /api/v1/accounts/:account_id/captain/tasks/rewrite", who: everyone, note: "runs a model call"}
-  - {name: summarize_with_captain, action: api/v1/accounts/captain/tasks#summarize, route: "POST /api/v1/accounts/:account_id/captain/tasks/summarize", who: everyone, note: "runs a model call"}
-  - {name: suggest_reply_with_captain, action: api/v1/accounts/captain/tasks#reply_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/reply_suggestion", who: everyone, note: "runs a model call"}
-  - {name: suggest_labels_with_captain, action: api/v1/accounts/captain/tasks#label_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/label_suggestion", who: everyone, note: "runs a model call"}
-  - {name: suggest_follow_up_with_captain, action: api/v1/accounts/captain/tasks#follow_up, route: "POST /api/v1/accounts/:account_id/captain/tasks/follow_up", who: everyone, note: "runs a model call"}
-  - {name: create_help_center_portal, action: api/v1/accounts/portals#create, route: "POST /api/v1/accounts/:account_id/portals", who: admin}
-  - {name: update_help_center_portal, action: api/v1/accounts/portals#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:id", who: kb}
-  - {name: delete_help_center_portal, action: api/v1/accounts/portals#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:id", who: admin}
-  - {name: archive_help_center_portal, action: api/v1/accounts/portals#archive, route: "PATCH /api/v1/accounts/:account_id/portals/:id/archive", who: admin}
-  - {name: send_help_center_domain_instructions, action: api/v1/accounts/portals#send_instructions, route: "POST /api/v1/accounts/:account_id/portals/:id/send_instructions", who: admin, note: "sends email"}
-  - {name: create_help_center_category, action: api/v1/accounts/categories#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories", who: kb}
-  - {name: update_help_center_category, action: api/v1/accounts/categories#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb}
-  - {name: delete_help_center_category, action: api/v1/accounts/categories#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb}
-  - {name: reorder_help_center_categories, action: api/v1/accounts/categories#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories/reorder", who: kb}
-  - {name: create_help_article, action: api/v1/accounts/articles#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles", who: kb}
-  - {name: update_help_article, action: api/v1/accounts/articles#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb}
-  - {name: delete_help_article, action: api/v1/accounts/articles#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb}
-  - {name: reorder_help_articles, action: api/v1/accounts/articles#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/reorder", who: kb}
-  - {name: translate_help_articles, action: api/v1/accounts/articles/bulk_actions#translate, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/translate", who: kb, note: "runs a model call"}
-  - {name: set_help_articles_status, action: api/v1/accounts/articles/bulk_actions#update_status, route: "PATCH /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/update_status", who: kb}
-  - {name: delete_help_articles, action: api/v1/accounts/articles/bulk_actions#delete_articles, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/delete_articles", who: kb}
-  - {name: update_csat_review_notes, action: api/v1/accounts/csat_survey_responses#update, route: "PATCH /api/v1/accounts/:account_id/csat_survey_responses/:id", who: reports}
-  - {name: send_forwarded_email_report, action: api/v1/accounts/forwarded_email_reports#deliver, route: "POST /api/v1/accounts/:account_id/forwarded_email_report/deliver", who: reports, note: "sends email"}
-  - {name: set_follow_up_report_labels, action: api/v1/accounts/follow_up_reports#update, route: "PATCH|PUT /api/v1/accounts/:account_id/follow_up_report", who: reports}
+  - {name: update_account_settings, action: api/v1/accounts#update, route: "PATCH|PUT /api/v1/accounts/:id", who: admin, refused: settings}
+  - {name: start_conversation, action: api/v1/accounts/conversations#create, route: "POST /api/v1/accounts/:account_id/conversations", who: everyone, refused: customer}
+  - {name: update_conversation, action: api/v1/accounts/conversations#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:id", who: everyone, refused: later}
+  - {name: delete_conversation, action: api/v1/accounts/conversations#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:id", who: admin, refused: deletion}
+  - {name: mute_conversation, action: api/v1/accounts/conversations#mute, route: "POST /api/v1/accounts/:account_id/conversations/:id/mute", who: everyone, note: "Chatwoot resolves the conversation (it can send the customer the survey) and blocks the contact", refused: customer}
+  - name: unmute_conversation
+    action: api/v1/accounts/conversations#unmute
+    route: POST /api/v1/accounts/:account_id/conversations/:id/unmute
+    title: "Unmute a conversation"
+    description: "Unmutes a conversation: the contact is unblocked. It does not reopen it. Only conversations the person can see."
+    who: everyone
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+  - {name: email_conversation_transcript, action: api/v1/accounts/conversations#transcript, route: "POST /api/v1/accounts/:account_id/conversations/:id/transcript", who: everyone, note: "sends email", refused: customer}
+  - name: set_conversation_status
+    action: api/v1/accounts/conversations#toggle_status
+    route: POST /api/v1/accounts/:account_id/conversations/:id/toggle_status
+    title: "Change a conversation's status"
+    description: "Opens, snoozes or marks pending a conversation; a status is always required. Resolving stays in ORM: it can send the customer the inbox's satisfaction survey."
+    who: everyone
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "status", in: "body", type: "string", required: true, enum: ["open", "pending", "snoozed"], description: "The new status."}
+      - {name: "snoozed_until", in: "body", type: "string", description: "For snoozed: when to wake it, such as 2026-11-12T09:00:00Z. Left out, it stays snoozed until the customer replies."}
+  - name: set_conversation_priority
+    action: api/v1/accounts/conversations#toggle_priority
+    route: POST /api/v1/accounts/:account_id/conversations/:id/toggle_priority
+    title: "Set a conversation's priority"
+    description: "Sets the priority of a conversation. Leave priority out to clear it. Only conversations the person can see."
+    who: everyone
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "priority", in: "body", type: "string", enum: ["urgent", "high", "medium", "low"], description: "The priority; leave out to clear it."}
+  - {name: mark_conversation_unread, action: api/v1/accounts/conversations#unread, route: "POST /api/v1/accounts/:account_id/conversations/:id/unread", who: everyone, refused: later}
+  - name: set_conversation_attributes
+    action: api/v1/accounts/conversations#custom_attributes
+    route: POST /api/v1/accounts/:account_id/conversations/:id/custom_attributes
+    title: "Set a conversation's custom attributes"
+    description: "Sets values of the account's custom conversation attributes, by attribute key; a key set to null is removed. Other keys of the conversation are kept, and keys that are not defined attributes are refused."
+    who: everyone
+    guard: conversation_attributes
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", param: "id", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "custom_attributes", in: "body", type: "object", required: true, description: "Attribute key to value, such as {\"order_number\": \"A-1042\"}."}
+  - name: add_private_note
+    action: api/v1/accounts/conversations/messages#create
+    route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages
+    title: "Add a private note to a conversation"
+    description: "Adds a private note that only agents see; it is never sent to the customer. An AI connection cannot send replies to customers: that stays in ORM."
+    who: everyone
+    fixed: {private: true}
+    fixed_refusal: "An AI connection can only add private notes to a conversation. Replies and other messages that reach a customer stay in ORM for now."
+    args:
+      - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "content", in: "body", type: "string", required: true, maxLength: 5000, description: "The note, as text."}
+  - {name: update_message_status, action: api/v1/accounts/conversations/messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone, refused: later}
+  - {name: delete_message, action: api/v1/accounts/conversations/messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id", who: everyone, refused: deletion}
+  - {name: translate_message, action: api/v1/accounts/conversations/messages#translate, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/translate", who: everyone, note: "calls Google Translate and stores the translation", refused: outside}
+  - {name: retry_message, action: api/v1/accounts/conversations/messages#retry, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/retry", who: everyone, refused: customer}
+  - {name: mark_ai_suggestion_sent, action: api/v1/accounts/conversations/messages#mark_suggestion_sent, route: "POST /api/v1/accounts/:account_id/conversations/:conversation_id/messages/:id/mark_suggestion_sent", who: everyone, refused: later}
+  - name: assign_conversation
+    action: api/v1/accounts/conversations/assignments#create
+    route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/assignments
+    title: "Assign a conversation"
+    description: "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Give one of them. Taking an assignment away, and assigning the DurianAI bot, stay in ORM."
+    who: everyone
+    guard: assignment
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "assignee_id", in: "body", type: "integer", description: "The agent to assign."}
+      - {name: "team_id", in: "body", type: "integer", description: "The team to assign."}
+  - name: set_conversation_labels
+    action: api/v1/accounts/conversations/labels#create
+    route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/labels
+    title: "Set a conversation's labels"
+    description: "Replaces a conversation's labels with exactly this list (read its labels first and send them all back to add one)."
+    who: everyone
+    guard: labels_known
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "labels", in: "body", type: "array", items: "string", required: true, description: "Label names; labels that are not in the list already must exist in ORM."}
+  - name: add_conversation_participants
+    action: api/v1/accounts/conversations/participants#create
+    route: POST /api/v1/accounts/:account_id/conversations/:conversation_id/participants
+    title: "Add participants to a conversation"
+    description: "Adds agents as participants of a conversation, so they follow it. Nothing is sent to the customer."
+    who: everyone
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "user_ids", in: "body", type: "array", items: "integer", required: true, description: "Agent ids."}
+  - {name: set_conversation_participants, action: api/v1/accounts/conversations/participants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/participants", who: everyone, refused: later}
+  - name: remove_conversation_participants
+    action: api/v1/accounts/conversations/participants#destroy
+    route: DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/participants
+    title: "Remove participants from a conversation"
+    description: "Removes agents from the participants of a conversation. They stay agents; they just stop following it."
+    who: everyone
+    destructive: true
+    idempotent: true
+    args:
+      - {name: "conversation_id", in: "path", type: "integer", required: true, description: "The conversation number shown in ORM (its display id)."}
+      - {name: "user_ids", in: "body", type: "array", items: "integer", required: true, description: "Agent ids."}
+  - {name: save_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#update, route: "PATCH|PUT /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone, refused: later}
+  - {name: discard_my_conversation_draft, action: api/v1/accounts/conversations/draft_messages#destroy, route: "DELETE /api/v1/accounts/:account_id/conversations/:conversation_id/draft_messages", who: everyone, refused: later}
+  - {name: bulk_update_conversations, action: api/v1/accounts/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/bulk_actions", who: everyone, refused: bulk}
+  - name: create_contact
+    action: api/v1/accounts/contacts#create
+    route: POST /api/v1/accounts/:account_id/contacts
+    title: "Create a contact"
+    description: "Creates a contact with a name, email, phone number or identifier, and attributes. Search first (find_contacts) so a person is not added twice."
+    who: everyone
+    guard: contact_attributes
+    args:
+      - {name: "name", in: "body", type: "string", description: "The contact's name."}
+      - {name: "email", in: "body", type: "string", description: "Email address."}
+      - {name: "phone_number", in: "body", type: "string", description: "Phone number with country code, such as +919800000000."}
+      - {name: "identifier", in: "body", type: "string", description: "The contact's own identifier, if any."}
+      - {name: "blocked", in: "body", type: "boolean", description: "Whether the contact is blocked."}
+      - {name: "additional_attributes", in: "body", type: "object", description: "Details such as city, country, company_name and description."}
+      - {name: "custom_attributes", in: "body", type: "object", description: "Values for the account's custom contact attributes, by attribute key."}
+  - name: update_contact
+    action: api/v1/accounts/contacts#update
+    route: PATCH /api/v1/accounts/:account_id/contacts/:id
+    title: "Update a contact's details"
+    description: "Changes a contact's name, email, phone number, identifier, blocked flag or attributes. Fields left out are kept; attribute values are merged."
+    who: everyone
+    guard: contact_attributes
+    idempotent: true
+    args:
+      - {name: "contact_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "name", in: "body", type: "string", description: "The contact's name."}
+      - {name: "email", in: "body", type: "string", description: "Email address."}
+      - {name: "phone_number", in: "body", type: "string", description: "Phone number with country code, such as +919800000000."}
+      - {name: "identifier", in: "body", type: "string", description: "The contact's own identifier, if any."}
+      - {name: "blocked", in: "body", type: "boolean", description: "Whether the contact is blocked."}
+      - {name: "additional_attributes", in: "body", type: "object", description: "Details such as city, country, company_name and description."}
+      - {name: "custom_attributes", in: "body", type: "object", description: "Values for the account's custom contact attributes, by attribute key."}
+  - {name: delete_contact, action: api/v1/accounts/contacts#destroy, route: "DELETE /api/v1/accounts/:account_id/contacts/:id", who: admin, refused: deletion}
+  - name: remove_contact_attributes
+    action: api/v1/accounts/contacts#destroy_custom_attributes
+    route: POST /api/v1/accounts/:account_id/contacts/:id/destroy_custom_attributes
+    title: "Remove a contact's custom attributes"
+    description: "Removes the given custom attribute values from a contact. The values are lost."
+    who: everyone
+    guard: contact_attributes
+    destructive: true
+    idempotent: true
+    args:
+      - {name: "contact_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "custom_attributes", in: "body", type: "array", items: "string", required: true, description: "Attribute keys to remove."}
+  - {name: add_contact_to_inbox, action: api/v1/accounts/contacts/contact_inboxes#create, route: "POST /api/v1/accounts/:account_id/contacts/:contact_id/contact_inboxes", who: everyone, refused: later}
+  - name: set_contact_labels
+    action: api/v1/accounts/contacts/labels#create
+    route: POST /api/v1/accounts/:account_id/contacts/:contact_id/labels
+    title: "Set a contact's labels"
+    description: "Replaces a contact's labels with exactly this list (read its labels first and send them all back to add one)."
+    who: everyone
+    guard: labels_known
+    idempotent: true
+    args:
+      - {name: "contact_id", in: "path", type: "integer", required: true}
+      - {name: "labels", in: "body", type: "array", items: "string", required: true, description: "Label names; labels that are not in the list already must exist in ORM."}
+  - name: add_contact_note
+    action: api/v1/accounts/contacts/notes#create
+    route: POST /api/v1/accounts/:account_id/contacts/:contact_id/notes
+    title: "Add a note to a contact"
+    description: "Adds a note to a contact. Notes are seen by agents only."
+    who: everyone
+    args:
+      - {name: "contact_id", in: "path", type: "integer", required: true}
+      - {name: "content", in: "body", type: "string", required: true, maxLength: 5000, description: "The note."}
+  - name: update_contact_note
+    action: api/v1/accounts/contacts/notes#update
+    route: PATCH /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id
+    title: "Change a contact's note"
+    description: "Rewrites a note on a contact; the old text is replaced."
+    who: everyone
+    destructive: true
+    idempotent: true
+    args:
+      - {name: "contact_id", in: "path", type: "integer", required: true}
+      - {name: "note_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "content", in: "body", type: "string", required: true, maxLength: 5000, description: "The new text."}
+  - name: delete_contact_note
+    action: api/v1/accounts/contacts/notes#destroy
+    route: DELETE /api/v1/accounts/:account_id/contacts/:contact_id/notes/:id
+    title: "Delete a contact's note"
+    description: "Deletes a note from a contact. It cannot be undone."
+    who: everyone
+    destructive: true
+    idempotent: true
+    args:
+      - {name: "contact_id", in: "path", type: "integer", required: true}
+      - {name: "note_id", in: "path", param: "id", type: "integer", required: true}
+  - name: merge_contacts
+    action: api/v1/accounts/actions/contact_merges#create
+    route: POST /api/v1/accounts/:account_id/actions/contact_merge
+    title: "Merge two contacts"
+    description: "Merges the second contact into the first: conversations, notes and details move to the first and the second contact is deleted. It cannot be undone."
+    who: everyone
+    destructive: true
+    args:
+      - {name: "base_contact_id", in: "body", type: "integer", required: true, description: "The contact that stays."}
+      - {name: "mergee_contact_id", in: "body", type: "integer", required: true, description: "The contact merged in and deleted."}
+  - name: create_company
+    action: api/v1/accounts/companies#create
+    route: POST /api/v1/accounts/:account_id/companies
+    title: "Create a company"
+    description: "Creates a company with a name, domain and description."
+    who: everyone
+    feature: companies
+    args:
+      - {name: "name", in: "body", type: "string", required: true, description: "The company's name."}
+      - {name: "domain", in: "body", type: "string", description: "Web domain, such as example.com."}
+      - {name: "description", in: "body", type: "string", maxLength: 2000}
+  - name: update_company
+    action: api/v1/accounts/companies#update
+    route: PATCH /api/v1/accounts/:account_id/companies/:id
+    title: "Update a company's details"
+    description: "Changes a company's name, domain or description. Fields left out are kept."
+    who: everyone
+    feature: companies
+    idempotent: true
+    args:
+      - {name: "company_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "name", in: "body", type: "string"}
+      - {name: "domain", in: "body", type: "string"}
+      - {name: "description", in: "body", type: "string", maxLength: 2000}
+  - {name: delete_company, action: api/v1/accounts/companies#destroy, route: "DELETE /api/v1/accounts/:account_id/companies/:id", who: admin, refused: deletion}
+  - {name: remove_company_attributes, action: api/v1/accounts/companies#destroy_custom_attributes, route: "POST /api/v1/accounts/:account_id/companies/:id/destroy_custom_attributes", who: everyone, refused: later}
+  - name: add_contact_to_company
+    action: api/v1/accounts/companies/contacts#create
+    route: POST /api/v1/accounts/:account_id/companies/:company_id/contacts
+    title: "Add a contact to a company"
+    description: "Links a contact to a company."
+    who: everyone
+    feature: companies
+    idempotent: true
+    args:
+      - {name: "company_id", in: "path", type: "integer", required: true}
+      - {name: "contact_id", in: "body", type: "integer", required: true}
+  - name: remove_contact_from_company
+    action: api/v1/accounts/companies/contacts#destroy
+    route: DELETE /api/v1/accounts/:account_id/companies/:company_id/contacts/:id
+    title: "Remove a contact from a company"
+    description: "Unlinks a contact from a company. Neither is deleted."
+    who: everyone
+    feature: companies
+    idempotent: true
+    args:
+      - {name: "company_id", in: "path", type: "integer", required: true}
+      - {name: "contact_id", in: "path", param: "id", type: "integer", required: true}
+  - {name: update_inbox_settings, action: api/v1/accounts/inboxes#update, route: "PATCH|PUT /api/v1/accounts/:account_id/inboxes/:id", who: admin, note: "a future write must refuse channel credentials", refused: settings}
+  - {name: delete_inbox, action: api/v1/accounts/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:id", who: admin, refused: settings}
+  - {name: sync_inbox_whatsapp_templates, action: api/v1/accounts/inboxes#sync_templates, route: "POST /api/v1/accounts/:account_id/inboxes/:id/sync_templates", who: admin, refused: outside}
+  - {name: create_inbox_csat_template, action: api/v1/accounts/inbox_csat_templates#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template", who: admin, refused: outside}
+  - {name: analyze_csat_template, action: api/v1/accounts/inbox_csat_templates#analyze, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/csat_template/analyze", who: everyone, note: "runs a Captain model call", refused: outside}
+  - {name: update_inbox_working_hours, action: api/v1/accounts/working_hours#update, route: "PATCH|PUT /api/v1/accounts/:account_id/working_hours/:id", who: admin, refused: settings}
+  - {name: create_team, action: api/v1/accounts/teams#create, route: "POST /api/v1/accounts/:account_id/teams", who: admin, refused: settings}
+  - {name: update_team, action: api/v1/accounts/teams#update, route: "PATCH|PUT /api/v1/accounts/:account_id/teams/:id", who: admin, refused: settings}
+  - {name: delete_team, action: api/v1/accounts/teams#destroy, route: "DELETE /api/v1/accounts/:account_id/teams/:id", who: admin, refused: settings}
+  - {name: create_assignment_policy, action: api/v1/accounts/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/assignment_policies", who: admin, refused: settings}
+  - {name: update_assignment_policy, action: api/v1/accounts/assignment_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/assignment_policies/:id", who: admin, refused: settings}
+  - {name: delete_assignment_policy, action: api/v1/accounts/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:id", who: admin, refused: settings}
+  - {name: add_inbox_to_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#create, route: "POST /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes", who: admin, refused: settings}
+  - {name: remove_inbox_from_assignment_policy, action: api/v1/accounts/assignment_policies/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/assignment_policies/:assignment_policy_id/inboxes/:id", who: admin, refused: settings}
+  - {name: set_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#create, route: "POST /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin, refused: settings}
+  - {name: remove_inbox_assignment_policy, action: api/v1/accounts/inboxes/assignment_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/inboxes/:inbox_id/assignment_policy", who: admin, refused: settings}
+  - {name: create_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies", who: admin, refused: settings}
+  - {name: update_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin, refused: settings}
+  - {name: delete_agent_capacity_policy, action: api/v1/accounts/agent_capacity_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:id", who: admin, refused: settings}
+  - {name: add_agent_to_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users", who: admin, refused: settings}
+  - {name: remove_agent_from_capacity_policy, action: api/v1/accounts/agent_capacity_policies/users#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/users/:id", who: admin, refused: settings}
+  - {name: set_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#create, route: "POST /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits", who: admin, refused: settings}
+  - {name: update_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#update, route: "PATCH|PUT /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin, refused: settings}
+  - {name: remove_capacity_inbox_limit, action: api/v1/accounts/agent_capacity_policies/inbox_limits#destroy, route: "DELETE /api/v1/accounts/:account_id/agent_capacity_policies/:agent_capacity_policy_id/inbox_limits/:id", who: admin, refused: settings}
+  - name: create_label
+    action: api/v1/accounts/labels#create
+    route: POST /api/v1/accounts/:account_id/labels
+    title: "Create a label"
+    description: "Creates a label with a title, description and colour. Administrators only."
+    who: admin
+    args:
+      - {name: "title", in: "body", type: "string", required: true, description: "Lowercase letters, numbers, hyphens and underscores."}
+      - {name: "description", in: "body", type: "string"}
+      - {name: "color", in: "body", type: "string", description: "Hex colour such as #1f93ff."}
+      - {name: "show_on_sidebar", in: "body", type: "boolean"}
+  - name: update_label
+    action: api/v1/accounts/labels#update
+    route: PATCH /api/v1/accounts/:account_id/labels/:id
+    title: "Update a label"
+    description: "Changes a label's title, description, colour or whether it shows in the sidebar. Administrators only."
+    who: admin
+    idempotent: true
+    args:
+      - {name: "label_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "title", in: "body", type: "string"}
+      - {name: "description", in: "body", type: "string"}
+      - {name: "color", in: "body", type: "string"}
+      - {name: "show_on_sidebar", in: "body", type: "boolean"}
+  - {name: delete_label, action: api/v1/accounts/labels#destroy, route: "DELETE /api/v1/accounts/:account_id/labels/:id", who: admin, refused: bulk}
+  - name: create_canned_response
+    action: api/v1/accounts/canned_responses#create
+    route: POST /api/v1/accounts/:account_id/canned_responses
+    title: "Create a canned response"
+    description: "Creates a saved reply: a short code and the text it expands to."
+    who: everyone
+    args:
+      - {name: "short_code", in: "body", type: "string", required: true, description: "The short code agents type after a slash."}
+      - {name: "content", in: "body", type: "string", required: true, maxLength: 5000, description: "The reply text."}
+  - name: update_canned_response
+    action: api/v1/accounts/canned_responses#update
+    route: PATCH /api/v1/accounts/:account_id/canned_responses/:id
+    title: "Update a canned response"
+    description: "Changes a saved reply's short code or text."
+    who: everyone
+    idempotent: true
+    args:
+      - {name: "canned_response_id", in: "path", param: "id", type: "integer", required: true}
+      - {name: "short_code", in: "body", type: "string"}
+      - {name: "content", in: "body", type: "string", maxLength: 5000}
+  - name: delete_canned_response
+    action: api/v1/accounts/canned_responses#destroy
+    route: DELETE /api/v1/accounts/:account_id/canned_responses/:id
+    title: "Delete a canned response"
+    description: "Deletes a saved reply. It cannot be undone."
+    who: everyone
+    destructive: true
+    idempotent: true
+    args:
+      - {name: "canned_response_id", in: "path", param: "id", type: "integer", required: true}
+  - {name: create_macro, action: api/v1/accounts/macros#create, route: "POST /api/v1/accounts/:account_id/macros", who: everyone, refused: settings}
+  - {name: update_macro, action: api/v1/accounts/macros#update, route: "PATCH|PUT /api/v1/accounts/:account_id/macros/:id", who: everyone, refused: settings}
+  - {name: delete_macro, action: api/v1/accounts/macros#destroy, route: "DELETE /api/v1/accounts/:account_id/macros/:id", who: everyone, refused: settings}
+  - {name: run_macro, action: api/v1/accounts/macros#execute, route: "POST /api/v1/accounts/:account_id/macros/:id/execute", who: everyone, note: "a macro can send a message, email, file or webhook, and its run can resolve a conversation", refused: customer}
+  - {name: create_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#create, route: "POST /api/v1/accounts/:account_id/custom_attribute_definitions", who: admin, refused: settings}
+  - {name: update_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin, refused: settings}
+  - {name: delete_custom_attribute, action: api/v1/accounts/custom_attribute_definitions#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_attribute_definitions/:id", who: admin, refused: settings}
+  - {name: save_filter, action: api/v1/accounts/custom_filters#create, route: "POST /api/v1/accounts/:account_id/custom_filters", who: everyone, refused: later}
+  - {name: update_saved_filter, action: api/v1/accounts/custom_filters#update, route: "PATCH|PUT /api/v1/accounts/:account_id/custom_filters/:id", who: everyone, refused: later}
+  - {name: delete_saved_filter, action: api/v1/accounts/custom_filters#destroy, route: "DELETE /api/v1/accounts/:account_id/custom_filters/:id", who: everyone, refused: later}
+  - {name: create_automation_rule, action: api/v1/accounts/automation_rules#create, route: "POST /api/v1/accounts/:account_id/automation_rules", who: admin, refused: settings}
+  - {name: update_automation_rule, action: api/v1/accounts/automation_rules#update, route: "PATCH|PUT /api/v1/accounts/:account_id/automation_rules/:id", who: admin, refused: settings}
+  - {name: delete_automation_rule, action: api/v1/accounts/automation_rules#destroy, route: "DELETE /api/v1/accounts/:account_id/automation_rules/:id", who: admin, refused: settings}
+  - {name: copy_automation_rule, action: api/v1/accounts/automation_rules#clone, route: "POST /api/v1/accounts/:account_id/automation_rules/:automation_rule_id/clone", who: admin, refused: settings}
+  - {name: create_sla_policy, action: api/v1/accounts/sla_policies#create, route: "POST /api/v1/accounts/:account_id/sla_policies", who: admin, refused: settings}
+  - {name: update_sla_policy, action: api/v1/accounts/sla_policies#update, route: "PATCH|PUT /api/v1/accounts/:account_id/sla_policies/:id", who: admin, refused: settings}
+  - {name: delete_sla_policy, action: api/v1/accounts/sla_policies#destroy, route: "DELETE /api/v1/accounts/:account_id/sla_policies/:id", who: admin, refused: settings}
+  - {name: create_dashboard_app, action: api/v1/accounts/dashboard_apps#create, route: "POST /api/v1/accounts/:account_id/dashboard_apps", who: everyone, refused: settings}
+  - {name: update_dashboard_app, action: api/v1/accounts/dashboard_apps#update, route: "PATCH|PUT /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone, refused: settings}
+  - {name: delete_dashboard_app, action: api/v1/accounts/dashboard_apps#destroy, route: "DELETE /api/v1/accounts/:account_id/dashboard_apps/:id", who: everyone, refused: settings}
+  - {name: create_offer, action: api/v1/accounts/offers#create, route: "POST /api/v1/accounts/:account_id/offers", who: admin, refused: settings}
+  - {name: update_offer, action: api/v1/accounts/offers#update, route: "PATCH|PUT /api/v1/accounts/:account_id/offers/:id", who: admin, refused: settings}
+  - {name: delete_offer, action: api/v1/accounts/offers#destroy, route: "DELETE /api/v1/accounts/:account_id/offers/:id", who: admin, refused: settings}
+  - {name: send_offer_to_conversation, action: api/v1/accounts/offers#send_to_conversation, route: "POST /api/v1/accounts/:account_id/offers/:id/send_to_conversation", who: everyone, note: "reaches the customer", refused: customer}
+  - {name: save_mail_draft, action: api/v1/accounts/mail_drafts#create, route: "POST /api/v1/accounts/:account_id/mail_drafts", who: everyone, refused: later}
+  - {name: update_mail_draft, action: api/v1/accounts/mail_drafts#update, route: "PATCH|PUT /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone, refused: later}
+  - {name: delete_mail_draft, action: api/v1/accounts/mail_drafts#destroy, route: "DELETE /api/v1/accounts/:account_id/mail_drafts/:id", who: everyone, refused: later}
+  - {name: mark_notification_read, action: api/v1/accounts/notifications#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notifications/:id", who: everyone, refused: later}
+  - {name: delete_notification, action: api/v1/accounts/notifications#destroy, route: "DELETE /api/v1/accounts/:account_id/notifications/:id", who: everyone, refused: later}
+  - {name: mark_all_notifications_read, action: api/v1/accounts/notifications#read_all, route: "POST /api/v1/accounts/:account_id/notifications/read_all", who: everyone, refused: later}
+  - {name: delete_all_notifications, action: api/v1/accounts/notifications#destroy_all, route: "POST /api/v1/accounts/:account_id/notifications/destroy_all", who: everyone, refused: bulk}
+  - {name: snooze_notification, action: api/v1/accounts/notifications#snooze, route: "POST /api/v1/accounts/:account_id/notifications/:id/snooze", who: everyone, refused: later}
+  - {name: mark_notification_unread, action: api/v1/accounts/notifications#unread, route: "POST /api/v1/accounts/:account_id/notifications/:id/unread", who: everyone, refused: later}
+  - {name: update_my_notification_settings, action: api/v1/accounts/notification_settings#update, route: "PATCH|PUT /api/v1/accounts/:account_id/notification_settings", who: everyone, refused: later}
+  - {name: create_campaign, action: api/v1/accounts/campaigns#create, route: "POST /api/v1/accounts/:account_id/campaigns", who: admin, refused: customer}
+  - {name: update_campaign, action: api/v1/accounts/campaigns#update, route: "PATCH|PUT /api/v1/accounts/:account_id/campaigns/:id", who: admin, refused: customer}
+  - {name: delete_campaign, action: api/v1/accounts/campaigns#destroy, route: "DELETE /api/v1/accounts/:account_id/campaigns/:id", who: admin, refused: customer}
+  - {name: send_campaign_test_message, action: api/v1/accounts/campaigns#test_message, route: "POST /api/v1/accounts/:account_id/campaigns/test_message", who: admin, note: "sends WhatsApp", refused: customer}
+  - {name: pause_campaign, action: api/v1/accounts/campaigns#pause, route: "POST /api/v1/accounts/:account_id/campaigns/:id/pause", who: admin, refused: customer}
+  - {name: resume_campaign, action: api/v1/accounts/campaigns#resume, route: "POST /api/v1/accounts/:account_id/campaigns/:id/resume", who: admin, refused: customer}
+  - {name: cancel_campaign, action: api/v1/accounts/campaigns#cancel, route: "POST /api/v1/accounts/:account_id/campaigns/:id/cancel", who: admin, refused: customer}
+  - {name: retry_failed_campaign_messages, action: api/v1/accounts/campaigns#retry_failed, route: "POST /api/v1/accounts/:account_id/campaigns/:id/retry_failed", who: admin, refused: customer}
+  - {name: create_whatsapp_template, action: api/v1/accounts/whatsapp_templates#create, route: "POST /api/v1/accounts/:account_id/whatsapp_templates", who: admin, refused: settings}
+  - {name: update_whatsapp_template, action: api/v1/accounts/whatsapp_templates#update, route: "PATCH|PUT /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin, refused: settings}
+  - {name: delete_whatsapp_template, action: api/v1/accounts/whatsapp_templates#destroy, route: "DELETE /api/v1/accounts/:account_id/whatsapp_templates/:id", who: admin, refused: settings}
+  - {name: submit_whatsapp_template, action: api/v1/accounts/whatsapp_templates#submit, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/:id/submit", who: admin, refused: outside}
+  - {name: sync_whatsapp_templates, action: api/v1/accounts/whatsapp_templates#sync, route: "POST /api/v1/accounts/:account_id/whatsapp_templates/sync", who: admin, refused: outside}
+  - {name: record_whatsapp_consent, action: api/v1/accounts/whatsapp_consents#create, route: "POST /api/v1/accounts/:account_id/whatsapp_consents", who: admin, refused: settings}
+  - {name: resolve_zoho_ticket_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_ticket_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_ticket_decision", who: everyone, refused: outside}
+  - {name: regenerate_review_reply, action: api/v1/accounts/integrations/zoho_bridge#regenerate_review_reply, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/regenerate_review_reply", who: everyone, note: "runs a model call", refused: outside}
+  - {name: resolve_email_category_decision, action: api/v1/accounts/integrations/zoho_bridge#resolve_category_decision, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/resolve_category_decision", who: everyone, note: "forwards the email", refused: customer}
+  - {name: create_zoho_crm_deal, action: api/v1/accounts/integrations/zoho_bridge#create_crm_deal, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_crm_deal", who: everyone, refused: outside}
+  - {name: escalate_google_review, action: api/v1/accounts/integrations/zoho_bridge#escalate_review, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/escalate_review", who: everyone, note: "sends email", refused: customer}
+  - {name: draft_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#draft_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/draft_ticket", who: everyone, note: "creates nothing, but runs a paid model call: not a read", refused: outside}
+  - {name: create_zoho_ticket, action: api/v1/accounts/integrations/zoho_bridge#create_ticket, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/create_ticket", who: everyone, refused: outside}
+  - {name: forward_conversation_email, action: api/v1/accounts/integrations/zoho_bridge#forward_email, route: "POST /api/v1/accounts/:account_id/integrations/zoho_bridge/forward_email", who: everyone, note: "sends email", refused: customer}
+  - {name: publish_email_routing_rules, action: api/v1/accounts/integrations/routing_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/publish", who: admin, refused: settings}
+  - {name: restore_email_routing_rules, action: api/v1/accounts/integrations/routing_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/rollback", who: admin, refused: settings}
+  - {name: preview_email_routing, action: api/v1/accounts/integrations/routing_config#preview, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/preview", who: admin, note: "saves nothing, but runs the email classifier model: not a read", refused: outside}
+  - {name: refresh_zoho_users, action: api/v1/accounts/integrations/routing_config#owner_sync_run, route: "POST /api/v1/accounts/:account_id/integrations/routing_config/owner_sync_run", who: admin, refused: outside}
+  - {name: publish_store_settings, action: api/v1/accounts/integrations/stores_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/publish", who: admin, refused: settings}
+  - {name: restore_store_settings, action: api/v1/accounts/integrations/stores_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/stores_config/rollback", who: admin, refused: settings}
+  - {name: publish_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/publish", who: admin, refused: settings}
+  - {name: restore_agent_prompts, action: api/v1/accounts/integrations/agent_prompts_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/agent_prompts_config/rollback", who: admin, refused: settings}
+  - {name: publish_review_reply_categories, action: api/v1/accounts/integrations/review_categories_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/review_categories_config/publish", who: admin, refused: settings}
+  - {name: publish_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/publish", who: admin, refused: settings}
+  - {name: restore_crm_automation_rules, action: api/v1/accounts/integrations/crm_automation_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/rollback", who: admin, refused: settings}
+  - {name: send_crm_automation_test, action: api/v1/accounts/integrations/crm_automation_config#test_send, route: "POST /api/v1/accounts/:account_id/integrations/crm_automation_config/test_send", who: admin, note: "sends WhatsApp", refused: customer}
+  - {name: publish_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#publish, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/publish", who: admin, refused: settings}
+  - {name: sync_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#sync, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync", who: admin, refused: outside}
+  - {name: update_product_catalog_sync, action: api/v1/accounts/integrations/product_catalog_config#sync_settings, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/sync_settings", who: admin, refused: settings}
+  - {name: restore_product_catalog, action: api/v1/accounts/integrations/product_catalog_config#rollback, route: "POST /api/v1/accounts/:account_id/integrations/product_catalog_config/rollback", who: admin, refused: settings}
+  - {name: create_linear_issue, action: api/v1/accounts/integrations/linear#create_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/create_issue", who: everyone, refused: outside}
+  - {name: link_linear_issue, action: api/v1/accounts/integrations/linear#link_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/link_issue", who: everyone, refused: outside}
+  - {name: unlink_linear_issue, action: api/v1/accounts/integrations/linear#unlink_issue, route: "POST /api/v1/accounts/:account_id/integrations/linear/unlink_issue", who: everyone, refused: outside}
+  - {name: run_integration_action, action: api/v1/accounts/integrations/hooks#process_event, route: "POST /api/v1/accounts/:account_id/integrations/hooks/:id/process_event", who: everyone, note: "e.g. the OpenAI integration: a paid model call", refused: outside}
+  - {name: start_video_call, action: api/v1/accounts/integrations/dyte#create_a_meeting, route: "POST /api/v1/accounts/:account_id/integrations/dyte/create_a_meeting", who: everyone, note: "posts a meeting link to the customer", refused: customer}
+  - {name: update_captain_settings, action: api/v1/accounts/captain/preferences#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/preferences", who: admin, refused: settings}
+  - {name: create_captain_assistant, action: api/v1/accounts/captain/assistants#create, route: "POST /api/v1/accounts/:account_id/captain/assistants", who: admin, refused: settings}
+  - {name: update_captain_assistant, action: api/v1/accounts/captain/assistants#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:id", who: admin, refused: settings}
+  - {name: delete_captain_assistant, action: api/v1/accounts/captain/assistants#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:id", who: admin, refused: settings}
+  - {name: try_captain_assistant, action: api/v1/accounts/captain/assistants#playground, route: "POST /api/v1/accounts/:account_id/captain/assistants/:id/playground", who: everyone, note: "runs a model call", refused: outside}
+  - {name: connect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes", who: admin, refused: settings}
+  - {name: disconnect_captain_assistant_inbox, action: api/v1/accounts/captain/inboxes#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/inboxes/:inbox_id", who: admin, refused: settings}
+  - {name: create_captain_scenario, action: api/v1/accounts/captain/scenarios#create, route: "POST /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios", who: admin, refused: settings}
+  - {name: update_captain_scenario, action: api/v1/accounts/captain/scenarios#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin, refused: settings}
+  - {name: delete_captain_scenario, action: api/v1/accounts/captain/scenarios#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistants/:assistant_id/scenarios/:id", who: admin, refused: settings}
+  - {name: create_captain_faq, action: api/v1/accounts/captain/assistant_responses#create, route: "POST /api/v1/accounts/:account_id/captain/assistant_responses", who: everyone, refused: settings}
+  - {name: update_captain_faq, action: api/v1/accounts/captain/assistant_responses#update, route: "PATCH|PUT /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone, refused: settings}
+  - {name: delete_captain_faq, action: api/v1/accounts/captain/assistant_responses#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/assistant_responses/:id", who: everyone, refused: settings}
+  - {name: bulk_update_captain_faqs, action: api/v1/accounts/captain/bulk_actions#create, route: "POST /api/v1/accounts/:account_id/captain/bulk_actions", who: everyone, refused: bulk}
+  - {name: start_copilot_thread, action: api/v1/accounts/captain/copilot_threads#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads", who: everyone, note: "runs a model call", refused: outside}
+  - {name: ask_copilot, action: api/v1/accounts/captain/copilot_messages#create, route: "POST /api/v1/accounts/:account_id/captain/copilot_threads/:copilot_thread_id/copilot_messages", who: everyone, note: "runs a model call", refused: outside}
+  - {name: add_captain_document, action: api/v1/accounts/captain/documents#create, route: "POST /api/v1/accounts/:account_id/captain/documents", who: admin, refused: outside}
+  - {name: delete_captain_document, action: api/v1/accounts/captain/documents#destroy, route: "DELETE /api/v1/accounts/:account_id/captain/documents/:id", who: admin, refused: settings}
+  - {name: sync_captain_document, action: api/v1/accounts/captain/documents#sync, route: "POST /api/v1/accounts/:account_id/captain/documents/:id/sync", who: admin, refused: outside}
+  - {name: rewrite_with_captain, action: api/v1/accounts/captain/tasks#rewrite, route: "POST /api/v1/accounts/:account_id/captain/tasks/rewrite", who: everyone, note: "runs a model call", refused: outside}
+  - {name: summarize_with_captain, action: api/v1/accounts/captain/tasks#summarize, route: "POST /api/v1/accounts/:account_id/captain/tasks/summarize", who: everyone, note: "runs a model call", refused: outside}
+  - {name: suggest_reply_with_captain, action: api/v1/accounts/captain/tasks#reply_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/reply_suggestion", who: everyone, note: "runs a model call", refused: outside}
+  - {name: suggest_labels_with_captain, action: api/v1/accounts/captain/tasks#label_suggestion, route: "POST /api/v1/accounts/:account_id/captain/tasks/label_suggestion", who: everyone, note: "runs a model call", refused: outside}
+  - {name: suggest_follow_up_with_captain, action: api/v1/accounts/captain/tasks#follow_up, route: "POST /api/v1/accounts/:account_id/captain/tasks/follow_up", who: everyone, note: "runs a model call", refused: outside}
+  - {name: create_help_center_portal, action: api/v1/accounts/portals#create, route: "POST /api/v1/accounts/:account_id/portals", who: admin, refused: settings}
+  - {name: update_help_center_portal, action: api/v1/accounts/portals#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:id", who: kb, refused: settings}
+  - {name: delete_help_center_portal, action: api/v1/accounts/portals#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:id", who: admin, refused: settings}
+  - {name: archive_help_center_portal, action: api/v1/accounts/portals#archive, route: "PATCH /api/v1/accounts/:account_id/portals/:id/archive", who: admin, refused: settings}
+  - {name: send_help_center_domain_instructions, action: api/v1/accounts/portals#send_instructions, route: "POST /api/v1/accounts/:account_id/portals/:id/send_instructions", who: admin, note: "sends email", refused: customer}
+  - {name: create_help_center_category, action: api/v1/accounts/categories#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories", who: kb, refused: settings}
+  - {name: update_help_center_category, action: api/v1/accounts/categories#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb, refused: settings}
+  - {name: delete_help_center_category, action: api/v1/accounts/categories#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/categories/:id", who: kb, refused: settings}
+  - {name: reorder_help_center_categories, action: api/v1/accounts/categories#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/categories/reorder", who: kb, refused: settings}
+  - {name: create_help_article, action: api/v1/accounts/articles#create, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles", who: kb, refused: settings}
+  - {name: update_help_article, action: api/v1/accounts/articles#update, route: "PATCH|PUT /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb, refused: settings}
+  - {name: delete_help_article, action: api/v1/accounts/articles#destroy, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/:id", who: kb, refused: settings}
+  - {name: reorder_help_articles, action: api/v1/accounts/articles#reorder, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/reorder", who: kb, refused: settings}
+  - {name: translate_help_articles, action: api/v1/accounts/articles/bulk_actions#translate, route: "POST /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/translate", who: kb, note: "runs a model call", refused: outside}
+  - {name: set_help_articles_status, action: api/v1/accounts/articles/bulk_actions#update_status, route: "PATCH /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/update_status", who: kb, refused: settings}
+  - {name: delete_help_articles, action: api/v1/accounts/articles/bulk_actions#delete_articles, route: "DELETE /api/v1/accounts/:account_id/portals/:portal_id/articles/bulk_actions/delete_articles", who: kb, refused: bulk}
+  - {name: update_csat_review_notes, action: api/v1/accounts/csat_survey_responses#update, route: "PATCH /api/v1/accounts/:account_id/csat_survey_responses/:id", who: reports, refused: later}
+  - {name: send_forwarded_email_report, action: api/v1/accounts/forwarded_email_reports#deliver, route: "POST /api/v1/accounts/:account_id/forwarded_email_report/deliver", who: reports, note: "sends email", refused: customer}
+  - {name: set_follow_up_report_labels, action: api/v1/accounts/follow_up_reports#update, route: "PATCH|PUT /api/v1/accounts/:account_id/follow_up_report", who: reports, refused: settings}
 web_only:
   access:
     - "api/v1/accounts#create"

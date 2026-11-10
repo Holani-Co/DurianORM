@@ -3,14 +3,15 @@
   "source": "chatwoot/custom/config/mcp_registry.yml",
   "counts": {
     "read": 165,
-    "write": 191,
+    "write_offered": 26,
+    "write_refused": 165,
     "web_only": 414
   },
   "tools": [
     {
       "name": "get_my_orm_access",
       "title": "Show who this connection acts as",
-      "description": "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. It only reads, for now.",
+      "description": "Who this connection acts as in ORM: the person, their own role and the role after the connection's ceiling, their inboxes and teams, and the tools it may call. Whether it may change things (Full access) shows in read_only.",
       "method": "GET",
       "path": "/api/v1/ai/me",
       "who": "everyone",
@@ -3455,6 +3456,937 @@
           "description": "The year; 2025 unless given."
         }
       ]
+    },
+    {
+      "name": "unmute_conversation",
+      "title": "Unmute a conversation",
+      "description": "Unmutes a conversation: the contact is unblocked. It does not reopen it. Only conversations the person can see.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/unmute",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "set_conversation_status",
+      "title": "Change a conversation's status",
+      "description": "Opens, snoozes or marks pending a conversation; a status is always required. Resolving stays in ORM: it can send the customer the inbox's satisfaction survey.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/toggle_status",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "status",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "open",
+            "pending",
+            "snoozed"
+          ],
+          "description": "The new status."
+        },
+        {
+          "name": "snoozed_until",
+          "in": "body",
+          "type": "string",
+          "description": "For snoozed: when to wake it, such as 2026-11-12T09:00:00Z. Left out, it stays snoozed until the customer replies."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "set_conversation_priority",
+      "title": "Set a conversation's priority",
+      "description": "Sets the priority of a conversation. Leave priority out to clear it. Only conversations the person can see.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/toggle_priority",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "priority",
+          "in": "body",
+          "type": "string",
+          "enum": [
+            "urgent",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "The priority; leave out to clear it."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "set_conversation_attributes",
+      "title": "Set a conversation's custom attributes",
+      "description": "Sets values of the account's custom conversation attributes, by attribute key; a key set to null is removed. Other keys of the conversation are kept, and keys that are not defined attributes are refused.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:id/custom_attributes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "custom_attributes",
+          "in": "body",
+          "type": "object",
+          "required": true,
+          "description": "Attribute key to value, such as {\"order_number\": \"A-1042\"}."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "add_private_note",
+      "title": "Add a private note to a conversation",
+      "description": "Adds a private note that only agents see; it is never sent to the customer. An AI connection cannot send replies to customers: that stays in ORM.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/messages",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "maxLength": 5000,
+          "description": "The note, as text."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {
+        "private": true
+      }
+    },
+    {
+      "name": "assign_conversation",
+      "title": "Assign a conversation",
+      "description": "Assigns a conversation to an agent or to a team, as the screen does. Take the agent id from list_assignable_agents and the team id from list_teams. Give one of them. Taking an assignment away, and assigning the DurianAI bot, stay in ORM.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/assignments",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "assignee_id",
+          "in": "body",
+          "type": "integer",
+          "description": "The agent to assign."
+        },
+        {
+          "name": "team_id",
+          "in": "body",
+          "type": "integer",
+          "description": "The team to assign."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "set_conversation_labels",
+      "title": "Set a conversation's labels",
+      "description": "Replaces a conversation's labels with exactly this list (read its labels first and send them all back to add one).",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/labels",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "labels",
+          "in": "body",
+          "type": "array",
+          "items": "string",
+          "required": true,
+          "description": "Label names; labels that are not in the list already must exist in ORM."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "add_conversation_participants",
+      "title": "Add participants to a conversation",
+      "description": "Adds agents as participants of a conversation, so they follow it. Nothing is sent to the customer.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/participants",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "user_ids",
+          "in": "body",
+          "type": "array",
+          "items": "integer",
+          "required": true,
+          "description": "Agent ids."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "remove_conversation_participants",
+      "title": "Remove participants from a conversation",
+      "description": "Removes agents from the participants of a conversation. They stay agents; they just stop following it.",
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:account_id/conversations/:conversation_id/participants",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "conversation_id",
+          "in": "path",
+          "type": "integer",
+          "required": true,
+          "description": "The conversation number shown in ORM (its display id)."
+        },
+        {
+          "name": "user_ids",
+          "in": "body",
+          "type": "array",
+          "items": "integer",
+          "required": true,
+          "description": "Agent ids."
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "create_contact",
+      "title": "Create a contact",
+      "description": "Creates a contact with a name, email, phone number or identifier, and attributes. Search first (find_contacts) so a person is not added twice.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contacts",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "name",
+          "in": "body",
+          "type": "string",
+          "description": "The contact's name."
+        },
+        {
+          "name": "email",
+          "in": "body",
+          "type": "string",
+          "description": "Email address."
+        },
+        {
+          "name": "phone_number",
+          "in": "body",
+          "type": "string",
+          "description": "Phone number with country code, such as +919800000000."
+        },
+        {
+          "name": "identifier",
+          "in": "body",
+          "type": "string",
+          "description": "The contact's own identifier, if any."
+        },
+        {
+          "name": "blocked",
+          "in": "body",
+          "type": "boolean",
+          "description": "Whether the contact is blocked."
+        },
+        {
+          "name": "additional_attributes",
+          "in": "body",
+          "type": "object",
+          "description": "Details such as city, country, company_name and description."
+        },
+        {
+          "name": "custom_attributes",
+          "in": "body",
+          "type": "object",
+          "description": "Values for the account's custom contact attributes, by attribute key."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "update_contact",
+      "title": "Update a contact's details",
+      "description": "Changes a contact's name, email, phone number, identifier, blocked flag or attributes. Fields left out are kept; attribute values are merged.",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:account_id/contacts/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "name",
+          "in": "body",
+          "type": "string",
+          "description": "The contact's name."
+        },
+        {
+          "name": "email",
+          "in": "body",
+          "type": "string",
+          "description": "Email address."
+        },
+        {
+          "name": "phone_number",
+          "in": "body",
+          "type": "string",
+          "description": "Phone number with country code, such as +919800000000."
+        },
+        {
+          "name": "identifier",
+          "in": "body",
+          "type": "string",
+          "description": "The contact's own identifier, if any."
+        },
+        {
+          "name": "blocked",
+          "in": "body",
+          "type": "boolean",
+          "description": "Whether the contact is blocked."
+        },
+        {
+          "name": "additional_attributes",
+          "in": "body",
+          "type": "object",
+          "description": "Details such as city, country, company_name and description."
+        },
+        {
+          "name": "custom_attributes",
+          "in": "body",
+          "type": "object",
+          "description": "Values for the account's custom contact attributes, by attribute key."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "remove_contact_attributes",
+      "title": "Remove a contact's custom attributes",
+      "description": "Removes the given custom attribute values from a contact. The values are lost.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contacts/:id/destroy_custom_attributes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "custom_attributes",
+          "in": "body",
+          "type": "array",
+          "items": "string",
+          "required": true,
+          "description": "Attribute keys to remove."
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "set_contact_labels",
+      "title": "Set a contact's labels",
+      "description": "Replaces a contact's labels with exactly this list (read its labels first and send them all back to add one).",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/labels",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "labels",
+          "in": "body",
+          "type": "array",
+          "items": "string",
+          "required": true,
+          "description": "Label names; labels that are not in the list already must exist in ORM."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "add_contact_note",
+      "title": "Add a note to a contact",
+      "description": "Adds a note to a contact. Notes are seen by agents only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/notes",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "maxLength": 5000,
+          "description": "The note."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "update_contact_note",
+      "title": "Change a contact's note",
+      "description": "Rewrites a note on a contact; the old text is replaced.",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/notes/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "note_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "maxLength": 5000,
+          "description": "The new text."
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "delete_contact_note",
+      "title": "Delete a contact's note",
+      "description": "Deletes a note from a contact. It cannot be undone.",
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:account_id/contacts/:contact_id/notes/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "contact_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "note_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "merge_contacts",
+      "title": "Merge two contacts",
+      "description": "Merges the second contact into the first: conversations, notes and details move to the first and the second contact is deleted. It cannot be undone.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/actions/contact_merge",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "base_contact_id",
+          "in": "body",
+          "type": "integer",
+          "required": true,
+          "description": "The contact that stays."
+        },
+        {
+          "name": "mergee_contact_id",
+          "in": "body",
+          "type": "integer",
+          "required": true,
+          "description": "The contact merged in and deleted."
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "create_company",
+      "title": "Create a company",
+      "description": "Creates a company with a name, domain and description.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/companies",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "name",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "description": "The company's name."
+        },
+        {
+          "name": "domain",
+          "in": "body",
+          "type": "string",
+          "description": "Web domain, such as example.com."
+        },
+        {
+          "name": "description",
+          "in": "body",
+          "type": "string",
+          "maxLength": 2000
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "update_company",
+      "title": "Update a company's details",
+      "description": "Changes a company's name, domain or description. Fields left out are kept.",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:account_id/companies/:id",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "name",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "domain",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "in": "body",
+          "type": "string",
+          "maxLength": 2000
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "add_contact_to_company",
+      "title": "Add a contact to a company",
+      "description": "Links a contact to a company.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/contacts",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "contact_id",
+          "in": "body",
+          "type": "integer",
+          "required": true
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "remove_contact_from_company",
+      "title": "Remove a contact from a company",
+      "description": "Unlinks a contact from a company. Neither is deleted.",
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:account_id/companies/:company_id/contacts/:id",
+      "who": "everyone",
+      "feature": "companies",
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "company_id",
+          "in": "path",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "contact_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "create_label",
+      "title": "Create a label",
+      "description": "Creates a label with a title, description and colour. Administrators only.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/labels",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "title",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "description": "Lowercase letters, numbers, hyphens and underscores."
+        },
+        {
+          "name": "description",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "color",
+          "in": "body",
+          "type": "string",
+          "description": "Hex colour such as #1f93ff."
+        },
+        {
+          "name": "show_on_sidebar",
+          "in": "body",
+          "type": "boolean"
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "update_label",
+      "title": "Update a label",
+      "description": "Changes a label's title, description, colour or whether it shows in the sidebar. Administrators only.",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:account_id/labels/:id",
+      "who": "admin",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "label_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "title",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "color",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "show_on_sidebar",
+          "in": "body",
+          "type": "boolean"
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "create_canned_response",
+      "title": "Create a canned response",
+      "description": "Creates a saved reply: a short code and the text it expands to.",
+      "method": "POST",
+      "path": "/api/v1/accounts/:account_id/canned_responses",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "short_code",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "description": "The short code agents type after a slash."
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "maxLength": 5000,
+          "description": "The reply text."
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": false,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "update_canned_response",
+      "title": "Update a canned response",
+      "description": "Changes a saved reply's short code or text.",
+      "method": "PATCH",
+      "path": "/api/v1/accounts/:account_id/canned_responses/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "canned_response_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "short_code",
+          "in": "body",
+          "type": "string"
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "type": "string",
+          "maxLength": 5000
+        }
+      ],
+      "write": true,
+      "destructive": false,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
+    },
+    {
+      "name": "delete_canned_response",
+      "title": "Delete a canned response",
+      "description": "Deletes a saved reply. It cannot be undone.",
+      "method": "DELETE",
+      "path": "/api/v1/accounts/:account_id/canned_responses/:id",
+      "who": "everyone",
+      "feature": null,
+      "account_param": "account_id",
+      "args": [
+        {
+          "name": "canned_response_id",
+          "in": "path",
+          "param": "id",
+          "type": "integer",
+          "required": true
+        }
+      ],
+      "write": true,
+      "destructive": true,
+      "idempotent": true,
+      "open_world": false,
+      "fixed": {}
     }
   ]
 }
