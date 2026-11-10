@@ -24,7 +24,7 @@ class DurianOs::Ai::Gate
   NUMBER = /\A\d+\z/
 
   MAX_BODY = 64 * 1024
-  JSON_TYPE = %r{\Aapplication/(?:[a-z0-9.+-]+\+)?json}i
+  JSON_TYPE = %r{\Aapplication/(?:[a-z0-9.+-]+\+)?json(?![a-z0-9])}i
 
   attr_reader :route_label, :tool, :write
 
@@ -115,7 +115,9 @@ class DurianOs::Ai::Gate
   # the guard. Nothing here changes data.
   def check_write!(entry, params)
     body = write_body
-    refuse!('bad_input', DurianOs::Ai::BAD_INPUT) if @env['QUERY_STRING'].to_s.present? || (body.keys - entry.body_keys).any?
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} No query string is taken.") if @env['QUERY_STRING'].to_s.present?
+    stray = body.keys - entry.body_keys
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} Not a field of this tool: #{stray.first(5).join(', ')}.") if stray.any?
     refuse!('write_refused', entry.fixed_refusal) unless entry.fixed.all? { |name, value| body[name] == value }
     return if entry.guard.nil?
 
@@ -130,14 +132,14 @@ class DurianOs::Ai::Gate
     input = @env['rack.input']
     text = input ? input.read(MAX_BODY + 1).to_s : ''
     input&.rewind
-    refuse!('bad_input', DurianOs::Ai::BAD_INPUT) if text.bytesize > MAX_BODY
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is too large.") if text.bytesize > MAX_BODY
     return {} if text.strip.empty?
 
-    refuse!('bad_input', DurianOs::Ai::BAD_INPUT) unless JSON_TYPE.match?(@env['CONTENT_TYPE'].to_s)
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The content type is not JSON.") unless JSON_TYPE.match?(@env['CONTENT_TYPE'].to_s)
     parsed = JSON.parse(text)
-    parsed.is_a?(Hash) ? parsed : refuse!('bad_input', DurianOs::Ai::BAD_INPUT)
+    parsed.is_a?(Hash) ? parsed : refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is not a JSON object.")
   rescue JSON::ParserError
-    refuse!('bad_input', DurianOs::Ai::BAD_INPUT)
+    refuse!('bad_input', "#{DurianOs::Ai::BAD_INPUT} The body is not valid JSON.")
   end
 
   def pattern(route)

@@ -310,16 +310,14 @@ RSpec.describe 'Durian OS AI connections', type: :request do
     it 'refuses a write on a pass below Full access, and a reply to a customer on every pass, and nothing changes' do
       messages = sales_chat.messages.count
       %w[view edit].each do |level|
-        post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }.to_json,
+        post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }, as: :json,
                                                                       headers: ai_headers(pass_for(tara_sub, max_level: level))
-                                                                        .merge('Content-Type' => 'application/json')
         expect(response).to have_http_status(:forbidden)
         expect(error).to eq('This connection is read-only, so it cannot change anything. Reconnect with Full access in Durian OS to make changes.')
         expect(lines.last).to include('refused' => 'read_only', 'tool' => 'add_private_note', 'ceiling' => level, 'write' => 'refused')
       end
-      post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }.to_json,
+      post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }, as: :json,
                                                                     headers: ai_headers(pass_for(tara_sub, max_level: 'administer'))
-                                                                      .merge('Content-Type' => 'application/json')
       expect(response).to have_http_status(:forbidden)
       expect(lines.last).to include('refused' => 'write_refused', 'ceiling' => 'administer')
       expect(sales_chat.messages.count).to eq(messages)

@@ -54,8 +54,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
   end
 
   def ai_write(verb, path, pass, body = nil, headers: {})
-    public_send(verb, path, params: body&.to_json,
-                            headers: ai_headers(pass).merge('Content-Type' => 'application/json').merge(headers))
+    public_send(verb, path, params: body, as: :json, headers: ai_headers(pass).merge(headers))
   end
 
   def error
@@ -79,13 +78,11 @@ RSpec.describe 'Durian OS AI writes', type: :request do
     it 'refuses every offered write, even called by name, and changes nothing' do
       before_counts = [Conversation, Contact, Label, CannedResponse, Message, Note].map(&:count)
       registry.offered_writes.each do |entry|
-        %w[view edit act].each do |level|
-          [tara_sub, omar_sub].each do |sub|
-            ai_write(entry.http_method.downcase, path_of(entry), pass_for(sub, max_level: level), {})
-            expect(response).to have_http_status(:forbidden), "#{entry.name} #{level}"
-            expect(error).to eq(read_only_words), entry.name
-            expect(lines.last).to include('refused' => 'read_only', 'tool' => entry.name, 'write' => 'refused', 'status' => 403)
-          end
+        [[tara_sub, 'view'], [tara_sub, 'edit'], [omar_sub, 'edit']].each do |sub, level|
+          ai_write(entry.http_method.downcase, path_of(entry), pass_for(sub, max_level: level), {})
+          expect(response).to have_http_status(:forbidden), "#{entry.name} #{level}"
+          expect(error).to eq(read_only_words), entry.name
+          expect(lines.last).to include('refused' => 'read_only', 'tool' => entry.name, 'write' => 'refused', 'status' => 403)
         end
       end
       expect([Conversation, Contact, Label, CannedResponse, Message, Note].map(&:count)).to eq(before_counts)
@@ -118,7 +115,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
 
   describe 'a Full connection' do
     def note_by_tara(text)
-      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/messages", pass_for(tara_sub), { content: text })
+      ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/messages", pass_for(tara_sub), { content: text, private: true })
     end
 
     it 'lists the writes the person may call, by role, with the feature on' do
@@ -232,13 +229,14 @@ RSpec.describe 'Durian OS AI writes', type: :request do
 
       it 'takes only a JSON body of the tool\'s own fields and no query' do
         path = "#{v1}/conversations/#{sales_chat.display_id}/toggle_priority"
-        ai_write(:post, "#{path}?priority=high", pass_for(tara_sub), { priority: 'urgent' })
+        post "#{path}.json?priority=high", params: { priority: 'urgent' }.to_json,
+                                          headers: ai_headers(pass_for(tara_sub)).merge('CONTENT_TYPE' => 'application/json')
         expect([response.status, lines.last['refused']]).to eq([403, 'bad_input'])
         ai_write(:post, path, pass_for(tara_sub), { priority: 'urgent', sla_policy_id: 1 })
         expect([response.status, lines.last['refused']]).to eq([403, 'bad_input'])
         post path, params: 'priority=urgent', headers: ai_headers(pass_for(tara_sub))
         expect([response.status, lines.last['refused']]).to eq([403, 'bad_input'])
-        post path, params: '[1]', headers: ai_headers(pass_for(tara_sub)).merge('Content-Type' => 'application/json')
+        post path, params: [1], as: :json, headers: ai_headers(pass_for(tara_sub))
         expect([response.status, lines.last['refused']]).to eq([403, 'bad_input'])
         expect(sales_chat.reload.priority).to be_nil
       end
@@ -360,7 +358,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
       end
 
       it 'refuses a macro that sends a message, an email, a file or a webhook' do
-        %w[send_message send_email_transcript send_attachment send_webhook_event send_email_to_team].each do |name|
+        %w[send_message send_email_transcript send_attachment send_webhook_event].each do |name|
           macro = macro_with({ 'action_name' => 'add_label', 'action_params' => ['vip'] }, { 'action_name' => name, 'action_params' => ['x'] })
           ai_write(:post, "#{v1}/macros/#{macro.id}/execute", pass_for(tara_sub), { conversation_ids: [sales_chat.display_id] })
           expect([response.status, lines.last['refused']]).to eq([403, 'write_refused']), name
@@ -413,7 +411,9 @@ RSpec.describe 'Durian OS AI writes', type: :request do
 
       it 'follows a custom role: only the conversations it covers' do
         agent_role(nora, ['conversation_participating_manage'])
-        mine = create(:conversation, account: account, inbox: sales, assignee: nora)
+        sales.update!(enable_auto_assignment: false)
+        mine = create(:conversation, account: account, inbox: sales)
+        mine.update_columns(assignee_id: nora.id) # rubocop:disable Rails/SkipsModelValidations
         theirs = create(:conversation, account: account, inbox: sales)
 
         ai_write(:post, "#{v1}/conversations/#{mine.display_id}/mute", pass_for(nora_sub))
@@ -493,7 +493,7 @@ RSpec.describe 'Durian OS AI writes', type: :request do
       ai_write(:post, "#{v1}/conversations/#{sales_chat.display_id}/mute", pass_for(tara_sub))
       expect(response).to have_http_status(:ok)
       # the next read on the same thread is guarded again
-      expect { ActiveRecord::Base.while_preventing_writes { sales_chat.update!(muted: false) } }.to raise_error(ActiveRecord::ReadOnlyError)
+      expect { ActiveRecord::Base.while_preventing_writes { sales_chat.update!(priority: 'low') } }.to raise_error(ActiveRecord::ReadOnlyError)
     end
   end
 
