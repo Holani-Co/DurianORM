@@ -307,16 +307,21 @@ RSpec.describe 'Durian OS AI connections', type: :request do
   end
 
   describe 'the gate' do
-    it 'refuses a write for every ceiling, and nothing changes' do
+    it 'refuses a write on a pass below Full access, and a reply to a customer on every pass, and nothing changes' do
       messages = sales_chat.messages.count
-      %w[view edit administer].each do |level|
+      %w[view edit].each do |level|
         post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }.to_json,
                                                                       headers: ai_headers(pass_for(tara_sub, max_level: level))
                                                                         .merge('Content-Type' => 'application/json')
         expect(response).to have_http_status(:forbidden)
-        expect(error).to eq("ORM's AI connection only reads for now, so it cannot change anything: make this change in ORM itself.")
-        expect(lines.last).to include('refused' => 'read_only', 'tool' => 'send_message', 'ceiling' => level)
+        expect(error).to eq('This connection is read-only, so it cannot change anything. Reconnect with Full access in Durian OS to make changes.')
+        expect(lines.last).to include('refused' => 'read_only', 'tool' => 'add_private_note', 'ceiling' => level, 'write' => 'refused')
       end
+      post "#{v1}/conversations/#{sales_chat.display_id}/messages", params: { content: 'Hello' }.to_json,
+                                                                    headers: ai_headers(pass_for(tara_sub, max_level: 'administer'))
+                                                                      .merge('Content-Type' => 'application/json')
+      expect(response).to have_http_status(:forbidden)
+      expect(lines.last).to include('refused' => 'write_refused', 'ceiling' => 'administer')
       expect(sales_chat.messages.count).to eq(messages)
 
       patch "/api/v1/accounts/#{account.id}", params: { name: 'Renamed' }, headers: ai_headers(pass_for(tara_sub))

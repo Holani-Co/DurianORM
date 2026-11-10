@@ -5,6 +5,9 @@ Rails.application.config.after_initialize do
 
   # Audit rows written while a View as session is used name the admin (shared View as spec 3).
   Audited::Audit.before_create { |audit| DurianOs::ViewAsLog.mark_audit(audit) }
+
+  # Audit rows written while an AI connection changes something say so: `via <client> (AI connection)`.
+  Audited::Audit.before_create { |audit| DurianOs::Ai.mark_audit(audit) }
 end
 
 Sidekiq.configure_server do |config|

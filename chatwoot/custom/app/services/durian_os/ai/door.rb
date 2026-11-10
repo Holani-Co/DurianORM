@@ -4,10 +4,12 @@
 # 2. the pass (DurianOs::Ai::Pass), a slot (429, the pass not spent), the jti spent once, the person
 #    (DurianOs::Ai::Caller);
 # 3. the gate (DurianOs::Ai::Gate), with DurianOs::Current.ai set so the ceiling applies;
-# 4. the request runs as the person through the browser's controllers, inside while_preventing_writes;
+# 4. the request runs as the person through the browser's controllers, inside while_preventing_writes: only an offered
+#    write from a pass with Full access (`administer`) that the gate let through runs without it;
 # 5. the answer is cleaned: a 401 after the pass was accepted is a role refusal (403), secrets and signed file links
 #    are removed, auth headers dropped, and a read that answers anything but JSON is 502;
-# 6. the slot is given back and one log line is written (DurianOs::Ai::Log), refusals included.
+# 6. the slot is given back and one log line is written (DurianOs::Ai::Log), refusals included, with the write's
+#    outcome (`write`: done, failed or refused) for a write tool.
 class DurianOs::Ai::Door
   # Session and token credentials a browser or an integration could send (Rack env names), and the bare
   # `api_access_token` key that Api::BaseController's `request.headers[:api_access_token]` also reads.
@@ -72,15 +74,19 @@ class DurianOs::Ai::Door
       decision = gate.decide!
     ensure
       @line.merge!('tool' => gate.tool, 'route' => gate.route_label)
+      @write = gate.write
     end
 
     @env[DurianOs::Ai::ENV_KEY] = caller
     @env[DurianOs::Ai::DECISION_KEY] = decision
-    status, headers, body = run
+    status, headers, body = run(decision)
     answer(status, headers, body)
   end
 
-  def run
+  # Reads, and every write the gate did not let through, cannot write: any INSERT, UPDATE or DELETE raises.
+  def run(decision)
+    return @app.call(@env) if decision.entry.offered_write? && @env[DurianOs::Ai::ENV_KEY].full_access?
+
     ActiveRecord::Base.while_preventing_writes { @app.call(@env) }
   rescue ActiveRecord::ReadOnlyError
     DurianOs::Ai.refuse!(403, 'would_write', DurianOs::Ai::WOULD_WRITE)
@@ -132,6 +138,13 @@ class DurianOs::Ai::Door
     [status, headers, [text]]
   end
 
+  # What became of a write tool's request: `done` (2xx), `refused` (by the gate, the hook or a policy) or `failed`.
+  def write_outcome
+    return 'refused' if @line['refused']
+
+    @line['status'].to_i.between?(200, 299) ? 'done' : 'failed'
+  end
+
   def refused(error)
     @line['status'] = error.status
     @line['refused'] = error.code
@@ -142,6 +155,7 @@ class DurianOs::Ai::Door
 
   def write_line
     @line['ms'] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - @started) * 1000).round
+    @line['write'] = write_outcome if @write
     DurianOs::Ai::Log.write(@line)
   rescue StandardError
     nil

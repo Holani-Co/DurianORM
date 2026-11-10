@@ -36,7 +36,7 @@ def sample_arguments(spec):
 
 class SchemaTests(unittest.TestCase):
     def test_each_read_is_a_tool_with_the_registry_s_words(self):
-        built = {t.name: t for t in (tools.make_tool(spec) for spec in EXPORT['tools'])}
+        built = {t.name: t for t in (tools.make_tool(spec) for spec in SPECS.values())}
         self.assertEqual(sorted(built), READS)
         for name, spec in SPECS.items():
             self.assertEqual((built[name].title, built[name].description), (spec['title'], spec['description']))

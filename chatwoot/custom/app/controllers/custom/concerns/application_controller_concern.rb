@@ -6,10 +6,12 @@
 #
 # Durian OS AI connections (docs/mcp/MCP.md, section 5), for a request the DurianOsAiDoor middleware let through:
 # - durian_os_ai_sign_in, before every other callback: a second look at what Rails actually dispatched (an
-#   Api::BaseController action that is the read tool the gate chose, with this method, JSON and the managed account),
+#   Api::BaseController action that is the tool the gate chose, with this method, JSON and the managed account; for a
+#   write also a Full connection and the registry's pinned values),
 #   then the person is signed in the way the api_access_token path does (@resource, Current.user), with an empty
 #   devise_token_auth token: no session token is read or minted and no auth header goes out;
-# - durian_os_ai_read_only: the action runs inside while_preventing_writes; a read that would write is 403.
+# - durian_os_ai_read_only: the action runs inside while_preventing_writes; a read that would write is 403. Only an
+#   offered write the gate let through (a Full connection) runs without it.
 module Custom::Concerns::ApplicationControllerConcern
   extend ActiveSupport::Concern
 
@@ -31,6 +33,8 @@ module Custom::Concerns::ApplicationControllerConcern
     caller = request.env[DurianOs::Ai::ENV_KEY]
     refusal = DurianOs::Ai::Gate.recheck(self, request.env[DurianOs::Ai::DECISION_KEY])
     return durian_os_ai_refuse(refusal, DurianOs::Ai::NOT_FOR_AI) if refusal == 'not_a_tool'
+    return durian_os_ai_refuse(refusal, DurianOs::Ai::READ_ONLY_PASS) if refusal == 'read_only'
+    return durian_os_ai_refuse(refusal, request.env[DurianOs::Ai::DECISION_KEY].entry.fixed_refusal) if refusal == 'write_refused'
     return durian_os_ai_refuse(refusal, DurianOs::Ai::WRONG_ACCOUNT) if refusal
 
     @resource = @user = @current_user = caller.user
@@ -39,10 +43,18 @@ module Custom::Concerns::ApplicationControllerConcern
   end
 
   def durian_os_ai_read_only(&)
+    return yield if durian_os_ai_write_allowed?
+
     ActiveRecord::Base.while_preventing_writes(&)
   rescue ActiveRecord::ReadOnlyError
     self.response_body = nil
     durian_os_ai_refuse('would_write', DurianOs::Ai::WOULD_WRITE)
+  end
+
+  # An offered write from a Full connection, which the gate decided and the second look confirmed.
+  def durian_os_ai_write_allowed?
+    entry = request.env[DurianOs::Ai::DECISION_KEY]&.entry
+    entry&.offered_write? && request.env[DurianOs::Ai::ENV_KEY]&.full_access?
   end
 
   def durian_os_ai_refuse(code, message)

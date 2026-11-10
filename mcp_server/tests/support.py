@@ -28,8 +28,11 @@ PERSON = '7c1e4b2a-3d5f-4a6b-8c7d-9e0f1a2b3c4d'
 MCP_HEADERS = {'accept': 'application/json, text/event-stream', 'content-type': 'application/json'}
 INITIALIZE = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'tests', 'version': '1'}}
 EXPORT = tools.load()
-SPECS = {t['name']: t for t in EXPORT['tools']}
+ALL_SPECS = {t['name']: t for t in EXPORT['tools']}
+SPECS = {name: t for name, t in ALL_SPECS.items() if not t.get('write')}  # the reads
+WRITE_SPECS = {name: t for name, t in ALL_SPECS.items() if t.get('write')}  # the offered writes
 READS = sorted(SPECS)
+WRITES = sorted(WRITE_SPECS)
 INVALID = {'error': 'This Durian OS connection is not valid. Reconnect in Durian OS.'}
 ACCOUNT = '/api/v1/accounts/1'
 

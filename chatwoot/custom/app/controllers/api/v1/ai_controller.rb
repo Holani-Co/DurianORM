@@ -31,7 +31,7 @@ class Api::V1::AiController < Api::BaseController
       inboxes: user.assigned_inboxes.order(:id).map { |inbox| { id: inbox.id, name: inbox.name, channel_type: inbox.channel_type } },
       teams: user.teams.where(account_id: account.id).order(:id).map { |team| { id: team.id, name: team.name } },
       read_only: caller.present? && caller.read_only?,
-      tools: DurianOs::Ai::Registry.tools_for(user, account, account_user)
+      tools: DurianOs::Ai::Registry.tools_for(user, account, account_user, writes: caller.present? && caller.full_access?)
     }
   end
 
