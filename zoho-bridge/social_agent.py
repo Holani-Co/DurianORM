@@ -43,6 +43,7 @@ import retail_showrooms as retail
 import review_reply
 import snapmint
 import social_store_templates
+import store_link_followup
 import store_locator
 import website_search
 import zoho_crm
@@ -4488,7 +4489,36 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     await _send(conv_id, channel, reply, confidence, trace)
     await _mark_agent_owned(conv, conv_id, channel)
+    _arm_store_link(conv, conv_id, channel, surface, vertical, all_messages,
+                    understood, reply, tool_results)
     return {"handled": "agent_sent", "confidence": confidence}
+
+
+def _arm_store_link(conv, conv_id, channel, surface, vertical, all_messages,
+                    understood, reply, tool_results) -> None:
+    """Customer asked where a store is and this reply asked them something back
+    (pincode / city / details) → start the store_link_followup timer: if they
+    go quiet, the all-stores link goes out. Best-effort — never fails a send."""
+    try:
+        if not (config.STORE_LINK_FOLLOWUP_ENABLED and channel in store_link_followup.CHANNELS
+                and surface != "comment" and store_link_followup.message_for(vertical)
+                and not (conv.get("custom_attributes") or {}).get("store_link_sent")):
+            return
+        incoming = [m for m in all_messages if not m.get("private")
+                    and m.get("message_type") in (0, "incoming")]
+        if not incoming:
+            return
+        new_texts = _gate_split(all_messages)[0]
+        earlier_out = [str(m.get("content") or "") for m in all_messages
+                       if not m.get("private") and m.get("message_type") in (1, "outgoing")]
+        if store_link_followup.should_arm(" ".join(new_texts),
+                                          (understood or {}).get("meaning") or "",
+                                          reply, tool_results, earlier_out):
+            store_link_followup.arm(conv_id, incoming[-1].get("id"), vertical)
+            print(f"[agent] conv {conv_id} store-link follow-up armed "
+                  f"({config.STORE_LINK_FOLLOWUP_MINUTES} min)")
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] store-link arm failed for conv {conv_id}: {e}")
 
 
 async def _mark_agent_owned(conv, conv_id, channel) -> None:

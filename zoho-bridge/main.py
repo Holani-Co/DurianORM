@@ -55,6 +55,7 @@ import google_reviews as gr
 import forwarded_email
 import deal_stage_sync
 import idle_followup
+import store_link_followup
 import owner_sync
 import review_reply
 import reviews_poller
@@ -318,6 +319,9 @@ async def _start_reviews_poller():
     asyncio.create_task(crm_automation.run_forever())
     # WhatsApp: one follow-up to a customer who went quiet, then auto-resolve.
     asyncio.create_task(idle_followup.run_forever())
+    # IG/FB/WhatsApp: the all-stores link to a customer who asked about a store
+    # and went quiet after we asked them something (store_link_followup.py).
+    asyncio.create_task(store_link_followup.run_forever())
     # Each store's own Google listing Maps link for the store cards (store_maps.py).
     asyncio.create_task(store_maps.run_forever())
     # Daily Zoho user snapshot — swaps deactivated/deleted deal owners at deal

@@ -1045,3 +1045,14 @@ IDLE_FOLLOWUP_INBOXES     = [int(x) for x in os.environ.get(
 IDLE_FOLLOWUP_AFTER_HOURS = float(os.environ.get("IDLE_FOLLOWUP_AFTER_HOURS", "20"))
 IDLE_RESOLVE_AFTER_HOURS  = float(os.environ.get("IDLE_RESOLVE_AFTER_HOURS", "24"))
 IDLE_SWEEP_MINUTES        = int(os.environ.get("IDLE_SWEEP_MINUTES", "15"))
+
+# ── Store-locator link follow-up (store_link_followup.py) ──────────────────
+# Customer asked where a store is, DurianAI asked something back (pincode /
+# city / details) and they went quiet → after N minutes ONE message with the
+# vertical's all-stores page. IG/FB DMs + WhatsApp only, once per conversation.
+# A vertical missing from the links map (Doors today) gets nothing.
+STORE_LINK_FOLLOWUP_ENABLED = _bool("STORE_LINK_FOLLOWUP_ENABLED", "false")
+STORE_LINK_FOLLOWUP_MINUTES = int(os.environ.get("STORE_LINK_FOLLOWUP_MINUTES", "20"))
+STORE_LINK_FOLLOWUP_LINKS   = os.environ.get(
+    "STORE_LINK_FOLLOWUP_LINKS",
+    "furniture:https://www.durian.in/stores,fhc:https://www.durian.in/stores")
