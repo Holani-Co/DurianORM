@@ -4358,3 +4358,25 @@ def test_store_link_armed_after_agent_reply(monkeypatch):
         ch, surface, vert, c = args
         sa._arm_store_link(c, 8, ch, surface, vert, msgs, None, reply, [])
     assert [r["conv_id"] for r in slf._due(10 ** 12)] == [7]
+
+
+def test_praise_comment_never_names_unmentioned_products():
+    # Conv 8839: praise under a kitchen & wardrobe post got "the mirror for your
+    # chest of drawers" → replaced with the plain thank-you.
+    bad = ("So glad you liked it, Bapi! 😊 If you're exploring options for the mirror "
+           "for your chest of drawers, we have many more designs you might love 💫")
+    assert sa.praise_comment_line("Thanks for onestly!!!!!", bad) == sa._COMMENT_PRAISE_LINE
+    assert sa.praise_comment_line("Beautiful kitchen 😍",
+                                  "Thank you! Our wardrobes are lovely too.") \
+        == sa._COMMENT_PRAISE_LINE
+    # A clean thank-you, or the product the customer named themselves, stays.
+    assert sa.praise_comment_line("Thanks for onestly!!!!!",
+                                  "Thank you so much! We're delighted you liked it.") == ""
+    assert sa.praise_comment_line("Beautiful kitchen 😍",
+                                  "Thank you! So glad you love the kitchen.") == ""
+    assert sa.praise_comment_line("बहुत सुंदर", "धन्यवाद! Glad you liked it.") == ""
+    # Not praise → left to the other rules (questions, prices, complaints).
+    for c in ("nice, what's the price?", "Beautiful, kitna hai", "good sofa where is store",
+              "not good quality, order damaged"):
+        assert not sa.is_praise_comment(c)
+        assert sa.praise_comment_line(c, "Please DM us about the sofa.") == ""

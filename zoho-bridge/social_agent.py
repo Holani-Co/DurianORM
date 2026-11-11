@@ -3031,6 +3031,49 @@ def price_comment_line(comment: str, reply: str) -> str:
     return ""
 
 
+# Conv 8839 (FB FHC, ticket by Rajeshri): "Thanks for onestly!!!" under a
+# kitchen & wardrobe post got "…options for the mirror for your chest of
+# drawers…". A praise comment gets a thank-you for the praise only — no product,
+# room or category the customer didn't name themselves.
+_PRAISE_RE = re.compile(
+    r"\b(thank\w*|thanx|thnx|thx|tq|ty|nice|lovely|love[ds]?|beautiful|awesome|"
+    r"amazing|wow+|great|super\w*|gorgeous|good|excellent|wonderful|fantastic|"
+    r"brilliant|stunning|elegant|classy|osm|ossam|mast|badhiya|badiya|zabardast|"
+    r"shandar|shaandar|sundar|khoobsurat|kamaal|kamal|perfect|cool|best|"
+    r"well done|keep it up|congrat\w*)\b"
+    r"|धन्यवाद|शुक्रिया|बढ़िया|बहुत\s*(अच्छा|सुंदर)|सुंदर|शानदार|❤|😍|🥰|👏|💯|🔥|👌", re.I)
+# Anything that makes it more than praise: a question, an ask, a problem.
+_PRAISE_NOT_RE = re.compile(
+    r"\?|\b(price|rate|cost|how much|kitn\w*|kya\b|kaha\w*|where|store|showroom|"
+    r"address|location|available|size|colou?r|dm|contact|number|call|order\w*|"
+    r"deliver\w*|refund|return|broken|damag\w*|bad|worst|poor|not)\b"
+    r"|क्या|कितन|कहाँ|कहां", re.I)
+_PRODUCT_TERM_RE = re.compile(
+    r"\b(chests?\s+of\s+drawers?|drawers?|wardrobes?|almirah\w*|kitchens?|"
+    r"modular|sofas?|couch\w*|recliners?|beds?|bedroom|mattress\w*|"
+    r"tables?|chairs?|dining|mirrors?|cabinets?|shelf|shelves|bookshel\w*|"
+    r"tv\s+units?|consoles?|ottomans?|stools?|benches?|doors?|wardrobe|"
+    r"study|office|storage|vanity|dressers?|side\s*boards?|crockery|"
+    r"shoe\s*racks?|loungers?|diwans?|futons?)\b", re.I)
+_COMMENT_PRAISE_LINE = "Thank you so much! We're delighted you liked it. – Team Durian"
+
+
+def is_praise_comment(text: str) -> bool:
+    t = " ".join((text or "").split())
+    return bool(t) and len(t) <= 80 and bool(_PRAISE_RE.search(t)) \
+        and not _PRAISE_NOT_RE.search(t)
+
+
+def praise_comment_line(comment: str, reply: str) -> str:
+    """The plain thank-you that replaces a reply to a praise comment when that
+    reply names a product / room the customer didn't mention, or "" to keep it."""
+    if not is_praise_comment(comment):
+        return ""
+    said = {m.lower().rstrip("s") for m in _PRODUCT_TERM_RE.findall(comment or "")}
+    named = {m.lower().rstrip("s") for m in _PRODUCT_TERM_RE.findall(reply or "")}
+    return _COMMENT_PRAISE_LINE if named - said else ""
+
+
 # Politics, religion and caste are never Durian's business. Conv 11545: a rant
 # about the BJP and beef got "We're happy to help with anything related to
 # Durian" under a public post. Words like "mandir" stay out: it's a product.
@@ -3163,7 +3206,10 @@ the insults.
 
 Otherwise, read the comment and do EXACTLY ONE of these:
 - PRAISE / appreciation / love (including emoji-love) -> a brief, genuine \
-thank-you. finish(action=send).
+thank-you for the appreciation ONLY. Do NOT name any product, room or category \
+(chest of drawers, wardrobe, modular kitchen, sofa…) — not even the one in THE \
+POST — unless the comment itself names it; no links, no sales pitch. \
+finish(action=send).
 - A QUESTION about a product (price, "price?", "how much", availability, \
 colour, size, material, "is this in stock") — including "PP" / "P.P" / \
 "pp pls", which is shorthand for "price please" and NEVER a greeting -> name the product from THE POST \
@@ -4415,6 +4461,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
                       "detail": f'"{(latest_message or "").strip()[:40]}" means price '
                                 f"please; the draft invited no DM: {reply[:200]}"})
         reply = priced
+    praised = praise_comment_line(latest_message, reply) if surface == "comment" else ""
+    if praised:
+        trace.append({"type": "policy", "source": "system", "visibility": "internal",
+                      "label": "Praise answered with a plain thank-you",
+                      "detail": f'"{(latest_message or "").strip()[:40]}" is praise; the '
+                                f"draft named products the customer didn't: {reply[:200]}"})
+        reply = praised
 
     # A pincode ask is legitimate (not a re-ask) when this turn's store lookup
     # itself said "several showrooms there — ask for their pincode".
