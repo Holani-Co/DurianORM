@@ -4068,3 +4068,112 @@ def test_review_bank_prune_spares_ui_added_codes():
     assert srb._is_prunable("review_positive_5star", current)
     assert srb._is_prunable("reviewbank_furniture_x_01", current)
     assert not srb._is_prunable("social_greeting", current)
+
+
+# ── Understand-then-decide gate (Hindi / Hinglish / any language) ───────────
+
+def _gate_msgs():
+    return [{"message_type": 0, "content": "Hi"},
+            {"message_type": 1, "content": "Hello! What are you looking for?"},
+            {"message_type": 1, "private": True, "content": "🤖 note"},
+            {"message_type": 0, "content": "Pop fall ceiling ka kam hai"},
+            {"message_type": 0, "content": "to bolo"}]
+
+
+def test_gate_split_new_burst_and_context():
+    new, earlier, replied = sa._gate_split(_gate_msgs())
+    assert new == ["Pop fall ceiling ka kam hai", "to bolo"]
+    assert earlier == ["Customer: Hi", "Durian: Hello! What are you looking for?"]
+    assert replied is True
+    new, earlier, replied = sa._gate_split([{"message_type": 0, "content": "Rate kya hai"}])
+    assert new == ["Rate kya hai"] and earlier == [] and replied is False
+
+
+def test_gate_out_of_scope_decisions():
+    why = sa._out_of_scope_reason
+    assert "contractor" in why({"kind": "vendor_offer"}, "POP ceiling ka kaam ho to bolo", True)
+    assert "scam" in why({"kind": "spam_or_scam"}, "₹2,000 mil gaye", False)
+    assert why({"kind": "durian_enquiry"}, "Dabble bad ka price kitna hoga", False) == ""
+    assert why({"kind": "job"}, "kaam chahiye", True) == ""
+    assert why({"kind": "unclear"}, "Kirti nagar wala maal", True) == ""
+    # a bare greeting opens a new chat (reply) but is left alone mid-chat
+    assert why({"kind": "greeting_only"}, "Jai Shri Ram", False) == ""
+    assert why({"kind": "greeting_only"}, "Ji bhaiya", True) != ""
+    # abuse / politics that still mention a real issue go to the agent
+    assert why({"kind": "abuse", "meaning": "Insults, says the sofa delivery is late"}, "x", True) == ""
+    assert why({"kind": "political_or_religious", "meaning": "A rant about beef exports"}, "y", True) != ""
+
+
+class _GateFakeChatwoot(_SilentFakeChatwoot):
+    def __init__(self, msgs):
+        super().__init__(msgs)
+        self.status = None
+
+    async def toggle_status(self, conv_id, status, snoozed_until=None):
+        self.status = status
+
+
+def _run_gate(monkeypatch, understood, labels=None, msgs=None):
+    import asyncio
+    fake = _GateFakeChatwoot(msgs or _gate_msgs())
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    monkeypatch.setattr(sa.config, "SOCIAL_SCOPE_GATE_ENABLED", True)
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", False)
+    seen = {}
+
+    async def fake_understand(new_texts, earlier):
+        seen["new"], seen["earlier"] = new_texts, earlier
+        return understood
+    monkeypatch.setattr(sa, "_understand", fake_understand)
+
+    async def reached(*a, **k):
+        raise _ReachedAgent()
+    monkeypatch.setattr(sa.profile_mod, "load", reached)
+    sa._last_handled_msgid.pop(99, None)
+    conv = {"id": 99, "meta": {"sender": {"id": 5, "name": "S"}},
+            "custom_attributes": {}, "labels": labels or []}
+    try:
+        res = asyncio.run(sa._handle_locked(conv, 99, "whatsapp", "", "to bolo", 7))
+    except _ReachedAgent:
+        res = "agent"
+    return res, fake, seen
+
+
+def test_gate_leaves_vendor_offer_unanswered(monkeypatch):
+    res, fake, seen = _run_gate(monkeypatch, {
+        "language": "hinglish", "kind": "vendor_offer",
+        "meaning": "A contractor offering to do POP false ceiling work.", "reason": "offer"})
+    assert res == {"handled": "out_of_scope_silent", "kind": "vendor_offer"}
+    assert seen["new"] == ["Pop fall ceiling ka kam hai", "to bolo"]
+    assert "contractor" in fake.notes[0] and "POP false ceiling" in fake.notes[0]
+    assert fake.status == "resolved" and sa._last_handled_msgid.get(99) == 7
+
+
+def test_gate_keeps_chat_open_when_a_person_is_needed(monkeypatch):
+    res, fake, _ = _run_gate(monkeypatch, {"language": "hindi", "kind": "spam_or_scam",
+                                           "meaning": "A cash-prize forward."},
+                             labels=["agent-needed", "agent-needed-whatsapp"])
+    assert res["handled"] == "out_of_scope_silent" and fake.notes and fake.status is None
+
+
+def test_gate_passes_in_scope_hinglish_to_agent(monkeypatch):
+    res, fake, _ = _run_gate(monkeypatch, {"language": "hinglish", "kind": "durian_enquiry",
+                                           "meaning": "Asking the price of a double bed."})
+    assert res == "agent" and not fake.notes and fake.status is None
+
+
+def test_gate_off_or_failing_never_blocks(monkeypatch):
+    res, fake, _ = _run_gate(monkeypatch, None)             # understand call failed
+    assert res == "agent" and not fake.notes
+    monkeypatch.setattr(sa.config, "SOCIAL_SCOPE_GATE_ENABLED", False)
+
+    async def boom(*a):
+        raise AssertionError("gate must not run when switched off")
+    monkeypatch.setattr(sa, "_understand", boom)
+    import asyncio
+    sa._last_handled_msgid.pop(99, None)
+    conv = {"id": 99, "meta": {"sender": {"id": 5, "name": "S"}}, "custom_attributes": {}}
+    try:
+        asyncio.run(sa._handle_locked(conv, 99, "whatsapp", "", "to bolo", 8))
+    except _ReachedAgent:
+        pass

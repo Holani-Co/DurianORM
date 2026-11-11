@@ -3651,6 +3651,155 @@ def _silent_photo_burst(all_messages) -> list | None:
     return urls
 
 
+# ── Understand-then-decide gate (any language) ──────────────────────────────
+# Customers write in Hindi, Hinglish and Devanagari, and the agent misread who
+# was talking ("POP ceiling ka kaam ho to bolo" is a contractor offering work,
+# not a customer) and answered scams, rants and unrelated chat. One quick call
+# reads the new message(s) WITH the chat so far, writes the English meaning,
+# and names what kind of message it is. Code decides: out-of-scope kinds get no
+# reply (private note + resolve); everything else goes to the agent with the
+# English meaning attached. Any failure → no gate (the agent replies as before).
+
+_UNDERSTAND_KINDS = ("durian_enquiry", "order_or_complaint", "job", "partnership",
+                     "vendor_offer", "greeting_only", "spam_or_scam", "abuse",
+                     "political_or_religious", "unrelated", "unclear")
+
+# Kinds left unanswered, with the phrase used in the private note.
+_OUT_OF_SCOPE = {
+    "vendor_offer": "a contractor, supplier or vendor offering their own services",
+    "spam_or_scam": "spam or a scam / forwarded message",
+    "abuse": "abuse with nothing about Durian",
+    "political_or_religious": "a political or religious remark unrelated to Durian",
+    "unrelated": "a message unrelated to Durian's business",
+}
+_GREETING_MID_CHAT = "a greeting or acknowledgement in an ongoing chat"
+
+_UNDERSTAND_PROMPT = """You read messages sent to Durian, an Indian brand for \
+ready-made furniture, doors and full home customisation (modular kitchens, \
+wardrobes, interiors), on Instagram, Facebook, WhatsApp or website chat. Many \
+customers write in Hindi (Devanagari), Hinglish (Hindi in Latin letters: "rate \
+kya hai", "shop kaha pr hai", "double bed ka price kitna hoga") or a mix, often \
+with loose spelling. Understand the NEW message(s) in the context of the chat so \
+far and return STRICT JSON:
+{"language": "english|hindi|hinglish|other", "meaning": "...", "kind": "...", "reason": "..."}
+
+meaning: a faithful English rendering of the NEW message(s), resolved with the \
+chat context, saying who wants what (e.g. "A contractor offering to do POP false \
+ceiling work for Durian." or "Asking the price of a double bed."). One or two \
+sentences.
+
+kind — exactly one of:
+- durian_enquiry: anything a customer or possible customer wants from Durian — \
+products, prices, photos, EMI, offers, store locations, catalogues, \
+customisation, visits, delivery areas — AND every reply to a question Durian \
+asked in the chat (a name, number, pincode, city, yes/no, a product choice), \
+however short.
+- order_or_complaint: an existing order, delivery, installation, repair or \
+service, refund, warranty, or a complaint about Durian.
+- job: someone asking for a job or work AT Durian (karigar, carpenter, sales, \
+"kaam chahiye", "naukri").
+- partnership: a marketing, advertising, PR, influencer or collaboration \
+proposal to Durian.
+- vendor_offer: a contractor, supplier, manufacturer, transporter or service \
+provider OFFERING their own work or goods ("POP ceiling ka kaam ho to bolo", \
+"aluminium glass ka kaam ho to batao", "mera manufacturing factory hai", \
+"pickup bhara ke liye"). Careful: "X karwana hai" / "mujhe X chahiye" is a \
+customer WANTING X (durian_enquiry); "X ka kaam ho to bolo/batao" is a vendor \
+OFFERING X.
+- greeting_only: only a greeting, blessing, thanks or acknowledgement with no \
+request ("Jai Shri Ram", "namaste", "hello", "ji bhaiya", "ok", "thank you").
+- spam_or_scam: forwarded money / prize / government-cash messages, suspicious \
+links, chain messages, requests for followers or likes.
+- abuse: insults or obscenity with nothing about Durian's products, orders or \
+service.
+- political_or_religious: a political, religious, caste or communal remark with \
+nothing about Durian.
+- unrelated: clearly about something other than Durian's business (personal \
+matters, renting out a house, goods Durian doesn't deal in).
+- unclear: you cannot tell what they want.
+
+Leaving a real customer unanswered is the worst mistake. If a message could be \
+a customer's enquiry, a reply to Durian's question, or a complaint, choose that \
+kind or "unclear". Insults around a real complaint are order_or_complaint.
+reason: one short line on why."""
+
+
+def _gate_split(all_messages) -> tuple[list[str], list[str], bool]:
+    """(the customer's new texts since our last public reply, the earlier chat
+    as "Customer: …" / "Durian: …" lines, whether Durian has replied before)."""
+    new, earlier, replied, seen_reply = [], [], False, False
+    for m in reversed(all_messages or []):
+        mt = m.get("message_type")
+        if m.get("private") or mt in (2, "activity"):
+            continue
+        text = " ".join((m.get("content") or "").split())
+        incoming = mt in (0, "incoming")
+        if not incoming:
+            seen_reply = replied = True
+        if incoming and not seen_reply:
+            if text:
+                new.append(text)
+            continue
+        if text and len(earlier) < 8:
+            earlier.append(f"{'Customer' if incoming else 'Durian'}: {text[:300]}")
+    return list(reversed(new)), list(reversed(earlier)), replied
+
+
+async def _understand(new_texts: list[str], earlier: list[str]) -> dict | None:
+    """The understand call. None on any failure or an unusable answer."""
+    from llm_client import floor_effort
+    kw = {}
+    if not config.SOCIAL_AGENT_BASE_URL:
+        kw["reasoning_effort"] = floor_effort(config.SOCIAL_AGENT_MODEL)
+    user = ("CHAT SO FAR:\n" + ("\n".join(earlier) or "(none — first message)")
+            + "\n\nNEW MESSAGE(S):\n" + "\n".join(new_texts)[:1500])
+    try:
+        r = await _client.chat.completions.create(
+            model=config.SOCIAL_AGENT_MODEL, **kw,
+            response_format={"type": "json_object"}, max_completion_tokens=400,
+            messages=[{"role": "system", "content": _UNDERSTAND_PROMPT},
+                      {"role": "user", "content": user}])
+        out = json.loads(r.choices[0].message.content or "{}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] understand call failed: {e}")
+        return None
+    if out.get("kind") not in _UNDERSTAND_KINDS:
+        return None
+    return out
+
+
+def _out_of_scope_reason(understood: dict, raw_text: str, replied_before: bool) -> str:
+    """The note phrase when this message should get no reply, else "". Pure
+    abuse / political remarks that still mention a real issue go to the agent."""
+    kind = understood.get("kind")
+    if kind == "greeting_only":
+        return _GREETING_MID_CHAT if replied_before else ""
+    if kind in ("abuse", "political_or_religious") and (
+            _ISSUE_RE.search(raw_text or "") or _ISSUE_RE.search(understood.get("meaning") or "")):
+        return ""
+    return _OUT_OF_SCOPE.get(kind, "")
+
+
+async def _leave_unanswered(conv: dict, conv_id: int, understood: dict, why: str) -> None:
+    """Private note with the English meaning, then resolve — unless the chat is
+    already waiting on a person (agent-needed*), which must stay open."""
+    meaning = (understood.get("meaning") or "").strip()
+    note = (f"🌐 No reply sent — this looks like {why}."
+            + (f"\nMeaning in English: \u201c{meaning}\u201d" if meaning else "")
+            + "\nThe AI will answer if they write about Durian.")
+    try:
+        await chatwoot.post_private_note(conv_id, note)
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] out-of-scope note failed for conv {conv_id}: {e}")
+    labels = conv.get("labels") or []
+    if any(str(lb).startswith("agent-needed") for lb in labels):
+        return
+    try:
+        await chatwoot.toggle_status(conv_id, "resolved")
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] out-of-scope resolve failed for conv {conv_id}: {e}")
+
+
 _ASK_FOR_SCREENSHOT = ("[customer shared a reel/video we cannot view — ASK them "
                        "to share a screenshot of the product so we can identify "
                        "and route it; do NOT guess the product]")
@@ -3808,6 +3957,25 @@ async def _handle_locked(conv, conv_id, channel, surface,
                     pass
                 return {"handled": "non_product_photo_silent"}
 
+    # Understand-then-decide: read the new message(s) in any language, leave
+    # out-of-scope ones unanswered, and hand the English meaning to the agent.
+    understood = None
+    if config.SOCIAL_SCOPE_GATE_ENABLED:
+        new_texts, earlier, replied_before = _gate_split(all_messages)
+        if not new_texts and (latest_message or "").strip():
+            new_texts = [" ".join(latest_message.split())]
+        if new_texts:
+            understood = await _understand(new_texts, earlier)
+        if understood:
+            print(f"[agent] conv {conv_id} understood as {understood.get('kind')} "
+                  f"({understood.get('language')})")
+            why = _out_of_scope_reason(understood, " ".join(new_texts), replied_before)
+            if why:
+                if latest_msg_id is not None:
+                    _last_handled_msgid[conv_id] = latest_msg_id
+                await _leave_unanswered(conv, conv_id, understood, why)
+                return {"handled": "out_of_scope_silent", "kind": understood.get("kind")}
+
     # ── Profile: load or cold-start, ingest this conversation's new events ──
     prof = None
     if contact_id:
@@ -3888,6 +4056,10 @@ async def _handle_locked(conv, conv_id, channel, surface,
     if latest and latest not in "\n".join(incoming_texts):
         transcript += f"\n[today {now:%H:%M}] Customer: {latest}"
         incoming_texts.append(latest)
+    if understood and understood.get("language") != "english" \
+            and (understood.get("meaning") or "").strip():
+        transcript += ("\n[English meaning of the customer's latest message(s), "
+                       f"for you only: {understood['meaning'].strip()}]")
     if not transcript:
         return {"ignored": True, "reason": "no_customer_message"}
     n_customer = _engagement_incoming_count(all_messages)
