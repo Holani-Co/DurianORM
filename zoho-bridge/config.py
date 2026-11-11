@@ -697,6 +697,12 @@ SOCIAL_AUTO_SEND_MIN_CONFIDENCE = int(os.environ.get("SOCIAL_AUTO_SEND_MIN_CONFI
 # covers them all). A newer message during the window restarts the timer. Set to
 # 0 to disable (revert to a reply per message, no redeploy needed).
 SOCIAL_DEBOUNCE_SECONDS = float(os.environ.get("SOCIAL_DEBOUNCE_SECONDS", "6"))
+# Understand-then-decide gate: before the agent replies, one quick call reads
+# the customer's new message(s) in any language (Hindi, Hinglish, Devanagari),
+# writes its English meaning for the agent, and leaves out-of-scope messages
+# (vendor offers, spam/scams, pure abuse, political/religious remarks, unrelated
+# chat, mid-chat bare greetings) unanswered with a private note + resolve.
+SOCIAL_SCOPE_GATE_ENABLED = _bool("SOCIAL_SCOPE_GATE_ENABLED", "false")
 
 # ── Agent mode (social_agent.py) — Instagram DMs + comments ────────────────
 # Skills-based loop on gpt-5.6-luna (Responses API, low reasoning). Dark by
