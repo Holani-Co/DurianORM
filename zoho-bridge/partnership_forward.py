@@ -11,7 +11,7 @@ client's config, and the review-escalation email pattern (create email contact +
 conversation → send). Dark-launched behind PARTNERSHIP_FORWARD_ENABLED.
 """
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import chatwoot
 import classifier
@@ -55,6 +55,88 @@ def _fmt_ts(epoch) -> str:
         return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%d %b %Y, %H:%M UTC")
     except Exception:
         return ""
+
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+_MESSAGE_MAX = 700
+_CHANNEL_LABELS = {"instagram": "Instagram", "facebook": "Facebook",
+                   "whatsapp": "WhatsApp", "website": "Website chat"}
+
+# Numbered steps closing the email — the same "action brief" shape as the
+# low-star Google review store forward (reviews_poller._forward_low_star_review).
+_PITCH_STEPS = (
+    "Review the proposal and decide if it fits Durian's plans.",
+    "Reply to the sender within 3 working days, from ORM (link above) so the "
+    "conversation stays in one place.",
+    "If it goes ahead, share the next steps in the ORM conversation so the "
+    "customer team knows.",
+)
+_JOB_STEPS = (
+    "Review the candidate's details and the attached conversation.",
+    "If the profile is suitable, contact the candidate within 3 working days.",
+    "Note the outcome in the ORM conversation (link above) so the team knows it "
+    "has been handled.",
+)
+
+
+def _fmt_ist(epoch) -> str:
+    """'11 Nov 2026, 3:05 PM IST' — the review forward's date style."""
+    try:
+        dt = datetime.fromtimestamp(int(epoch), tz=_IST)
+    except Exception:
+        return ""
+    hour = dt.hour % 12 or 12
+    return f"{dt.day} {dt:%b %Y}, {hour}:{dt:%M} {dt:%p} IST"
+
+
+def _customer_text(messages: list) -> tuple[str, str]:
+    """(the customer's latest messages joined, when the last one arrived) — the
+    last three incoming texts, clipped, so the email shows what they asked."""
+    incoming = [m for m in messages or []
+                if m.get("message_type") in (0, "incoming") and (m.get("content") or "").strip()]
+    if not incoming:
+        return "", ""
+    text = " / ".join(" ".join(m["content"].split()) for m in incoming[-3:])
+    if len(text) > _MESSAGE_MAX:
+        text = text[:_MESSAGE_MAX - 1].rstrip() + "…"
+    return text, _fmt_ist(incoming[-1].get("created_at"))
+
+
+def build_email(category: str, display: str, channel: str, account: str, name: str,
+                received: str, message: str, details: str, link: str) -> tuple[str, str]:
+    """(subject, body) in the client-approved action-brief format of the Google
+    review store forward: greeting, a bulleted details block, numbered action
+    steps, sign-off. Empty fields are left out rather than shown blank."""
+    is_job = category == JOB_CATEGORY
+    channel_label = _CHANNEL_LABELS.get(channel, channel.title() if channel else "social media")
+    who = name or "a customer"
+    subject = f"Action Required: {display} from {channel_label} — {name or 'Durian customer'}"
+    intro = (f"We have received the following job enquiry on {channel_label}. "
+             "Please review the candidate's details."
+             if is_job else
+             f"We have received the following {display.lower()} on {channel_label}. "
+             "Please look into it and respond to the sender.")
+    rows = [
+        ("Channel", f"{channel_label} — {account}" if account else channel_label),
+        ("From", who),
+        ("Date", received),
+        ("Category", display),
+        ("Details shared", (details or "").strip()),
+        ("Message", f'"{message}"' if message else ""),
+        ("Conversation in ORM", link),
+        ("Full conversation", "attached as a PDF"),
+    ]
+    steps = _JOB_STEPS if is_job else _PITCH_STEPS
+    body = "\n".join([
+        "Dear HR Team," if is_job else "Dear Team,", "",
+        intro, "",
+        "Enquiry Details:",
+        *[f"• {k}: {v}" for k, v in rows if v], "",
+        "Action required:",
+        *[f"{i}. {step}" for i, step in enumerate(steps, 1)], "",
+        "Regards,", "Customer Support Team",
+    ])
+    return subject, body
 
 
 def _transcript_rows(messages: list) -> list[tuple[str, str, str]]:
@@ -136,16 +218,18 @@ async def run(conv_id: int, conv: dict, category: str, channel: str,
         messages = []
     pdf = build_pdf(conv, channel, display, messages)
 
-    subject = f"{display} from {channel.title()} - {name or 'Durian customer'}"
-    body = "\n".join([
-        f"Forwarding a {display.lower()} received on {channel.title()} "
-        f"from {name or 'a customer'}.", "",
-        *([f"Details shared: {details.strip()}", ""] if details.strip() else []),
-        "You can view and continue the conversation in ORM here:",
-        link, "",
-        "The full conversation so far is attached as a PDF.", "",
-        "Regards,", "Team Durian",
-    ])
+    # Which account it came in on (e.g. durianfurniture_official) — the
+    # conversation payload carries only the channel type. Best-effort.
+    account = (conv.get("inbox") or {}).get("name") or ""
+    inbox_id = conv.get("inbox_id")
+    if not account and inbox_id:
+        try:
+            account = await chatwoot.get_inbox_name(inbox_id)
+        except Exception:
+            account = ""
+    message, received = _customer_text(messages)
+    subject, body = build_email(category, display, channel, account, name,
+                                received, message, details, link)
 
     # Send through the email inbox (a social inbox can't email) — same pattern as
     # the low-star review escalation.
