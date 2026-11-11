@@ -4217,6 +4217,149 @@ def test_gate_off_or_failing_never_blocks(monkeypatch):
         pass
 
 
+# ── Store-locator link follow-up (store_link_followup.py) ──────────────────
+import store_link_followup as slf
+
+
+def test_store_link_should_arm():
+    find_amb = [{"name": "find_showrooms",
+                 "result": {"resolved": True, "options": ["A", "B"]}}]
+    find_hit = [{"name": "find_showrooms",
+                 "result": {"resolved": True, "address_message": "*Durian X*\n📍 Road"}}]
+    # Conv 9578: "हनुमानगढ़ में अवेलेबल है क्या" → we asked for the pincode.
+    assert slf.should_arm("हनुमानगढ़ में अवेलेबल है क्या", "",
+                          "Could you share your pincode so we can find the nearest store?",
+                          [], [])
+    assert slf.should_arm("where is your showroom in jaipur", "",
+                          "We have two there! Please share your pincode.", find_amb, [])
+    assert slf.should_arm("Noida me store kahan hai", "", "Which area are you in?", [], [])
+    # The English meaning from the understand step counts too.
+    assert slf.should_arm("ghar ke paas", "Asking where the nearest store is.",
+                          "Could you share your pincode?", [], [])
+    # This turn found the store / an address went out earlier → nothing to nudge.
+    assert not slf.should_arm("where is your store", "",
+                              "Here it is! Want to visit?", find_hit, [])
+    assert not slf.should_arm("store address?", "", "Anything else we can help with?", [],
+                              ["*Durian X*\n📍 MG Road\n🗺️ https://maps.app.goo.gl/x"])
+    # We didn't ask anything back.
+    assert not slf.should_arm("where is your store", "",
+                              "Our team will reach out shortly.", [], [])
+    # Not a store question: product colour, an order problem.
+    assert not slf.should_arm("is it available in blue", "",
+                              "Yes! Would you like the link?", [], [])
+    assert not slf.should_arm("change my delivery address", "",
+                              "Could you share your order number?", [], [])
+    assert not slf.should_arm("mera order kahan hai", "", "Could you share the order id?",
+                              [], [])
+
+
+def test_store_link_per_vertical_links(monkeypatch):
+    monkeypatch.setattr(slf.config, "STORE_LINK_FOLLOWUP_LINKS",
+                        "furniture:https://www.durian.in/stores,fhc:https://www.durian.in/stores")
+    assert "https://www.durian.in/stores" in slf.message_for("furniture")
+    assert "https://www.durian.in/stores" in slf.message_for("fhc")
+    assert slf.message_for("doors") == ""             # no Doors link → no follow-up
+    assert not sa.link_violation(slf.message_for("furniture"))
+
+
+def _slf_msgs(extra=None):
+    return [{"id": 1, "message_type": 0, "content": "Hanumangarh me store hai kya",
+             "created_at": 100},
+            {"id": 2, "message_type": 1, "content": "Could you share your pincode?",
+             "created_at": 110}] + (extra or [])
+
+
+def test_store_link_still_due():
+    conv = {"status": "open", "meta": {}, "custom_attributes": {}, "labels": []}
+    assert slf.still_due(conv, _slf_msgs(), "1") == ""
+    assert slf.still_due(conv, _slf_msgs([{"id": 3, "message_type": 0,
+                                           "content": "302001", "created_at": 120}]),
+                         "1") == "customer wrote last"
+    assert slf.still_due(conv, _slf_msgs([
+        {"id": 3, "message_type": 0, "content": "302001", "created_at": 120},
+        {"id": 4, "message_type": 1, "content": "Thanks!", "created_at": 130}]),
+        "1") == "customer replied since"
+    assert slf.still_due(conv, _slf_msgs([
+        {"id": 3, "message_type": 1, "content": "📍 MG Road", "created_at": 120}]),
+        "1") == "an address went out since"
+    assert slf.still_due({**conv, "status": "resolved"}, _slf_msgs(), "1")
+    assert slf.still_due({**conv, "custom_attributes": {"store_link_sent": True}},
+                         _slf_msgs(), "1") == "link already sent"
+    assert slf.still_due({**conv, "labels": ["agent-needed"]}, _slf_msgs(), "1")
+    assert slf.still_due({**conv, "meta": {"assignee": {"id": 11, "name": "Neha Singh"}}},
+                         _slf_msgs(), "1") == "a person owns the chat"
+
+
+class _SlfFakeChatwoot:
+    def __init__(self, conv, msgs):
+        self.conv, self.msgs, self.sent, self.attrs, self.notes = conv, msgs, [], {}, []
+
+    async def get_conversation(self, cid):
+        return self.conv
+
+    async def get_conversation_messages_raw(self, cid, max_pages=10):
+        return self.msgs
+
+    async def create_message(self, cid, content, message_type="incoming", private=False,
+                             content_attributes=None):
+        self.sent.append((cid, content, content_attributes))
+        return {}
+
+    async def merge_custom_attributes(self, cid, attrs):
+        self.attrs.update(attrs)
+
+    async def post_private_note(self, cid, text):
+        self.notes.append(text)
+
+
+def test_store_link_timer_fires_once(monkeypatch):
+    import asyncio
+    import os
+    import tempfile
+    db = os.path.join(tempfile.mkdtemp(), "slf.db")
+    monkeypatch.setattr(slf, "_DB_PATH", db)
+    monkeypatch.setattr(slf.config, "STORE_LINK_FOLLOWUP_MINUTES", 20)
+    monkeypatch.setattr(slf.config, "STORE_LINK_FOLLOWUP_LINKS",
+                        "furniture:https://www.durian.in/stores")
+    fake = _SlfFakeChatwoot({"status": "open", "meta": {}, "custom_attributes": {},
+                             "labels": []}, _slf_msgs())
+    monkeypatch.setattr(slf, "chatwoot", fake)
+    due = slf.arm(42, 1, "furniture", now=1000)
+    assert due == 1000 + 20 * 60
+    assert asyncio.run(slf.sweep_once(now=due - 1)) == {"sent": 0, "skipped": 0, "errors": 0}
+    assert asyncio.run(slf.sweep_once(now=due + 1))["sent"] == 1
+    cid, text, attrs = fake.sent[0]
+    assert cid == 42 and "https://www.durian.in/stores" in text
+    assert attrs["via"] == "store_link_followup" and fake.attrs == {"store_link_sent": True}
+    # The row is gone — a later sweep sends nothing more.
+    assert asyncio.run(slf.sweep_once(now=due + 600))["sent"] == 0 and len(fake.sent) == 1
+    # A Doors timer (no link) is dropped without sending.
+    slf.arm(43, 1, "doors", now=1000)
+    assert asyncio.run(slf.sweep_once(now=due + 1)) == {"sent": 0, "skipped": 1, "errors": 0}
+
+
+def test_store_link_armed_after_agent_reply(monkeypatch):
+    import os
+    import tempfile
+    monkeypatch.setattr(slf, "_DB_PATH", os.path.join(tempfile.mkdtemp(), "slf.db"))
+    monkeypatch.setattr(sa.config, "STORE_LINK_FOLLOWUP_ENABLED", True)
+    monkeypatch.setattr(sa.config, "STORE_LINK_FOLLOWUP_LINKS",
+                        "furniture:https://www.durian.in/stores")
+    msgs = _slf_msgs()[:1]
+    conv = {"custom_attributes": {}}
+    reply = "Could you share your pincode so we can find the nearest store?"
+    sa._arm_store_link(conv, 7, "instagram", "", "furniture", msgs, None, reply, [])
+    assert [r["conv_id"] for r in slf._due(10 ** 12)] == [7]
+    # Never on a public comment, the website chat, Doors, or after the link went out.
+    for args in (("instagram", "comment", "furniture", conv),
+                 ("website", "", "furniture", conv),
+                 ("instagram", "", "doors", conv),
+                 ("instagram", "", "furniture", {"custom_attributes": {"store_link_sent": True}})):
+        ch, surface, vert, c = args
+        sa._arm_store_link(c, 8, ch, surface, vert, msgs, None, reply, [])
+    assert [r["conv_id"] for r in slf._due(10 ** 12)] == [7]
+
+
 def test_praise_comment_never_names_unmentioned_products():
     # Conv 8839: praise under a kitchen & wardrobe post got "the mirror for your
     # chest of drawers" → replaced with the plain thank-you.
