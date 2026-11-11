@@ -14,3 +14,5 @@ zoho-bridge/crm_automation.db-journal
 docs/
 zoho-bridge/venv
 chatwoot/.git_sha
+zoho-bridge/store_link_followup.db
+zoho-bridge/store_link_followup.db-journal
