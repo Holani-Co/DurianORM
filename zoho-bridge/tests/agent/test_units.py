@@ -4070,6 +4070,44 @@ def test_review_bank_prune_spares_ui_added_codes():
     assert not srb._is_prunable("social_greeting", current)
 
 
+def test_social_forward_email_uses_review_action_format(monkeypatch):
+    # Instagram / Facebook / WhatsApp forwards follow the Google-review store
+    # forward: greeting, bulleted details, numbered action steps, sign-off.
+    import asyncio
+    pf, fake = _pf_setup(monkeypatch)
+
+    async def msgs(conv_id):
+        return [{"message_type": 0, "content": "Hi, we are a home decor   page",
+                 "created_at": 1_762_853_700},
+                {"message_type": 1, "content": "Hello!", "created_at": 1_762_853_760},
+                {"message_type": 0, "content": "Can we collaborate on a reel?",
+                 "created_at": 1_762_853_820}]
+
+    async def inbox_name(inbox_id):
+        return "durianfurniture_official"
+    fake.get_conversation_messages = msgs
+    fake.get_inbox_name = inbox_name
+    conv = {"custom_attributes": {}, "inbox_id": 16, "meta": {"sender": {"name": "Riya"}}}
+    assert asyncio.run(pf.run(55, conv, "collaboration_request", "instagram"))["forwarded"]
+    body = fake.emails[0][4]
+    assert body.startswith("Dear Team,\n\nWe have received the following collaboration request on Instagram.")
+    for line in ("• Channel: Instagram — durianfurniture_official", "• From: Riya",
+                 "• Date: 11 Nov 2025, 3:07 PM IST", "• Category: Collaboration Request",
+                 '• Message: "Hi, we are a home decor page / Can we collaborate on a reel?"',
+                 "• Conversation in ORM: https://orm.durianos.in/app/accounts/1/conversations/55",
+                 "Action required:\n1. Review the proposal",
+                 "2. Reply to the sender within 3 working days",
+                 "Regards,\nCustomer Support Team"):
+        assert line in body, line
+    assert "Details shared" not in body          # empty fields are left out
+
+    subject, job = pf.build_email(pf.JOB_CATEGORY, "Career / Job Enquiry", "whatsapp", "",
+                                  "Nidhi", "", "", "showroom sales, Pune · 9876543210", "L")
+    assert subject == "Action Required: Career / Job Enquiry from WhatsApp — Nidhi"
+    assert job.startswith("Dear HR Team,") and "• Channel: WhatsApp\n" in job
+    assert "2. If the profile is suitable, contact the candidate within 3 working days." in job
+
+
 # ── Understand-then-decide gate (Hindi / Hinglish / any language) ───────────
 
 def _gate_msgs():
