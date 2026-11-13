@@ -9185,6 +9185,21 @@ def _channel_label(conv) -> str:
     return "ORM"
 
 
+def _is_web_chat(conv) -> bool:
+    """A website-bot conversation (Furniture Bot / Website FHC Bot web widget)."""
+    return _channel_label(conv) == "Web Chat"
+
+
+def _deal_title(conv, name: str, email: str, phone: str = "") -> str:
+    """The CRM deal title. Website-bot deals are titled with just the customer,
+    like the client's other integrations' deals — their channel goes into
+    Integration Source instead ("DurianORM - Web Chat"). Every other channel
+    keeps "<name> — DurianORM · <channel>"."""
+    if _is_web_chat(conv):
+        return (name or email or phone or "Web Chat enquiry")[:255]
+    return f"{name or email} — DurianORM · {_channel_label(conv)}"[:255]
+
+
 def _enquiry_source_for(conv) -> str:
     """The client's Enquiry Source option matching the conversation's channel
     (config.ZOHO_CRM_SOURCE_MAP), e.g. WhatsApp -> 'Whats App Or SMS'. Falls back
@@ -9198,15 +9213,16 @@ def _enquiry_source_for(conv) -> str:
 
 async def _create_deal_keeping_campaign_optional(create, extra_fields: dict,
                                                 has_campaign_marker: bool, conv_id):
-    """Create the deal; the campaign marker must never cost it. If Zoho rejects
-    the Integration Source we added, create it again without that field (logged)."""
+    """Create the deal; the Integration Source marker we add (campaign or web
+    chat) must never cost it. If Zoho rejects that field, create the deal again
+    without it (logged)."""
     try:
         return await create(extra_fields)
     except Exception as e:
         field = config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD
         if not (has_campaign_marker and field and field in str(e)):
             raise HTTPException(500, f"CRM create_deal failed: {e}")
-        print(f"[crm] campaign Integration Source rejected for conv {conv_id} "
+        print(f"[crm] Integration Source marker rejected for conv {conv_id} "
               f"({e}) — creating the deal without it")
         extra_fields.pop(field, None)
         try:
@@ -9267,6 +9283,25 @@ def _campaign_integration_source(conv, blueprint_mode: str = "") -> str:
             and config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD):
         return config.ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE
     return ""
+
+
+def _web_chat_integration_source(conv, blueprint_mode: str = "") -> str:
+    """The Integration Source a website-bot deal is CREATED with ("" = none):
+    "DurianORM - Web Chat", in place of the channel the title no longer
+    carries. A confirmed studio visit (Offline Home Studio Blueprint) must keep
+    the field empty."""
+    if (_is_web_chat(conv) and blueprint_mode != "offline"
+            and config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD):
+        return config.ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE
+    return ""
+
+
+def _deal_integration_source(conv, blueprint_mode: str = "") -> str:
+    """The Integration Source written AT CREATE, overriding the env default /
+    Blueprint value: a WhatsApp campaign lead's campaign marker, else a
+    website-bot deal's web-chat marker, else "" (leave what's there)."""
+    return (_campaign_integration_source(conv, blueprint_mode)
+            or _web_chat_integration_source(conv, blueprint_mode))
 
 
 def _campaign_deal_fields(campaign: dict) -> dict:
@@ -9509,13 +9544,14 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             # for this key, if one exists, so offline records cannot
             # accidentally satisfy the Digital Blueprint's non-empty rule.
             extra_fields.pop(config.ZOHO_CRM_BLUEPRINT_SELECTOR_FIELD, None)
-    # WhatsApp campaign leads (click-to-WhatsApp ad / reply to our campaign) are
-    # told apart in the CRM by Integration Source — set at CREATE, since Zoho
-    # picks the Home Studio Blueprint from it (non-empty = Digital).
+    # WhatsApp campaign leads (click-to-WhatsApp ad / reply to our campaign) and
+    # website-bot deals are told apart in the CRM by Integration Source — set at
+    # CREATE, since Zoho picks the Home Studio Blueprint from it (non-empty =
+    # Digital).
     campaign = _whatsapp_campaign(conv)
-    campaign_integration = _campaign_integration_source(conv, blueprint_mode)
-    if campaign_integration:
-        extra_fields[config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD] = campaign_integration
+    integration_source = _deal_integration_source(conv, blueprint_mode)
+    if integration_source:
+        extra_fields[config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD] = integration_source
     if config.ZOHO_CRM_BUSINESS_TYPE_FIELD:
         # "Business Type" picklist (Retail / Project / Retail A & ID) —
         # "Retail A & ID" is agent-set in CRM afterwards.
@@ -9575,7 +9611,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
         name=name, email=email, subject=subject,
         category_display=category_display, owner=owner,
         layout_name=layout_name)
-    deal_name = f"{name or email} — DurianORM · {_channel_label(conv)}"[:255]
+    deal_name = _deal_title(conv, name, email, str(deal_phone or ""))
     async def _create(fields: dict) -> dict:
         return await zoho_crm.create_deal(
             contact_id=contact_id, deal_name=deal_name,
@@ -9584,7 +9620,7 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             stage=deal_stage, extra_fields=fields,
         )
     deal = await _create_deal_keeping_campaign_optional(
-        _create, extra_fields, bool(campaign_integration), conv_id)
+        _create, extra_fields, bool(integration_source), conv_id)
 
     deal_id = str(deal.get("id") or "")
     try:

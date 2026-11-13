@@ -3096,6 +3096,40 @@ def test_campaign_integration_source(monkeypatch):
     assert main._campaign_integration_source(_AD_CONV) == ""
 
 
+_WEB_CONV = {"custom_attributes": {}, "meta": {"channel": "Channel::WebWidget"}}
+
+
+def test_web_chat_deal_title_is_just_the_customer():
+    """Website-bot deals (Furniture Bot / Website FHC Bot) are titled with the
+    customer only; the channel moved to Integration Source. Others unchanged."""
+    import main
+    assert main._deal_title(_WEB_CONV, "Varsha Patil", "v@x.com", "98") == "Varsha Patil"
+    assert main._deal_title(_WEB_CONV, "", "v@x.com") == "v@x.com"
+    assert main._deal_title(_WEB_CONV, "", "", "9876543210") == "9876543210"
+    assert main._deal_title(_WEB_CONV, "", "") == "Web Chat enquiry"
+    assert main._deal_title(_AD_CONV, "Ravi", "") == "Ravi — DurianORM · WhatsApp"
+    assert main._deal_title(_PLAIN_CONV, "Asha", "a@x.com") == "Asha — DurianORM · Instagram"
+    assert len(main._deal_title(_WEB_CONV, "x" * 400, "")) == 255
+
+
+def test_web_chat_integration_source(monkeypatch):
+    import main
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE", "DurianORM - Web Chat")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
+                        "Durian ORM - WhatsApp Campaign")
+    assert main._deal_integration_source(_WEB_CONV) == "DurianORM - Web Chat"
+    # FHC website deal: non-empty keeps the Digital Blueprint; a studio visit
+    # (Offline Blueprint) keeps the field empty
+    assert main._deal_integration_source(_WEB_CONV, "digital") == "DurianORM - Web Chat"
+    assert main._deal_integration_source(_WEB_CONV, "offline") == ""
+    # other channels: campaign marker as before, nothing for a plain deal
+    assert main._deal_integration_source(_AD_CONV) == "Durian ORM - WhatsApp Campaign"
+    assert main._deal_integration_source(_PLAIN_CONV) == ""
+    monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "")
+    assert main._deal_integration_source(_WEB_CONV) == ""
+
+
 def test_campaign_deal_fields_follow_client_convention(monkeypatch):
     import main
     for k, v in {"ZOHO_CRM_CAMPAIGN_SOURCE_FIELD": "Campaign_Source1",
