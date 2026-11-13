@@ -3099,35 +3099,50 @@ def test_campaign_integration_source(monkeypatch):
 _WEB_CONV = {"custom_attributes": {}, "meta": {"channel": "Channel::WebWidget"}}
 
 
-def test_web_chat_deal_title_is_just_the_customer():
-    """Website-bot deals (Furniture Bot / Website FHC Bot) are titled with the
-    customer only; the channel moved to Integration Source. Others unchanged."""
+def test_deal_title_is_just_the_customer():
+    """Every ORM deal is titled with the customer only; the channel moved to
+    Integration Source."""
     import main
     assert main._deal_title(_WEB_CONV, "Varsha Patil", "v@x.com", "98") == "Varsha Patil"
-    assert main._deal_title(_WEB_CONV, "", "v@x.com") == "v@x.com"
-    assert main._deal_title(_WEB_CONV, "", "", "9876543210") == "9876543210"
-    assert main._deal_title(_WEB_CONV, "", "") == "Web Chat enquiry"
-    assert main._deal_title(_AD_CONV, "Ravi", "") == "Ravi — DurianORM · WhatsApp"
-    assert main._deal_title(_PLAIN_CONV, "Asha", "a@x.com") == "Asha — DurianORM · Instagram"
+    assert main._deal_title(_AD_CONV, "Ravi", "") == "Ravi"
+    assert main._deal_title(_PLAIN_CONV, "", "a@x.com") == "a@x.com"
+    assert main._deal_title(_PLAIN_CONV, "", "", "9876543210") == "9876543210"
+    assert main._deal_title(_PLAIN_CONV, "", "") == "ORM enquiry"
     assert len(main._deal_title(_WEB_CONV, "x" * 400, "")) == 255
 
 
-def test_web_chat_integration_source(monkeypatch):
+def test_channel_integration_source(monkeypatch):
     import main
     monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
-    monkeypatch.setattr(main.config, "ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE", "DurianORM - Web Chat")
+    monkeypatch.setattr(main.config, "ZOHO_CRM_CHANNEL_INTEGRATION_SOURCE", "DurianORM - {channel}")
     monkeypatch.setattr(main.config, "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE",
                         "Durian ORM - WhatsApp Campaign")
+    wa = {"custom_attributes": {}, "meta": {"channel": "Channel::Whatsapp"}}
+    mail = {"custom_attributes": {}, "meta": {"channel": "Channel::Email"}}
+    fb = {"custom_attributes": {}, "meta": {"channel": "Channel::FacebookPage"}}
     assert main._deal_integration_source(_WEB_CONV) == "DurianORM - Web Chat"
-    # FHC website deal: non-empty keeps the Digital Blueprint; a studio visit
-    # (Offline Blueprint) keeps the field empty
-    assert main._deal_integration_source(_WEB_CONV, "digital") == "DurianORM - Web Chat"
-    assert main._deal_integration_source(_WEB_CONV, "offline") == ""
-    # other channels: campaign marker as before, nothing for a plain deal
+    assert main._deal_integration_source(wa) == "DurianORM - WhatsApp"
+    assert main._deal_integration_source(_PLAIN_CONV) == "DurianORM - Instagram"
+    assert main._deal_integration_source(mail) == "DurianORM - Email"
+    assert main._deal_integration_source(fb) == "DurianORM - Facebook"
+    assert main._deal_integration_source({"meta": {}}) == "DurianORM"
+    # FHC: non-empty keeps the Digital Blueprint; a studio visit keeps it empty
+    assert main._deal_integration_source(wa, "digital") == "DurianORM - WhatsApp"
+    assert main._deal_integration_source(wa, "offline") == ""
+    # campaign leads keep their campaign marker
     assert main._deal_integration_source(_AD_CONV) == "Durian ORM - WhatsApp Campaign"
-    assert main._deal_integration_source(_PLAIN_CONV) == ""
     monkeypatch.setattr(main.config, "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "")
-    assert main._deal_integration_source(_WEB_CONV) == ""
+    assert main._deal_integration_source(wa) == ""
+
+
+def test_deal_city_fallbacks():
+    import main
+    owner = {"retail_deal_owner": {"city": "Mumbai", "location": "Furniture - Mumbai - Worli"}}
+    assert main._deal_city(owner, {"city": "Thane"}) == "Thane"          # customer said it
+    assert main._deal_city(owner, {}) == "Mumbai"                        # routed store's city
+    assert main._deal_city({"campaign_city": "Noida"}, {}) == "Noida"    # FHC ad prefill
+    assert main._deal_city({"retail_deal_owner": {"city": " "}}, None) == ""
+    assert main._deal_city(None, None) == ""
 
 
 def test_campaign_deal_fields_follow_client_convention(monkeypatch):
