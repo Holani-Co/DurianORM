@@ -1,0 +1,389 @@
+# Routing rules for the general mailbox info@durian.in (Chatwoot inbox "Durian Info").
+# ──────────────────────────────────────────────────────────────────────────────
+# SEPARATE from routing_rules.yaml (hello@durian.in): info@ gets its own category
+# list and owners, so nothing here changes how hello@ mail is handled.
+#
+# Read by info_routing.py (bridge). Gated by INFO_ROUTING_ENABLED and
+# INFO_ROUTING_DRY_RUN. Edits need a zoho-bridge restart.
+#
+# Categories come from the info@durian.in Email Review (2 Nov 2026). Owners come
+# from Durian's notes on that review (3 Nov 2026).
+#
+# Schema per category:
+#   display_name   label shown in the private note
+#   group          the review's top-level group (shown before the category)
+#   action         forward → email the trail to forward_to (+ cc), tag, resolve
+#                  hold    → no owner yet: label + note, left open in the inbox
+#   forward_to     comma-separated recipients (forward only)
+#   cc             list of extra recipients (forward only)
+#   description    LLM-facing sentence: when to pick this category
+#   examples       subject lines from the review (customer names removed); where
+#                  the review had none (job, other pitch, group company) they
+#                  are illustrative
+#   keywords       short phrases that point to this category
+#
+# To route a "hold" category once Durian names an owner: set action: forward,
+# add forward_to, and restart the bridge.
+
+categories:
+
+  # ── Needs a business owner ─────────────────────────────────────────────────
+
+  govt_psu_business:
+    display_name: Government and PSU — bids, orders and contracts
+    group: Needs a business owner
+    action: forward
+    forward_to: marketing@durian.in
+    cc: []
+    description: |
+      A government department, PSU, public university or institute, or a
+      government e-procurement portal (GeM, CPPP, state eProcurement, a PSU
+      vendor portal) writing about a tender, bid, RFx or enquiry, a supply or
+      work order, contract delivery or performance, inspection, EMD or
+      security deposit, or vendor registration. NOT a tax or regulator letter
+      (Income Tax, GST, customs, RBI) — that is finance_tax_regulatory. NOT a
+      show-cause, penalty or legal notice — that is govt_psu_notice.
+    examples:
+      - "RFx 7000674503 (BEL vendor portal)"
+      - "BI# GEM/2026/B/8223864 for Bed and Mattress (SAIL Bokaro)"
+      - "Reminder: contract delivery — no response or delivery action so far (NPCIL)"
+      - "Request for bank details to release the EMD (IISER Mohali)"
+    keywords: [GeM, GEM/2026, RFx, RFQ, Tender, Bid, NIT, eProcurement, Vendor Portal,
+      Supply Order, Work Order, Contract, Delivery Period, Inspection, EMD,
+      Security Deposit, Performance Bank Guarantee, PSU, Vendor Registration]
+
+  govt_psu_notice:
+    display_name: Government and PSU — show-cause and legal notices
+    group: Needs a business owner
+    action: forward
+    forward_to: marketing@durian.in, saharsh@durian.in
+    cc: []
+    description: |
+      A government or PSU buyer issuing a formal notice against Durian about a
+      contract: show-cause notice, penalty or liquidated damages, risk
+      purchase, blacklisting or debarment, termination, or a legal notice.
+    examples:
+      - "Show Cause Notice for not performing as per provision of contract (PWD Delhi)"
+    keywords: [Show Cause, Show-Cause Notice, Penalty, Liquidated Damages, Risk Purchase,
+      Blacklisting, Debarment, Termination of Contract, Legal Notice]
+
+  legal_ip_notice:
+    display_name: Legal, trademark and court notices
+    group: Needs a business owner
+    action: hold
+    description: |
+      Notices from courts, tribunals, lawyers, or the Trade Marks Registry /
+      IP India (trademark applications, oppositions, hearings) that are NOT a
+      government buyer acting on a Durian contract (that is govt_psu_notice).
+    examples:
+      - "Adjournment Notice for Application No. 4725118 and Opposition No. 1101433 (Trade Marks Registry)"
+    keywords: [Trade Marks Registry, Trademark, IP India, Opposition, Hearing,
+      Court, Tribunal, Summons, Advocate, Legal Notice]
+
+  customer_complaint:
+    display_name: Customer complaint
+    group: Needs a business owner
+    action: hold
+    description: |
+      A customer unhappy with a Durian product, delivery, installation, store,
+      service or refund — defects, damage, delays, refund disputes.
+    examples:
+      - "Request for Immediate Rectification of Modular Kitchen Defects"
+      - "Received a damaged Sofa"
+      - "Issue in Sofa - Berry"
+
+  business_enquiry:
+    display_name: Business enquiry or order (private company)
+    group: Needs a business owner
+    action: hold
+    description: |
+      A PRIVATE company or contractor (builders, EPC contractors, exporters,
+      offices) asking Durian for a quotation or product details, or sending a
+      purchase order or work order (furniture, doors, windows, plywood,
+      veneer). Government or PSU buyers are govt_psu_business instead.
+    examples:
+      - "Request for Quotation: BWR Grade Plywood Sheets"
+      - "Purchase Order – Durian Office Chairs"
+      - "Work Order for Purchase of Furniture for Kaithal Construction Site"
+
+  oem_supply:
+    display_name: Furniture makers offering supply (possible OEM)
+    group: Needs a business owner
+    action: hold
+    description: |
+      A manufacturer of FINISHED furniture offering to supply products to
+      Durian, or to make products under Durian's brand (contract / OEM
+      manufacturing), or inviting Durian to see its furniture range. Raw
+      material, machinery or tools are pitch_raw_material instead.
+    examples:
+      - "Compressed sofas under your own brand"
+      - "Company brochure of Office Furniture"
+      - "Invitation to Visit KREDE at ORGATEC 2026"
+
+  job_application:
+    display_name: Job application
+    group: Needs a business owner
+    action: hold
+    description: |
+      Someone applying for a job or internship, or sending a CV / resume.
+    examples:
+      - "CV"
+      - "Application for the post of Sales Executive"
+
+  # ── Finance, tax and shipments ─────────────────────────────────────────────
+
+  finance_bank_payments:
+    display_name: Bank, payments and bills
+    group: Finance, tax and shipments
+    action: forward
+    forward_to: jitesh@durian.in, vikaashtulsian@durian.in, dipesh.patel@durian.in
+    cc: []
+    description: |
+      Banking and payment mail about Durian's own accounts and dues: bank
+      letters and loan-account notices, payment or remittance notifications,
+      invoices, e-invoices and bills addressed to Durian (including telecom,
+      mobile and utility bills and their payment receipts), statements and
+      balance confirmations.
+    examples:
+      - "Loan Closure Confirmation (HDFC Bank)"
+      - "Payment Notification from Valor Innovation"
+      - "PVR INOX E-Invoices - Durian Industries Ltd"
+    keywords: [Bank, Loan Account, Loan Closure, Payment Notification, Payment Advice,
+      Remittance, Invoice, E-Invoice, Bill, Statement, Balance Confirmation, NEFT, RTGS]
+
+  finance_tax_regulatory:
+    display_name: Tax, regulators and certification
+    group: Finance, tax and shipments
+    action: forward
+    forward_to: jitesh@durian.in, vikaashtulsian@durian.in, dipesh.patel@durian.in
+    cc: []
+    description: |
+      Letters from tax authorities (Income Tax, GST, TDS, customs duty),
+      regulators (RBI, MCA / ROC, SEBI and similar) and certification bodies
+      about Durian's own registrations or certificates (PEFC, FSC, ISO, BIS) —
+      notices, returns, surveys, reminders, renewals and transfers.
+    examples:
+      - "[ITBA] Issue Letter (Income Tax)"
+      - "Reserve Bank of India OBICUS Round 75 reminder"
+      - "Action Required: Transfer of PEFC CoC Certificate"
+    keywords: [Income Tax, ITBA, GST, TDS, Customs, RBI, Reserve Bank of India, MCA, ROC,
+      SEBI, PEFC, FSC, CoC Certificate, ISO Certificate, BIS]
+
+  own_shipments:
+    display_name: Durian's own shipments
+    group: Finance, tax and shipments
+    action: forward
+    forward_to: ganguli@durian.in, rakesh@durian.in, jayashree@durian.in
+    cc: []
+    description: |
+      Documents about Durian's OWN import or export consignments from the
+      shipping line, forwarder, courier or customs agent handling them:
+      delivery orders, bills of lading, airway bills, arrival notices, duty or
+      customs confirmations, container release. A logistics company offering
+      its services or rates is pitch_freight instead.
+    examples:
+      - "E-Delivery Order, BL UPS2609090 (TS Lines)"
+      - "Duty Confirmation, AWB 915578479 (Grand Slam Express)"
+    keywords: [Delivery Order, E-Delivery Order, Bill of Lading, BL, AWB, Airway Bill,
+      Arrival Notice, Duty Confirmation, Container Release, Customs Clearance]
+
+  # ── Internal Durian mail ───────────────────────────────────────────────────
+
+  erp_po_copy:
+    display_name: ERP purchase order copy
+    group: Internal Durian mail
+    action: hold
+    description: |
+      An automatic purchase-order copy or status mail from Durian's ERP
+      (erp@durian.in).
+    examples:
+      - "Purchase Order Status POHO-2627-0730"
+
+  internal_notice:
+    display_name: Staff notice or account alert
+    group: Internal Durian mail
+    action: hold
+    description: |
+      Internal Durian announcements, staff newsletters, IT or security notices,
+      and automatic account alerts (Google security alerts, sign-in or
+      password notices, delivery-failure bounces).
+    examples:
+      - "Mandatory Security Update: Set Up 2-Step Verification"
+      - "CORPORATE NEWSLETTER - Month of September 2026"
+      - "Security alert"
+
+  # ── Companies pitching to Durian ───────────────────────────────────────────
+
+  pitch_raw_material:
+    display_name: Raw material, machinery and plant suppliers
+    group: Companies pitching to Durian
+    action: forward
+    forward_to: shivshankar.kushwah@durian.in
+    cc: []
+    description: |
+      A company offering to SELL Durian raw materials (board, panels, veneer,
+      laminate sheets, hardware, foam, upholstery fabric, chemicals,
+      adhesives), machinery, CNC and woodworking machines, tools, or plant
+      equipment and utilities (cooling towers, compressors, boilers, DG sets,
+      solar), or asking to register as a material supplier.
+    examples:
+      - "Vendor Registration Enquiry / Raw Material Supply Capability"
+      - "Hymmen + Kontra: laminating line for panels"
+      - "Quality Precision tools for Wood working Industry"
+    keywords: [Raw Material, Supplier, Vendor Registration, Machinery, Machine, Plant,
+      Tools, Hardware, Adhesive, Board, Panel, MDF, Particle Board, Veneer Supply]
+
+  pitch_services:
+    display_name: Services — telecom, software, travel, testing
+    group: Companies pitching to Durian
+    action: forward
+    forward_to: itsupport@durian.in
+    cc: []
+    description: |
+      A company offering Durian ONLY these kinds of service: internet or
+      telecom, phones and devices, software, SaaS, cloud or IT services,
+      cybersecurity, travel, and testing, inspection or lab services. NOT
+      consultancy (tax, accounting, payroll, legal, HR, staffing) or digital
+      marketing — those are pitch_other. NOT freight or logistics
+      (pitch_freight). NOT listings, PR or marketing (pitch_listings_pr).
+    examples:
+      - "Fast, Secure Dedicated Internet for SMEs (Tata Tele)"
+      - "Google Pixel 11 for Enterprise"
+      - "Reaction to Fire and Fire resistance Testing"
+    keywords: [Internet, Leased Line, Broadband, Telecom, Mobile, Software, SaaS, ERP Software,
+      Cloud, Cybersecurity, IT Services, Travel, Testing, Lab Testing, Inspection]
+
+  pitch_freight:
+    display_name: Freight and logistics companies
+    group: Companies pitching to Durian
+    action: forward
+    forward_to: ganguli@durian.in, rakesh@durian.in, jayashree@durian.in
+    cc: []
+    description: |
+      A freight forwarder, shipping line, customs broker, transporter or other
+      logistics company introducing itself or quoting rates to Durian.
+      Documents for a shipment Durian already has are own_shipments instead.
+    examples:
+      - "Nhava Sheva to Sohar, 1x20 FT & 1x40 HC, Ocean Freight"
+      - "Introduction - Swayam Shipping Solutions"
+    keywords: [Freight, Ocean Freight, Air Freight, Shipping, Logistics, Forwarder,
+      Transport, Rates, Container, FCL, LCL, Customs Broker]
+
+  pitch_listings_pr:
+    display_name: Listings, PR and collaborations
+    group: Companies pitching to Durian
+    action: forward
+    forward_to: shilpa@durian.in
+    cc: []
+    description: |
+      Business listings and directories, PR agencies, media and advertising
+      offers, design or exhibition collaborations, CSR partnerships, and
+      brand or influencer collaborations proposed to Durian.
+    examples:
+      - "Durian Furniture <> Justdial Ltd - Corporate Partnership"
+      - "PR Proposal"
+      - "A Design-Led Exhibition Collaboration, Rhea Mehta Design × Durian Decorative Veneers"
+      - "CSR Partnership Proposal"
+    keywords: [Listing, Justdial, Directory, PR, Public Relations, Media, Advertising,
+      Collaboration, Partnership, CSR, Influencer, Exhibition Collaboration]
+
+  pitch_other:
+    display_name: Other company pitch
+    group: Companies pitching to Durian
+    action: hold
+    description: |
+      A company pitching something to Durian that is none of the four pitch
+      types above (raw material / machinery, services, freight, listings / PR)
+      — for example consultancy (tax, accounting, payroll, legal, HR),
+      staffing, digital marketing or SEO, finance products, or property for
+      rent.
+    examples:
+      - "Taxation and Payroll consultants"
+      - "SEO services to grow your website traffic"
+      - "Manpower and staffing solutions"
+
+  # ── Newsletters, events and other ──────────────────────────────────────────
+
+  industry_events:
+    display_name: Industry bodies, events and training
+    group: Newsletters, events and other
+    action: hold
+    description: |
+      Mail from industry associations and chambers (CII, FICCI and others),
+      invitations to summits, exhibitions, conferences and webinars, and
+      training calendars.
+    examples:
+      - "CII Economy & Industry News Update"
+      - "31st Partnership Summit, Visakhapatnam"
+      - "October 2026 Training Calendar, SGS Academy"
+
+  newsletters:
+    display_name: News and newsletters
+    group: Newsletters, events and other
+    action: hold
+    description: |
+      News digests and company newsletters sent to a mailing list.
+    examples:
+      - "World OOH News"
+      - "BDO India Newsletter, October 2026"
+
+  promotions_other:
+    display_name: Promotions and unrelated mail
+    group: Newsletters, events and other
+    action: hold
+    description: |
+      Sales and marketing promotions, festival greetings and wishes,
+      mass-mailed stock-lot or liquidation offers, and mail with nothing to do
+      with Durian's business.
+    examples:
+      - "Urban Ladder sale mail"
+      - "EUDAMED device registration deadline"
+      - "Wishing You & Your Family a Very Happy Diwali!"
+      - "One time deal. Cotton Blend. Pocketing Fabric. Made in USA."
+
+  # ── Group companies ────────────────────────────────────────────────────────
+
+  group_company:
+    display_name: Mail for a group company (Cedar Decor, Badridham)
+    group: Group companies
+    action: hold
+    description: |
+      Mail addressed to a Durian group company rather than to Durian itself —
+      Cedar Decor or Badridham.
+    examples:
+      - "Cedar Decor Pvt Ltd - payment reminder"
+
+# Mail from these senders is categorised without the AI. A full address matches
+# exactly; "@domain" matches a whole domain. First match wins, in this order.
+sender_rules:
+  - sender: "erp@durian.in"
+    category: erp_po_copy
+  - sender: "@durian.in"
+    category: internal_notice
+  - sender: "no-reply@accounts.google.com"
+    category: internal_notice
+  - sender: "mailer-daemon@googlemail.com"
+    category: internal_notice
+
+# Rules the AI follows when choosing between categories.
+category_ai_rules:
+  - "Pick the ONE category that best fits why the email was sent to Durian."
+  - "A government department, PSU, public institute or government portal (GeM, CPPP, eProcurement, a PSU vendor portal) writing about a tender, bid, order, contract, delivery or EMD is govt_psu_business. If it is a show-cause, penalty, blacklisting, termination or legal notice, it is govt_psu_notice."
+  - "Income Tax, GST, customs, RBI, MCA and other regulators, and certification bodies (PEFC, FSC, ISO, BIS) are finance_tax_regulatory even though they are government bodies."
+  - "Shipping documents for Durian's own consignment (delivery order, bill of lading, airway bill, duty confirmation) are own_shipments. A logistics company offering services or rates is pitch_freight."
+  - "A company selling raw material, machinery, tools or plant to Durian is pitch_raw_material. A maker of finished furniture offering to supply Durian or to make products under Durian's brand is oem_supply."
+  - "A private company asking Durian for a quotation or sending a purchase or work order is business_enquiry — even for doors, windows or plywood, and even when it does government projects. Only a government department, PSU, public institute or government portal makes it govt_psu_business."
+  - "Courts, tribunals, lawyers and the Trade Marks Registry / IP India are legal_ip_notice, not finance_tax_regulatory."
+  - "pitch_services is ONLY IT, telecom, software, devices, travel and testing or lab services. Consultancy (tax, accounting, payroll, legal, HR, staffing), digital marketing and other services are pitch_other. Plant equipment such as cooling towers, compressors or boilers is pitch_raw_material."
+  - "Festival greetings and wishes (Diwali, New Year and the like) are promotions_other, whoever sends them — even a logistics or supplier company."
+  - "Mass-mailed stock-lot or liquidation offers (container loads, closeouts, 'one time deal', 'new low price') are promotions_other, not a raw-material pitch."
+  - "Telecom, mobile and utility bills or payment receipts for Durian's own accounts are finance_bank_payments."
+  - "Bulk mailings — newsletters, event invitations, training calendars, sales promotions — are newsletters, industry_events or promotions_other, even when they mention a topic that matches a business category (an industry newsletter mentioning OEMs is still a newsletter)."
+  - "Mail addressed to the group companies Cedar Decor or Badridham, rather than Durian, is group_company."
+
+# Below this AI confidence the pick is ignored and the email is treated as "not
+# sure" (left in the inbox for a person).
+confidence_threshold: 0.6
+
+# Example subject lines per category the AI sees.
+ai_examples_per_category: 4

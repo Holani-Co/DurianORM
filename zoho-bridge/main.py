@@ -53,6 +53,7 @@ import zoho
 import zoho_crm
 import google_reviews as gr
 import forwarded_email
+import info_routing
 import deal_stage_sync
 import idle_followup
 import store_link_followup
@@ -4285,12 +4286,248 @@ def _is_silent_inbox(inbox: dict) -> bool:
     only, so the bridge runs none of the email pipeline on it. Matched by inbox
     NAME (case-insensitive) so it can be set BEFORE the inbox is connected (no
     first-email race), or by numeric inbox id."""
-    silent = config.SILENT_EMAIL_INBOXES
-    if not silent:
+    return _inbox_listed(inbox, config.SILENT_EMAIL_INBOXES)
+
+
+def _inbox_listed(inbox: dict, entries) -> bool:
+    """True when the inbox's NAME (case-insensitive) or numeric id is in
+    `entries` (a set of lowercased names / ids from a *_INBOXES env)."""
+    if not entries:
         return False
     name = (inbox.get("name") or "").strip().lower()
     inbox_id = inbox.get("id")
-    return (bool(name) and name in silent) or (inbox_id is not None and str(inbox_id) in silent)
+    return (bool(name) and name in entries) or (inbox_id is not None and str(inbox_id) in entries)
+
+
+def _is_info_routing_inbox(inbox: dict) -> bool:
+    """info@durian.in routing is on and this is its inbox (INFO_ROUTING_INBOXES)."""
+    return bool(config.INFO_ROUTING_ENABLED) and _inbox_listed(inbox, config.INFO_ROUTING_INBOXES)
+
+
+# ── info@durian.in routing ────────────────────────────────────────────────
+# The general mailbox gets its own categories + owners (info_routing.py /
+# info_routing_rules.yaml): forward to the owner when one is set and the AI is
+# sure, otherwise label + note and leave it in the inbox. No acknowledgement to
+# the sender, no CRM contact/deal, no Zoho ticket — the hello@ pipeline never
+# runs here.
+_INFO_LABELS_ENSURED: set = set()
+
+
+async def _info_label(conv_id: int, label: str) -> None:
+    """Best-effort label (created once per process, kept off the sidebar)."""
+    try:
+        if label not in _INFO_LABELS_ENSURED:
+            await chatwoot.ensure_label(label, show_on_sidebar=False)
+            _INFO_LABELS_ENSURED.add(label)
+        await chatwoot.add_label(conv_id, label)
+    except Exception as e:
+        print(f"[info] label '{label}' failed for conv {conv_id}: {e}")
+
+
+def _message_from(m: dict) -> str:
+    """Sender address of one email message: the email's From, else the
+    message sender's contact email."""
+    frm = (msg_attrs(m).get("email") or {}).get("from")
+    if isinstance(frm, list):
+        frm = frm[0] if frm else ""
+    return (str(frm or "") or ((m.get("sender") or {}).get("email") or "")).strip().lower()
+
+
+def _info_trail_messages(messages: list) -> list:
+    """The thread minus incoming mail from our own people and machines (an
+    owner replying to a forward, a bounce) — the forward is about the outside
+    sender's emails."""
+    keep = []
+    for m in messages or []:
+        if m.get("message_type") in (0, "incoming"):
+            frm = _message_from(m)
+            if info_routing.is_internal(frm, config.INTERNAL_EMAIL_DOMAINS) \
+                    or info_routing.is_automated(frm):
+                continue
+        keep.append(m)
+    return keep
+
+
+async def _info_send(conv_id: int, body: str, to: list, cc: list) -> None:
+    await chatwoot.send_outgoing_message(
+        conv_id, body, to_emails=", ".join(to), cc_emails=", ".join(cc) if cc else None)
+
+
+async def _handle_info_inbox(data: dict) -> dict:
+    """An incoming email on the info@ inbox: route a new thread, or pass a
+    follow-up in a forwarded thread on to the same owners."""
+    conv = data.get("conversation") or {}
+    conv_id = conv.get("id")
+    if not conv_id:
+        return {"ignored": True, "reason": "no_conversation_id"}
+    try:
+        full = await chatwoot.get_conversation(conv_id)
+    except Exception as e:
+        print(f"[info] conv {conv_id}: get_conversation failed: {e}")
+        full = conv
+    state = (full.get("custom_attributes") or {}).get("info_routing") or {}
+    if state:
+        return await _info_followup(conv_id, full, state, data)
+
+    additional = full.get("additional_attributes") or conv.get("additional_attributes") or {}
+    subject = additional.get("mail_subject") or additional.get("subject") or ""
+    sender = (full.get("meta") or conv.get("meta") or {}).get("sender") or {}
+    sender_email = (sender.get("email") or _message_from(data)).strip().lower()
+    sender_name = sender.get("name") or ""
+    content = data.get("content") or _email_body(data, full=True)
+    try:
+        d = await info_routing.decide(content, sender_email, subject)
+    except Exception as e:  # rules file missing/broken → leave the email as it is
+        print(f"[info] conv {conv_id}: routing skipped ({type(e).__name__}: {e})")
+        return {"ignored": True, "reason": "info_routing_error"}
+
+    lines = info_routing.note_header(d)
+    to, cc = list(d.get("forward_to") or []), list(d.get("cc") or [])
+    forwarded = False
+    if d["route"] == "forward":
+        if _LOCAL_FORWARD_OVERRIDE:
+            to, cc = [_LOCAL_FORWARD_OVERRIDE], []
+            lines.append(f"🧪 Local test: forward redirected to {_LOCAL_FORWARD_OVERRIDE}.")
+        dest = ", ".join(to) + (f" (Cc {', '.join(cc)})" if cc else "")
+        if config.INFO_ROUTING_DRY_RUN:
+            lines.append(f"🧪 Trial run — would forward to {dest}. Nothing was sent.")
+        else:
+            try:
+                messages = await chatwoot.get_conversation_messages(conv_id)
+                trail = _email_thread(_info_trail_messages(messages), sender_name,
+                                      sender_email) or content.strip()
+                await _info_send(conv_id, info_routing.forward_body(
+                    sender_name, sender_email, subject, trail), to, cc)
+                forwarded = True
+                lines.append(f"📨 Forwarded to {dest}.")
+            except Exception as e:
+                print(f"[info] conv {conv_id}: forward failed: {e}")
+                lines.append(f"⚠️ The forward to {dest} failed ({e}) — left open.")
+    elif d["route"] == "hold":
+        lines.append("⏸️ No owner is set for this category yet, so it was left "
+                     "here — not forwarded.")
+    else:
+        lines.append("⏸️ Left here for a person to check — nothing was sent. To "
+                     "send it on, use ⋮ → Forward email.")
+
+    # A "not sure" email gets only the not-sure label — never its guessed
+    # category's label, so category labels stay trustworthy for later clean-ups.
+    await _info_label(conv_id, info_routing.NOT_SURE_LABEL if d["route"] == "review"
+                      else info_routing.label_for(d["category"]))
+    if forwarded:
+        try:
+            await chatwoot.add_label(conv_id, "auto-forwarded")
+        except Exception as e:
+            print(f"[info] conv {conv_id}: auto-forwarded label failed: {e}")
+
+    state = {"category": d["category"], "route": d["route"],
+             "confidence": d.get("confidence"), "source": d.get("source"),
+             "forward_to": to if d["route"] == "forward" else [],
+             "cc": cc if d["route"] == "forward" else [],
+             "forwarded": forwarded,
+             "dry_run": bool(d["route"] == "forward" and config.INFO_ROUTING_DRY_RUN),
+             "handled_at": _now_iso(), "first_message_id": data.get("id")}
+    try:
+        await chatwoot.merge_custom_attributes(conv_id, {"info_routing": state})
+    except Exception as e:
+        print(f"[info] conv {conv_id}: saving routing state failed: {e}")
+    if forwarded and config.RESOLVE_AFTER_FORWARD:
+        try:
+            await chatwoot.toggle_status(conv_id, "resolved")
+            lines.append("✅ Resolved — the owner has it now.")
+        except Exception as e:
+            print(f"[info] conv {conv_id}: resolve failed: {e}")
+    try:
+        await chatwoot.post_private_note(conv_id, "\n".join(lines))
+    except Exception as e:
+        print(f"[info] conv {conv_id}: note failed: {e}")
+    print(f"[info] conv {conv_id}: {d['category']} → {d['route']}"
+          f"{' (forwarded)' if forwarded else ''}")
+    return {"info_routing": d["route"], "category": d["category"], "forwarded": forwarded}
+
+
+async def _info_followup(conv_id: int, full: dict, state: dict, data: dict) -> dict:
+    """A new email in a thread we already routed. Only a thread we FORWARDED
+    passes it on — to the same owners — and only mail from the outside sender
+    (see info_routing.followup_check). Everything else stays as it is."""
+    if not config.INFO_ROUTING_FOLLOWUPS_ENABLED:
+        return {"ignored": True, "reason": "info_followups_off"}
+    frm = _message_from(data)
+    now = datetime.now(timezone.utc)
+    ok, why = info_routing.followup_check(
+        state, frm, data.get("id"), now,
+        max_per_day=config.INFO_ROUTING_FOLLOWUP_MAX_PER_DAY,
+        internal_domains=config.INTERNAL_EMAIL_DOMAINS)
+    if not ok:
+        print(f"[info] conv {conv_id}: follow-up not forwarded ({why})")
+        note = None
+        if why == "daily_cap":
+            note = ("⏸️ Another email arrived in this thread but was not forwarded — "
+                    f"the limit of {config.INFO_ROUTING_FOLLOWUP_MAX_PER_DAY} follow-ups "
+                    "per thread in 24 hours was reached.")
+        elif why == "internal_sender":
+            # One of our own people answered (usually the owner replying to the
+            # forward, which comes back to info@). The owner has the thread — keep
+            # it resolved instead of letting the reply reopen it.
+            note = f"↩️ {frm} replied in this thread — kept resolved; the owner has it."
+            if config.RESOLVE_AFTER_FORWARD:
+                try:
+                    await chatwoot.toggle_status(conv_id, "resolved")
+                except Exception as e:
+                    print(f"[info] conv {conv_id}: resolve failed: {e}")
+        elif why == "automated_sender":
+            # Typically a delivery failure for our forward — left open for a person.
+            note = (f"⚠️ An automatic message arrived in this thread ({frm}). If it "
+                    "is a delivery failure, the forward may not have reached "
+                    "everyone — please check.")
+        if note:
+            try:
+                await chatwoot.post_private_note(conv_id, note)
+            except Exception:
+                pass
+        return {"ignored": True, "reason": f"info_followup_{why}"}
+
+    to, cc = list(state.get("forward_to") or []), list(state.get("cc") or [])
+    if _LOCAL_FORWARD_OVERRIDE:
+        to, cc = [_LOCAL_FORWARD_OVERRIDE], []
+    sender = (full.get("meta") or {}).get("sender") or {}
+    contact_name, contact_email = sender.get("name") or "", (sender.get("email") or "").lower()
+    subject = (full.get("additional_attributes") or {}).get("mail_subject") or ""
+    who = (data.get("sender") or {}).get("name") or contact_name
+    try:
+        messages = await chatwoot.get_conversation_messages(conv_id)
+        trail = _email_thread(_info_trail_messages(messages), contact_name, contact_email) \
+            or (data.get("content") or "").strip()
+        await _info_send(conv_id, info_routing.forward_body(
+            who, frm, subject, trail, followup=True), to, cc)
+    except Exception as e:
+        print(f"[info] conv {conv_id}: follow-up forward failed: {e}")
+        try:
+            await chatwoot.post_private_note(
+                conv_id, f"⚠️ A new email arrived in this thread but forwarding it to "
+                         f"{', '.join(to)} failed ({e}).")
+        except Exception:
+            pass
+        return {"ignored": True, "reason": "info_followup_send_failed"}
+
+    try:
+        await chatwoot.merge_custom_attributes(
+            conv_id, {"info_routing": info_routing.record_followup(state, data.get("id"), now)})
+    except Exception as e:
+        print(f"[info] conv {conv_id}: saving follow-up state failed: {e}")
+    note = f"📨 Follow-up email forwarded to {', '.join(to)}."
+    if config.RESOLVE_AFTER_FORWARD:
+        try:
+            await chatwoot.toggle_status(conv_id, "resolved")
+            note += "\n✅ Resolved again — the owner has it."
+        except Exception as e:
+            print(f"[info] conv {conv_id}: resolve failed: {e}")
+    try:
+        await chatwoot.post_private_note(conv_id, note)
+    except Exception:
+        pass
+    print(f"[info] conv {conv_id}: follow-up {data.get('id')} forwarded to {to}")
+    return {"info_routing": "followup_forwarded", "forwarded": True}
 
 
 async def handle_message_created(data: dict) -> dict:
@@ -4322,6 +4559,12 @@ async def handle_message_created(data: dict) -> dict:
     if config.WEBSITE_REVIEWS_INBOX_ID and inbox_id == config.WEBSITE_REVIEWS_INBOX_ID:
         print(f"[msg] ignoring — website reviews inbox (handled by website reviews poller)")
         return {"ignored": True, "reason": "website_reviews_inbox"}
+
+    # info@durian.in routing (INFO_ROUTING_ENABLED): its own categories + owners,
+    # instead of the hello@ pipeline. Checked BEFORE the silent-inbox gate so,
+    # with the flag off, "Durian Info" stays observation-only exactly as before.
+    if _is_info_routing_inbox(inbox):
+        return await _handle_info_inbox(data)
 
     # Operator-silenced inbox (SILENT_EMAIL_INBOXES): connected for OBSERVATION
     # only — mail is visible in Chatwoot but the bridge runs none of the email
