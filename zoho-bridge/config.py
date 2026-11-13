@@ -475,6 +475,24 @@ NEVER_SPAM_INBOXES = _csv(
 # in place BEFORE the inbox is connected; numeric entries match the inbox id.
 SILENT_EMAIL_INBOXES = _csv("SILENT_EMAIL_INBOXES")
 
+# info@durian.in routing (info_routing.py + info_routing_rules.yaml): the general
+# mailbox gets its OWN categories and owners — an email is forwarded to its
+# category's owner when one is set, otherwise labelled and left in the inbox.
+# Runs INSTEAD of the hello@ pipeline and AHEAD of SILENT_EMAIL_INBOXES, so with
+# INFO_ROUTING_ENABLED off the inbox stays observation-only exactly as before.
+# INFO_ROUTING_DRY_RUN=true (the default) is a trial run: the private note says
+# "would forward to …" and nothing is emailed.
+INFO_ROUTING_ENABLED = _bool("INFO_ROUTING_ENABLED", "false")
+INFO_ROUTING_INBOXES = _csv("INFO_ROUTING_INBOXES", "Durian Info")   # names or ids
+INFO_ROUTING_DRY_RUN = _bool("INFO_ROUTING_DRY_RUN", "true")
+# The AI forwards on its own only at/above this confidence; below it the email
+# is left in the inbox with a "not sure" note.
+INFO_ROUTING_AUTO_CONFIDENCE = float(os.environ.get("INFO_ROUTING_AUTO_CONFIDENCE", "0.85"))
+# A later email from the outside sender in a thread we forwarded goes to the
+# same owners (internal senders and bounces never do), at most N per thread/24h.
+INFO_ROUTING_FOLLOWUPS_ENABLED = _bool("INFO_ROUTING_FOLLOWUPS_ENABLED", "true")
+INFO_ROUTING_FOLLOWUP_MAX_PER_DAY = int(os.environ.get("INFO_ROUTING_FOLLOWUP_MAX_PER_DAY", "3"))
+
 
 # Minimum classifier confidence (1-10) required to AUTO-SNOOZE a spam
 # conversation. Below this, the message gets the "spam" label but stays in
