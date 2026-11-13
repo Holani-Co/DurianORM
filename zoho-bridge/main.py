@@ -9185,19 +9185,11 @@ def _channel_label(conv) -> str:
     return "ORM"
 
 
-def _is_web_chat(conv) -> bool:
-    """A website-bot conversation (Furniture Bot / Website FHC Bot web widget)."""
-    return _channel_label(conv) == "Web Chat"
-
-
 def _deal_title(conv, name: str, email: str, phone: str = "") -> str:
-    """The CRM deal title. Website-bot deals are titled with just the customer,
-    like the client's other integrations' deals — their channel goes into
-    Integration Source instead ("DurianORM - Web Chat"). Every other channel
-    keeps "<name> — DurianORM · <channel>"."""
-    if _is_web_chat(conv):
-        return (name or email or phone or "Web Chat enquiry")[:255]
-    return f"{name or email} — DurianORM · {_channel_label(conv)}"[:255]
+    """The CRM deal title: just the customer, like the client's other
+    integrations' deals. The channel goes into Integration Source instead
+    ("DurianORM - WhatsApp") — see _channel_integration_source."""
+    return (name or email or phone or "ORM enquiry")[:255]
 
 
 def _enquiry_source_for(conv) -> str:
@@ -9285,23 +9277,40 @@ def _campaign_integration_source(conv, blueprint_mode: str = "") -> str:
     return ""
 
 
-def _web_chat_integration_source(conv, blueprint_mode: str = "") -> str:
-    """The Integration Source a website-bot deal is CREATED with ("" = none):
-    "DurianORM - Web Chat", in place of the channel the title no longer
-    carries. A confirmed studio visit (Offline Home Studio Blueprint) must keep
-    the field empty."""
-    if (_is_web_chat(conv) and blueprint_mode != "offline"
-            and config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD):
-        return config.ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE
-    return ""
+def _channel_integration_source(conv, blueprint_mode: str = "") -> str:
+    """The Integration Source a deal is CREATED with for its channel ("" = none):
+    "DurianORM - WhatsApp", "DurianORM - Web Chat" … (an unknown channel gives
+    plain "DurianORM"). A confirmed studio visit (Offline Home Studio Blueprint)
+    must keep the field empty."""
+    template = config.ZOHO_CRM_CHANNEL_INTEGRATION_SOURCE
+    if blueprint_mode == "offline" or not config.ZOHO_CRM_INTEGRATION_SOURCE_FIELD or not template:
+        return ""
+    label = _channel_label(conv)
+    if label == "ORM":
+        return "DurianORM"
+    return template.replace("{channel}", label)[:255]
 
 
 def _deal_integration_source(conv, blueprint_mode: str = "") -> str:
     """The Integration Source written AT CREATE, overriding the env default /
-    Blueprint value: a WhatsApp campaign lead's campaign marker, else a
-    website-bot deal's web-chat marker, else "" (leave what's there)."""
+    Blueprint value: a WhatsApp campaign lead's campaign marker, else the
+    channel marker, else "" (offline studio visit: leave it empty)."""
     return (_campaign_integration_source(conv, blueprint_mode)
-            or _web_chat_integration_source(conv, blueprint_mode))
+            or _channel_integration_source(conv, blueprint_mode))
+
+
+def _deal_city(custom: dict, captured: dict) -> str:
+    """The customer's city for the Deal's City field: what the customer told us
+    (deal-details capture), else the city of the store we routed them to (the
+    store locator picks it from their city/pincode), else the city from a
+    WhatsApp campaign prefill. "" when none is known."""
+    custom = custom or {}
+    for value in ((captured or {}).get("city"),
+                  (custom.get("retail_deal_owner") or {}).get("city"),
+                  custom.get("campaign_city")):
+        if str(value or "").strip():
+            return str(value).strip()[:120]
+    return ""
 
 
 def _campaign_deal_fields(campaign: dict) -> dict:
@@ -9601,8 +9610,9 @@ async def _create_crm_deal(conv_id, *, agent_name="an agent", sector="",
             deal_phone = _tp[0]
     if config.ZOHO_CRM_MOBILE_FIELD and deal_phone:
         extra_fields.setdefault(config.ZOHO_CRM_MOBILE_FIELD, str(deal_phone))
-    if config.ZOHO_CRM_CITY_FIELD and _captured.get("city"):
-        extra_fields.setdefault(config.ZOHO_CRM_CITY_FIELD, str(_captured["city"]))
+    deal_city = _deal_city(custom, _captured)
+    if config.ZOHO_CRM_CITY_FIELD and deal_city:
+        extra_fields.setdefault(config.ZOHO_CRM_CITY_FIELD, deal_city)
     if config.ZOHO_CRM_EMAIL_FIELD and email:
         extra_fields.setdefault(config.ZOHO_CRM_EMAIL_FIELD, str(email))
 
