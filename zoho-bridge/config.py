@@ -228,6 +228,12 @@ except Exception as _e:  # noqa: BLE001
 # An empty value or field name = not written.
 ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE = os.environ.get(
     "ZOHO_CRM_CAMPAIGN_INTEGRATION_SOURCE", "Durian ORM - WhatsApp Campaign")
+# Website-bot deals (Furniture Bot / Website FHC Bot web chats) carry their
+# channel in Integration Source instead of the deal title, which is just the
+# customer's name (client ask, 13 Nov 2026). Written AT CREATE like the campaign
+# marker; a confirmed studio visit (Offline Home Studio Blueprint) keeps it empty.
+ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE = os.environ.get(
+    "ZOHO_CRM_WEB_CHAT_INTEGRATION_SOURCE", "DurianORM - Web Chat")
 ZOHO_CRM_INTEGRATION_SOURCE_FIELD = os.environ.get(
     "ZOHO_CRM_INTEGRATION_SOURCE_FIELD", "Integration_Source")
 ZOHO_CRM_CAMPAIGN_SOURCE_FIELD = os.environ.get("ZOHO_CRM_CAMPAIGN_SOURCE_FIELD", "Campaign_Source1")
