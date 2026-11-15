@@ -533,6 +533,16 @@ async def handle_status_changed(data: dict) -> dict:
         # so only labels actually present get a remove_label call (the frequent
         # auto-resolves that were never handoffs stay cheap).
         removed = await _clear_agent_needed(conv_id, conv)
+        # A routed hand-over carries no agent-needed flag, only its marker —
+        # clear it too, so a fresh enquiry after this gets its own hand-over line.
+        if (conv.get("custom_attributes") or {}).get(social_agent._HANDOFF_ROUTED_ATTR):
+            try:
+                await chatwoot.merge_custom_attributes(conv_id, {
+                    social_agent._HANDOFF_ROUTED_ATTR: None,
+                    social_agent._HANDOFF_SENT_ATTR: None})
+                removed = removed + ["handoff-marker"]
+            except Exception as e:
+                print(f"[status] handoff marker clear failed for conv {conv_id}: {e}")
         return {"handled": "agent_needed_cleared", "removed": removed} if removed \
             else {"ignored": True, "reason": "resolved_no_agent_labels"}
     if new_status != "open":
@@ -2546,7 +2556,8 @@ async def _label_conversation(conv_id: int, label: str) -> None:
 AGENT_NEEDED_LABEL = "agent-needed"
 # Kept in one place so the flaggers and the cleanup can't drift.
 _AGENT_NEEDED_ALL = [AGENT_NEEDED_LABEL] + [
-    f"{AGENT_NEEDED_LABEL}-{c}" for c in ("email", "instagram", "facebook", "whatsapp", "reviews")]
+    f"{AGENT_NEEDED_LABEL}-{c}"
+    for c in ("email", "instagram", "facebook", "whatsapp", "website", "reviews")]
 
 
 async def _flag_agent_needed(conv_id: int, channel: str) -> None:
