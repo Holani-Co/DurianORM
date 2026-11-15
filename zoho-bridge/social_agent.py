@@ -4393,11 +4393,17 @@ async def _handle_locked(conv, conv_id, channel, surface,
             if surface != "comment":
                 try:
                     await chatwoot.merge_custom_attributes(
-                        conv_id, {_HANDOFF_SENT_ATTR: now.isoformat()})
+                        conv_id, {_HANDOFF_SENT_ATTR: now.isoformat(),
+                                  _HANDOFF_ROUTED_ATTR: routed})
                 except Exception:
                     pass
-        await _card(conv_id, channel, surface, "", 0, trace,
-                    f"Escalated by agent: {esc.get('reason')}", silent=not sent)
+        # A DM the customer was told about AND that sits with its team (or went
+        # to HR / a partnership forward) is done on our side: agent-needed would
+        # ask someone to act on a finished hand-over (ISS-379, conv 12912). The
+        # flag stays for anything unrouted, unsent, or a public comment.
+        if not (sent and routed and surface != "comment"):
+            await _card(conv_id, channel, surface, "", 0, trace,
+                        f"Escalated by agent: {esc.get('reason')}", silent=not sent)
         # The generic handoff team only when no category team took it (and never
         # over a partnership forward's own team).
         if config.SOCIAL_AGENT_HANDOFF_TEAM_ID and not routed:
@@ -4665,6 +4671,9 @@ _COMMENT_HANDOFF_LINE = ("Thank you for reaching out! Please DM us so our team "
 # Stamped when a DM handoff line goes out; with agent-needed still on, the
 # conversation is waiting on a human and the line is not re-sent.
 _HANDOFF_SENT_ATTR = "agent_handoff_sent_at"
+# Set with it when that hand-over also landed with a team (no agent-needed flag
+# then), so the line is still not re-sent; cleared when the conversation resolves.
+_HANDOFF_ROUTED_ATTR = "agent_handoff_routed"
 
 # Hand-over category → Chatwoot team NAME (matched case/space-insensitively by
 # chatwoot.find_team_id). Every one of these teams auto-assigns, so routing hands
@@ -4795,10 +4804,13 @@ async def _post_reasoning_note(conv_id, text: str, trace: list, detail: str) -> 
 def _handoff_pending(conv: dict) -> bool:
     """A DM already handed to our team and not yet picked up: the handoff line
     went out and the agent-needed flag is still on. Resolving the conversation
-    clears the flag, so a later fresh enquiry gets its handoff line again."""
+    clears the flag, so a later fresh enquiry gets its handoff line again. A
+    routed hand-over carries no flag, so its own marker counts instead (also
+    cleared on resolve)."""
     labels = conv.get("labels") or []
-    return "agent-needed" in labels and \
-        bool((conv.get("custom_attributes") or {}).get(_HANDOFF_SENT_ATTR))
+    ca = conv.get("custom_attributes") or {}
+    return bool(ca.get(_HANDOFF_SENT_ATTR)) and \
+        ("agent-needed" in labels or bool(ca.get(_HANDOFF_ROUTED_ATTR)))
 
 
 async def _card(conv_id, channel, surface, reply, confidence, trace, hold,

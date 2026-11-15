@@ -2349,6 +2349,10 @@ def test_handoff_pending_needs_label_and_stamp():
     assert sa._handoff_pending({"labels": ["agent-needed"], "custom_attributes": stamp})
     assert not sa._handoff_pending({"labels": [], "custom_attributes": stamp})   # resolved
     assert not sa._handoff_pending({"labels": ["agent-needed"], "custom_attributes": {}})
+    routed = {**stamp, sa._HANDOFF_ROUTED_ATTR: True}       # routed: no label needed
+    assert sa._handoff_pending({"labels": [], "custom_attributes": routed})
+    assert not sa._handoff_pending({"labels": [], "custom_attributes":
+                                    {sa._HANDOFF_ROUTED_ATTR: True}})
 
 
 # Full agent turns with a scripted model (no live LLM).
@@ -2610,6 +2614,63 @@ def test_turn_whatsapp_job_goes_to_career_team(monkeypatch):
     assert res["team"] == "career/job enquiry" and cw.team == 1
     sent = cw.public[0]["content"]
     assert "working with Durian" in sent and "shared your request" not in sent
+
+
+def test_routed_dm_handoff_is_not_flagged_agent_needed(monkeypatch):
+    # ISS-379 / conv 12912: the job seeker was answered and the conversation sat
+    # with the career team, yet agent-needed was still added.
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("job", details="product design intern, Hyderabad",
+                                phone="9876543210")],
+        surface="", latest="I'm in Hyderabad", channel="website",
+        inbox_name="Furniture Bot", teams=_TEAMS)
+    assert res["team"] == "career/job enquiry" and cw.public
+    assert not [l for l in cw.labels if l.startswith("agent-needed")]
+    assert cw.attrs.get(sa._HANDOFF_ROUTED_ATTR) is True
+    # the next "ok" does not re-announce the hand-over, even with no label on
+    _, again = _scripted_turn(
+        monkeypatch, [_esc_call("job", details="product design intern, Hyderabad",
+                                phone="9876543210")],
+        surface="", latest="ok", channel="website", inbox_name="Furniture Bot",
+        teams=_TEAMS, conv_extra={"custom_attributes": dict(cw.attrs)})
+    assert again.public == []
+
+
+def test_unrouted_or_comment_handoff_still_flagged(monkeypatch):
+    # no team found → a person must pick it up
+    _, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="sofa fabric torn, order 551",
+                                phone="9876543210")],
+        surface="", latest="sofa fabric torn 9876543210", inbox_name="durianforhome",
+        teams={})
+    assert "agent-needed" in cw.labels and not cw.attrs.get(sa._HANDOFF_ROUTED_ATTR)
+    # a public comment was only invited to DM → still flagged even when routed
+    _, cw = _scripted_turn(monkeypatch, [_esc_call("complaint")],
+                           latest="Poor quality and worst in service", teams=_TEAMS)
+    assert "agent-needed" in cw.labels
+
+
+def test_resolve_clears_routed_handoff_marker(monkeypatch):
+    import asyncio
+    import main
+
+    class _CW:
+        def __init__(self):
+            self.attrs, self.removed = {}, []
+
+        async def remove_label(self, cid, lbl):
+            self.removed.append(lbl)
+
+        async def merge_custom_attributes(self, cid, attrs):
+            self.attrs.update(attrs)
+    cw = _CW()
+    monkeypatch.setattr(main, "chatwoot", cw)
+    conv = {"id": 9, "status": "resolved", "labels": ["agent-needed-website"],
+            "custom_attributes": {sa._HANDOFF_SENT_ATTR: "x", sa._HANDOFF_ROUTED_ATTR: True}}
+    res = asyncio.run(main.handle_status_changed({"conversation": conv}))
+    assert res["handled"] == "agent_needed_cleared"
+    assert cw.removed == ["agent-needed-website"]          # website label now cleared too
+    assert cw.attrs == {sa._HANDOFF_ROUTED_ATTR: None, sa._HANDOFF_SENT_ATTR: None}
 
 
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):
