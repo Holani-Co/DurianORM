@@ -9,6 +9,9 @@
 # every browser inside durian.in's frontend JS); env-overridable in case the
 # site rotates them. The price sheet remains the source for EMI/SKU internals.
 
+import re
+from urllib.parse import urlsplit
+
 import httpx
 
 import config
@@ -17,7 +20,18 @@ import config
 _FIELDS = ",".join((
     "title", "category", "mrp", "sellingPrice", "productURL", "imageURL",
     "availability", "onlineStock", "exclusive", "discontinuedProducts",
-    "productId", "_root_"))
+    "productId", "_root_", "vertical"))
+
+# The same feed also carries rows that are NOT on the public storefront: the
+# B2B catalogue, private-label items and Full Home Customisation modules. Their
+# productURL is a bare slug glued onto the domain ("https://www.durian.in" +
+# "presley21" → "https://www.durian.inpresley21"), there is no page behind it
+# (404 even with the "/" restored) and most carry no price. A customer's
+# "6 seater dining table" matched only two such private rows (conv 12721); the
+# send-guardrail then held every reply quoting them, so the customer got
+# nothing. Only rows with a real durian.in page are products we can offer, and
+# B2B/private rows stay out even if the site ever gives them a URL.
+_NON_RETAIL_VERTICALS = {"b2b catalogue", "private"}
 
 
 def _first(v):
@@ -28,9 +42,21 @@ def _true(v) -> bool:
     return str(v).strip().lower() in ("true", "1", "y", "yes")
 
 
+def storefront_link(url: str) -> bool:
+    """A real durian.in page: http(s), a durian.in host, and a path."""
+    try:
+        u = urlsplit(url or "")
+        host = (u.hostname or "").rstrip(".")
+    except ValueError:
+        return False
+    return (u.scheme in ("https", "http")
+            and (host == "durian.in" or host.endswith(".durian.in"))
+            and bool(u.path.strip("/")))
+
+
 def normalize(body: dict, rows: int) -> list[dict]:
     """Unbxd response → one entry per product (variant rows share a _root_ —
-    first wins, storefront relevance order), live items only."""
+    first wins, storefront relevance order), live storefront items only."""
     out, seen = [], set()
     for p in (body.get("response") or {}).get("products") or []:
         root = str(p.get("_root_") or p.get("productId") or p.get("title"))
@@ -39,9 +65,11 @@ def normalize(body: dict, rows: int) -> list[dict]:
         seen.add(root)
         if _true(p.get("discontinuedProducts")) or not _true(p.get("availability")):
             continue
+        if str(p.get("vertical") or "").strip().lower() in _NON_RETAIL_VERTICALS:
+            continue
         title = (p.get("title") or "").strip()
         url = (p.get("productURL") or "").strip()
-        if not title or not url:
+        if not title or not storefront_link(url):
             continue
         out.append({
             "title": title,
@@ -81,6 +109,23 @@ def _params(query: str, rows: int, sort: str = "",
     return p
 
 
+# Customer words the storefront files differently. durian.in sells dining only
+# as SETS ("4/6/8 Seater Dining Sets"): no sellable row is a "dining table", and
+# the site's own search redirects "dining table" to /buy-furniture/
+# dining-room-sets. So "6 seater dining table" found nothing sellable while
+# "6 seater dining set" finds them all (conv 12721). Used only as a retry when
+# the customer's words find nothing, so a future standalone-table range still
+# wins on its own name.
+_STOREFRONT_WORDS = ((re.compile(r"\bdining[\s-]+tables?\b", re.I), "dining set"),)
+
+
+def storefront_query(query: str) -> str:
+    q = query or ""
+    for pat, repl in _STOREFRONT_WORDS:
+        q = pat.sub(repl, q)
+    return q
+
+
 async def search(query: str, rows: int = 4, sort: str = "",
                  min_price=None, max_price=None) -> list[dict]:
     """Top live products for a customer query. Raises on network/API failure —
@@ -88,7 +133,14 @@ async def search(query: str, rows: int = 4, sort: str = "",
     url = (f"{config.UNBXD_SEARCH_URL}/{config.UNBXD_API_KEY}/"
            f"{config.UNBXD_SITE_KEY}/search")
     async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get(url, params=_params(query, rows, sort,
-                                                 min_price, max_price))
-        r.raise_for_status()
-        return normalize(r.json(), rows)
+        async def run(q: str) -> list[dict]:
+            r = await client.get(url, params=_params(q, rows, sort,
+                                                     min_price, max_price))
+            r.raise_for_status()
+            return normalize(r.json(), rows)
+
+        found = await run(query)
+        retry = storefront_query(query)
+        if not found and retry != query:
+            found = await run(retry)
+        return found
