@@ -2071,6 +2071,8 @@ _PF_RULES = {"categories": {
                               "team": "Collaboration Request"},
     "career_job_enquiry": {"display_name": "Career / Job Enquiry",
                            "forward_to": "hrcoordinator@durian.in", "cc": ["hr@durian.in"]},
+    "complaint": {"display_name": "Complaint", "forward_to": "customersupport@durian.in",
+                  "cc": ["Jeevan.jyoti@durian.in"]},
 }}
 
 
@@ -2136,7 +2138,7 @@ def test_partnership_run_idempotent_disabled_and_bad_category(monkeypatch):
                               "collaboration_request", "instagram"))["reason"] == "already_forwarded"
     assert not fake.emails
     # not a partnership category
-    assert asyncio.run(pf.run(1, {"custom_attributes": {}}, "complaint",
+    assert asyncio.run(pf.run(1, {"custom_attributes": {}}, "legal_complaint",
                               "instagram"))["reason"] == "category_not_forwardable"
     # disabled flag
     pf2, fake2 = _pf_setup(monkeypatch, enabled=False)
@@ -2168,6 +2170,55 @@ def test_job_enquiry_is_emailed_to_hr_with_details(monkeypatch):
                               "instagram"))["reason"] == "disabled"
     line = sa._job_hr_line("hrcoordinator@durian.in")
     assert "HR team" in line and "hrcoordinator@durian.in" in line
+
+
+def test_complaint_is_emailed_to_customer_support(monkeypatch):
+    """ISS-391 / conv 11680: 'please arrange repair' only reached an ORM team —
+    a complaint / service request is now emailed to customer support too."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    pf, fake = _pf_setup(monkeypatch, enabled=False)       # partnership flag off
+    monkeypatch.setattr(pf.config, "COMPLAINT_SUPPORT_FORWARD_ENABLED", True)
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "Ravi"}}}
+    res = asyncio.run(pf.run(11680, conv, pf.COMPLAINT_CATEGORY, "whatsapp",
+                             details="door not closing properly, repair needed · 9876543210"))
+    assert res["forwarded"] and res["recipient"] == "customersupport@durian.in"
+    to, _fname, cc, _pdf, body = fake.emails[0][:5]
+    assert to == "customersupport@durian.in" and cc == "Jeevan.jyoti@durian.in"
+    assert body.startswith("Dear Customer Support Team,")
+    assert "complaint / service request on WhatsApp" in body
+    assert "door not closing properly" in body and "arrange the service" in body
+    # same complaint again within the window → not re-emailed …
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    conv["custom_attributes"] = {"partnership_forwarded": "complaint",
+                                 "partnership_forwarded_at": recent}
+    assert asyncio.run(pf.run(11680, conv, pf.COMPLAINT_CATEGORY,
+                              "whatsapp"))["reason"] == "already_forwarded"
+    # … a new complaint weeks later is
+    conv["custom_attributes"]["partnership_forwarded_at"] = \
+        (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    assert asyncio.run(pf.run(11680, conv, pf.COMPLAINT_CATEGORY, "whatsapp"))["forwarded"]
+    # an earlier pitch forward doesn't block a complaint
+    conv["custom_attributes"] = {"partnership_forwarded": "collaboration_request",
+                                 "partnership_forwarded_at": recent}
+    assert asyncio.run(pf.run(11680, conv, pf.COMPLAINT_CATEGORY, "whatsapp"))["forwarded"]
+    monkeypatch.setattr(pf.config, "COMPLAINT_SUPPORT_FORWARD_ENABLED", False)
+    assert asyncio.run(pf.run(1, {"custom_attributes": {}}, pf.COMPLAINT_CATEGORY,
+                              "whatsapp"))["reason"] == "disabled"
+
+
+def test_partnership_skill_refuses_complaints(monkeypatch):
+    import asyncio
+    called = []
+
+    async def fake_run(*a, **k):
+        called.append(a)
+        return {"forwarded": True}
+    monkeypatch.setattr(sa.partnership_forward, "run", fake_run)
+    handler = sa.SKILLS["forward_partnership_enquiry"]["handler"]
+    ctx = {"conv_id": 1, "conv": {}, "channel": "instagram"}
+    res = asyncio.run(handler(ctx, category="complaint"))
+    assert res["forwarded"] is False and not called
 
 
 def test_partnership_skill_sets_escalate_and_keep_team(monkeypatch):
@@ -2736,6 +2787,25 @@ def test_resolve_clears_routed_handoff_marker(monkeypatch):
     assert res["handled"] == "agent_needed_cleared"
     assert cw.removed == ["agent-needed-website"]          # website label now cleared too
     assert cw.attrs == {sa._HANDOFF_ROUTED_ATTR: None, sa._HANDOFF_SENT_ATTR: None}
+
+
+def test_turn_whatsapp_repair_request_emails_customer_support(monkeypatch):
+    # ISS-391 / conv 11680: "Door not closing properly… please arrange repair"
+    sent = []
+
+    async def fake_run(conv_id, conv, category, channel, details=""):
+        sent.append((category, channel, details))
+        return {"forwarded": True, "recipient": "customersupport@durian.in"}
+    monkeypatch.setattr(sa.partnership_forward, "run", fake_run)
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="door not closing properly, repair",
+                                phone="9876543210")],
+        surface="", latest="Please arrange repair", channel="whatsapp",
+        inbox_name="Whatsapp Furniture", teams={})          # even with no ORM team
+    assert sent and sent[0][0] == "complaint" and sent[0][1] == "whatsapp"
+    assert "door not closing properly" in sent[0][2]
+    # emailed = routed → the "we've passed this to customer support" line
+    assert [m["content"] for m in cw.public] == [sa._DM_HANDOFF_LINES["complaint"][1]]
 
 
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):

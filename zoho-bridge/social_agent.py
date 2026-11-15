@@ -2534,8 +2534,12 @@ async def _sk_escalate(ctx, reason: str = "", category: str = "other",
 )
 async def _sk_forward_partnership(ctx, category: str = "", customer_message: str = "",
                                   profile_updates=None, **_) -> dict:
-    res = await partnership_forward.run(ctx.get("conv_id"), ctx.get("conv") or {},
-                                        category, ctx.get("channel") or "")
+    # Pitches only — complaints / jobs are emailed by escalate_to_human, never
+    # through this skill (run() now forwards those categories too).
+    res = (await partnership_forward.run(ctx.get("conv_id"), ctx.get("conv") or {},
+                                         category, ctx.get("channel") or "")
+           if category in partnership_forward.PARTNERSHIP_CATEGORIES
+           else {"forwarded": False, "reason": "category_not_forwardable"})
     # Hand off through the shared escalate path (sends the ack, cards it, ends the
     # turn). keep_team: the category team is already assigned, don't overwrite it.
     reason = (f"{res.get('display') or category} forwarded to "
@@ -4426,25 +4430,32 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # routed it to its own team.
         # A job seeker's details go to HR by email (link + transcript PDF), not
         # just to an ORM team; the line below names the HR address for their CV.
-        hr = {}
-        if category == "job" and surface != "comment":
+        # A complaint / service or repair request is emailed to customer support
+        # the same way (ISS-391, conv 11680: "please arrange repair" sat on an
+        # ORM team nobody in support watches).
+        fwd = {}
+        fwd_cat = {"job": partnership_forward.JOB_CATEGORY,
+                   "complaint": partnership_forward.COMPLAINT_CATEGORY}.get(category)
+        if fwd_cat and surface != "comment":
             try:
-                hr = await partnership_forward.run(
-                    conv_id, conv, partnership_forward.JOB_CATEGORY, channel,
+                fwd = await partnership_forward.run(
+                    conv_id, conv, fwd_cat, channel,
                     details=" · ".join(x for x in (esc.get("details"),
                                                    _known_phone(ctx)) if x))
             except Exception as e:  # noqa: BLE001
-                print(f"[agent] HR forward failed for conv {conv_id}: {e}")
-            if hr.get("forwarded"):
+                print(f"[agent] {category} forward failed for conv {conv_id}: {e}")
+            if fwd.get("forwarded"):
                 trace.append({"type": "decision", "source": "rule", "visibility": "internal",
-                              "label": "Forwarded to HR",
-                              "detail": f"job enquiry emailed to {hr.get('recipient')}"})
+                              "label": ("Forwarded to HR" if category == "job"
+                                        else "Emailed customer support"),
+                              "detail": f"{category} emailed to {fwd.get('recipient')}"})
+        hr = fwd if category == "job" else {}
         team = "" if ctx.get("keep_team") else \
             await _route_handoff(conv_id, category, vertical)
         if team:
             trace.append({"type": "decision", "source": "rule", "visibility": "internal",
                           "label": "Routed", "detail": f"{category} → team '{team}'"})
-        routed = bool(team) or bool(ctx.get("keep_team"))
+        routed = bool(team) or bool(ctx.get("keep_team")) or bool(fwd.get("forwarded"))
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
             _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
             _handoff_line(category, surface, routed, esc.get("customer_message") or "")

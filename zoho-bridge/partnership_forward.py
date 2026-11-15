@@ -23,7 +23,11 @@ PARTNERSHIP_CATEGORIES = ("marketing_advertising", "collaboration_request")
 # A social job seeker's details go to HR the same way (the agent's job hand-over
 # only assigned an ORM team nobody in HR watches — convs 9847, 10941).
 JOB_CATEGORY = "career_job_enquiry"
-FORWARD_CATEGORIES = PARTNERSHIP_CATEGORIES + (JOB_CATEGORY,)
+# A complaint / service or repair request the agent hands over is emailed to the
+# `complaint` category's forward_to (customer support) — before, it only landed
+# on an ORM team and nobody in support saw it (ISS-391, conv 11680).
+COMPLAINT_CATEGORY = "complaint"
+FORWARD_CATEGORIES = PARTNERSHIP_CATEGORIES + (JOB_CATEGORY, COMPLAINT_CATEGORY)
 
 
 def _lat(s) -> str:
@@ -34,6 +38,18 @@ def _lat(s) -> str:
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _recent(iso: str, days: int) -> bool:
+    """True when the ISO timestamp is within the last `days` days (unparseable →
+    treated as recent, so a bad value never double-emails)."""
+    try:
+        ts = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return datetime.now(tz=timezone.utc) - ts < timedelta(days=days)
 
 
 def _rule_for(category: str) -> dict:
@@ -70,6 +86,13 @@ _PITCH_STEPS = (
     "conversation stays in one place.",
     "If it goes ahead, share the next steps in the ORM conversation so the "
     "customer team knows.",
+)
+_COMPLAINT_STEPS = (
+    "Review the customer's issue and the attached conversation.",
+    "Contact the customer within 1 working day on the number above and arrange "
+    "the service / repair or resolution.",
+    "Note the outcome in the ORM conversation (link above) so the team knows it "
+    "has been handled.",
 )
 _JOB_STEPS = (
     "Review the candidate's details and the attached conversation.",
@@ -108,12 +131,16 @@ def build_email(category: str, display: str, channel: str, account: str, name: s
     review store forward: greeting, a bulleted details block, numbered action
     steps, sign-off. Empty fields are left out rather than shown blank."""
     is_job = category == JOB_CATEGORY
+    is_complaint = category == COMPLAINT_CATEGORY
     channel_label = _CHANNEL_LABELS.get(channel, channel.title() if channel else "social media")
     who = name or "a customer"
     subject = f"Action Required: {display} from {channel_label} — {name or 'Durian customer'}"
     intro = (f"We have received the following job enquiry on {channel_label}. "
              "Please review the candidate's details."
              if is_job else
+             f"We have received the following complaint / service request on "
+             f"{channel_label}. Please look into it and contact the customer."
+             if is_complaint else
              f"We have received the following {display.lower()} on {channel_label}. "
              "Please look into it and respond to the sender.")
     rows = [
@@ -126,9 +153,10 @@ def build_email(category: str, display: str, channel: str, account: str, name: s
         ("Conversation in ORM", link),
         ("Full conversation", "attached as a PDF"),
     ]
-    steps = _JOB_STEPS if is_job else _PITCH_STEPS
+    steps = _JOB_STEPS if is_job else _COMPLAINT_STEPS if is_complaint else _PITCH_STEPS
     body = "\n".join([
-        "Dear HR Team," if is_job else "Dear Team,", "",
+        "Dear HR Team," if is_job else "Dear Customer Support Team," if is_complaint
+        else "Dear Team,", "",
         intro, "",
         "Enquiry Details:",
         *[f"• {k}: {v}" for k, v in rows if v], "",
@@ -187,16 +215,25 @@ async def run(conv_id: int, conv: dict, category: str, channel: str,
     `partnership_forwarded` holds it). `details` (a job seeker's role /
     experience / city / number) heads the email. Returns {forwarded: True, team,
     recipient, display} on success, else {forwarded: False, reason}."""
-    enabled = config.JOB_HR_FORWARD_ENABLED if category == JOB_CATEGORY \
-        else config.PARTNERSHIP_FORWARD_ENABLED
+    enabled = (config.JOB_HR_FORWARD_ENABLED if category == JOB_CATEGORY
+               else config.COMPLAINT_SUPPORT_FORWARD_ENABLED
+               if category == COMPLAINT_CATEGORY
+               else config.PARTNERSHIP_FORWARD_ENABLED)
     if not enabled:
         return {"forwarded": False, "reason": "disabled"}
     if category not in FORWARD_CATEGORIES:
         return {"forwarded": False, "reason": "category_not_forwardable"}
-    done = (conv.get("custom_attributes") or {}).get("partnership_forwarded")
+    ca = conv.get("custom_attributes") or {}
+    done = ca.get("partnership_forwarded")
     # A pitch forwards once per conversation; a job seeker's own forward only
-    # once per job enquiry (an earlier pitch in the chat doesn't block it).
-    if done and (done == category or category != JOB_CATEGORY):
+    # once per job enquiry (an earlier pitch in the chat doesn't block it). A
+    # complaint re-forwards once the last one is COMPLAINT_REFORWARD_DAYS old —
+    # WhatsApp chats live for months and a later issue is a new complaint.
+    if category == COMPLAINT_CATEGORY:
+        if done == category and _recent(ca.get("partnership_forwarded_at"),
+                                        config.COMPLAINT_REFORWARD_DAYS):
+            return {"forwarded": False, "reason": "already_forwarded"}
+    elif done and (done == category or category != JOB_CATEGORY):
         return {"forwarded": False, "reason": "already_forwarded"}
 
     rule = _rule_for(category)
