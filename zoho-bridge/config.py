@@ -369,6 +369,12 @@ PARTNERSHIP_FORWARD_ENABLED  = _bool("PARTNERSHIP_FORWARD_ENABLED", "false")
 # Job seekers on IG/FB/WhatsApp: once the agent has their details, email them to
 # the career_job_enquiry category's forward_to / cc (HR) the same way. Kill switch.
 JOB_HR_FORWARD_ENABLED       = _bool("JOB_HR_FORWARD_ENABLED", "true")
+# Complaints / service & repair requests the agent hands over on WhatsApp, IG/FB
+# DMs and the website: also email the `complaint` routing category's forward_to
+# (customer support) with the link + transcript PDF (ISS-391, conv 11680). Kill
+# switch; a new complaint in the same chat re-forwards after this many days.
+COMPLAINT_SUPPORT_FORWARD_ENABLED = _bool("COMPLAINT_SUPPORT_FORWARD_ENABLED", "true")
+COMPLAINT_REFORWARD_DAYS = int(os.environ.get("COMPLAINT_REFORWARD_DAYS", "7") or 7)
 # The email-channel inbox used to SEND the forward (a social inbox can't email).
 # Defaults to the review-escalation inbox (both are hello@durian.in).
 PARTNERSHIP_FORWARD_INBOX_ID = int(os.environ.get("PARTNERSHIP_FORWARD_INBOX_ID", "0") or 0) \
@@ -876,6 +882,11 @@ VISUALIZER_CONTACT_ALLOWLIST = [
 # agent to hand off to a human, never to guess. Reuses GEMINI_API_KEY /
 # GEMINI_ANALYSIS_MODEL (already live for the visualizer). Dark-launched OFF.
 PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
+# Photo-only spam (festival / religious wishes, good-morning images, invitations,
+# memes, chain forwards — ISS-390, conv 8072) is resolved with a private note
+# instead of sitting open. Needs PRODUCT_VISION_ENABLED; on by default (client
+# request), set false to only note it as before.
+SPAM_PHOTO_RESOLVE_ENABLED = _bool("SPAM_PHOTO_RESOLVE_ENABLED", "true")
 
 # ── WhatsApp FHC flow (whatsapp_fhc.py) ────────────────────────────────────
 # Deterministic button-menu bot for the Full Home Customisation WhatsApp inbox:
