@@ -2280,7 +2280,12 @@ async def _vision_verdict(url: str) -> dict | None:
             "sent this image in a chat. Look at it and reply "
             "STRICT JSON only, no prose: "
             '{"is_product": <true ONLY if it clearly shows a furniture / home '
-            'product>, "category": "<one of: sofa, bed, mattress, dining, chair, '
+            'product>, "is_forward": <true ONLY if it is a greeting or wishes '
+            'card (festival, religious, good morning / good night), an '
+            'invitation, a meme, a chain forward or an advert for something '
+            'other than furniture — not the customer\'s own room, home, '
+            'measurements, bill or a product>, '
+            '"category": "<one of: sofa, bed, mattress, dining, chair, '
             'table, wardrobe, recliner, tv unit, decor — or \\"\\" if unsure>", '
             '"description": "<short: material, colour, style you can actually '
             'see; no guessing>", "visible_brand_text": "<any brand or model '
@@ -3698,6 +3703,66 @@ def _silent_photo_burst(all_messages) -> list | None:
     return urls
 
 
+def _reopened_by_burst(all_messages) -> bool:
+    """True when the conversation had been RESOLVED and the customer's newest
+    messages are what reopened it: going back past them (and private notes /
+    assignment or label activity), the first thing found is the 'resolved'
+    activity — no reply and no reopen by a person in between."""
+    seen_burst = False
+    for m in reversed(all_messages or []):
+        mt = m.get("message_type")
+        if mt in (0, "incoming"):
+            if seen_burst:
+                return False            # older customer text after a reply chain
+            continue
+        seen_burst = True
+        if m.get("private"):
+            continue
+        text = (m.get("content") or "").lower()
+        if mt in (2, "activity"):
+            if "resolved" in text:
+                return True
+            if "reopen" in text:
+                return False
+            continue                    # assignment / label / team activity
+        return False                    # a public reply: an active conversation
+    return False
+
+
+async def _spam_photos(all_messages) -> bool:
+    """The customer's newest messages are only photos (no text) and every one
+    is a greeting / festival / religious forward, invitation or meme — the kind
+    of post a customer forwards to a whole contact list (ISS-390, conv 8072)."""
+    if not (config.SPAM_PHOTO_RESOLVE_ENABLED and config.PRODUCT_VISION_ENABLED
+            and config.GEMINI_API_KEY):
+        return False
+    urls = _silent_photo_burst(all_messages)
+    if not urls:
+        return False
+    verdicts = [await _vision_verdict(u) for u in urls]
+    return all(v is not None and not v.get("is_product") and v.get("is_forward") is True
+               for v in verdicts)
+
+
+async def _resolve_spam_photos(conv: dict, conv_id: int, owner: str = "") -> bool:
+    """Private note + resolve for forwarded greeting photos. A chat waiting on
+    a person (agent-needed*) stays open. True when it was resolved."""
+    labels = conv.get("labels") or []
+    if any(str(lb).startswith("agent-needed") for lb in labels):
+        return False
+    note = ("📷 Customer forwarded a greeting / festival / religious image with no "
+            "message — nothing about Durian, so no reply and the conversation is "
+            "resolved." + (f" Still assigned to {owner}." if owner else "")
+            + " The AI will answer if they write about Durian.")
+    try:
+        await chatwoot.post_private_note(conv_id, note)
+        await chatwoot.toggle_status(conv_id, "resolved")
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] spam-photo resolve failed for conv {conv_id}: {e}")
+        return False
+    return True
+
+
 # ── Understand-then-decide gate (any language) ──────────────────────────────
 # Customers write in Hindi, Hinglish and Devanagari, and the agent misread who
 # was talking ("POP ceiling ka kaam ho to bolo" is a contractor offering work,
@@ -3981,6 +4046,15 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # replies in between included. Humans hand back by assigning the
         # conversation to DurianAI (or unassigning) — see the
         # conversation_updated catch-up in main.py.
+        # One exception (ISS-390, conv 8072): a resolved chat reopened only by
+        # a forwarded greeting image is put back to resolved — still the
+        # person's, nothing sent — so festival wishes don't refill their queue.
+        if (surface != "comment" and _reopened_by_burst(all_messages)
+                and await _spam_photos(all_messages)):
+            if latest_msg_id is not None:
+                _last_handled_msgid[conv_id] = latest_msg_id
+            if await _resolve_spam_photos(conv, conv_id, assignee.get("name") or ""):
+                return {"handled": "spam_photo_resolved", "owner": "human"}
         return {"ignored": True, "reason": "assigned_to_human"}
 
     # Guardrail (conv 8457): a photo / shared post that isn't one of ours and
@@ -3995,6 +4069,11 @@ async def _handle_locked(conv, conv_id, channel, surface,
             if all(v is not None and not v.get("is_product") for v in verdicts):
                 if latest_msg_id is not None:
                     _last_handled_msgid[conv_id] = latest_msg_id
+                # Forwarded greeting / festival images: resolve, not just note
+                # (ISS-390). _spam_photos reuses the cached verdicts above.
+                if await _spam_photos(all_messages) and \
+                        await _resolve_spam_photos(conv, conv_id):
+                    return {"handled": "spam_photo_resolved", "owner": "agent"}
                 try:
                     await chatwoot.post_private_note(
                         conv_id, "📷 Customer shared a photo/post that doesn't show "

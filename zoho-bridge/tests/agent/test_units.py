@@ -821,12 +821,16 @@ class _SilentFakeChatwoot:
     async def post_private_note(self, conv_id, content):
         self.notes.append(content)
 
+    async def toggle_status(self, conv_id, status):
+        self.status = status
+
 
 class _ReachedAgent(Exception):
     pass
 
 
-def _run_locked(monkeypatch, msgs, verdict, latest="Shared post", msg_id=1):
+def _run_locked(monkeypatch, msgs, verdict, latest="Shared post", msg_id=1,
+                conv_extra=None):
     import asyncio
     fake = _SilentFakeChatwoot(msgs)
     monkeypatch.setattr(sa, "chatwoot", fake)
@@ -842,6 +846,7 @@ def _run_locked(monkeypatch, msgs, verdict, latest="Shared post", msg_id=1):
     monkeypatch.setattr(sa.profile_mod, "load", reached)   # first step after the guard
     sa._last_handled_msgid.pop(99, None)
     conv = {"id": 99, "meta": {"sender": {"id": 5, "name": "S"}}, "custom_attributes": {}}
+    conv.update(conv_extra or {})
     try:
         res = asyncio.run(sa._handle_locked(conv, 99, "instagram", "", latest, msg_id))
     except _ReachedAgent:
@@ -870,6 +875,66 @@ def test_photo_with_text_reaches_agent(monkeypatch):
     res, _ = _run_locked(monkeypatch, [_photo(content="is this available?")],
                          {"is_product": False}, latest="is this available?")
     assert res == "agent"
+
+
+# ── Forwarded greeting / festival images → resolved (ISS-390, conv 8072) ────
+
+_FORWARD = {"is_product": False, "is_forward": True}
+_RESOLVED = {"message_type": 2, "content": "Conversation was marked resolved by Neha Singh"}
+_NEHA = {"meta": {"sender": {"id": 5, "name": "S"}, "assignee": {"name": "Neha Singh"}}}
+
+
+def test_reopened_by_burst():
+    assert sa._reopened_by_burst([_RESOLVED, _photo()])
+    assigned = {"message_type": 2, "content": "Assigned to Neha Singh by Default Policy"}
+    assert sa._reopened_by_burst([_RESOLVED, assigned, _photo()])
+    assert not sa._reopened_by_burst([{"message_type": 1, "content": "Hi"}, _photo()])
+    assert not sa._reopened_by_burst([_RESOLVED, {"message_type": 0, "content": "x"},
+                                      {"message_type": 1, "content": "Hi"}, _photo()])
+    assert not sa._reopened_by_burst([_photo()])
+
+
+def test_forwarded_greeting_photo_resolved_when_agent_owned(monkeypatch):
+    res, fake = _run_locked(monkeypatch, [_photo()], _FORWARD)
+    assert res == {"handled": "spam_photo_resolved", "owner": "agent"}
+    assert fake.status == "resolved" and "greeting" in fake.notes[0]
+
+
+def test_non_forward_photo_still_only_noted(monkeypatch):
+    # a customer's room photo / selfie: no reply, but the chat is not closed
+    res, fake = _run_locked(monkeypatch, [_photo()], {"is_product": False,
+                                                      "is_forward": False})
+    assert res == {"handled": "non_product_photo_silent"}
+    assert not hasattr(fake, "status")
+
+
+def test_forward_reopening_human_chat_is_resolved_again(monkeypatch):
+    # conv 8072: resolved by Neha, then a Diwali wishes image reopened it
+    res, fake = _run_locked(monkeypatch, [_RESOLVED, _photo()], _FORWARD, conv_extra=_NEHA)
+    assert res == {"handled": "spam_photo_resolved", "owner": "human"}
+    assert fake.status == "resolved" and "Still assigned to Neha Singh" in fake.notes[0]
+
+
+def test_forward_in_active_human_chat_left_alone(monkeypatch):
+    # the person is mid-conversation → never closed under them
+    msgs = [{"message_type": 1, "content": "Sharing the quote now"}, _photo()]
+    res, fake = _run_locked(monkeypatch, msgs, _FORWARD, conv_extra=_NEHA)
+    assert res == {"ignored": True, "reason": "assigned_to_human"}
+    assert not fake.notes and not hasattr(fake, "status")
+
+
+def test_forward_not_resolved_while_agent_needed(monkeypatch):
+    res, fake = _run_locked(monkeypatch, [_RESOLVED, _photo()], _FORWARD,
+                            conv_extra={**_NEHA, "labels": ["agent-needed"]})
+    assert res == {"ignored": True, "reason": "assigned_to_human"}
+    assert not hasattr(fake, "status")
+
+
+def test_spam_photo_resolve_switch_off(monkeypatch):
+    monkeypatch.setattr(sa.config, "SPAM_PHOTO_RESOLVE_ENABLED", False)
+    res, fake = _run_locked(monkeypatch, [_photo()], _FORWARD)
+    assert res == {"handled": "non_product_photo_silent"}
+    assert not hasattr(fake, "status")
 
 
 def test_vision_verdict_cached_one_call(monkeypatch):

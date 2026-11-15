@@ -876,6 +876,11 @@ VISUALIZER_CONTACT_ALLOWLIST = [
 # agent to hand off to a human, never to guess. Reuses GEMINI_API_KEY /
 # GEMINI_ANALYSIS_MODEL (already live for the visualizer). Dark-launched OFF.
 PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
+# Photo-only spam (festival / religious wishes, good-morning images, invitations,
+# memes, chain forwards — ISS-390, conv 8072) is resolved with a private note
+# instead of sitting open. Needs PRODUCT_VISION_ENABLED; on by default (client
+# request), set false to only note it as before.
+SPAM_PHOTO_RESOLVE_ENABLED = _bool("SPAM_PHOTO_RESOLVE_ENABLED", "true")
 
 # ── WhatsApp FHC flow (whatsapp_fhc.py) ────────────────────────────────────
 # Deterministic button-menu bot for the Full Home Customisation WhatsApp inbox:
