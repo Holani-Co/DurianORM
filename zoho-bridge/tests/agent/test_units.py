@@ -267,6 +267,89 @@ def test_website_search_normalize():
     assert ws.normalize({}, 4) == []
 
 
+def test_website_search_drops_non_storefront_rows():
+    """conv 12721: the feed's B2B / private / FHC rows carry a slug glued onto
+    the domain ('https://www.durian.inpresley21' — no page behind it) and the
+    link guardrail held every reply that quoted one. Only rows with a real
+    durian.in page are products the agent may offer."""
+    import website_search as ws
+
+    def row(root, title, url, vertical="Furniture"):
+        return {"_root_": root, "title": title, "category": ["Dining Table"],
+                "availability": "true", "discontinuedProducts": "false",
+                "vertical": vertical, "productURL": url}
+    body = {"response": {"products": [
+        row("11936", "PRESLEY", "https://www.durian.inpresley21", "Private"),
+        row("11935", "HOPPER", "https://www.durian.inhopper10", "Private"),
+        row("7", "Flint Sliding Wardrobe",
+            "https://www.durian.inflint-sliding-wardrobe", "Full Home Customisation"),
+        row("8", "Dylan", "https://www.durian.indylan3", None),
+        row("9", "KROMMA", "https://www.durian.in/product/kromma12", "B2B Catalogue"),
+        row("10", "Elsewhere", "https://example.com/product/x"),
+        row("11", "Home", "https://www.durian.in/"),
+        row("12", "Havelock", "https://www.durian.in/product/havelock-6-seater-dining-set"),
+        row("13", "Sable", "https://www.durian.in/doors/doors/craftsman-series/sable2",
+            "Door"),
+    ]}}
+    assert [p["title"] for p in ws.normalize(body, rows=8)] == ["Havelock", "Sable"]
+    assert ws.storefront_link("https://durian.in/product/x")
+    assert not ws.storefront_link("https://www.durian.inpresley21")
+    assert not ws.storefront_link("")
+    assert "vertical" in ws._FIELDS.split(",")
+
+
+def test_website_search_retries_dining_table_as_set(monkeypatch):
+    """durian.in sells dining only as sets, so 'dining table' finds nothing
+    sellable; an empty result is retried once in the storefront's words."""
+    import asyncio
+    import website_search as ws
+    junk = {"response": {"products": [
+        {"_root_": "11936", "title": "PRESLEY", "availability": "true",
+         "vertical": "Private", "productURL": "https://www.durian.inpresley21"}]}}
+    sets = {"response": {"products": [
+        {"_root_": "1", "title": "Havelock", "category": ["6 Seater Dining Sets"],
+         "sellingPrice": 44640, "mrp": 89280, "availability": "true",
+         "vertical": "Furniture",
+         "productURL": "https://www.durian.in/product/havelock-6-seater-dining-set"}]}}
+    asked = []
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._body
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            asked.append(params["q"])
+            return _Resp(sets if "dining set" in params["q"] else junk)
+
+    monkeypatch.setattr(ws.httpx, "AsyncClient", _Client)
+    out = asyncio.run(ws.search("6 seater dining table", rows=6))
+    assert asked == ["6 seater dining table", "6 seater dining set"]
+    assert [p["title"] for p in out] == ["Havelock"]
+    asked.clear()                       # found on the customer's words → one call
+    asyncio.run(ws.search("6 seater dining set", rows=6))
+    assert asked == ["6 seater dining set"]
+    asked.clear()                       # no storefront synonym → no retry
+    assert asyncio.run(ws.search("bookshelf", rows=6)) == []
+    assert asked == ["bookshelf"]
+    assert ws.storefront_query("Dining-Tables for 4") == "dining set for 4"
+
+
 def test_split_for_channel():
     # The reply Instagram actually refused (error 100, >1000 chars).
     reply = """Here are the current L-shaped and sectional sofa options:
