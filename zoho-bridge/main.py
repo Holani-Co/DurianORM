@@ -43,6 +43,7 @@ import social_store_templates
 from customer_profile import msg_attrs
 import product_catalog
 import snapmint
+import partnership_forward
 import social_agent
 import whatsapp_fhc
 import retail_showrooms as retail
@@ -2251,7 +2252,11 @@ async def _gather_ticket_candidates(sender_email: str, subject: str,
 async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
                                          sender_email: str,
                                          subject: str = "",
-                                         body: str = "") -> tuple[list[str], bool, Optional[dict]]:
+                                         body: str = "", *,
+                                         sender_phone: str = "",
+                                         contact_id=None,
+                                         details: Optional[dict] = None
+                                         ) -> tuple[list[str], bool, Optional[dict]]:
     """For product `complaint` emails: auto-create a Zoho Desk ticket assigned
     to the client's customersupport agent — in ADDITION to the email forward.
 
@@ -2307,10 +2312,18 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
             complaint_details = (conv_now.get("custom_attributes") or {}).get("complaint_details") or None
         except Exception:
             pass
-        payload = {"conversation": {
-            "id": conv_id,
-            "meta": {"sender": {"name": sender_name, "email": sender_email}},
-        }}
+        if details:      # chat complaints: what the agent gathered (phone / issue)
+            complaint_details = {**(complaint_details or {}),
+                                 **{k: v for k, v in details.items() if v}}
+        # Chat customers usually have no email: the phone and the Chatwoot
+        # contact id keep each one its own Desk contact (without the id every
+        # one became "chatwoot-unknown@noreply.local").
+        sender = {"name": sender_name, "email": sender_email}
+        if sender_phone:
+            sender["phone_number"] = sender_phone
+        if contact_id:
+            sender["id"] = contact_id
+        payload = {"conversation": {"id": conv_id, "meta": {"sender": sender}}}
         ticket = await zoho.create_ticket(
             payload, messages=messages, summary=summary,
             assignee_id=assignee_id, complaint_details=complaint_details)
@@ -2324,6 +2337,42 @@ async def _maybe_create_complaint_ticket(conv_id: int, sender_name: str,
     except Exception as e:
         print(f"[zoho] complaint ticket failed for conv {conv_id}: {e}")
         return [f"⚠️ Complaint ticket could not be created: {e}"], False, None
+
+
+async def _agent_complaint_ticket(conv_id: int, conv: dict, details: str = "",
+                                  phone: str = "") -> dict:
+    """Zoho Desk ticket for a complaint / service request the AI agent hands
+    over on WhatsApp, Instagram / Facebook DMs or the website — the same
+    automatic, support-assigned ticket an email complaint gets (conv 12622: a
+    damaged chair delivery on WhatsApp never got a ticket). Registered as
+    social_agent.complaint_ticket_hook. One ticket per complaint: a ticket
+    already raised in this chat within COMPLAINT_REFORWARD_DAYS is reused.
+    Returns {"ticket": dict|None, "number": str, "paused": bool, "reused": bool}.
+    Best-effort: never raises."""
+    out = {"ticket": None, "number": "", "paused": False, "reused": False}
+    if not (config.SOCIAL_COMPLAINT_TICKET_ENABLED and config.COMPLAINT_AUTO_TICKET_ENABLED):
+        return out
+    try:
+        existing = ((conv.get("custom_attributes") or {}).get("zoho_tickets") or [])
+        head = existing[0] if existing else {}
+        if head.get("id") and partnership_forward._recent(
+                head.get("created_at"), config.COMPLAINT_REFORWARD_DAYS):
+            return {**out, "number": str(head.get("number") or ""), "reused": True}
+        sender = (conv.get("meta") or {}).get("sender") or {}
+        phone = phone or sender.get("phone_number") or ""
+        _lines, paused, ticket = await _maybe_create_complaint_ticket(
+            conv_id, sender.get("name") or "", sender.get("email") or "",
+            subject="", body=details or "", sender_phone=phone,
+            contact_id=sender.get("id"),
+            details={"phone": phone, "reason": (details or "")[:500]})
+    except Exception as e:  # noqa: BLE001
+        print(f"[zoho] agent complaint ticket failed for conv {conv_id}: {e}")
+        return out
+    number = str((ticket or {}).get("ticketNumber") or (ticket or {}).get("ticket_number") or "")
+    return {**out, "ticket": ticket, "number": number, "paused": paused}
+
+
+social_agent.complaint_ticket_hook = _agent_complaint_ticket
 
 
 # ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────

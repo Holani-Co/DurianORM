@@ -4653,6 +4653,23 @@ async def _handle_locked(conv, conv_id, channel, surface,
                                         else "Emailed customer support"),
                               "detail": f"{category} emailed to {fwd.get('recipient')}"})
         hr = fwd if category == "job" else {}
+        # A complaint / service request also gets its Zoho Desk ticket — the
+        # same automatic, support-assigned ticket an email complaint gets
+        # (conv 12622). Its number goes into the customer's line below.
+        tk = {}
+        if category == "complaint" and surface != "comment" and complaint_ticket_hook:
+            try:
+                tk = await complaint_ticket_hook(
+                    conv_id, conv, esc.get("details") or "", _known_phone(ctx)) or {}
+            except Exception as e:  # noqa: BLE001
+                print(f"[agent] complaint ticket failed for conv {conv_id}: {e}")
+            if tk.get("number") or tk.get("paused"):
+                trace.append({"type": "decision", "source": "rule", "visibility": "internal",
+                              "label": "Zoho ticket",
+                              "detail": (f"ticket #{tk['number']}"
+                                         + (" (already raised in this chat)" if tk.get("reused")
+                                            else " created") if tk.get("number")
+                                         else "possible duplicate — paused for an agent decision")})
         team = "" if ctx.get("keep_team") else \
             await _route_handoff(conv_id, category, vertical)
         if team:
@@ -4662,6 +4679,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
             _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
             _handoff_line(category, surface, routed, esc.get("customer_message") or "")
+        if line and tk.get("number"):
+            line = f"{line} Your complaint reference number is #{tk['number']}."
         msg = mask_stored_phone(scrub(line, surface), phone_val or "", typed)
         # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
         # unsafe handoff line becomes the standard DM invite.
@@ -4964,6 +4983,10 @@ _COMMENT_HANDOFF_LINE = ("Thank you for reaching out! Please DM us so our team "
 # Stamped when a DM handoff line goes out; with agent-needed still on, the
 # conversation is waiting on a human and the line is not re-sent.
 _HANDOFF_SENT_ATTR = "agent_handoff_sent_at"
+# Set by main.py at import: async (conv_id, conv, details, phone) -> {"ticket",
+# "number", "paused", "reused"} — raises the Zoho Desk ticket for a complaint
+# hand-over. None (e.g. in isolated tests) → no ticket.
+complaint_ticket_hook = None
 # Set with it when that hand-over also landed with a team (no agent-needed flag
 # then), so the line is still not re-sent; cleared when the conversation resolves.
 _HANDOFF_ROUTED_ATTR = "agent_handoff_routed"

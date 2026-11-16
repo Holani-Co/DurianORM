@@ -2941,6 +2941,103 @@ def test_dm_prompt_treats_assembly_help_as_service():
     assert "assembly" in sa.SKILLS["escalate_to_human"]["description"]
 
 
+def test_turn_whatsapp_complaint_raises_ticket_and_quotes_number(monkeypatch):
+    # conv 12622: chairs delivered with missing / defective legs on WhatsApp
+    calls = []
+
+    async def fake_ticket(conv_id, conv, details, phone):
+        calls.append((conv_id, details, phone))
+        return {"ticket": {"id": "1"}, "number": "4521", "paused": False, "reused": False}
+
+    async def no_forward(*a, **k):
+        return {}
+    monkeypatch.setattr(sa, "complaint_ticket_hook", fake_ticket)
+    monkeypatch.setattr(sa.partnership_forward, "run", no_forward)
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="2 chair legs missing, 1 defective",
+                                phone="9876543210")],
+        surface="", latest="legs of two chairs missing", channel="whatsapp",
+        inbox_name="Whatsapp Furniture", teams=_TEAMS)
+    assert calls and calls[0][1] == "2 chair legs missing, 1 defective"
+    assert cw.public[0]["content"].endswith("Your complaint reference number is #4521.")
+    # a public comment never raises a ticket
+    calls.clear()
+    _scripted_turn(monkeypatch, [_esc_call("complaint")],
+                   latest="Poor quality and worst in service", teams=_TEAMS)
+    assert calls == []
+
+
+def test_agent_complaint_ticket_reuse_and_contact(monkeypatch):
+    import asyncio
+    import main
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setattr(main.config, "COMPLAINT_AUTO_TICKET_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_COMPLAINT_TICKET_ENABLED", True)
+    seen = {}
+
+    async def fake_create(conv_id, name, email, subject="", body="", **kw):
+        seen.update(kw, name=name, email=email, body=body)
+        return [], False, {"id": "77", "ticketNumber": "4521"}
+    monkeypatch.setattr(main, "_maybe_create_complaint_ticket", fake_create)
+    conv = {"meta": {"sender": {"id": 501, "name": "Ravi", "phone_number": "+919876543210"}},
+            "custom_attributes": {}}
+    out = asyncio.run(main._agent_complaint_ticket(12626, conv, "chair legs missing"))
+    assert out["number"] == "4521" and not out["reused"]
+    assert seen["sender_phone"] == "+919876543210" and seen["contact_id"] == 501
+    assert seen["details"]["reason"] == "chair legs missing" and seen["email"] == ""
+    # a ticket already raised in this chat this week is reused, not duplicated
+    seen.clear()
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    conv["custom_attributes"] = {"zoho_tickets": [{"id": "77", "number": "4521",
+                                                   "created_at": recent}]}
+    out = asyncio.run(main._agent_complaint_ticket(12626, conv, "again"))
+    assert out == {"ticket": None, "number": "4521", "paused": False, "reused": True}
+    assert not seen
+    # switched off → nothing
+    monkeypatch.setattr(main.config, "SOCIAL_COMPLAINT_TICKET_ENABLED", False)
+    conv["custom_attributes"] = {}
+    assert asyncio.run(main._agent_complaint_ticket(1, conv, "x"))["number"] == ""
+    assert not seen
+    assert sa.complaint_ticket_hook is main._agent_complaint_ticket
+
+
+def test_complaint_ticket_payload_carries_chat_contact(monkeypatch):
+    import asyncio
+    import main
+    monkeypatch.setattr(main.config, "COMPLAINT_AUTO_TICKET_ENABLED", True)
+    monkeypatch.setattr(main.config, "COMPLAINT_TICKET_OWNER_DESK_ID", "352")
+    got = {}
+
+    async def no_candidates(*a):
+        return [], False
+
+    async def ctx(conv_id):
+        return [], {}
+
+    class _CW:
+        async def get_conversation(self, cid):
+            return {"custom_attributes": {}}
+
+    async def fake_create_ticket(payload, **kw):
+        got["payload"], got["kw"] = payload, kw
+        return {"id": "9", "ticketNumber": "4522"}
+
+    async def surface(*a, **k):
+        pass
+    monkeypatch.setattr(main, "_gather_ticket_candidates", no_candidates)
+    monkeypatch.setattr(main, "_ticket_context", ctx)
+    monkeypatch.setattr(main, "chatwoot", _CW())
+    monkeypatch.setattr(main.zoho, "create_ticket", fake_create_ticket)
+    monkeypatch.setattr(main, "_surface_ticket_in_chatwoot", surface)
+    _lines, paused, ticket = asyncio.run(main._maybe_create_complaint_ticket(
+        12626, "Ravi", "", body="legs missing", sender_phone="+919876543210",
+        contact_id=501, details={"phone": "+919876543210", "reason": "legs missing"}))
+    sender = got["payload"]["conversation"]["meta"]["sender"]
+    assert sender == {"name": "Ravi", "email": "", "phone_number": "+919876543210", "id": 501}
+    assert got["kw"]["complaint_details"] == {"phone": "+919876543210", "reason": "legs missing"}
+    assert got["kw"]["assignee_id"] == "352" and ticket["ticketNumber"] == "4522"
+
+
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):
     res, cw = _scripted_turn(
         monkeypatch, [_esc_call("complaint", details="kitchen shutter misaligned, Gurgaon",

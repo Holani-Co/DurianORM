@@ -618,6 +618,10 @@ TICKET_DECISION_CATEGORIES = {
 # The agent must belong to ZOHO_DEPARTMENT_ID or Zoho ignores the assignment.
 COMPLAINT_AUTO_TICKET_ENABLED     = _bool("COMPLAINT_AUTO_TICKET_ENABLED", "false")
 COMPLAINT_TICKET_OWNER_DESK_ID    = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_ID", "").strip()
+# The same automatic ticket for complaints / service requests the AI agent hands
+# over on WhatsApp, Instagram / Facebook DMs and the website (conv 12622). Needs
+# COMPLAINT_AUTO_TICKET_ENABLED too; this switch turns off just the chat side.
+SOCIAL_COMPLAINT_TICKET_ENABLED   = _bool("SOCIAL_COMPLAINT_TICKET_ENABLED", "true")
 
 # ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────
 # When enabled, existing-order enquiries get an automatic BMS lookup: order id
