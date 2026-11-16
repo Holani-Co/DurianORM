@@ -5496,7 +5496,8 @@ WEBSITE_MENUS = {
     "fhc": (whatsapp_fhc._GREETING, whatsapp_fhc._MENU),
 }
 _WEBSITE_GREETING_RE = re.compile(
-    r"^\s*(hi+|hello+|hey+|hlo|namaste|good (morning|afternoon|evening)|start|help)"
+    r"^\s*(hi+|hel+o+|hey+|hlo+|hai+|hy+|hiya|hola|namaste|namaskar|"
+    r"good (morning|afternoon|evening)|start|help)"
     r"[\s!.?,]*(there|durian)?[\s!.?]*$", re.I)
 
 
