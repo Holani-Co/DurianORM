@@ -3832,6 +3832,14 @@ def _is_unviewable_media(m: dict) -> bool:
 _PLACEHOLDER_TEXT = {"", "shared post", "shared a post", "sent a photo", "photo", "image"}
 
 
+# Message types that are neither the customer nor a Durian reply: activity
+# rows, and Chatwoot's own web-widget prompts (type 3 "template" — "Give the
+# team a way to reach you" / "Get notified by email"). Counting those as a
+# reply made a new visitor's first "Helo" look like mid-chat small talk, so it
+# was silenced and resolved (conv 13122).
+_NOT_A_REPLY = (2, "activity", 3, "template")
+
+
 def _silent_photo_burst(all_messages) -> list | None:
     """Photo URLs when the customer's newest messages (since our last reply) are
     ONLY photos / shared posts with no text, no Durian-post caption, and nothing
@@ -3840,7 +3848,7 @@ def _silent_photo_burst(all_messages) -> list | None:
     burst = []
     for m in reversed(all_messages or []):
         mt = m.get("message_type")
-        if m.get("private") or mt in (2, "activity"):
+        if m.get("private") or mt in _NOT_A_REPLY:
             continue
         if mt not in (0, "incoming"):
             break
@@ -4000,7 +4008,7 @@ def _gate_split(all_messages) -> tuple[list[str], list[str], bool]:
     new, earlier, replied, seen_reply = [], [], False, False
     for m in reversed(all_messages or []):
         mt = m.get("message_type")
-        if m.get("private") or mt in (2, "activity"):
+        if m.get("private") or mt in _NOT_A_REPLY:
             continue
         text = " ".join((m.get("content") or "").split())
         incoming = mt in (0, "incoming")
@@ -4036,6 +4044,32 @@ async def _understand(new_texts: list[str], earlier: list[str]) -> dict | None:
     if out.get("kind") not in _UNDERSTAND_KINDS:
         return None
     return out
+
+
+def _hours_since_last_reply(all_messages) -> float | None:
+    """Hours since Durian's last PUBLIC reply in this chat; None when there is
+    none or its time can't be read."""
+    for m in reversed(all_messages or []):
+        if m.get("private") or m.get("message_type") not in (1, "outgoing"):
+            continue
+        ts = m.get("created_at")
+        try:
+            t = float(ts) if isinstance(ts, (int, float)) or str(ts).isdigit() \
+                else datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, (datetime.now(timezone.utc).timestamp() - t) / 3600)
+    return None
+
+
+def _replied_recently(all_messages, replied_before: bool) -> bool:
+    """Durian replied in this chat within GREETING_SILENT_WINDOW_HOURS — only
+    then is a bare greeting mid-chat small talk. An unreadable time keeps the
+    old behaviour (treated as recent)."""
+    if not replied_before:
+        return False
+    hours = _hours_since_last_reply(all_messages)
+    return hours is None or hours <= config.GREETING_SILENT_WINDOW_HOURS
 
 
 def _out_of_scope_reason(understood: dict, raw_text: str, replied_before: bool) -> str:
@@ -4263,7 +4297,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
         if understood:
             print(f"[agent] conv {conv_id} understood as {understood.get('kind')} "
                   f"({understood.get('language')})")
-            why = _out_of_scope_reason(understood, " ".join(new_texts), replied_before)
+            why = _out_of_scope_reason(understood, " ".join(new_texts),
+                                       _replied_recently(all_messages, replied_before))
             if why:
                 if latest_msg_id is not None:
                     _last_handled_msgid[conv_id] = latest_msg_id

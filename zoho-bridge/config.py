@@ -735,6 +735,11 @@ SOCIAL_DEBOUNCE_SECONDS = float(os.environ.get("SOCIAL_DEBOUNCE_SECONDS", "6"))
 # (vendor offers, spam/scams, pure abuse, political/religious remarks, unrelated
 # chat, mid-chat bare greetings) unanswered with a private note + resolve.
 SOCIAL_SCOPE_GATE_ENABLED = _bool("SOCIAL_SCOPE_GATE_ENABLED", "false")
+# A bare greeting is left unanswered as mid-chat small talk only when Durian's
+# last reply is at most this many hours old; after a longer gap "Hi" opens a new
+# conversation and gets a reply (conv 12547: a returning customer's "Hi" days
+# later was silenced and the chat resolved, twice).
+GREETING_SILENT_WINDOW_HOURS = float(os.environ.get("GREETING_SILENT_WINDOW_HOURS", "6") or 6)
 
 # ── Agent mode (social_agent.py) — Instagram DMs + comments ────────────────
 # Skills-based loop on gpt-5.6-luna (Responses API, low reasoning). Dark by

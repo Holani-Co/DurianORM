@@ -4579,6 +4579,58 @@ def _gate_msgs():
             {"message_type": 0, "content": "to bolo"}]
 
 
+def _greet_msgs(hours_ago):
+    import time
+    t = int(time.time() - hours_ago * 3600)
+    return [{"message_type": 0, "content": "400057", "created_at": t - 20},
+            {"message_type": 1, "content": "Nearest showroom is Worli. Do you mean "
+             "another area or pincode?", "created_at": t},
+            {"message_type": 1, "private": True, "content": "🤖 note", "created_at": t},
+            {"message_type": 0, "content": "Hi", "created_at": t + 60}]
+
+
+def test_returning_greeting_gets_a_reply_after_a_gap(monkeypatch):
+    # conv 12547: "Hi" three days after our last reply was silenced + resolved
+    greeting = {"language": "english", "kind": "greeting_only",
+                "meaning": "The customer is greeting Durian."}
+    res, fake, _ = _run_gate(monkeypatch, greeting, msgs=_greet_msgs(72))
+    assert res == "agent" and not fake.notes and fake.status is None
+    # within the window it is still mid-chat small talk
+    res, fake, _ = _run_gate(monkeypatch, greeting, msgs=_greet_msgs(1))
+    assert res["handled"] == "out_of_scope_silent" and fake.status == "resolved"
+    monkeypatch.setattr(sa.config, "GREETING_SILENT_WINDOW_HOURS", 100)
+    res, _, _ = _run_gate(monkeypatch, greeting, msgs=_greet_msgs(72))
+    assert res["handled"] == "out_of_scope_silent"
+
+
+def test_widget_prompts_are_not_a_durian_reply():
+    # conv 13122: new website visitor's "Helo" + Chatwoot's own email prompts
+    msgs = [{"message_type": 0, "content": "Helo"},
+            {"message_type": 3, "content": "Give the team a way to reach you."},
+            {"message_type": 3, "content": "Get notified by email"}]
+    new, earlier, replied = sa._gate_split(msgs)
+    assert new == ["Helo"] and earlier == [] and replied is False
+    assert sa._out_of_scope_reason({"kind": "greeting_only"}, "Helo", replied) == ""
+
+
+def test_website_greeting_spellings_get_the_menu():
+    import main
+    for t in ("Helo", "hii", "Hlo", "hai", "Hy", "hello!", "Namaskar", "hi durian"):
+        assert main._WEBSITE_GREETING_RE.match(t), t
+    for t in ("help me with a sofa", "hi, sofa price?", "hyderabad store"):
+        assert not main._WEBSITE_GREETING_RE.match(t), t
+
+
+def test_hours_since_last_reply():
+    h = sa._hours_since_last_reply(_greet_msgs(10))
+    assert 9.9 < h < 10.1                                 # private note ignored
+    assert sa._hours_since_last_reply([{"message_type": 0, "content": "Hi"}]) is None
+    iso = [{"message_type": 1, "content": "x", "created_at": "2020-01-01T00:00:00Z"}]
+    assert sa._hours_since_last_reply(iso) > 1000
+    assert sa._replied_recently([{"message_type": 1, "content": "x"}], True)  # no time
+    assert not sa._replied_recently(_greet_msgs(1), False)
+
+
 def test_gate_split_new_burst_and_context():
     new, earlier, replied = sa._gate_split(_gate_msgs())
     assert new == ["Pop fall ceiling ka kam hai", "to bolo"]
