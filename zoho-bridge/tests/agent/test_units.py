@@ -3111,6 +3111,40 @@ def test_comment_prompt_ignores_hostile_rants_but_not_abuse_about_durian():
     assert "OFF-TOPIC / UNRELATED but harmless" in p
 
 
+def test_replies_mirror_customer_language(monkeypatch):
+    """ISS-413 / conv 13244: "3 pcs chahiye haridwar me" got an English reply;
+    the client now wants the customer's own language (switchable)."""
+    from datetime import datetime
+    now = datetime(2026, 11, 16)
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)
+    dm = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                           now=now, profile_block="P", templates="T", n_customer_msgs=1)
+    cm = sa._comment_prompt("duriandoor", "doors", now, "P", "T")
+    for p in (dm, cm):
+        assert "SAME language and script" in p and "Hinglish" in p
+        assert "Reply in ENGLISH ONLY" not in p and "ALWAYS reply in ENGLISH" not in p
+    assert sa._lang_hint({"language": "hinglish"}).strip().startswith("[for you only")
+    assert "Devanagari" in sa._lang_hint({"language": "hindi"})
+    assert sa._lang_hint({"language": "english"}) == "" and sa._lang_hint(None) == ""
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", False)
+    dm = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                           now=now, profile_block="P", templates="T", n_customer_msgs=1)
+    cm = sa._comment_prompt("duriandoor", "doors", now, "P", "T")
+    assert "Reply in ENGLISH ONLY" in dm and "ALWAYS reply in ENGLISH" in cm
+    assert sa._lang_hint({"language": "hinglish"}) == ""
+
+
+def test_turn_hinglish_message_gets_language_hint(monkeypatch):
+    import json as _json
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)
+    _, cw = _scripted_turn(
+        monkeypatch, [], surface="", latest="3 pcs chahiye haridwar me",
+        inbox_name="duriandoor",
+        understood={"language": "hinglish", "kind": "durian_enquiry",
+                    "meaning": "Wants 3 pieces delivered in Haridwar."})
+    assert "reply in simple Hinglish" in _json.dumps(cw.llm_calls, default=str)
+
+
 def test_dm_prompt_ignores_hostile_rants():
     from datetime import datetime
     p = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",

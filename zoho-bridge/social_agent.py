@@ -3323,6 +3323,56 @@ def _guidance_block(vertical: str, guidance: str) -> str:
             "━━ END CLIENT GUIDANCE (the rules above still win) ━━")
 
 
+# Reply language. REPLY_IN_CUSTOMER_LANGUAGE (ISS-413, conv 13244): mirror the
+# customer's language and script; off → the earlier English-only voice.
+_MIRROR_RULE = (
+    "Reply in the SAME language and script the customer writes in: English → "
+    "English; Hinglish (Hindi in English letters, e.g. \"3 pcs chahiye haridwar "
+    "me\") → simple Hinglish in English letters; Hindi in Devanagari → simple "
+    "Hindi in Devanagari; any other language → English. Follow their LATEST "
+    "message. Stay warm, polite and simple (\"aap\", never \"tum\"; no slang like "
+    "\"bhaiya\"). Product names, prices, links, store names and addresses stay "
+    "exactly as given; approved templates are written in English — keep their "
+    "meaning and content, said in the customer's language.")
+
+
+def _comment_lang_rule() -> str:
+    if config.REPLY_IN_CUSTOMER_LANGUAGE:
+        return (_MIRROR_RULE + " A bare greeting or blessing with no request "
+                "(\"jai shri krishna\", \"good morning\", \"namaste\") → a short "
+                "warm greeting / thank-you in their language, NOT a sales pitch.")
+    return ("ALWAYS reply in ENGLISH — even if the comment is written in Hindi, "
+            "Devanagari, or any other language: understand it fully, but reply in "
+            "warm, simple English, never in Hindi/Devanagari script or Hindi words "
+            "(ji, bilkul, dhanyavaad). A bare greeting or blessing with no request "
+            "(\"jai shri krishna\", \"good morning\", \"namaste\") → a short warm "
+            "English greeting/thank-you, NOT a sales pitch.")
+
+
+def _dm_lang_rule() -> str:
+    if config.REPLY_IN_CUSTOMER_LANGUAGE:
+        return _MIRROR_RULE
+    return ("Reply in ENGLISH ONLY: understand Hindi/Hinglish/Devanagari input "
+            "fully, but NEVER reply in Hindi or Devanagari script — even if the "
+            "customer writes fully in Hindi — and never use Hindi words (\"ji\", "
+            "\"bilkul\", \"bhaiya\", \"dhanyavaad\"), even when a template or the "
+            "customer uses them; your reply always stays in warm, simple English.")
+
+
+def _lang_hint(understood: dict | None) -> str:
+    """Transcript hint naming the reply language, from the understand step."""
+    if not (config.REPLY_IN_CUSTOMER_LANGUAGE and understood):
+        return ""
+    lang = str(understood.get("language") or "").lower()
+    if lang == "hinglish":
+        return ("\n[for you only: the customer writes Hinglish — reply in simple "
+                "Hinglish, in English letters]")
+    if lang == "hindi":
+        return ("\n[for you only: the customer writes Hindi — reply in simple "
+                "Hindi (Devanagari)]")
+    return ""
+
+
 def _comment_prompt(inbox: str, vertical: str, now: datetime,
                     profile_block: str, templates: str,
                     post_caption: str = "", client_guidance: str = "") -> str:
@@ -3342,11 +3392,7 @@ This is a PUBLIC comment thread. Write ONE short reply (at most 2 sentences), \
 warm and professional. NEVER put a price, phone number, address, stock figure \
 or link in a public comment — those details move to DM.
 
-ALWAYS reply in ENGLISH — even if the comment is written in Hindi, Devanagari, \
-or any other language: understand it fully, but reply in warm, simple English, \
-never in Hindi/Devanagari script or Hindi words (ji, bilkul, dhanyavaad). A \
-bare greeting or blessing with no request ("jai shri krishna", "good morning", \
-"namaste") → a short warm English greeting/thank-you, NOT a sales pitch.
+{_comment_lang_rule()}
 
 FIRST check the tone. If the comment is abusive, foul, hateful or insulting, or \
 is a political, religious, caste or communal rant, decide whether it is about \
@@ -3597,11 +3643,7 @@ from search_products — no exception, comparisons included. {chan} \
 delivers at most {char_cap} characters per message — stay under {char_soft}: at most \
 THREE products per reply (best fits first; more exist → say they can ask), \
 one short line + link each. Add one line "EMI options available" where \
-useful. Reply in ENGLISH ONLY: understand Hindi/Hinglish/Devanagari input fully, but \
-NEVER reply in Hindi or Devanagari script — even if the customer writes fully \
-in Hindi — and never use Hindi words ("ji", "bilkul", "bhaiya", "dhanyavaad"), \
-even when a template or the customer uses them; your reply always stays in \
-warm, simple English.
+useful. {_dm_lang_rule()}
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
 and it carries TWO equal duties:
    SENDING — code decides, not you: your reply goes to the customer unless it \
@@ -4389,6 +4431,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
             and (understood.get("meaning") or "").strip():
         transcript += ("\n[English meaning of the customer's latest message(s), "
                        f"for you only: {understood['meaning'].strip()}]")
+    if transcript:
+        transcript += _lang_hint(understood)
     if understood and understood.get("kind") == "order_or_complaint":
         # conv 12162: "Recliner / Assembly / Video … how to fix mobile holder"
         # got a lounge-chair pitch and three registration asks.
