@@ -425,6 +425,39 @@ def _product_row(p: dict) -> dict:
     return item
 
 
+# Product kinds a query can name → words their storefront categories carry,
+# MOST SPECIFIC FIRST: "fabric recliner chair" is a recliner ask, so a "Lounge
+# Chairs" row is a miss, never a "comparable" (conv 12162 was offered Bento).
+_KIND_WORDS = (
+    (re.compile(r"\brecliners?\b|\breclining\b", re.I), ("recl",)),
+    (re.compile(r"\bdining\b", re.I), ("dining",)),
+    (re.compile(r"\bwardrobes?\b|\balmirah?s?\b", re.I), ("wardrobe",)),
+    (re.compile(r"\btv\s*(?:units?|stands?|cabinets?)\b", re.I), ("tv",)),
+    (re.compile(r"\bshoe\s*(?:racks?|cabinets?)\b", re.I), ("shoe",)),
+    (re.compile(r"\bstudy\s*tables?\b", re.I), ("study",)),
+    (re.compile(r"\b(?:coffee|cent(?:re|er))\s*tables?\b", re.I),
+     ("coffee", "center", "centre")),
+    (re.compile(r"\b(?:bedside|side|end)\s*tables?\b", re.I), ("side", "end")),
+    (re.compile(r"\bbeds?\b", re.I), ("bed",)),
+    (re.compile(r"\bsofas?\b|\bcouch(?:es)?\b", re.I), ("sofa",)),
+)
+
+
+def _query_kind(query: str) -> tuple[str, tuple] | None:
+    """(the product noun as written, its category words) for the most
+    specific kind the query names, else None (no category check)."""
+    for pat, words in _KIND_WORDS:
+        m = pat.search(query or "")
+        if m:
+            return m.group(0), words
+    return None
+
+
+def _in_kind(row: dict, words: tuple) -> bool:
+    cat = str(row.get("category") or "").lower()
+    return any(w in cat for w in words)
+
+
 def _named_families(ctx) -> list[str]:
     """Product names (price-list families: QUINN, MATILDA) the customer used in
     their recent messages. The model sometimes strips the name and searches the
@@ -558,6 +591,22 @@ async def _sk_search_products(ctx, query: str = "", sort: str = "",
         return {"products": [], "note": f"live search unavailable "
                 f"({type(e).__name__}) — retry once; still failing → tell "
                 f"the customer honestly and offer the showroom"}
+    # Off-category rows are misses, not suggestions: drop them in code, and when
+    # nothing of the asked kind is left, look once more on the plain noun
+    # ("recliner" for "fabric recliner chair" finds Avery, conv 12162).
+    kind = _query_kind(query)
+    if kind:
+        noun, words = kind
+        had_rows = bool(found)
+        found = [p for p in found if _in_kind(p, words)]
+        if had_rows and not found and noun.lower() != (query or "").strip().lower():
+            try:
+                again = await website_search.search(
+                    noun, rows=6, sort=sort if sort in ("price_desc", "price_asc")
+                    else "", min_price=min_price, max_price=max_price)
+            except Exception:
+                again = []
+            found = [p for p in again if _in_kind(p, words)]
     out = [_product_row(p) for p in found]
     notes: list[str] = []
     searched = ctx.setdefault("named_searched", set())
@@ -2263,6 +2312,80 @@ def _latest_photo_url(ctx) -> str | None:
 
 
 _VISION_CACHE: dict = {}   # data_url → verdict; one Gemini look per photo
+_MATCH_CACHE: dict = {}    # data_url → matched catalogue row (or None)
+
+# Photo category (from _vision_verdict) → the storefront search that lists that
+# kind, for the catalogue match candidates.
+_MATCH_QUERY = {"dining": "dining set", "tv unit": "tv unit", "table": "",
+                "decor": ""}
+_MATCH_MAX_CANDIDATES = 12
+_MATCH_PROMPT = (
+    "The FIRST image is a photo a customer sent to Durian (a furniture brand). "
+    "The numbered images after it are Durian products from our website. Is the "
+    "customer's photo the SAME product model as one of them — same design: "
+    "shape, arms, back, cushions, legs or base, mechanism and distinctive parts? "
+    "Colour and fabric may differ (models come in several colours). A merely "
+    "similar style is NOT a match. Reply STRICT JSON only: "
+    '{"match": <candidate number, or 0 if none is the same model>, '
+    '"confidence": "high" | "low", "reason": "<short>"}')
+
+
+async def _catalog_match(url: str, verdict: dict) -> dict | None:
+    """The Durian listing the customer's photo shows, when it is one of ours:
+    live search for that kind → up to 12 candidates with images → one Gemini
+    comparison. Only a HIGH-confidence match counts. None on no match or any
+    failure (the agent then offers comparables as before). Cached per photo."""
+    if url in _MATCH_CACHE:
+        return _MATCH_CACHE[url]
+    cat = str(verdict.get("category") or "").strip().lower()
+    queries = [q for q in (_MATCH_QUERY.get(cat, cat),
+                           str(verdict.get("suggested_query") or "").strip()) if q]
+    # Colour variants are separate listings, so a kind query's first rows can
+    # be a few models in several colours — look 16 deep and keep 12 distinct
+    # models (Avery sat 8th for "recliner", conv 12162).
+    cands, seen = [], set()
+    for q in dict.fromkeys(queries):
+        try:
+            rows = await website_search.search(q, rows=16)
+        except Exception:
+            rows = []
+        for r in rows:
+            if r.get("image") and r["title"].lower() not in seen:
+                seen.add(r["title"].lower())
+                cands.append(r)
+    cands = cands[:_MATCH_MAX_CANDIDATES]
+    if not cands:
+        return None
+    try:
+        imgs = await asyncio.gather(_fetch_image_part(url),
+                                    *[_fetch_image_part(c["image"]) for c in cands],
+                                    return_exceptions=True)
+        if isinstance(imgs[0], Exception):
+            return None
+        parts = [{"text": "CUSTOMER PHOTO:"}, imgs[0]]
+        shown = []
+        for c, img in zip(cands, imgs[1:]):
+            if isinstance(img, Exception):
+                continue
+            shown.append(c)
+            parts += [{"text": f"CANDIDATE {len(shown)}: {c['title']} ({c['category']})"}, img]
+        if not shown:
+            return None
+        body = await _gemini_generate(config.GEMINI_ANALYSIS_MODEL,
+                                      parts + [{"text": _MATCH_PROMPT}], timeout=40)
+        text = re.sub(r"^```(?:json)?|```$", "", _gemini_text(body).strip(),
+                      flags=re.M).strip()
+        out = json.loads(text)
+        n = int(out.get("match") or 0)
+    except Exception as e:  # noqa: BLE001
+        print(f"[agent] catalogue match failed: {type(e).__name__}: {e}")
+        return None
+    hit = shown[n - 1] if 1 <= n <= len(shown) and \
+        str(out.get("confidence")).lower() == "high" else None
+    if len(_MATCH_CACHE) >= 200:
+        _MATCH_CACHE.pop(next(iter(_MATCH_CACHE)))
+    _MATCH_CACHE[url] = hit
+    return hit
 
 
 async def _vision_verdict(url: str) -> dict | None:
@@ -2318,7 +2441,10 @@ async def _vision_verdict(url: str) -> dict | None:
     "category/style level and offer our comparable range — call search_products "
     "with the suggested_query it returns and quote THOSE live products. Claim a "
     "specific Durian product, or a price for the pictured item, ONLY if "
-    "visible_brand_text clearly names one of ours. If it returns looked=false / "
+    "visible_brand_text clearly names one of ours or `matched_product` is "
+    "returned (the photo was matched to that Durian listing) — then follow its "
+    "note: a customer who already has it and needs assembly / fitting / repair "
+    "help is a service hand-over, not a sale. If it returns looked=false / "
     "escalate=true (vision unavailable) OR is_product=false, do NOT guess or "
     "describe the image — ask ONE clarifying question or hand off with "
     "escalate_to_human, so the customer never gets a wrong reply.",
@@ -2329,6 +2455,8 @@ async def _vision_verdict(url: str) -> dict | None:
      "description": "str — short: material, colour, style",
      "visible_brand_text": "str — brand/model text legibly printed in the image",
      "suggested_query": "str — product nouns to pass to search_products",
+     "matched_product": "{title, category, price, link} — present only when "
+                        "the photo IS that Durian product",
      "escalate": "bool — true → hand to a human, never guess",
      "note": "str — how to use this safely"},
     ({}, {"looked": True, "is_product": True, "category": "sofa",
@@ -2361,12 +2489,26 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
                         "describe it. If the customer asked something, answer "
                         "that; otherwise ask ONE open question (how can we "
                         "help?) or escalate_to_human. Never guess."}
-    return {"looked": True, "is_product": True,
-            "category": str(out.get("category") or "").strip(),
-            "description": str(out.get("description") or "").strip()[:200],
-            "visible_brand_text": str(out.get("visible_brand_text") or "").strip(),
-            "suggested_query": str(out.get("suggested_query")
-                                   or out.get("category") or "").strip(),
+    res = {"looked": True, "is_product": True,
+           "category": str(out.get("category") or "").strip(),
+           "description": str(out.get("description") or "").strip()[:200],
+           "visible_brand_text": str(out.get("visible_brand_text") or "").strip(),
+           "suggested_query": str(out.get("suggested_query")
+                                  or out.get("category") or "").strip()}
+    hit = await _catalog_match(url, out) if config.PHOTO_CATALOG_MATCH_ENABLED else None
+    if hit:
+        # conv 12162: the customer's "this model" was Durian's own Avery, but
+        # the agent could only offer a "comparable" — now it knows the model.
+        row = _product_row(hit)
+        res["matched_product"] = row
+        res["note"] = (f"this photo IS Durian's {row['title']} ({row['category']}) "
+                       f"— refer to it by name with its link. If the customer "
+                       f"already has it and needs help (assembly, fitting a part, "
+                       f"how to use, repair), that is a service request: "
+                       f"escalate_to_human category complaint, no pitch. If they "
+                       f"want to buy it, quote it with its price and link.")
+        return res
+    return {**res,
             "note": ("offer our COMPARABLE range: call search_products with "
                      "suggested_query and quote those live products. Describe "
                      "the photo at the category/style level only; name a "
@@ -2409,7 +2551,9 @@ def _known_phone(ctx, phone_arg: str = "") -> str:
     "Hand the conversation to the right team — it is routed for real and the "
     "customer gets a message written FOR you, so never promise or claim a "
     "hand-over in your own words. ALWAYS pass `category`: complaint (product / "
-    "delivery / service problem), order_status (where is my order / delivery "
+    "delivery / service problem, and after-sales help for something they "
+    "already own — assembly / installation, an assembly video, fitting a "
+    "part, how to use it, a repair), order_status (where is my order / delivery "
     "date / warranty), legal (legal threat, consumer court), job (a job seeker "
     "— carpenter, site supervisor, designer, 'kaam / naukri / job'), bulk "
     "(wholesale / project / bulk buyer) or dealer (franchise / dealership) — "
@@ -3528,8 +3672,8 @@ register the enquiry: what they are looking for if they have not said, and \
 whichever of full name / contact number / city-or-pincode we do not hold, \
 together in one line — do not hold the name / number / city ask back while \
 you find out what they want; ask for both at once. Skip that line only when \
-nothing is missing or the person is not a buyer (complaint, job seeker, collab \
-pitch).
+nothing is missing or the person is not a buyer (complaint, service or \
+assembly help for something they own, job seeker, collab pitch).
 - When discussing price, check share_offer once and mention EMI availability \
 (fetched, per step 2).
 - When a customer is interested in a SPECIFIC product: call \
@@ -3569,6 +3713,15 @@ acknowledge it warmly, and in the SAME reply ask in ONE message for what we \
 don't hold — their contact number (not on WhatsApp) and the details: which \
 product, the order or invoice number (or where and when they bought it) and \
 what went wrong. Hand over once they reply (or decline), passing `details`.
+  • SERVICE / AFTER-SALES help for a Durian product they ALREADY HAVE — \
+assembly or installation, an assembly video, fitting a part ("how to fix the \
+mobile holder"), how to use or adjust it, a repair or a part that doesn't work \
+— is a service request (category complaint), NOT a new purchase: never pitch \
+products, offers or a "comparable" model, and never ask to register it as an \
+enquiry. A photo of the product with "this model" means the one they own. \
+Acknowledge it, ask in ONE message for their contact number (not on WhatsApp) \
+and which product / where they bought it, then hand over with `details` — our \
+customer support team arranges the help (conv 12162).
   • JOB / CAREER enquiries — carpenter, site supervisor, designer, "vacancy", \
 Hindi and Hinglish too ("kaam / kam milega", "job chahiye", "naukri") — are job \
 seekers, not customers (category job): thank them, ask in ONE message for \
@@ -3810,7 +3963,8 @@ products, prices, photos, EMI, offers, store locations, catalogues, \
 customisation, visits, delivery areas — AND every reply to a question Durian \
 asked in the chat (a name, number, pincode, city, yes/no, a product choice), \
 however short.
-- order_or_complaint: an existing order, delivery, installation, repair or \
+- order_or_complaint: an existing order, delivery, installation, assembly \
+help or an assembly video, fitting or using a product they own, repair or \
 service, refund, warranty, or a complaint about Durian.
 - job: someone asking for a job or work AT Durian (karigar, carpenter, sales, \
 "kaam chahiye", "naukri").
@@ -3915,6 +4069,16 @@ async def _leave_unanswered(conv: dict, conv_id: int, understood: dict, why: str
     except Exception as e:  # noqa: BLE001
         print(f"[agent] out-of-scope resolve failed for conv {conv_id}: {e}")
 
+
+# Added to the transcript when the understand step reads the new message(s) as
+# an order / complaint / after-sales request — the agent hands it over instead
+# of selling (conv 12162).
+_AFTER_SALES_HINT = (
+    "\n[for you only: the latest message(s) are about an existing order, a "
+    "complaint or after-sales help (assembly, fitting, repair, how to use) for "
+    "something they already have — handle it as a hand-over with "
+    "escalate_to_human (complaint or order_status), not a sale: no product "
+    "pitch, no offers, no enquiry registration]")
 
 _ASK_FOR_SCREENSHOT = ("[customer shared a reel/video we cannot view — ASK them "
                        "to share a screenshot of the product so we can identify "
@@ -4190,6 +4354,10 @@ async def _handle_locked(conv, conv_id, channel, surface,
             and (understood.get("meaning") or "").strip():
         transcript += ("\n[English meaning of the customer's latest message(s), "
                        f"for you only: {understood['meaning'].strip()}]")
+    if understood and understood.get("kind") == "order_or_complaint":
+        # conv 12162: "Recliner / Assembly / Video … how to fix mobile holder"
+        # got a lounge-chair pitch and three registration asks.
+        transcript += _AFTER_SALES_HINT
     if not transcript:
         return {"ignored": True, "reason": "no_customer_message"}
     n_customer = _engagement_incoming_count(all_messages)

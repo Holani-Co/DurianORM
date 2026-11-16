@@ -882,6 +882,11 @@ VISUALIZER_CONTACT_ALLOWLIST = [
 # agent to hand off to a human, never to guess. Reuses GEMINI_API_KEY /
 # GEMINI_ANALYSIS_MODEL (already live for the visualizer). Dark-launched OFF.
 PRODUCT_VISION_ENABLED = _bool("PRODUCT_VISION_ENABLED", "false")
+# When a customer's photo shows a product, compare it with Durian's own listings
+# of that kind (live search images) so "this model" is recognised as e.g. Avery
+# instead of answered with a "comparable" (conv 12162). One extra Gemini call
+# per product photo; needs PRODUCT_VISION_ENABLED. Kill switch.
+PHOTO_CATALOG_MATCH_ENABLED = _bool("PHOTO_CATALOG_MATCH_ENABLED", "true")
 # Photo-only spam (festival / religious wishes, good-morning images, invitations,
 # memes, chain forwards — ISS-390, conv 8072) is resolved with a private note
 # instead of sitting open. Needs PRODUCT_VISION_ENABLED; on by default (client
