@@ -5862,6 +5862,8 @@ def _is_low_value_comment(text: str) -> bool:
     raw = (text or "").strip()
     if not raw:
         return True
+    if social_agent.is_blessing_only(raw, plain=True):   # "जय श्री कृष्ण", "Happy Diwali"
+        return True
     # Meaningful tokens after stripping emojis/symbols: latin or devanagari.
     words = re.findall(r"[0-9a-zA-Zऀ-ॿ]+", _EMOJI_SYMBOL_RE.sub("", raw))
     if not words:

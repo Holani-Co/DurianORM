@@ -3134,6 +3134,53 @@ def test_replies_mirror_customer_language(monkeypatch):
     assert sa._lang_hint({"language": "hinglish"}) == ""
 
 
+_BLESSINGS = ["जय श्री कृष्ण", "जय श्री कृष्णा 🙏", "Jai Shri Ram", "jai shree krishna ji 🙏🙏",
+              "Radhe Radhe", "Happy Diwali to all", "Happy Diwali Durian family",
+              "Shubh Deepawali", "diwali ki hardik shubhkamnaye",
+              "दीपावली की हार्दिक शुभकामनाएं", "जय माता दी", "Har Har Mahadev", "ram ram ji",
+              "Eid Mubarak", "merry christmas everyone", "शुभ प्रभात", "राधे राधे"]
+_NOT_BLESSINGS = ["जय श्री राम, सोफा कितने का है?", "jai shri ram, sofa ka price kya hai",
+                  "Happy Diwali! Is the diwali sale on?", "radhe radhe, store kaha hai",
+                  "hi", "good morning", "3 pcs chahiye haridwar me", "ram mandir model price",
+                  "Krishna wardrobe price", "diwali offer?", "namaste, recliner chahiye"]
+
+
+def test_blessing_only_detection():
+    for t in _BLESSINGS:
+        assert sa.is_blessing_only(t), t
+    for t in _NOT_BLESSINGS:
+        assert not sa.is_blessing_only(t), t
+    # plain greetings count only for public comments
+    for t in ("hi", "Hello!", "good morning 🙏", "namaste ji", "नमस्ते", "hi durian"):
+        assert sa.is_blessing_only(t, plain=True) and sa.is_low_value_comment(t), t
+    assert not sa.is_blessing_only("hello is this available", plain=True)
+    assert sa.is_low_value_comment("जय श्री कृष्ण 🙏")
+
+
+def test_comment_blessing_gets_no_reply(monkeypatch):
+    import asyncio
+    import main
+    res = asyncio.run(sa._handle_locked({"id": 5}, 5, "facebook", "comment",
+                                        "जय श्री कृष्ण 🙏", 1))
+    assert res == {"ignored": True, "reason": "low_value_comment"}
+    assert main._is_low_value_comment("Happy Diwali to all 🪔")
+    assert not main._is_low_value_comment("Happy Diwali! sofa price?")
+    for lang in (True, False):
+        monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", lang)
+        assert 'finish(action="ignore"' in sa._comment_lang_rule()
+
+
+def test_dm_blessing_left_unanswered_and_resolved(monkeypatch):
+    res, fake, seen = _run_gate(monkeypatch, {"language": "hindi", "kind": "durian_enquiry"},
+                                msgs=[{"message_type": 0, "content": "जय श्री कृष्ण 🙏"}])
+    assert res == {"handled": "blessing_silent"} and "blessing" in fake.notes[0]
+    assert fake.status == "resolved" and "new" not in seen      # no LLM call at all
+    # a plain opening "Hi" still goes on (understand → agent)
+    res, fake, _ = _run_gate(monkeypatch, {"language": "english", "kind": "greeting_only"},
+                             msgs=[{"message_type": 0, "content": "Hi"}])
+    assert res == "agent" and not fake.notes
+
+
 def test_turn_hinglish_message_gets_language_hint(monkeypatch):
     import json as _json
     monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)

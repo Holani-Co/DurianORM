@@ -26,6 +26,7 @@
 import asyncio
 import base64
 import json
+import unicodedata
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -3250,7 +3251,65 @@ def is_inflammatory_redirect(comment: str, reply: str) -> bool:
 
 def is_low_value_comment(text: str) -> bool:
     t = (text or "").strip().lower()
-    return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == ""
+    return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == "" \
+        or is_blessing_only(t, plain=True)
+
+
+# Religious / festival greetings and blessings — "जय श्री कृष्ण", "Jai Shri Ram",
+# "Radhe Radhe", "Happy Diwali to all". Client rule: these get NO reply, on
+# comments or DMs. Matched in code (the model used to answer them, in Hindi
+# once replies followed the customer's language — ISS-413).
+_DEITY = (r"(?:ram|raam|shri\s*ram|krishna?|krishn|krsna|kanha|hanuman|bajrang\s*bali|"
+          r"ganesh(?:a|ji)?|ganpati|mahakal|shyam|radhe|bhole(?:nath)?|shiv(?:a|ji)?|"
+          r"mata\s*(?:di|ki)|maa|ambe|durga|jinendra|sai\s*ram|siya\s*ram|shree\s*ram)")
+_FESTIVAL = (r"(?:diwali|deepawali|deepavali|dhanteras|holi|navratri|navratra|"
+             r"dussehra|dasara|dussera|eid|bakrid|christmas|new\s*year|chhath(?:\s*puja)?|"
+             r"bhai\s*dooj|bhaidooj|govardhan(?:\s*puja)?|janmashtami|ganesh\s*chaturthi|"
+             r"raksha\s*bandhan|rakhi|lohri|pongal|onam|makar\s*sankranti|sankranti|"
+             r"karwa\s*chauth|guru\s*purab|gurpurab|ram\s*navami|mahashivratri|"
+             r"independence\s*day|republic\s*day)")
+_BLESSING_RE = re.compile(
+    r"\b(?:jai|jay|jaya)\s+(?:(?:shri|shree|sri|siya)\s+)?" + _DEITY + r"\b"
+    r"|\b(?:radhe\s*radhe|radhe\s*krishna|ram\s*ram|sita\s*ram|hare\s*krishna|"
+    r"har\s*har\s*mahadev|om\s*namah?\s*shivay?a?|sat\s*sri\s*akal|waheguru|"
+    r"ganpati\s*bappa\s*morya|jai\s*mata\s*di|eid\s*mubarak|merry\s*christmas)\b"
+    r"|\b(?:happy|shubh|subh)\s+" + _FESTIVAL + r"\b"
+    r"|\b" + _FESTIVAL + r"\s+(?:ki|ke)\s+(?:hardik\s+)?(?:shubh\s*kamna\w*|badhai\w*)"
+    r"|\bshubh\s+(?:prabhat|ratri|sandhya|labh)\b"
+    r"|जय\s*(?:श्री|श्रीं|सिया)?\s*(?:राम|कृष्णा|कृष्ण|हनुमान|गणेश|श्याम|महाकाल|माता\s*दी|"
+    r"भोलेनाथ|बजरंगबली)|राधे\s*राधे|राम\s*राम|सीता\s*राम|हरे\s*कृष्ण|हर\s*हर\s*महादेव|"
+    r"ॐ\s*नमः\s*शिवाय|शुभ\s*(?:दीपावली|दिवाली|धनतेरस|प्रभात|रात्रि|नवरात्रि)|"
+    r"(?:दीपावली|दिवाली|होली|धनतेरस)\s*की\s*(?:हार्दिक\s*)?(?:शुभकामनाएं|शुभकामनाएँ|बधाई)",
+    re.I)
+_PLAIN_GREETING_RE = re.compile(
+    r"\b(?:hi+|hel+o+|hey+|hlo+|hai+|namaste|namaskar|good\s*(?:morning|afternoon|"
+    r"evening|night|day)|gm|gn)\b|नमस्ते|नमस्कार|सुप्रभात|शुभ\s*संध्या", re.I)
+# Words that may surround a blessing without making it a request.
+_BLESSING_FILLER_RE = re.compile(
+    r"\b(?:ji|to|all|everyone|everybody|sabko|sab|aap|aapko|aap\s*sabko|ko|parivar|"
+    r"family|team|durian|bhai|bhaiya|dosto|friends|and|aur|wish|wishes|wishing|you|"
+    r"your|a|very|many|bahut|bahot|sir|madam|mam|maam|hardik|shubhkamnaye\w*|"
+    r"shubhkamnaen|badhai\w*|blessings?|god\s*bless|jai)\b"
+    r"|सभी\s*को|आप\s*सभी\s*को|आपको|सबको|आप|को|जी|परिवार|हार्दिक|शुभकामनाएं|"
+    r"शुभकामनाएँ|बधाई|और", re.I)
+
+
+def is_blessing_only(text: str, plain: bool = False) -> bool:
+    """True when the message is ONLY a religious / festival greeting or
+    blessing (plus emoji, punctuation and filler like "ji", "to all") — no
+    question, no request. `plain` also counts ordinary greetings ("hi",
+    "good morning", "namaste"), used for public comments."""
+    t = _EMOJI_RE.sub(" ", (text or "").lower())
+    t = re.sub(r"[^\w\sऀ-ॿ]", " ", t)
+    rest = _BLESSING_RE.sub(" ", t)
+    if plain:
+        rest = _PLAIN_GREETING_RE.sub(" ", rest)
+    if rest == t:
+        return False                     # no greeting / blessing in it at all
+    rest = _BLESSING_FILLER_RE.sub(" ", rest)
+    # Stray Devanagari vowel signs / nukta left by a partial word are not words.
+    rest = "".join(ch for ch in rest if not unicodedata.category(ch).startswith("M"))
+    return not rest.strip()
 
 
 def is_bot_agent(user: dict) -> bool:
@@ -3336,17 +3395,21 @@ _MIRROR_RULE = (
     "meaning and content, said in the customer's language.")
 
 
+# Client rule: a bare greeting, blessing or festival wish gets NO reply.
+_COMMENT_GREETING_RULE = (
+    " A comment that is ONLY a greeting, blessing or festival wish, with no "
+    "request (\"जय श्री कृष्ण\", \"jai shri ram\", \"radhe radhe\", \"happy "
+    "diwali\", \"good morning\", \"namaste\") → finish(action=\"ignore\", "
+    "reply=\"\") — no reply at all.")
+
+
 def _comment_lang_rule() -> str:
     if config.REPLY_IN_CUSTOMER_LANGUAGE:
-        return (_MIRROR_RULE + " A bare greeting or blessing with no request "
-                "(\"jai shri krishna\", \"good morning\", \"namaste\") → a short "
-                "warm greeting / thank-you in their language, NOT a sales pitch.")
+        return (_MIRROR_RULE + _COMMENT_GREETING_RULE)
     return ("ALWAYS reply in ENGLISH — even if the comment is written in Hindi, "
             "Devanagari, or any other language: understand it fully, but reply in "
             "warm, simple English, never in Hindi/Devanagari script or Hindi words "
-            "(ji, bilkul, dhanyavaad). A bare greeting or blessing with no request "
-            "(\"jai shri krishna\", \"good morning\", \"namaste\") → a short warm "
-            "English greeting/thank-you, NOT a sales pitch.")
+            "(ji, bilkul, dhanyavaad)." + _COMMENT_GREETING_RULE)
 
 
 def _dm_lang_rule() -> str:
@@ -3777,6 +3840,10 @@ has their number and will call. Never escalate_to_human for it.
 (one firm polite line first), collabs and anything you cannot handle \
 (category other) — hand over directly.
   • Unclear intent → ONE clarifying question, then hand over with what you learned.
+- BLESSINGS: a message that is ONLY a religious or festival greeting or \
+blessing ("जय श्री कृष्ण", "Jai Shri Ram", "Radhe Radhe", "Happy Diwali to all") \
+→ finish(action="ignore", reply="") — no reply. A plain "hi" / "hello" opening \
+a chat is NOT this: greet them and ask how we can help.
 - ABUSE: a message that is purely abusive, obscene or insulting, or a hostile \
 political, religious, caste or communal rant, with no actual issue about Durian \
 → finish(action="ignore", reply="") — no reply, no hand-over. Insults wrapped \
@@ -4326,6 +4393,18 @@ async def _handle_locked(conv, conv_id, channel, surface,
                 except Exception:
                     pass
                 return {"handled": "non_product_photo_silent"}
+
+    # Religious / festival greetings and blessings ("जय श्री कृष्ण", "Radhe
+    # Radhe", "Happy Diwali to all") get no reply — client rule, DMs as well as
+    # comments. A plain "Hi" opening a chat is NOT one of these (it gets a reply).
+    if surface != "comment":
+        _new, _e, _r = _gate_split(all_messages)
+        if _new and all(is_blessing_only(t) for t in _new):
+            if latest_msg_id is not None:
+                _last_handled_msgid[conv_id] = latest_msg_id
+            await _leave_unanswered(conv, conv_id, {"meaning": ""},
+                                    "a religious or festival greeting / blessing")
+            return {"handled": "blessing_silent"}
 
     # Understand-then-decide: read the new message(s) in any language, leave
     # out-of-scope ones unanswered, and hand the English meaning to the agent.
