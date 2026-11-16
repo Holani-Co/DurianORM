@@ -2941,6 +2941,103 @@ def test_dm_prompt_treats_assembly_help_as_service():
     assert "assembly" in sa.SKILLS["escalate_to_human"]["description"]
 
 
+def test_turn_whatsapp_complaint_raises_ticket_and_quotes_number(monkeypatch):
+    # conv 12622: chairs delivered with missing / defective legs on WhatsApp
+    calls = []
+
+    async def fake_ticket(conv_id, conv, details, phone):
+        calls.append((conv_id, details, phone))
+        return {"ticket": {"id": "1"}, "number": "4521", "paused": False, "reused": False}
+
+    async def no_forward(*a, **k):
+        return {}
+    monkeypatch.setattr(sa, "complaint_ticket_hook", fake_ticket)
+    monkeypatch.setattr(sa.partnership_forward, "run", no_forward)
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="2 chair legs missing, 1 defective",
+                                phone="9876543210")],
+        surface="", latest="legs of two chairs missing", channel="whatsapp",
+        inbox_name="Whatsapp Furniture", teams=_TEAMS)
+    assert calls and calls[0][1] == "2 chair legs missing, 1 defective"
+    assert cw.public[0]["content"].endswith("Your complaint reference number is #4521.")
+    # a public comment never raises a ticket
+    calls.clear()
+    _scripted_turn(monkeypatch, [_esc_call("complaint")],
+                   latest="Poor quality and worst in service", teams=_TEAMS)
+    assert calls == []
+
+
+def test_agent_complaint_ticket_reuse_and_contact(monkeypatch):
+    import asyncio
+    import main
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setattr(main.config, "COMPLAINT_AUTO_TICKET_ENABLED", True)
+    monkeypatch.setattr(main.config, "SOCIAL_COMPLAINT_TICKET_ENABLED", True)
+    seen = {}
+
+    async def fake_create(conv_id, name, email, subject="", body="", **kw):
+        seen.update(kw, name=name, email=email, body=body)
+        return [], False, {"id": "77", "ticketNumber": "4521"}
+    monkeypatch.setattr(main, "_maybe_create_complaint_ticket", fake_create)
+    conv = {"meta": {"sender": {"id": 501, "name": "Ravi", "phone_number": "+919876543210"}},
+            "custom_attributes": {}}
+    out = asyncio.run(main._agent_complaint_ticket(12626, conv, "chair legs missing"))
+    assert out["number"] == "4521" and not out["reused"]
+    assert seen["sender_phone"] == "+919876543210" and seen["contact_id"] == 501
+    assert seen["details"]["reason"] == "chair legs missing" and seen["email"] == ""
+    # a ticket already raised in this chat this week is reused, not duplicated
+    seen.clear()
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    conv["custom_attributes"] = {"zoho_tickets": [{"id": "77", "number": "4521",
+                                                   "created_at": recent}]}
+    out = asyncio.run(main._agent_complaint_ticket(12626, conv, "again"))
+    assert out == {"ticket": None, "number": "4521", "paused": False, "reused": True}
+    assert not seen
+    # switched off → nothing
+    monkeypatch.setattr(main.config, "SOCIAL_COMPLAINT_TICKET_ENABLED", False)
+    conv["custom_attributes"] = {}
+    assert asyncio.run(main._agent_complaint_ticket(1, conv, "x"))["number"] == ""
+    assert not seen
+    assert sa.complaint_ticket_hook is main._agent_complaint_ticket
+
+
+def test_complaint_ticket_payload_carries_chat_contact(monkeypatch):
+    import asyncio
+    import main
+    monkeypatch.setattr(main.config, "COMPLAINT_AUTO_TICKET_ENABLED", True)
+    monkeypatch.setattr(main.config, "COMPLAINT_TICKET_OWNER_DESK_ID", "352")
+    got = {}
+
+    async def no_candidates(*a):
+        return [], False
+
+    async def ctx(conv_id):
+        return [], {}
+
+    class _CW:
+        async def get_conversation(self, cid):
+            return {"custom_attributes": {}}
+
+    async def fake_create_ticket(payload, **kw):
+        got["payload"], got["kw"] = payload, kw
+        return {"id": "9", "ticketNumber": "4522"}
+
+    async def surface(*a, **k):
+        pass
+    monkeypatch.setattr(main, "_gather_ticket_candidates", no_candidates)
+    monkeypatch.setattr(main, "_ticket_context", ctx)
+    monkeypatch.setattr(main, "chatwoot", _CW())
+    monkeypatch.setattr(main.zoho, "create_ticket", fake_create_ticket)
+    monkeypatch.setattr(main, "_surface_ticket_in_chatwoot", surface)
+    _lines, paused, ticket = asyncio.run(main._maybe_create_complaint_ticket(
+        12626, "Ravi", "", body="legs missing", sender_phone="+919876543210",
+        contact_id=501, details={"phone": "+919876543210", "reason": "legs missing"}))
+    sender = got["payload"]["conversation"]["meta"]["sender"]
+    assert sender == {"name": "Ravi", "email": "", "phone_number": "+919876543210", "id": 501}
+    assert got["kw"]["complaint_details"] == {"phone": "+919876543210", "reason": "legs missing"}
+    assert got["kw"]["assignee_id"] == "352" and ticket["ticketNumber"] == "4522"
+
+
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):
     res, cw = _scripted_turn(
         monkeypatch, [_esc_call("complaint", details="kitchen shutter misaligned, Gurgaon",
@@ -3012,6 +3109,87 @@ def test_comment_prompt_ignores_hostile_rants_but_not_abuse_about_durian():
     assert "no reply, no redirect, no hand-over" in p
     assert "About Durian -> set the language aside" in p
     assert "OFF-TOPIC / UNRELATED but harmless" in p
+
+
+def test_replies_mirror_customer_language(monkeypatch):
+    """ISS-413 / conv 13244: "3 pcs chahiye haridwar me" got an English reply;
+    the client now wants the customer's own language (switchable)."""
+    from datetime import datetime
+    now = datetime(2026, 11, 16)
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)
+    dm = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                           now=now, profile_block="P", templates="T", n_customer_msgs=1)
+    cm = sa._comment_prompt("duriandoor", "doors", now, "P", "T")
+    for p in (dm, cm):
+        assert "SAME language and script" in p and "Hinglish" in p
+        assert "Reply in ENGLISH ONLY" not in p and "ALWAYS reply in ENGLISH" not in p
+    assert sa._lang_hint({"language": "hinglish"}).strip().startswith("[for you only")
+    assert "Devanagari" in sa._lang_hint({"language": "hindi"})
+    assert sa._lang_hint({"language": "english"}) == "" and sa._lang_hint(None) == ""
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", False)
+    dm = sa._system_prompt(surface="dm", inbox="durianforhome", vertical="furniture",
+                           now=now, profile_block="P", templates="T", n_customer_msgs=1)
+    cm = sa._comment_prompt("duriandoor", "doors", now, "P", "T")
+    assert "Reply in ENGLISH ONLY" in dm and "ALWAYS reply in ENGLISH" in cm
+    assert sa._lang_hint({"language": "hinglish"}) == ""
+
+
+_BLESSINGS = ["जय श्री कृष्ण", "जय श्री कृष्णा 🙏", "Jai Shri Ram", "jai shree krishna ji 🙏🙏",
+              "Radhe Radhe", "Happy Diwali to all", "Happy Diwali Durian family",
+              "Shubh Deepawali", "diwali ki hardik shubhkamnaye",
+              "दीपावली की हार्दिक शुभकामनाएं", "जय माता दी", "Har Har Mahadev", "ram ram ji",
+              "Eid Mubarak", "merry christmas everyone", "शुभ प्रभात", "राधे राधे"]
+_NOT_BLESSINGS = ["जय श्री राम, सोफा कितने का है?", "jai shri ram, sofa ka price kya hai",
+                  "Happy Diwali! Is the diwali sale on?", "radhe radhe, store kaha hai",
+                  "hi", "good morning", "3 pcs chahiye haridwar me", "ram mandir model price",
+                  "Krishna wardrobe price", "diwali offer?", "namaste, recliner chahiye"]
+
+
+def test_blessing_only_detection():
+    for t in _BLESSINGS:
+        assert sa.is_blessing_only(t), t
+    for t in _NOT_BLESSINGS:
+        assert not sa.is_blessing_only(t), t
+    # plain greetings count only for public comments
+    for t in ("hi", "Hello!", "good morning 🙏", "namaste ji", "नमस्ते", "hi durian"):
+        assert sa.is_blessing_only(t, plain=True) and sa.is_low_value_comment(t), t
+    assert not sa.is_blessing_only("hello is this available", plain=True)
+    assert sa.is_low_value_comment("जय श्री कृष्ण 🙏")
+
+
+def test_comment_blessing_gets_no_reply(monkeypatch):
+    import asyncio
+    import main
+    res = asyncio.run(sa._handle_locked({"id": 5}, 5, "facebook", "comment",
+                                        "जय श्री कृष्ण 🙏", 1))
+    assert res == {"ignored": True, "reason": "low_value_comment"}
+    assert main._is_low_value_comment("Happy Diwali to all 🪔")
+    assert not main._is_low_value_comment("Happy Diwali! sofa price?")
+    for lang in (True, False):
+        monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", lang)
+        assert 'finish(action="ignore"' in sa._comment_lang_rule()
+
+
+def test_dm_blessing_left_unanswered_and_resolved(monkeypatch):
+    res, fake, seen = _run_gate(monkeypatch, {"language": "hindi", "kind": "durian_enquiry"},
+                                msgs=[{"message_type": 0, "content": "जय श्री कृष्ण 🙏"}])
+    assert res == {"handled": "blessing_silent"} and "blessing" in fake.notes[0]
+    assert fake.status == "resolved" and "new" not in seen      # no LLM call at all
+    # a plain opening "Hi" still goes on (understand → agent)
+    res, fake, _ = _run_gate(monkeypatch, {"language": "english", "kind": "greeting_only"},
+                             msgs=[{"message_type": 0, "content": "Hi"}])
+    assert res == "agent" and not fake.notes
+
+
+def test_turn_hinglish_message_gets_language_hint(monkeypatch):
+    import json as _json
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)
+    _, cw = _scripted_turn(
+        monkeypatch, [], surface="", latest="3 pcs chahiye haridwar me",
+        inbox_name="duriandoor",
+        understood={"language": "hinglish", "kind": "durian_enquiry",
+                    "meaning": "Wants 3 pieces delivered in Haridwar."})
+    assert "reply in simple Hinglish" in _json.dumps(cw.llm_calls, default=str)
 
 
 def test_dm_prompt_ignores_hostile_rants():

@@ -26,6 +26,7 @@
 import asyncio
 import base64
 import json
+import unicodedata
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -3250,7 +3251,65 @@ def is_inflammatory_redirect(comment: str, reply: str) -> bool:
 
 def is_low_value_comment(text: str) -> bool:
     t = (text or "").strip().lower()
-    return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == ""
+    return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == "" \
+        or is_blessing_only(t, plain=True)
+
+
+# Religious / festival greetings and blessings — "जय श्री कृष्ण", "Jai Shri Ram",
+# "Radhe Radhe", "Happy Diwali to all". Client rule: these get NO reply, on
+# comments or DMs. Matched in code (the model used to answer them, in Hindi
+# once replies followed the customer's language — ISS-413).
+_DEITY = (r"(?:ram|raam|shri\s*ram|krishna?|krishn|krsna|kanha|hanuman|bajrang\s*bali|"
+          r"ganesh(?:a|ji)?|ganpati|mahakal|shyam|radhe|bhole(?:nath)?|shiv(?:a|ji)?|"
+          r"mata\s*(?:di|ki)|maa|ambe|durga|jinendra|sai\s*ram|siya\s*ram|shree\s*ram)")
+_FESTIVAL = (r"(?:diwali|deepawali|deepavali|dhanteras|holi|navratri|navratra|"
+             r"dussehra|dasara|dussera|eid|bakrid|christmas|new\s*year|chhath(?:\s*puja)?|"
+             r"bhai\s*dooj|bhaidooj|govardhan(?:\s*puja)?|janmashtami|ganesh\s*chaturthi|"
+             r"raksha\s*bandhan|rakhi|lohri|pongal|onam|makar\s*sankranti|sankranti|"
+             r"karwa\s*chauth|guru\s*purab|gurpurab|ram\s*navami|mahashivratri|"
+             r"independence\s*day|republic\s*day)")
+_BLESSING_RE = re.compile(
+    r"\b(?:jai|jay|jaya)\s+(?:(?:shri|shree|sri|siya)\s+)?" + _DEITY + r"\b"
+    r"|\b(?:radhe\s*radhe|radhe\s*krishna|ram\s*ram|sita\s*ram|hare\s*krishna|"
+    r"har\s*har\s*mahadev|om\s*namah?\s*shivay?a?|sat\s*sri\s*akal|waheguru|"
+    r"ganpati\s*bappa\s*morya|jai\s*mata\s*di|eid\s*mubarak|merry\s*christmas)\b"
+    r"|\b(?:happy|shubh|subh)\s+" + _FESTIVAL + r"\b"
+    r"|\b" + _FESTIVAL + r"\s+(?:ki|ke)\s+(?:hardik\s+)?(?:shubh\s*kamna\w*|badhai\w*)"
+    r"|\bshubh\s+(?:prabhat|ratri|sandhya|labh)\b"
+    r"|जय\s*(?:श्री|श्रीं|सिया)?\s*(?:राम|कृष्णा|कृष्ण|हनुमान|गणेश|श्याम|महाकाल|माता\s*दी|"
+    r"भोलेनाथ|बजरंगबली)|राधे\s*राधे|राम\s*राम|सीता\s*राम|हरे\s*कृष्ण|हर\s*हर\s*महादेव|"
+    r"ॐ\s*नमः\s*शिवाय|शुभ\s*(?:दीपावली|दिवाली|धनतेरस|प्रभात|रात्रि|नवरात्रि)|"
+    r"(?:दीपावली|दिवाली|होली|धनतेरस)\s*की\s*(?:हार्दिक\s*)?(?:शुभकामनाएं|शुभकामनाएँ|बधाई)",
+    re.I)
+_PLAIN_GREETING_RE = re.compile(
+    r"\b(?:hi+|hel+o+|hey+|hlo+|hai+|namaste|namaskar|good\s*(?:morning|afternoon|"
+    r"evening|night|day)|gm|gn)\b|नमस्ते|नमस्कार|सुप्रभात|शुभ\s*संध्या", re.I)
+# Words that may surround a blessing without making it a request.
+_BLESSING_FILLER_RE = re.compile(
+    r"\b(?:ji|to|all|everyone|everybody|sabko|sab|aap|aapko|aap\s*sabko|ko|parivar|"
+    r"family|team|durian|bhai|bhaiya|dosto|friends|and|aur|wish|wishes|wishing|you|"
+    r"your|a|very|many|bahut|bahot|sir|madam|mam|maam|hardik|shubhkamnaye\w*|"
+    r"shubhkamnaen|badhai\w*|blessings?|god\s*bless|jai)\b"
+    r"|सभी\s*को|आप\s*सभी\s*को|आपको|सबको|आप|को|जी|परिवार|हार्दिक|शुभकामनाएं|"
+    r"शुभकामनाएँ|बधाई|और", re.I)
+
+
+def is_blessing_only(text: str, plain: bool = False) -> bool:
+    """True when the message is ONLY a religious / festival greeting or
+    blessing (plus emoji, punctuation and filler like "ji", "to all") — no
+    question, no request. `plain` also counts ordinary greetings ("hi",
+    "good morning", "namaste"), used for public comments."""
+    t = _EMOJI_RE.sub(" ", (text or "").lower())
+    t = re.sub(r"[^\w\sऀ-ॿ]", " ", t)
+    rest = _BLESSING_RE.sub(" ", t)
+    if plain:
+        rest = _PLAIN_GREETING_RE.sub(" ", rest)
+    if rest == t:
+        return False                     # no greeting / blessing in it at all
+    rest = _BLESSING_FILLER_RE.sub(" ", rest)
+    # Stray Devanagari vowel signs / nukta left by a partial word are not words.
+    rest = "".join(ch for ch in rest if not unicodedata.category(ch).startswith("M"))
+    return not rest.strip()
 
 
 def is_bot_agent(user: dict) -> bool:
@@ -3323,6 +3382,60 @@ def _guidance_block(vertical: str, guidance: str) -> str:
             "━━ END CLIENT GUIDANCE (the rules above still win) ━━")
 
 
+# Reply language. REPLY_IN_CUSTOMER_LANGUAGE (ISS-413, conv 13244): mirror the
+# customer's language and script; off → the earlier English-only voice.
+_MIRROR_RULE = (
+    "Reply in the SAME language and script the customer writes in: English → "
+    "English; Hinglish (Hindi in English letters, e.g. \"3 pcs chahiye haridwar "
+    "me\") → simple Hinglish in English letters; Hindi in Devanagari → simple "
+    "Hindi in Devanagari; any other language → English. Follow their LATEST "
+    "message. Stay warm, polite and simple (\"aap\", never \"tum\"; no slang like "
+    "\"bhaiya\"). Product names, prices, links, store names and addresses stay "
+    "exactly as given; approved templates are written in English — keep their "
+    "meaning and content, said in the customer's language.")
+
+
+# Client rule: a bare greeting, blessing or festival wish gets NO reply.
+_COMMENT_GREETING_RULE = (
+    " A comment that is ONLY a greeting, blessing or festival wish, with no "
+    "request (\"जय श्री कृष्ण\", \"jai shri ram\", \"radhe radhe\", \"happy "
+    "diwali\", \"good morning\", \"namaste\") → finish(action=\"ignore\", "
+    "reply=\"\") — no reply at all.")
+
+
+def _comment_lang_rule() -> str:
+    if config.REPLY_IN_CUSTOMER_LANGUAGE:
+        return (_MIRROR_RULE + _COMMENT_GREETING_RULE)
+    return ("ALWAYS reply in ENGLISH — even if the comment is written in Hindi, "
+            "Devanagari, or any other language: understand it fully, but reply in "
+            "warm, simple English, never in Hindi/Devanagari script or Hindi words "
+            "(ji, bilkul, dhanyavaad)." + _COMMENT_GREETING_RULE)
+
+
+def _dm_lang_rule() -> str:
+    if config.REPLY_IN_CUSTOMER_LANGUAGE:
+        return _MIRROR_RULE
+    return ("Reply in ENGLISH ONLY: understand Hindi/Hinglish/Devanagari input "
+            "fully, but NEVER reply in Hindi or Devanagari script — even if the "
+            "customer writes fully in Hindi — and never use Hindi words (\"ji\", "
+            "\"bilkul\", \"bhaiya\", \"dhanyavaad\"), even when a template or the "
+            "customer uses them; your reply always stays in warm, simple English.")
+
+
+def _lang_hint(understood: dict | None) -> str:
+    """Transcript hint naming the reply language, from the understand step."""
+    if not (config.REPLY_IN_CUSTOMER_LANGUAGE and understood):
+        return ""
+    lang = str(understood.get("language") or "").lower()
+    if lang == "hinglish":
+        return ("\n[for you only: the customer writes Hinglish — reply in simple "
+                "Hinglish, in English letters]")
+    if lang == "hindi":
+        return ("\n[for you only: the customer writes Hindi — reply in simple "
+                "Hindi (Devanagari)]")
+    return ""
+
+
 def _comment_prompt(inbox: str, vertical: str, now: datetime,
                     profile_block: str, templates: str,
                     post_caption: str = "", client_guidance: str = "") -> str:
@@ -3342,11 +3455,7 @@ This is a PUBLIC comment thread. Write ONE short reply (at most 2 sentences), \
 warm and professional. NEVER put a price, phone number, address, stock figure \
 or link in a public comment — those details move to DM.
 
-ALWAYS reply in ENGLISH — even if the comment is written in Hindi, Devanagari, \
-or any other language: understand it fully, but reply in warm, simple English, \
-never in Hindi/Devanagari script or Hindi words (ji, bilkul, dhanyavaad). A \
-bare greeting or blessing with no request ("jai shri krishna", "good morning", \
-"namaste") → a short warm English greeting/thank-you, NOT a sales pitch.
+{_comment_lang_rule()}
 
 FIRST check the tone. If the comment is abusive, foul, hateful or insulting, or \
 is a political, religious, caste or communal rant, decide whether it is about \
@@ -3597,11 +3706,7 @@ from search_products — no exception, comparisons included. {chan} \
 delivers at most {char_cap} characters per message — stay under {char_soft}: at most \
 THREE products per reply (best fits first; more exist → say they can ask), \
 one short line + link each. Add one line "EMI options available" where \
-useful. Reply in ENGLISH ONLY: understand Hindi/Hinglish/Devanagari input fully, but \
-NEVER reply in Hindi or Devanagari script — even if the customer writes fully \
-in Hindi — and never use Hindi words ("ji", "bilkul", "bhaiya", "dhanyavaad"), \
-even when a template or the customer uses them; your reply always stays in \
-warm, simple English.
+useful. {_dm_lang_rule()}
 5. finish() — the turn ALWAYS ends with this call (never a bare text reply), \
 and it carries TWO equal duties:
    SENDING — code decides, not you: your reply goes to the customer unless it \
@@ -3735,6 +3840,10 @@ has their number and will call. Never escalate_to_human for it.
 (one firm polite line first), collabs and anything you cannot handle \
 (category other) — hand over directly.
   • Unclear intent → ONE clarifying question, then hand over with what you learned.
+- BLESSINGS: a message that is ONLY a religious or festival greeting or \
+blessing ("जय श्री कृष्ण", "Jai Shri Ram", "Radhe Radhe", "Happy Diwali to all") \
+→ finish(action="ignore", reply="") — no reply. A plain "hi" / "hello" opening \
+a chat is NOT this: greet them and ask how we can help.
 - ABUSE: a message that is purely abusive, obscene or insulting, or a hostile \
 political, religious, caste or communal rant, with no actual issue about Durian \
 → finish(action="ignore", reply="") — no reply, no hand-over. Insults wrapped \
@@ -4285,6 +4394,18 @@ async def _handle_locked(conv, conv_id, channel, surface,
                     pass
                 return {"handled": "non_product_photo_silent"}
 
+    # Religious / festival greetings and blessings ("जय श्री कृष्ण", "Radhe
+    # Radhe", "Happy Diwali to all") get no reply — client rule, DMs as well as
+    # comments. A plain "Hi" opening a chat is NOT one of these (it gets a reply).
+    if surface != "comment":
+        _new, _e, _r = _gate_split(all_messages)
+        if _new and all(is_blessing_only(t) for t in _new):
+            if latest_msg_id is not None:
+                _last_handled_msgid[conv_id] = latest_msg_id
+            await _leave_unanswered(conv, conv_id, {"meaning": ""},
+                                    "a religious or festival greeting / blessing")
+            return {"handled": "blessing_silent"}
+
     # Understand-then-decide: read the new message(s) in any language, leave
     # out-of-scope ones unanswered, and hand the English meaning to the agent.
     understood = None
@@ -4389,6 +4510,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
             and (understood.get("meaning") or "").strip():
         transcript += ("\n[English meaning of the customer's latest message(s), "
                        f"for you only: {understood['meaning'].strip()}]")
+    if transcript:
+        transcript += _lang_hint(understood)
     if understood and understood.get("kind") == "order_or_complaint":
         # conv 12162: "Recliner / Assembly / Video … how to fix mobile holder"
         # got a lounge-chair pitch and three registration asks.
@@ -4653,6 +4776,23 @@ async def _handle_locked(conv, conv_id, channel, surface,
                                         else "Emailed customer support"),
                               "detail": f"{category} emailed to {fwd.get('recipient')}"})
         hr = fwd if category == "job" else {}
+        # A complaint / service request also gets its Zoho Desk ticket — the
+        # same automatic, support-assigned ticket an email complaint gets
+        # (conv 12622). Its number goes into the customer's line below.
+        tk = {}
+        if category == "complaint" and surface != "comment" and complaint_ticket_hook:
+            try:
+                tk = await complaint_ticket_hook(
+                    conv_id, conv, esc.get("details") or "", _known_phone(ctx)) or {}
+            except Exception as e:  # noqa: BLE001
+                print(f"[agent] complaint ticket failed for conv {conv_id}: {e}")
+            if tk.get("number") or tk.get("paused"):
+                trace.append({"type": "decision", "source": "rule", "visibility": "internal",
+                              "label": "Zoho ticket",
+                              "detail": (f"ticket #{tk['number']}"
+                                         + (" (already raised in this chat)" if tk.get("reused")
+                                            else " created") if tk.get("number")
+                                         else "possible duplicate — paused for an agent decision")})
         team = "" if ctx.get("keep_team") else \
             await _route_handoff(conv_id, category, vertical)
         if team:
@@ -4662,6 +4802,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
             _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
             _handoff_line(category, surface, routed, esc.get("customer_message") or "")
+        if line and tk.get("number"):
+            line = f"{line} Your complaint reference number is #{tk['number']}."
         msg = mask_stored_phone(scrub(line, surface), phone_val or "", typed)
         # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
         # unsafe handoff line becomes the standard DM invite.
@@ -4964,6 +5106,10 @@ _COMMENT_HANDOFF_LINE = ("Thank you for reaching out! Please DM us so our team "
 # Stamped when a DM handoff line goes out; with agent-needed still on, the
 # conversation is waiting on a human and the line is not re-sent.
 _HANDOFF_SENT_ATTR = "agent_handoff_sent_at"
+# Set by main.py at import: async (conv_id, conv, details, phone) -> {"ticket",
+# "number", "paused", "reused"} — raises the Zoho Desk ticket for a complaint
+# hand-over. None (e.g. in isolated tests) → no ticket.
+complaint_ticket_hook = None
 # Set with it when that hand-over also landed with a team (no agent-needed flag
 # then), so the line is still not re-sent; cleared when the conversation resolves.
 _HANDOFF_ROUTED_ATTR = "agent_handoff_routed"

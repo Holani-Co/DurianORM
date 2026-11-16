@@ -618,6 +618,10 @@ TICKET_DECISION_CATEGORIES = {
 # The agent must belong to ZOHO_DEPARTMENT_ID or Zoho ignores the assignment.
 COMPLAINT_AUTO_TICKET_ENABLED     = _bool("COMPLAINT_AUTO_TICKET_ENABLED", "false")
 COMPLAINT_TICKET_OWNER_DESK_ID    = os.environ.get("COMPLAINT_TICKET_OWNER_DESK_ID", "").strip()
+# The same automatic ticket for complaints / service requests the AI agent hands
+# over on WhatsApp, Instagram / Facebook DMs and the website (conv 12622). Needs
+# COMPLAINT_AUTO_TICKET_ENABLED too; this switch turns off just the chat side.
+SOCIAL_COMPLAINT_TICKET_ENABLED   = _bool("SOCIAL_COMPLAINT_TICKET_ENABLED", "true")
 
 # ── BMS order lookup (existing_order_enquiry flow) ─────────────────────────
 # When enabled, existing-order enquiries get an automatic BMS lookup: order id
@@ -735,6 +739,11 @@ SOCIAL_DEBOUNCE_SECONDS = float(os.environ.get("SOCIAL_DEBOUNCE_SECONDS", "6"))
 # (vendor offers, spam/scams, pure abuse, political/religious remarks, unrelated
 # chat, mid-chat bare greetings) unanswered with a private note + resolve.
 SOCIAL_SCOPE_GATE_ENABLED = _bool("SOCIAL_SCOPE_GATE_ENABLED", "false")
+# The agent replies in the customer's language and script (English / Hinglish in
+# English letters / Hindi in Devanagari) — client request ISS-413 (conv 13244:
+# "3 pcs chahiye haridwar me" got an English reply). false → the earlier
+# English-only voice (client decision 2026-08-13).
+REPLY_IN_CUSTOMER_LANGUAGE = _bool("REPLY_IN_CUSTOMER_LANGUAGE", "true")
 # A bare greeting is left unanswered as mid-chat small talk only when Durian's
 # last reply is at most this many hours old; after a longer gap "Hi" opens a new
 # conversation and gets a reply (conv 12547: a returning customer's "Hi" days

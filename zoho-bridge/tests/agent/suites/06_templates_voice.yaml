@@ -15,13 +15,15 @@
     judge: {min: 3}
 
 - id: hinglish_light_touch
-  # Hinglish INPUT is understood; the reply stays English-only (client
-  # decision 2026-08-13 — no "ji"/"bilkul" mirroring).
+  # Hinglish in → simple, polite Hinglish out (client request ISS-413,
+  # conv 13244; replaces the 2026-08-13 English-only rule). Price + link stay
+  # exact; no slang like "bhaiya" even when the customer uses it.
   script:
     - {at: "0m", text: "bhaiya esmeralda dining set ka price kya hai?"}
   expect:
     anywhere_contains: ["2,?04,?880|204880"]
-    sent_not_contains: ["bilkul", "\\bji\\b", "bhaiya", "dhanyavaad"]
+    sent_contains: ["(?i)\\b(hai|aap|ka|ki|ke)\\b"]
+    sent_not_contains: ["bhaiya"]
     judge: {min: 3}
 
 - id: no_offlist_links
