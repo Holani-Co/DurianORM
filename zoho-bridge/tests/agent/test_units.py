@@ -937,6 +937,101 @@ def test_spam_photo_resolve_switch_off(monkeypatch):
     assert not hasattr(fake, "status")
 
 
+# ── Off-category search rows + catalogue photo match (conv 12162) ──────────
+
+_BENTO = {"title": "Bento", "category": "Lounge Chairs", "selling_price": 47200,
+          "mrp": 94400, "url": "https://www.durian.in/product/bento",
+          "image": "https://img/bento.jpg"}
+_AVERY = {"title": "Avery", "category": "Reclining Sofas", "selling_price": 50200,
+          "mrp": 100400, "url": "https://www.durian.in/product/avery",
+          "image": "https://img/avery.jpg"}
+
+
+def test_query_kind_most_specific_first():
+    assert sa._query_kind("fabric recliner chair")[1] == ("recl",)
+    assert sa._query_kind("sofa cum bed")[1] == ("bed",)
+    assert sa._query_kind("bedside table")[1] == ("side", "end")
+    assert sa._query_kind("Quinn")is None and sa._query_kind("door") is None
+    assert sa._in_kind(_AVERY, ("recl",)) and not sa._in_kind(_BENTO, ("recl",))
+
+
+def test_search_products_drops_off_category_and_retries_noun(monkeypatch):
+    import asyncio
+    import website_search as ws
+    calls = []
+
+    async def fake(query, rows=4, sort="", min_price=None, max_price=None):
+        calls.append(query)
+        return [_BENTO] if query == "fabric recliner chair" else [_AVERY, _BENTO]
+    monkeypatch.setattr(ws, "search", fake)
+    out = asyncio.run(sa.SKILLS["search_products"]["handler"](
+        {}, query="fabric recliner chair"))
+    assert calls == ["fabric recliner chair", "recliner"]
+    assert [p["title"] for p in out["products"]] == ["Avery"]
+
+
+def _match_setup(monkeypatch, reply, results=None):
+    import website_search as ws
+    asked = []
+
+    async def fake_search(query, rows=4, **k):
+        asked.append(query)
+        return list(results if results is not None else [_BENTO, _AVERY])
+
+    async def fake_part(url):
+        return {"inline_data": {"mime_type": "image/jpeg", "data": url}}
+
+    async def fake_gen(model, parts, timeout=60):
+        fake_gen.parts = parts
+        return {"candidates": [{"content": {"parts": [{"text": reply}]}}]}
+    monkeypatch.setattr(ws, "search", fake_search)
+    monkeypatch.setattr(sa, "_fetch_image_part", fake_part)
+    monkeypatch.setattr(sa, "_gemini_generate", fake_gen)
+    sa._MATCH_CACHE.clear()
+    return asked, fake_gen
+
+
+def test_catalog_match_high_confidence_only(monkeypatch):
+    import asyncio
+    verdict = {"is_product": True, "category": "recliner",
+               "suggested_query": "fabric recliner chair"}
+    asked, gen = _match_setup(monkeypatch, '{"match": 2, "confidence": "high"}')
+    hit = asyncio.run(sa._catalog_match("https://cdn/photo.jpg", verdict))
+    assert hit["title"] == "Avery" and asked == ["recliner", "fabric recliner chair"]
+    texts = [p.get("text") for p in gen.parts if "text" in p]
+    assert "CANDIDATE 2: Avery (Reclining Sofas)" in texts
+    for reply in ('{"match": 2, "confidence": "low"}', '{"match": 0, "confidence": "high"}',
+                  '{"match": 9, "confidence": "high"}', "not json"):
+        _match_setup(monkeypatch, reply)
+        assert asyncio.run(sa._catalog_match("https://cdn/p.jpg", verdict)) is None
+    _match_setup(monkeypatch, '{"match": 1, "confidence": "high"}', results=[])
+    assert asyncio.run(sa._catalog_match("https://cdn/p.jpg", verdict)) is None
+
+
+def test_look_at_photo_names_matched_product(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", True)
+    monkeypatch.setattr(sa.config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(sa, "_latest_photo_url", lambda ctx: "https://cdn/photo.jpg")
+
+    async def verdict(url):
+        return {"is_product": True, "category": "recliner",
+                "description": "grey fabric recliner with phone holder",
+                "suggested_query": "fabric recliner chair"}
+    monkeypatch.setattr(sa, "_vision_verdict", verdict)
+
+    async def match(url, v):
+        return _AVERY
+    monkeypatch.setattr(sa, "_catalog_match", match)
+    out = asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))
+    assert out["matched_product"]["title"] == "Avery"
+    assert out["matched_product"]["link"] == "https://www.durian.in/product/avery"
+    assert "IS Durian's Avery" in out["note"] and "service request" in out["note"]
+    monkeypatch.setattr(sa.config, "PHOTO_CATALOG_MATCH_ENABLED", False)
+    out = asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))
+    assert "matched_product" not in out and "COMPARABLE" in out["note"]
+
+
 def test_vision_verdict_cached_one_call(monkeypatch):
     import asyncio
     calls = []
@@ -2509,7 +2604,8 @@ class _TurnChatwoot:
 
 def _scripted_turn(monkeypatch, calls, *, surface="comment", latest="Price",
                    conv_extra=None, channel="instagram",
-                   inbox_name="durianfurniture_official", teams=None):
+                   inbox_name="durianfurniture_official", teams=None,
+                   understood=None):
     """Run one real _handle_locked turn where the model makes `calls`
     ([(tool_name, args), ...]) in its first response."""
     import asyncio
@@ -2534,9 +2630,18 @@ def _scripted_turn(monkeypatch, calls, *, surface="comment", latest="Price",
                                call_id=f"c{i}") for i, (n, a) in enumerate(calls)],
                     output_text="")]
 
+    cw.llm_calls = []
+
     async def fake_llm(**kw):
+        cw.llm_calls.append(kw)
         return responses.pop(0) if responses else NS(output=[], output_text="")
     monkeypatch.setattr(sa, "_responses_with_retry", fake_llm)
+    if understood is not None:
+        monkeypatch.setattr(sa.config, "SOCIAL_SCOPE_GATE_ENABLED", True)
+
+        async def fake_understand(new_texts, earlier):
+            return understood
+        monkeypatch.setattr(sa, "_understand", fake_understand)
     sa._last_handled_msgid.pop(77, None)
     conv = {"id": 77, "inbox_id": 16, "labels": [],
             "meta": {"sender": {"id": 5, "name": "Fatima"}, "channel": "Instagram"},
@@ -2806,6 +2911,34 @@ def test_turn_whatsapp_repair_request_emails_customer_support(monkeypatch):
     assert "door not closing properly" in sent[0][2]
     # emailed = routed → the "we've passed this to customer support" line
     assert [m["content"] for m in cw.public] == [sa._DM_HANDOFF_LINES["complaint"][1]]
+
+
+def test_after_sales_request_is_flagged_to_the_agent(monkeypatch):
+    # conv 12162: "Recliner / Assembly / Video … how to fix mobile holder"
+    import json as _json
+    _, cw = _scripted_turn(
+        monkeypatch, [], surface="", latest="How To Fixed Mobile Holder",
+        channel="website", inbox_name="Furniture Bot",
+        understood={"language": "english", "kind": "order_or_complaint",
+                    "meaning": "Asking how to fit the mobile holder on their recliner."})
+    sent = _json.dumps(cw.llm_calls, default=str)
+    assert "the latest message(s) are about an existing order" in sent
+    # an ordinary enquiry gets no such hint
+    _, cw = _scripted_turn(
+        monkeypatch, [], surface="", latest="recliner price?", channel="website",
+        inbox_name="Furniture Bot",
+        understood={"language": "english", "kind": "durian_enquiry",
+                    "meaning": "Asking a recliner's price."})
+    assert "the latest message(s) are about an existing order" not in _json.dumps(cw.llm_calls, default=str)
+
+
+def test_dm_prompt_treats_assembly_help_as_service():
+    from datetime import datetime
+    p = sa._system_prompt(surface="dm", inbox="Furniture Bot", vertical="furniture",
+                          now=datetime(2026, 11, 16), profile_block="P", templates="T",
+                          n_customer_msgs=1)
+    assert "SERVICE / AFTER-SALES help" in p and "never ask to register it" in p
+    assert "assembly" in sa.SKILLS["escalate_to_human"]["description"]
 
 
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):
