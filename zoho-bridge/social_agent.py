@@ -2555,6 +2555,66 @@ _NEEDS_DETAILS = {
 _NEEDS_REGISTRATION = {"bulk", "dealer"}
 _DETAILS_ASKED_ATTR = "handoff_details_asked"
 
+# A complaint needs a stated problem: "we have purchased recliner sofa" alone
+# was escalated as a complaint + emailed to support (conv 13266).
+_PROBLEM_RE = re.compile(
+    r"\b(broke\w*|break\w*|damag\w*|defect\w*|missing|not\s+(?:working|closing|"
+    r"opening|delivered|received|fitting|fit|good|proper\w*|satisf\w*)|issue\w*|"
+    r"problem\w*|complain\w*|crack\w*|scratch\w*|stain\w*|dent\w*|delay\w*|late|"
+    r"poor|bad|wrong|repair\w*|fix\w*|loose|nois\w*|squeak\w*|tear|torn|fad\w*|"
+    r"leak\w*|refund\w*|return\w*|replace\w*|wobbl\w*|assembl\w*|install\w*|"
+    r"servic\w*|warranty|pending|worst|cheat\w*|fraud|disappoint\w*|unhappy|rust\w*|"
+    r"peel\w*|sag\w*|uneven|smell\w*|fungus|termite\w*|kharab|toot\w*|tut\w*|"
+    r"nahi\s+(?:aaya|aya|mila|hua|chal\w*)|dikkat|shikayat|galat)\b|"
+    r"खराब|टूट|शिकायत|समस्या|गलत|नहीं\s+(?:आया|मिला)", re.I)
+
+
+_PURCHASE_RE = re.compile(
+    r"\b(?:purchas\w*|bought|buy|order(?:ed)?|liya|liye|kharid\w*|le\s+liya)\b|"
+    r"खरीद", re.I)
+
+
+def _bare_purchase(ctx: dict) -> bool:
+    """The latest message only says they bought something ("We have purchased
+    recliner sofa") and no recent message names a problem or a need — not a
+    complaint yet. Narrow on purpose: any other wording goes through."""
+    texts = [t for t in (ctx.get("incoming_all") or []) if (t or "").strip()]
+    if not texts:
+        return False
+    last = texts[-1]
+    return (bool(_PURCHASE_RE.search(last)) and len(last.split()) <= 10
+            and not any(_PROBLEM_RE.search(t) for t in texts[-4:]))
+
+
+_CARE_ASK_RE = re.compile(
+    r"\b(?:customer\s*(?:care|support|service)|care|helpline|help\s*line|"
+    r"toll\s*-?\s*free|tollfree|support)\b[^.?!]{0,30}\b(?:no|number|num|contact)\b"
+    r"|\b(?:contact|phone|call(?:ing)?|mobile)\s*(?:no|number|num)\b"
+    r"|\btoll\s*-?\s*free\b|\bhelpline\b|\bcustomer\s*care\b", re.I)
+
+
+def _care_number() -> str:
+    return config.CUSTOMER_CARE_NUMBER
+
+
+def asks_care_number(text: str) -> bool:
+    """Asking for OUR customer care / helpline number — not a customer giving
+    their own ("my contact number is 98765…")."""
+    t = text or ""
+    if len(re.sub(r"\D", "", t)) >= 10:
+        return False
+    return bool(config.CUSTOMER_CARE_NUMBER and _CARE_ASK_RE.search(t))
+
+
+def care_line() -> str:
+    return (f"You can reach Durian customer care on {config.CUSTOMER_CARE_NUMBER} "
+            f"(toll-free) or write to {config.RETAIL_SUPPORT_EMAIL}.")
+
+
+def _has_care_number(text: str) -> bool:
+    digits = re.sub(r"\D", "", config.CUSTOMER_CARE_NUMBER)
+    return bool(digits) and digits in re.sub(r"\D", "", text or "")
+
 
 def _known_phone(ctx, phone_arg: str = "") -> str:
     """A contact number we hold for this customer: passed in, already on the
@@ -2642,6 +2702,9 @@ async def _sk_escalate(ctx, reason: str = "", category: str = "other",
                 missing.append("their contact number")
             if len((details or "").strip()) < 12:
                 missing.append(_NEEDS_DETAILS[category])
+            elif category == "complaint" and _bare_purchase(ctx):
+                missing.append("what help they need with it — what went wrong, "
+                               "or what service they want")
             if missing:
                 ca[_DETAILS_ASKED_ATTR] = category
                 ctx["_details_ask_turn"] = category
@@ -3838,7 +3901,9 @@ complaint), or ORDER STATUS / delivery date / warranty (category order_status): 
 acknowledge it warmly, and in the SAME reply ask in ONE message for what we \
 don't hold — their contact number (not on WhatsApp) and the details: which \
 product, the order or invoice number (or where and when they bought it) and \
-what went wrong. Hand over once they reply (or decline), passing `details`.
+what went wrong. Hand over once they reply (or decline), passing `details`. \
+Saying they BOUGHT something ("we have purchased a recliner sofa") is not a \
+complaint yet — ask how we can help with it first (conv 13266).
   • SERVICE / AFTER-SALES help for a Durian product they ALREADY HAVE — \
 assembly or installation, an assembly video, fitting a part ("how to fix the \
 mobile holder"), how to use or adjust it, a repair or a part that doesn't work \
@@ -3861,6 +3926,10 @@ has their number and will call. Never escalate_to_human for it.
 (one firm polite line first), collabs and anything you cannot handle \
 (category other) — hand over directly.
   • Unclear intent → ONE clarifying question, then hand over with what you learned.
+- CUSTOMER CARE NUMBER: Durian's toll-free customer care number is \
+{_care_number()} (email {config.RETAIL_SUPPORT_EMAIL}). When a customer asks \
+for a customer care / helpline / toll-free / contact number, GIVE it — that is \
+an answer, not a hand-over, and it applies after a hand-over too.
 - BLESSINGS: a message that is ONLY a religious or festival greeting or \
 blessing ("जय श्री कृष्ण", "Jai Shri Ram", "Radhe Radhe", "Happy Diwali to all") \
 → finish(action="ignore", reply="") — no reply. A plain "hi" / "hello" opening \
@@ -4845,8 +4914,17 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # unsafe handoff line becomes the standard DM invite.
         if surface == "comment" and (not msg or comment_violation(msg)):
             msg = _COMMENT_HANDOFF_LINE
+        # Asked for the customer care number → it is in the reply, hand-over or
+        # not (conv 13266: "Please provide customer care number" got silence).
+        care_ask = surface != "comment" and asks_care_number(latest_message)
+        if care_ask and msg and not _has_care_number(msg):
+            msg = f"{msg}\n\n{care_line()}"
         sent = False
         if surface != "comment" and _handoff_pending(conv):
+            if care_ask and config.SOCIAL_AUTO_SEND_ENABLED and not over_budget:
+                await _send(conv_id, channel, care_line(), 100, trace,
+                            note="customer care number (hand-over already pending)")
+                sent = True
             # conv 10110: our team already has it — re-announcing the forward on
             # every "ok" sent the customer the same line five times.
             trace.append({"type": "decision", "source": "rule", "visibility": "internal",
@@ -4924,6 +5002,9 @@ async def _handle_locked(conv, conv_id, channel, surface,
 
     reply = scrub(finish["reply"], surface)
     reply = mask_stored_phone(reply, phone_val or "", typed)
+    if surface != "comment" and asks_care_number(latest_message) \
+            and not _has_care_number(reply):
+        reply = f"{reply.rstrip()}\n\n{care_line()}"
     scoped = off_scope_line(reply)
     if scoped:
         trace.append({"type": "policy", "source": "system", "visibility": "internal",
@@ -4964,7 +5045,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         routed=_already_routed(conv),
         sources="\n".join(
             [json.dumps(tool_results, ensure_ascii=False, default=str),
-             templates or "", client_guidance or ""] +
+             templates or "", client_guidance or "", care_line()] +
             [str(m.get("content") or "") for m in all_messages if not m.get("private")]))
     trace.append({"type": "decision", "source": "model", "visibility": "internal",
                   "label": "Draft decided",
