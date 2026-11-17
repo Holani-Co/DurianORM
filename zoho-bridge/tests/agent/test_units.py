@@ -866,9 +866,73 @@ def test_product_photo_still_reaches_agent(monkeypatch):
     assert res == "agent" and not fake.notes
 
 
-def test_unviewable_photo_still_reaches_agent(monkeypatch):
+def test_unchecked_photo_only_waits_quietly(monkeypatch):
+    # conv 12610: the check timed out on a festival card → "unable to view,
+    # please resend" + agent-needed. Now: no reply, no label, just a note.
     res, fake = _run_locked(monkeypatch, [_photo()], None)       # vision failed
-    assert res == "agent" and not fake.notes
+    assert res == {"handled": "photo_unchecked_silent"}
+    assert len(fake.notes) == 1 and "couldn't check it" in fake.notes[0]
+    assert not hasattr(fake, "status") and sa._last_handled_msgid.get(99) == 1
+
+
+def test_unchecked_photo_with_text_still_reaches_agent(monkeypatch):
+    res, _ = _run_locked(monkeypatch, [_photo(content="price of this sofa?")], None,
+                         latest="price of this sofa?")
+    assert res == "agent"
+
+
+def test_look_at_photo_failure_is_not_a_handover(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", True)
+    monkeypatch.setattr(sa.config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(sa, "_latest_photo_url", lambda ctx: "https://cdn/p.jpg")
+
+    async def failed(url):
+        return None
+    monkeypatch.setattr(sa, "_vision_verdict", failed)
+    out = asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))
+    assert out["looked"] is False and "escalate" not in out
+    assert "do NOT ask them to resend" in out["note"]
+    # vision switched off entirely still hands over, as before
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", False)
+    assert asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))["escalate"] is True
+
+
+def test_gemini_retries_a_timeout(monkeypatch):
+    import asyncio
+    import httpx
+    calls = []
+
+    class _Resp:
+        status_code, text = 200, "{}"
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise httpx.ReadTimeout("slow")
+            return _Resp()
+
+    async def no_sleep(s):
+        pass
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(sa.asyncio, "sleep", no_sleep)
+    assert asyncio.run(sa._gemini_generate("m", [])) == {"ok": True} and len(calls) == 2
 
 
 def test_photo_with_text_reaches_agent(monkeypatch):
@@ -3036,6 +3100,56 @@ def test_complaint_ticket_payload_carries_chat_contact(monkeypatch):
     assert sender == {"name": "Ravi", "email": "", "phone_number": "+919876543210", "id": 501}
     assert got["kw"]["complaint_details"] == {"phone": "+919876543210", "reason": "legs missing"}
     assert got["kw"]["assignee_id"] == "352" and ticket["ticketNumber"] == "4522"
+
+
+def test_asks_care_number():
+    for t in ("Please provide customer care number", "toll free number?", "helpline no",
+              "customer care", "support number pls", "contact number of durian"):
+        assert sa.asks_care_number(t), t
+    for t in ("my contact number is 9876543210", "price of sofa", "we have purchased sofa"):
+        assert not sa.asks_care_number(t), t
+    assert "1800 209 3242" in sa.care_line()
+
+
+def test_care_number_sent_even_when_handoff_pending(monkeypatch):
+    # conv 13266: "Please provide customer care number" after the hand-over → silence
+    pending = {"labels": ["agent-needed"],
+               "custom_attributes": {sa._HANDOFF_SENT_ATTR: "x"}}
+    res, cw = _scripted_turn(
+        monkeypatch, [_esc_call("complaint", details="recliner sofa support",
+                                phone="9876543210")],
+        surface="", latest="Please provide customer care number", channel="whatsapp",
+        inbox_name="Whatsapp Furniture", teams=_TEAMS, conv_extra=pending)
+    assert [m["content"] for m in cw.public] == [sa.care_line()]
+
+
+def test_care_number_added_to_a_reply_that_left_it_out(monkeypatch):
+    res, cw = _scripted_turn(monkeypatch, [_send_call("Happy to help with your recliner.")],
+                             surface="", latest="customer care number please",
+                             channel="whatsapp", inbox_name="Whatsapp Furniture")
+    assert cw.public and cw.public[-1]["content"].endswith(sa.care_line())
+    from datetime import datetime
+    p = sa._system_prompt(surface="dm", inbox="Whatsapp Furniture", vertical="furniture",
+                          now=datetime(2026, 11, 17), profile_block="P", templates="T",
+                          n_customer_msgs=1)
+    assert "1800 209 3242" in p and "CUSTOMER CARE NUMBER" in p
+
+
+def test_bought_something_is_not_yet_a_complaint(monkeypatch):
+    import asyncio
+    cw = _AttrChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", cw)
+    h = sa.SKILLS["escalate_to_human"]["handler"]
+    ctx = _esc_ctx(incoming=["Hi", "We have purchased recliner sofa"], phone="9876543210")
+    r = asyncio.run(h(ctx, category="complaint", reason="x",
+                      details="customer purchased a recliner sofa"))
+    assert r["escalated"] is False and "what help they need" in r["missing"][0]
+    # a stated problem goes straight through
+    ctx = _esc_ctx(incoming=["We have purchased recliner sofa", "the footrest is broken"],
+                   phone="9876543210")
+    r = asyncio.run(h(ctx, category="complaint", reason="x",
+                      details="recliner footrest broken"))
+    assert r["escalated"] is True
 
 
 def test_turn_fhc_complaint_routes_to_fhc_team(monkeypatch):

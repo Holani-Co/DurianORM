@@ -694,6 +694,10 @@ DEAL_ACK_STORE_LINE_ENABLED = _bool("DEAL_ACK_STORE_LINE_ENABLED", "true")
 # customer support.
 RETAIL_ROUTING_ENABLED = _bool("RETAIL_ROUTING_ENABLED", "false")
 RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@durian.in")
+# Durian's toll-free customer care number (the client's approved templates use
+# it). The agent gives it whenever a customer asks for a customer care /
+# helpline / toll-free number (ISS-425, conv 13266).
+CUSTOMER_CARE_NUMBER = os.environ.get("CUSTOMER_CARE_NUMBER", "1800 209 3242").strip()
 
 # Social store-address enquiries: on IG/FB DMs, a "do you have a store near
 # <city/pincode>?" gets the nearest store's address template (pincode_resolver +
