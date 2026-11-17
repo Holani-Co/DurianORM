@@ -866,9 +866,73 @@ def test_product_photo_still_reaches_agent(monkeypatch):
     assert res == "agent" and not fake.notes
 
 
-def test_unviewable_photo_still_reaches_agent(monkeypatch):
+def test_unchecked_photo_only_waits_quietly(monkeypatch):
+    # conv 12610: the check timed out on a festival card → "unable to view,
+    # please resend" + agent-needed. Now: no reply, no label, just a note.
     res, fake = _run_locked(monkeypatch, [_photo()], None)       # vision failed
-    assert res == "agent" and not fake.notes
+    assert res == {"handled": "photo_unchecked_silent"}
+    assert len(fake.notes) == 1 and "couldn't check it" in fake.notes[0]
+    assert not hasattr(fake, "status") and sa._last_handled_msgid.get(99) == 1
+
+
+def test_unchecked_photo_with_text_still_reaches_agent(monkeypatch):
+    res, _ = _run_locked(monkeypatch, [_photo(content="price of this sofa?")], None,
+                         latest="price of this sofa?")
+    assert res == "agent"
+
+
+def test_look_at_photo_failure_is_not_a_handover(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", True)
+    monkeypatch.setattr(sa.config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(sa, "_latest_photo_url", lambda ctx: "https://cdn/p.jpg")
+
+    async def failed(url):
+        return None
+    monkeypatch.setattr(sa, "_vision_verdict", failed)
+    out = asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))
+    assert out["looked"] is False and "escalate" not in out
+    assert "do NOT ask them to resend" in out["note"]
+    # vision switched off entirely still hands over, as before
+    monkeypatch.setattr(sa.config, "PRODUCT_VISION_ENABLED", False)
+    assert asyncio.run(sa.SKILLS["look_at_photo"]["handler"]({}))["escalate"] is True
+
+
+def test_gemini_retries_a_timeout(monkeypatch):
+    import asyncio
+    import httpx
+    calls = []
+
+    class _Resp:
+        status_code, text = 200, "{}"
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise httpx.ReadTimeout("slow")
+            return _Resp()
+
+    async def no_sleep(s):
+        pass
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(sa.asyncio, "sleep", no_sleep)
+    assert asyncio.run(sa._gemini_generate("m", [])) == {"ok": True} and len(calls) == 2
 
 
 def test_photo_with_text_reaches_agent(monkeypatch):

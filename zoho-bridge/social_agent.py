@@ -2079,9 +2079,17 @@ async def _gemini_generate(model: str, parts: list, timeout: float = 60):
     import httpx
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt in range(4):
-            r = await client.post(url, headers={"x-goog-api-key":
-                                                config.GEMINI_API_KEY},
-                                  json={"contents": [{"parts": parts}]})
+            try:
+                r = await client.post(url, headers={"x-goog-api-key":
+                                                    config.GEMINI_API_KEY},
+                                      json={"contents": [{"parts": parts}]})
+            except httpx.TimeoutException:
+                # A slow Gemini answer used to fail the whole photo check at
+                # once (conv 12610) — retry like a 5xx.
+                if attempt < 2:
+                    await asyncio.sleep(2 ** (attempt + 1))
+                    continue
+                raise
             retryable = (r.status_code == 429 and "limit: 0" not in r.text) \
                 or r.status_code >= 500
             if retryable and attempt < 3:
@@ -2095,7 +2103,10 @@ async def _fetch_bytes(url: str) -> tuple[bytes, str]:
     """Download an image → (bytes, mime)."""
     import httpx
     async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-        r = await client.get(url)
+        try:
+            r = await client.get(url)
+        except httpx.TimeoutException:
+            r = await client.get(url)            # one retry on a slow media host
         r.raise_for_status()
         return r.content, r.headers.get("content-type",
                                         "image/jpeg").split(";")[0]
@@ -2445,10 +2456,11 @@ async def _vision_verdict(url: str) -> dict | None:
     "visible_brand_text clearly names one of ours or `matched_product` is "
     "returned (the photo was matched to that Durian listing) — then follow its "
     "note: a customer who already has it and needs assembly / fitting / repair "
-    "help is a service hand-over, not a sale. If it returns looked=false / "
-    "escalate=true (vision unavailable) OR is_product=false, do NOT guess or "
-    "describe the image — ask ONE clarifying question or hand off with "
-    "escalate_to_human, so the customer never gets a wrong reply.",
+    "help is a service hand-over, not a sale. If it returns looked=false, "
+    "follow its note (a failed check is temporary: answer their words, never "
+    "ask them to resend); escalate=true (vision switched off) → hand off with "
+    "escalate_to_human; is_product=false → do NOT guess or describe the image, "
+    "ask ONE clarifying question.",
     {},
     {"looked": "bool — false when the image could not be viewed (then escalate)",
      "is_product": "bool — a recognisable furniture / home product",
@@ -2482,7 +2494,15 @@ async def _sk_look_at_photo(ctx, **_) -> dict:
                         "clear screenshot of the product they mean"}
     out = await _vision_verdict(url)
     if out is None:
-        return _escalate
+        # The check itself failed (timeout / rate limit) — temporary, and not
+        # the customer's problem: no "please resend", no hand-over just for
+        # this (conv 12610 got both, for a festival greeting card).
+        return {"looked": False,
+                "note": "the photo could not be checked right now (temporary) — "
+                        "do NOT guess or describe it, do NOT ask them to resend "
+                        "it and do NOT hand over just for this: answer what they "
+                        "wrote; if you need to know the product, ask them its "
+                        "name or what they are looking for"}
     if not out.get("is_product"):
         return {"looked": True, "is_product": False, "category": "",
                 "description": str(out.get("description") or "")[:200],
@@ -3591,8 +3611,9 @@ def _system_prompt(surface: str, inbox: str, vertical: str, now: datetime,
         "act on its category / suggested_query via search_products and stay at "
         "the category level — never name a specific product or quote a price "
         "for the pictured item unless it returns visible_brand_text naming "
-        "ours. If it returns looked=false / escalate or is_product=false, hand "
-        "off with escalate_to_human — never guess an image you could not view."
+        "ours. looked=false → follow its note (answer their words; never ask "
+        "them to resend; no hand-over just for that); escalate=true → hand off "
+        "with escalate_to_human; never guess an image you could not view."
         if config.PRODUCT_VISION_ENABLED else "")
     fhc_rule = (
         "\n\nTHIS IS THE FULL HOME CUSTOMISATION ACCOUNT: most people here want "
@@ -4377,6 +4398,21 @@ async def _handle_locked(conv, conv_id, channel, surface,
         urls = _silent_photo_burst(all_messages)
         if urls:
             verdicts = [await _vision_verdict(u) for u in urls]
+            if any(v is None for v in verdicts) and \
+                    not any(v and v.get("is_product") for v in verdicts):
+                # Photo-only and the check failed: we can't tell a product
+                # from a festival card, so say nothing yet and flag nobody
+                # (conv 12610) — the agent answers when they write.
+                if latest_msg_id is not None:
+                    _last_handled_msgid[conv_id] = latest_msg_id
+                try:
+                    await chatwoot.post_private_note(
+                        conv_id, "📷 Customer sent a photo with no message and the "
+                                 "AI couldn't check it right now — no reply sent. "
+                                 "The AI will answer as soon as they write.")
+                except Exception:
+                    pass
+                return {"handled": "photo_unchecked_silent"}
             if all(v is not None and not v.get("is_product") for v in verdicts):
                 if latest_msg_id is not None:
                     _last_handled_msgid[conv_id] = latest_msg_id
