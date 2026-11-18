@@ -94,17 +94,20 @@ function addRule() {
     line: activeLine.value,
     name: '',
     enabled: false,
+    trigger: 'deal_stage',
     stage: '',
     match: [{ field: '', op: 'contains', value: '' }],
     template: '',
     language: '',
     delay_hours: 0,
+    delay_minutes: 0,
     only_if_still_in_stage: true,
     header_media_url: '',
     variables: [],
   });
 }
 const removeRule = rule => rules.value.splice(rules.value.indexOf(rule), 1);
+const isLeadRule = rule => rule.trigger === 'lead_created';
 
 const input =
   'px-2 py-1.5 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12';
@@ -161,6 +164,22 @@ const input =
 
       <div class="grid gap-3 mt-3 sm:grid-cols-2">
         <label class="text-xs text-n-slate-11">
+          {{ t('CRM_AUTOMATION_CONFIG.RULES.TRIGGER') }}
+          <select
+            :value="rule.trigger || 'deal_stage'"
+            class="w-full mt-1"
+            :class="input"
+            @change="rule.trigger = $event.target.value"
+          >
+            <option value="deal_stage">
+              {{ t('CRM_AUTOMATION_CONFIG.RULES.TRIGGER_DEAL') }}
+            </option>
+            <option value="lead_created">
+              {{ t('CRM_AUTOMATION_CONFIG.RULES.TRIGGER_LEAD') }}
+            </option>
+          </select>
+        </label>
+        <label v-if="!isLeadRule(rule)" class="text-xs text-n-slate-11">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.STAGE') }}
           <input
             v-model="rule.stage"
@@ -169,6 +188,9 @@ const input =
             :class="input"
           />
         </label>
+        <p v-else class="self-end text-xs text-n-slate-10">
+          {{ t('CRM_AUTOMATION_CONFIG.RULES.LEAD_HINT') }}
+        </p>
         <label class="text-xs text-n-slate-11">
           {{ t('CRM_AUTOMATION_CONFIG.RULES.DELAY') }}
           <input
@@ -180,9 +202,22 @@ const input =
             :class="input"
           />
         </label>
+        <label class="text-xs text-n-slate-11">
+          {{ t('CRM_AUTOMATION_CONFIG.RULES.DELAY_MINUTES') }}
+          <input
+            v-model.number="rule.delay_minutes"
+            type="number"
+            min="0"
+            max="59"
+            class="w-full mt-1"
+            :class="input"
+          />
+        </label>
       </div>
       <label
-        v-if="rule.delay_hours > 0"
+        v-if="
+          !isLeadRule(rule) && (rule.delay_hours > 0 || rule.delay_minutes > 0)
+        "
         class="flex items-center gap-2 mt-2 text-xs text-n-slate-11"
       >
         <input v-model="rule.only_if_still_in_stage" type="checkbox" />

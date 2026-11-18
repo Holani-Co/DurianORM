@@ -17,6 +17,12 @@
 # belong to one WhatsApp account, so a rule can only send what its own number has.
 # A deal outside every line gets nothing, and each line has its own off switch.
 #
+# A rule can also fire when a Zoho LEAD is created (trigger "lead_created"; the
+# same webhook, with lead_id instead of deal_id) — the furniture number's lead
+# nurture sequence (client sheet "Durian :: CURLs", tab 1): message 1 when the
+# lead arrives, message 2 thirty minutes later, messages 3 and 4 two and three
+# days after the deal reaches Qualified Deal.
+#
 # Consent: the CRM lead form counts as consent; anyone who replied STOP
 # (Chatwoot records OPTED_OUT) is never sent an automated message.
 
@@ -40,7 +46,9 @@ _DB_PATH = os.environ.get(
     "CRM_AUTOMATION_DB", os.path.join(os.path.dirname(__file__), "crm_automation.db"))
 _lock = threading.Lock()
 
-OPS = ("equals", "contains", "blank_or_contains", "not_empty")
+OPS = ("equals", "contains", "blank_or_contains", "not_empty", "not_contains")
+# What starts a rule: a Deal reaching a stage, or a new Lead.
+TRIGGERS = ("deal_stage", "lead_created")
 # Where a template variable's value comes from. "field:<API_Name>" reads any
 # Deal field; "text:<words>" is a fixed value.
 SOURCES = {
@@ -63,10 +71,14 @@ STANDARD_VARIABLES = _WS_VARS_EXEC_PHONE
 _NO_FILTER = [{"field": "", "op": "contains", "value": ""}]
 
 
-def _rule(rid, line, name, stage, template, variables, delay_hours=0):
-    return {"id": rid, "line": line, "name": name, "enabled": False, "stage": stage,
-            "match": [dict(m) for m in _NO_FILTER], "template": template, "language": "",
-            "delay_hours": delay_hours, "only_if_still_in_stage": True,
+def _rule(rid, line, name, stage, template, variables, delay_hours=0, *,
+          trigger="deal_stage", delay_minutes=0, language="", match=None,
+          still_in_stage=True):
+    return {"id": rid, "line": line, "name": name, "enabled": False, "trigger": trigger,
+            "stage": stage, "match": [dict(m) for m in (match or _NO_FILTER)],
+            "template": template, "language": language,
+            "delay_hours": delay_hours, "delay_minutes": delay_minutes,
+            "only_if_still_in_stage": still_in_stage,
             "header_media_url": "", "variables": [dict(v) for v in variables]}
 
 
@@ -80,23 +92,58 @@ DEFAULT_LINES = [
      "match": [{"field": "Layout", "op": "equals", "value": "Standard"},
                {"field": "Business_Verticals", "op": "blank_or_contains", "value": "Furniture"},
                {"field": "Business_Type_New", "op": "blank_or_contains", "value": "Retail"}]},
+    # The same furniture number speaks for Doors and Franchise leads (tab 1).
+    {"id": "doors", "name": "Doors", "enabled": False, "inbox_id": 29,
+     "match": [{"field": "Layout", "op": "equals", "value": "Standard"},
+               {"field": "Business_Verticals", "op": "contains", "value": "Doors"}]},
+    {"id": "franchise", "name": "Franchise", "enabled": False, "inbox_id": 29,
+     "match": [{"field": "Layout", "op": "equals", "value": "Standard"},
+               {"field": "Business_Verticals", "op": "contains", "value": "Franchise"}]},
 ]
-FURNITURE_RULES = [
-    _rule("fur_qualified", "furniture", "Furniture · Qualified", _WS_STAGE_QUALIFIED,
-          "fur_crm_qualified", _WS_VARS_EXEC_PHONE),
-    _rule("fur_followup_1", "furniture", "Furniture · Follow-up 1", "Follow Up",
-          "fur_crm_followup_1", _WS_VARS_EXEC_PHONE),
-    _rule("fur_followup_2", "furniture", "Furniture · Follow-up 2 (after 2 days)", "Follow Up",
-          "fur_crm_followup_2", _WS_VARS_EXEC_PHONE, delay_hours=48),
-    _rule("fur_followup_3", "furniture", "Furniture · Follow-up 3 (after 5 days)", "Follow Up",
-          "fur_crm_followup_3", _WS_VARS_EXEC_PHONE, delay_hours=120),
-    _rule("fur_interested", "furniture", "Furniture · Interested", "Interested",
-          "fur_crm_interested", _WS_VARS_NAME),
-    _rule("fur_closed_lost", "furniture", "Furniture · Closed Lost", "Closed Lost",
-          "fur_crm_closed_lost", _WS_VARS_NAME),
-    _rule("fur_closed_won", "furniture", "Furniture · Closed Won", "Closed Won",
-          "fur_crm_closed_won", _WS_VARS_NAME),
-]
+# The furniture number's lead nurture (client sheet "Durian :: CURLs", tab 1),
+# on the templates already approved on that number. 1: when the lead is created
+# (Lead Status Initiation — most new leads have it blank, so blank counts too);
+# 2: thirty minutes later; 3 and 4: two and three days after Qualified Deal,
+# sent even if the deal has moved on, unless it is closed. Every fixed text is
+# editable in Settings. Franchise gets message 1 only.
+_LEAD_NEW = [{"field": "Lead_Status", "op": "blank_or_contains", "value": "Initiation"}]
+_STILL_OPEN = [{"field": "Stage", "op": "not_contains", "value": "Closed"}]
+_OUR_STORY = ("Watch the film to know more about us "
+              "https://www.youtube.com/watch?v=yLOaDbgoZLA&feature=youtu.be")
+_FACTORY = ("Witness our manufacturing capabilities "
+            "https://www.youtube.com/watch?v=J1iiYauxLQs")
+
+
+def _nurture(line, label, interest, we_make, designers):
+    name = [{"source": "contact_name", "fallback": "there"}]
+    text = lambda v: {"source": f"text:{v}", "fallback": v}
+    return [
+        _rule(f"{line}_msg1", line, f"{label} · Message 1 (lead created)", "",
+              "message_1_new", name + [text(interest)], trigger="lead_created",
+              language="en", match=_LEAD_NEW),
+        _rule(f"{line}_msg2", line, f"{label} · Message 2 (lead + 30 min)", "",
+              "message__2", name + [text("crafting experiences"), text(_OUR_STORY)],
+              trigger="lead_created", delay_minutes=30, language="en", match=_LEAD_NEW,
+              still_in_stage=False),
+        _rule(f"{line}_msg3", line, f"{label} · Message 3 (2 days after Qualified)",
+              _WS_STAGE_QUALIFIED, "message_3_updated", name + [text(we_make)],
+              delay_hours=48, language="en", match=_STILL_OPEN, still_in_stage=False),
+        _rule(f"{line}_msg4", line, f"{label} · Message 4 (3 days after Qualified)",
+              _WS_STAGE_QUALIFIED, "message4",
+              name + [text(designers), text(designers), text(_FACTORY)],
+              delay_hours=72, language="en", match=_STILL_OPEN, still_in_stage=False),
+    ]
+
+
+FURNITURE_RULES = (_nurture("furniture", "Furniture", "Furniture", "furniture", "Furniture")
+                   + _nurture("doors", "Doors", "Doors", "doors", "Door")
+                   + _nurture("franchise", "Franchise", "the Durian franchise",
+                              "furniture", "Furniture")[:1])
+# Furniture rules of the first draft (fur_crm_* templates that were never
+# created): replaced by the nurture rules while still switched off.
+_LEGACY_FURNITURE_IDS = {"fur_qualified", "fur_followup_1", "fur_followup_2",
+                         "fur_followup_3", "fur_interested", "fur_closed_lost",
+                         "fur_closed_won"}
 DEFAULT_DOC = {
     "enabled": False,
     "team": [],
@@ -123,9 +170,11 @@ DEFAULT_DOC = {
 def with_lines(doc: dict) -> dict:
     """`doc` with product lines. A document published before lines existed sent
     every rule from one inbox: those rules become FHC, on that inbox, with the
-    Home Studio filter, and the furniture rules arrive switched off."""
+    Home Studio filter, and the furniture rules arrive switched off. A document
+    from before the lead nurture gains the Doors / Franchise lines and the
+    nurture rules (switched off), replacing the never-used fur_* rules."""
     if doc.get("lines"):
-        return doc
+        return _with_nurture(doc)
     out = json.loads(json.dumps(doc))
     out["lines"] = json.loads(json.dumps(DEFAULT_LINES))
     out["lines"][0]["inbox_id"] = int(doc.get("inbox_id") or 25)
@@ -133,6 +182,21 @@ def with_lines(doc: dict) -> dict:
     for rule in out.get("rules") or []:
         rule.setdefault("line", "fhc")
     out["rules"] = (out.get("rules") or []) + json.loads(json.dumps(FURNITURE_RULES))
+    return out
+
+
+def _with_nurture(doc: dict) -> dict:
+    ids = {r.get("id") for r in doc.get("rules") or []}
+    have_lines = {ln.get("id") for ln in doc.get("lines") or []}
+    if "furniture_msg1" in ids and {"doors", "franchise"} <= have_lines:
+        return doc
+    out = json.loads(json.dumps(doc))
+    out["lines"] += [json.loads(json.dumps(ln)) for ln in DEFAULT_LINES
+                     if ln["id"] not in have_lines]
+    if "furniture_msg1" not in ids:
+        out["rules"] = [r for r in out["rules"]
+                        if not (r.get("id") in _LEGACY_FURNITURE_IDS and not r.get("enabled"))]
+        out["rules"] += json.loads(json.dumps(FURNITURE_RULES))
     return out
 
 
@@ -165,20 +229,24 @@ def init() -> None:
             detail TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
             conv_id INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             UNIQUE(deal_id, rule_id))""")
+        cols = {r[1] for r in c.execute("PRAGMA table_info(runs)").fetchall()}
+        if "snapshot" not in cols:      # the lead as it was, for a delayed send
+            c.execute("ALTER TABLE runs ADD COLUMN snapshot TEXT NOT NULL DEFAULT ''")
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _claim(deal_id: str, rule_id: str, stage: str, status: str, due_at: str) -> bool:
-    """Atomically take (deal, rule). False = already sent / scheduled before."""
+def _claim(deal_id: str, rule_id: str, stage: str, status: str, due_at: str,
+           snapshot: str = "") -> bool:
+    """Atomically take (record, rule). False = already sent / scheduled before."""
     now = _now().isoformat()
     with _lock, _conn() as c:
         cur = c.execute(
             "INSERT OR IGNORE INTO runs (deal_id, rule_id, stage, status, due_at, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (deal_id, rule_id, stage, status, due_at, now, now))
+            "created_at, updated_at, snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (deal_id, rule_id, stage, status, due_at, now, now, snapshot))
         return cur.rowcount == 1
 
 
@@ -219,8 +287,20 @@ def _value(deal: dict, field: str) -> str:
     return "" if v is None else str(v)
 
 
+def trigger_of(rule: dict) -> str:
+    return rule.get("trigger") if rule.get("trigger") in TRIGGERS else "deal_stage"
+
+
 def stage_matches(rule: dict, deal: dict) -> bool:
+    """A deal rule: the deal is at the rule's stage. A lead rule has no stage."""
+    if trigger_of(rule) == "lead_created":
+        return True
     return bool(rule.get("stage")) and _norm(rule["stage"]) == _norm(deal.get("Stage"))
+
+
+def delay_of(rule: dict) -> timedelta:
+    return timedelta(hours=max(0, int(rule.get("delay_hours") or 0)),
+                     minutes=max(0, int(rule.get("delay_minutes") or 0)))
 
 
 def filters_match(rule: dict, deal: dict) -> tuple[bool, str]:
@@ -232,6 +312,7 @@ def filters_match(rule: dict, deal: dict) -> tuple[bool, str]:
         have = _value(deal, field)
         ok = (bool(have.strip()) if op == "not_empty"
               else _norm(want) in _norm(have) if op == "contains"
+              else _norm(want) not in _norm(have) if op == "not_contains"
               else not have.strip() or _norm(want) in _norm(have) if op == "blank_or_contains"
               else _norm(have) == _norm(want))
         if not ok:
@@ -315,7 +396,9 @@ def template_mismatches(doc: dict, templates: list) -> list[str]:
 def resolve_variable(var: dict, deal: dict, team: list) -> str:
     src = str(var.get("source") or "")
     exec_ = exec_contact(deal, team) if src in ("owner_name", "owner_phone") else {}
-    contact = _value(deal, "Contact_Name") or str(deal.get("Deal_Name") or "").split(" — ")[0]
+    contact = (_value(deal, "Contact_Name") or _value(deal, "Full_Name")
+               or " ".join(x for x in (_value(deal, "First_Name"), _value(deal, "Last_Name")) if x)
+               or str(deal.get("Deal_Name") or "").split(" — ")[0])
     value = {
         "contact_name": contact,
         "first_name": contact.split()[0] if contact.split() else "",
@@ -388,6 +471,26 @@ async def _fetch_deal(deal_id: str) -> dict:
     return data
 
 
+async def _fetch_lead(lead_id: str) -> dict:
+    r = await zoho_crm._crm_request("GET", f"/Leads/{lead_id}")
+    data = (r.get("data") or [{}])[0]
+    if not data.get("id"):
+        raise RuntimeError(f"lead {lead_id} not found in Zoho (converted or deleted)")
+    return {**data, "_module": "Leads"}
+
+
+# Lead fields kept with a delayed lead message: a lead converted to a deal
+# before message 2 is due is gone from Leads, and the message still goes out.
+_LEAD_SNAPSHOT_FIELDS = ("id", "Full_Name", "First_Name", "Last_Name", "Mobile", "Phone",
+                         "Lead_Status", "Business_Verticals", "Layout", "Business_Type_New",
+                         "Lead_Source", "Owner")
+_LEAD_KEY = "lead:"
+
+
+def _is_lead(record: dict) -> bool:
+    return record.get("_module") == "Leads"
+
+
 async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
                     test: bool = False) -> dict:
     """Send one rule's template for this deal. Returns {status, detail, phone,
@@ -422,25 +525,30 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
         processed["header"] = {"media_url": url, "media_type": info["header_format"].lower()}
     try:
         _contact_id, conv_id = await chatwoot.ensure_whatsapp_conversation(
-            inbox_id, phone, "" if test else _value(deal, "Contact_Name"))
+            inbox_id, phone, "" if test else resolve_variable({"source": "contact_name"}, deal, []))
         if not test and await chatwoot.latest_whatsapp_consent(_contact_id, inbox_id) == "OPTED_OUT":
             return {"status": "skipped", "phone": phone, "conv_id": conv_id,
                     "detail": "customer opted out (replied STOP)"}
         await chatwoot.send_template_message(conv_id, _render(info["body"], values), {
             "name": tpl.get("name"), "language": tpl.get("language"),
             "category": tpl.get("category"), "processed_params": processed})
-        stage = _value(deal, "Stage")
+        if _is_lead(deal):
+            where = (f"new lead {deal.get('id')}"
+                     + (f" ({_value(deal, 'Lead_Source')})" if _value(deal, "Lead_Source") else ""))
+        else:
+            where = (f"deal {_value(deal, config.ZOHO_CRM_DEAL_NUMBER_FIELD or 'Deal_No') or deal.get('id')} "
+                     f"is at stage “{_value(deal, 'Stage')}”")
         await chatwoot.post_private_note(
             conv_id, f"📲 CRM automation{' TEST' if test else ''}: sent `{tpl.get('name')}` — "
-                     f"deal {_value(deal, config.ZOHO_CRM_DEAL_NUMBER_FIELD or 'Deal_No') or deal.get('id')} "
-                     f"is at stage “{stage}” (rule “{rule.get('name') or rule.get('id')}”).")
+                     f"{where} (rule “{rule.get('name') or rule.get('id')}”).")
     except Exception as e:
         return {"status": "failed", "phone": phone, "detail": str(e)[:300]}
     return {"status": "sent", "phone": phone, "conv_id": conv_id, "detail": ""}
 
 
-def _active_rules(doc: dict) -> list:
-    return [r for r in doc.get("rules") or [] if r.get("enabled") and r.get("id")]
+def _active_rules(doc: dict, trigger: str = "deal_stage") -> list:
+    return [r for r in doc.get("rules") or []
+            if r.get("enabled") and r.get("id") and trigger_of(r) == trigger]
 
 
 async def handle_deal(deal_id: str) -> list[dict]:
@@ -449,14 +557,32 @@ async def handle_deal(deal_id: str) -> list[dict]:
     if not doc.get("enabled"):
         return [{"status": "skipped", "detail": "automation is switched off"}]
     deal = await _fetch_deal(str(deal_id))
+    return await _run_rules(doc, _active_rules(doc, "deal_stage"), deal, str(deal_id),
+                            _value(deal, "Stage"))
+
+
+async def handle_lead(lead_id: str) -> list[dict]:
+    """A lead was created: send or schedule every matching lead rule (once each)."""
+    doc = get_doc()
+    if not doc.get("enabled"):
+        return [{"status": "skipped", "detail": "automation is switched off"}]
+    lead = await _fetch_lead(str(lead_id))
+    snap = json.dumps({k: lead.get(k) for k in _LEAD_SNAPSHOT_FIELDS}, default=str)
+    return await _run_rules(doc, _active_rules(doc, "lead_created"), lead,
+                            _LEAD_KEY + str(lead_id), "lead created", snap)
+
+
+async def _run_rules(doc: dict, rules: list, record: dict, key: str, stage: str,
+                     snapshot: str = "") -> list[dict]:
     out = []
-    for rule in _active_rules(doc):
+    deal, deal_id = record, key
+    for rule in rules:
         if not stage_matches(rule, deal) or not rule_applies(doc, rule, deal)[0]:
             continue
-        delay = max(0, int(rule.get("delay_hours") or 0))
-        due = (_now() + timedelta(hours=delay)).isoformat()
-        stage = _value(deal, "Stage")
-        if not _claim(str(deal_id), rule["id"], stage, "scheduled" if delay else "sending", due):
+        delay = delay_of(rule)
+        due = (_now() + delay).isoformat()
+        if not _claim(str(deal_id), rule["id"], stage, "scheduled" if delay else "sending", due,
+                      snapshot if delay else ""):
             out.append({"rule": rule["id"], "status": "already handled"})
             continue
         if delay:
@@ -483,9 +609,12 @@ async def run_due() -> int:
             _finish(job["deal_id"], job["rule_id"], "cancelled", "rule or automation switched off")
             continue
         try:
-            deal = await _fetch_deal(job["deal_id"])
+            if str(job["deal_id"]).startswith(_LEAD_KEY):
+                deal = await _lead_for_job(job)
+            else:
+                deal = await _fetch_deal(job["deal_id"])
         except Exception as e:
-            _finish(job["deal_id"], job["rule_id"], "failed", f"could not read deal: {e}")
+            _finish(job["deal_id"], job["rule_id"], "failed", f"could not read the record: {e}")
             continue
         if rule.get("only_if_still_in_stage", True) and not stage_matches(rule, deal):
             _finish(job["deal_id"], job["rule_id"], "cancelled",
@@ -502,6 +631,19 @@ async def run_due() -> int:
     return len(jobs)
 
 
+async def _lead_for_job(job: dict) -> dict:
+    """The lead behind a delayed lead message: fresh from Zoho, or — once it was
+    converted to a deal and left the Leads module — as it was when created."""
+    lead_id = str(job["deal_id"])[len(_LEAD_KEY):]
+    try:
+        return await _fetch_lead(lead_id)
+    except Exception:
+        snap = json.loads(job.get("snapshot") or "{}")
+        if not snap:
+            raise
+        return {**snap, "_module": "Leads"}
+
+
 async def preview(deal_id: str) -> dict:
     """What each rule would do for this deal right now — nothing is sent."""
     doc = get_doc()
@@ -511,9 +653,12 @@ async def preview(deal_id: str) -> dict:
     for rule in doc.get("rules") or []:
         ok_f, why = rule_applies(doc, rule, deal)
         tpl = find_template(_on_number(doc, rule, templates), rule)
+        lead_rule = trigger_of(rule) == "lead_created"
         rows.append({
             "rule": rule.get("id"), "name": rule.get("name"), "enabled": bool(rule.get("enabled")),
-            "stage_matches": stage_matches(rule, deal), "filters_match": ok_f, "why_not": why,
+            "stage_matches": False if lead_rule else stage_matches(rule, deal),
+            "filters_match": ok_f,
+            "why_not": "runs when a new lead is created, not for deals" if lead_rule else why,
             "template_found": bool(tpl),
             "message": _render(template_summary(tpl)["body"],
                                [resolve_variable(v, deal, doc.get("team") or [])
@@ -549,13 +694,17 @@ def validate(doc) -> dict:
         seen.add(r.get("id"))
         if not line_of(doc, r):
             errors.append(f"{label}: choose a product line.")
-        if not str(r.get("stage") or "").strip():
+        if r.get("trigger", "deal_stage") not in TRIGGERS:
+            errors.append(f"{label}: unknown trigger {r.get('trigger')!r}.")
+        elif trigger_of(r) == "deal_stage" and not str(r.get("stage") or "").strip():
             errors.append(f"{label}: set the CRM stage.")
         if not str(r.get("template") or "").strip():
             errors.append(f"{label}: choose a template.")
         try:
             if not 0 <= int(r.get("delay_hours") or 0) <= 24 * 30:
                 errors.append(f"{label}: the delay must be 0–720 hours.")
+            if not 0 <= int(r.get("delay_minutes") or 0) <= 59:
+                errors.append(f"{label}: the extra minutes must be 0–59.")
         except (TypeError, ValueError):
             errors.append(f"{label}: the delay must be a number of hours.")
         for v in r.get("variables") or []:

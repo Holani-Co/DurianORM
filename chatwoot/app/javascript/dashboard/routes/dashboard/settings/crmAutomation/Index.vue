@@ -173,6 +173,7 @@ const tabs = computed(() =>
           </li>
           <li>{{ t('CRM_AUTOMATION_CONFIG.WEBHOOK.STEP_4') }}</li>
           <li>{{ t('CRM_AUTOMATION_CONFIG.WEBHOOK.STEP_5') }}</li>
+          <li>{{ t('CRM_AUTOMATION_CONFIG.WEBHOOK.STEP_LEADS') }}</li>
         </ol>
       </details>
 

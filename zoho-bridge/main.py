@@ -8196,6 +8196,24 @@ async def crm_stage_changed(request: Request):
     if not hmac.compare_digest(key, secret):
         raise HTTPException(status_code=401, detail="bad key")
     body = await _crm_body(request)
+    # A Leads "on create" workflow sends lead_id (the lead nurture's messages 1
+    # and 2); the Deals stage workflow sends deal_id.
+    lead_id = str(next((body.get(k) for k in ("lead_id", "Lead_Id", "leadId")
+                        if body.get(k)), "") or request.query_params.get("lead_id") or "").strip()
+    if lead_id:
+        if not lead_id.isdigit():
+            raise HTTPException(status_code=422, detail="lead_id must be the Zoho Lead Id")
+
+        async def _run_lead():
+            try:
+                res = await crm_automation.handle_lead(lead_id)
+                print(f"[crm-automation] lead {lead_id}: {res}")
+            except Exception as e:
+                print(f"[crm-automation] lead {lead_id} failed: {e}")
+        task = asyncio.create_task(_run_lead())
+        _CRM_AUTOMATION_TASKS.add(task)
+        task.add_done_callback(_CRM_AUTOMATION_TASKS.discard)
+        return {"ok": True, "lead_id": lead_id}
     deal_id = str(next((body.get(k) for k in ("deal_id", "id", "Deal_Id", "dealId")
                         if body.get(k)), "") or request.query_params.get("deal_id") or "").strip()
     if not deal_id.isdigit():
@@ -8226,6 +8244,7 @@ async def admin_crm_automation_get(x_routing_admin_secret: Optional[str] = Heade
     return {"doc": doc,
             "active_version": config_store.active_version(config_store.CRM_AUTOMATION),
             "templates": templates, "sources": crm_automation.SOURCES, "ops": crm_automation.OPS,
+            "triggers": list(crm_automation.TRIGGERS),
             "runs": crm_automation.recent_runs(100),
             "webhook_ready": bool((config.CRM_AUTOMATION_WEBHOOK_SECRET or "").strip())}
 
