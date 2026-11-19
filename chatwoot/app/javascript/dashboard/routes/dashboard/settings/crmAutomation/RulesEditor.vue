@@ -101,6 +101,8 @@ function addRule() {
     language: '',
     delay_hours: 0,
     delay_minutes: 0,
+    max_age_days: 0,
+    once_per_phone_days: 0,
     only_if_still_in_stage: true,
     header_media_url: '',
     variables: [],
@@ -209,6 +211,28 @@ const input =
             type="number"
             min="0"
             max="59"
+            class="w-full mt-1"
+            :class="input"
+          />
+        </label>
+        <label class="text-xs text-n-slate-11">
+          {{ t('CRM_AUTOMATION_CONFIG.RULES.MAX_AGE_DAYS') }}
+          <input
+            v-model.number="rule.max_age_days"
+            type="number"
+            min="0"
+            max="365"
+            class="w-full mt-1"
+            :class="input"
+          />
+        </label>
+        <label class="text-xs text-n-slate-11">
+          {{ t('CRM_AUTOMATION_CONFIG.RULES.ONCE_PER_PHONE_DAYS') }}
+          <input
+            v-model.number="rule.once_per_phone_days"
+            type="number"
+            min="0"
+            max="365"
             class="w-full mt-1"
             :class="input"
           />

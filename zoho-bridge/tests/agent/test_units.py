@@ -5254,14 +5254,17 @@ def _make_due(ca):
 def test_nurture_defaults_follow_the_sheet():
     import crm_automation as ca
     rules = {r["id"]: r for r in ca.DEFAULT_DOC["rules"]}
+    q = "Qualified Deal (Please Select This )"
     for line in ("furniture", "doors"):
-        m1, m2, m3, m4 = (rules[f"{line}_msg{i}"] for i in range(1, 5))
-        assert m1["trigger"] == m2["trigger"] == "lead_created"
-        assert m1["template"] == "message_1_new" and m2["delay_minutes"] == 30
-        assert m3["stage"] == m4["stage"] == "Qualified Deal (Please Select This )"
-        assert (m3["delay_hours"], m4["delay_hours"]) == (48, 72)
-        assert m3["match"] == [{"field": "Stage", "op": "not_contains", "value": "Closed"}]
-        assert not m3["only_if_still_in_stage"]
+        m = [rules[f"{line}_msg{i}"] for i in range(1, 5)]
+        assert all(r["trigger"] == "deal_stage" and r["stage"] == q for r in m)
+        assert [(r["delay_hours"], r["delay_minutes"]) for r in m] == [(0, 0), (0, 30), (48, 0), (72, 0)]
+        assert [r["template"] for r in m] == ["message_1_new", "message__2",
+                                              "message_3_updated", "message4"]
+        assert all(r["match"] == [{"field": "Stage", "op": "not_contains", "value": "Closed"}]
+                   and not r["only_if_still_in_stage"] and r["max_age_days"] == 3
+                   and r["once_per_phone_days"] == 7 for r in m)
+        assert m[2]["header_media_url"].endswith(".pdf")       # the Company Profile
     assert "franchise_msg1" in rules and "franchise_msg2" not in rules
     assert not any(r["enabled"] for r in ca.DEFAULT_DOC["rules"])
     assert {ln["id"] for ln in ca.DEFAULT_DOC["lines"]} >= {"furniture", "doors", "franchise"}
@@ -5282,9 +5285,23 @@ def test_live_doc_gains_nurture_and_drops_unused_fur_rules():
     assert ca.with_lines(out) == out                                    # idempotent
 
 
+def _as_lead_rules(ca, ids):
+    """The default msg1/msg2 rules switched to the lead trigger (still supported)."""
+    import config_store
+    doc = ca.get_doc()
+    for r in doc["rules"]:
+        if r["id"] in ids:
+            r.update(trigger="lead_created", stage="",
+                     match=[{"field": "Lead_Status", "op": "blank_or_contains",
+                             "value": "Initiation"}])
+    config_store.publish(doc, domain=config_store.CRM_AUTOMATION)
+
+
 def test_lead_created_sends_msg1_and_msg2_after_30_min(monkeypatch):
     import asyncio
-    ca, cw, state = _nurture_setup(monkeypatch, {"furniture_msg1", "furniture_msg2"})
+    ids = {"furniture_msg1", "furniture_msg2"}
+    ca, cw, state = _nurture_setup(monkeypatch, ids)
+    _as_lead_rules(ca, ids)
     out = {o["rule"]: o for o in asyncio.run(ca.handle_lead("77"))}
     assert out["furniture_msg1"]["status"] == "sent"
     assert out["furniture_msg2"]["status"] == "scheduled"
@@ -5298,7 +5315,6 @@ def test_lead_created_sends_msg1_and_msg2_after_30_min(monkeypatch):
     asyncio.run(ca.run_due())
     assert [s[2]["name"] for s in cw.sent] == ["message_1_new", "message__2"]
     assert "youtube.com/watch?v=yLOaDbgoZLA" in cw.sent[1][1]
-    # Zoho retries the webhook → nothing new
     state["lead_gone"] = False
     assert all(o["status"] == "already handled" for o in asyncio.run(ca.handle_lead("77")))
     assert len(cw.sent) == 2
@@ -5306,11 +5322,13 @@ def test_lead_created_sends_msg1_and_msg2_after_30_min(monkeypatch):
 
 def test_lead_rules_respect_status_and_vertical(monkeypatch):
     import asyncio
-    ca, cw, _ = _nurture_setup(monkeypatch, {"furniture_msg1", "doors_msg1"},
-                               lead=_lead(Lead_Status="Junk Lead"))
+    ids = {"furniture_msg1", "doors_msg1"}
+    ca, cw, _ = _nurture_setup(monkeypatch, ids, lead=_lead(Lead_Status="Junk Lead"))
+    _as_lead_rules(ca, ids)
     assert asyncio.run(ca.handle_lead("77")) == [] and not cw.sent
-    ca, cw, _ = _nurture_setup(monkeypatch, {"furniture_msg1", "doors_msg1"},
+    ca, cw, _ = _nurture_setup(monkeypatch, ids,
                                lead=_lead(Business_Verticals=["Doors"], Lead_Status="Initiation"))
+    _as_lead_rules(ca, ids)
     out = asyncio.run(ca.handle_lead("77"))
     assert [o["rule"] for o in out] == ["doors_msg1"]
     assert cw.sent[0][2]["processed_params"]["body"]["2"] == "Doors"
@@ -5319,8 +5337,7 @@ def test_lead_rules_respect_status_and_vertical(monkeypatch):
 def test_qualified_follow_ups_send_unless_closed(monkeypatch):
     import asyncio
     deal = _ws_deal(Layout={"name": "Standard"}, Business_Verticals=["Furniture"])
-    ca, cw, state = _nurture_setup(monkeypatch, {"furniture_msg3", "furniture_msg1"},
-                                   deal=deal)
+    ca, cw, state = _nurture_setup(monkeypatch, {"furniture_msg3"}, deal=deal)
     out = asyncio.run(ca.handle_deal("555"))
     assert [o["rule"] for o in out] == ["furniture_msg3"] and out[0]["status"] == "scheduled"
     state["deal"] = dict(deal, Stage="Follow Up")          # moved on, still open → sends
@@ -5348,3 +5365,47 @@ def test_validate_lead_rules_and_minutes():
         _rule(rid="c", line="furniture", trigger="whenever")]}
     errs = " ".join(ca.validate(bad)["errors"])
     assert "set the CRM stage" in errs and "0–59" in errs and "unknown trigger" in errs
+
+
+def test_new_deal_runs_the_whole_sequence_with_guards(monkeypatch):
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    deal = _ws_deal(Layout={"name": "Standard"}, Business_Verticals=[],
+                    Created_Time=now.isoformat())
+    ids = {f"furniture_msg{i}" for i in range(1, 5)}
+    ca, cw, state = _nurture_setup(monkeypatch, ids, deal=deal,
+                                   templates=[_MSG1, _MSG2, _MSG3])
+    out = {o["rule"]: o["status"] for o in asyncio.run(ca.handle_deal("555"))}
+    assert out == {"furniture_msg1": "sent", "furniture_msg2": "scheduled",
+                   "furniture_msg3": "scheduled", "furniture_msg4": "scheduled"}
+    assert cw.sent[0][2]["processed_params"]["body"] == {"1": "Ravi Kumar", "2": "Furniture"}
+    # the same person's second Facebook deal: message 1 is not sent again
+    state["deal"] = dict(deal, id="556")
+    out = {o["rule"]: o for o in asyncio.run(ca.handle_deal("556"))}
+    assert out["furniture_msg1"]["status"] == "skipped"
+    assert "already got this message" in out["furniture_msg1"]["detail"]
+    assert len(cw.sent) == 1
+    # an old deal edited into Qualified Deal gets nothing
+    state["deal"] = dict(deal, id="557", Created_Time=(now - timedelta(days=40)).isoformat())
+    out = asyncio.run(ca.handle_deal("557"))
+    assert out and all(o["status"] == "skipped" and "more than 3 days" in o["detail"] for o in out)
+
+
+def test_new_deal_without_stage_is_read_again(monkeypatch):
+    import asyncio
+    import crm_automation as ca
+    calls = []
+    deal = _ws_deal(Layout={"name": "Standard"}, Business_Verticals=["Furniture"])
+    ca_, cw, state = _nurture_setup(monkeypatch, {"furniture_msg1"}, deal=deal)
+
+    async def fetch(deal_id):
+        calls.append(deal_id)
+        return dict(deal, Stage="") if len(calls) == 1 else deal
+
+    async def no_wait(s):
+        pass
+    monkeypatch.setattr(ca, "_fetch_deal", fetch)
+    monkeypatch.setattr(ca.asyncio, "sleep", no_wait)
+    out = asyncio.run(ca.handle_deal("555"))
+    assert len(calls) == 2 and out[0]["status"] == "sent"

@@ -343,7 +343,7 @@
       "STEP_3": "Instant action: Webhook, method POST, to this URL (replace the key with the server secret):",
       "STEP_4": "Body type x-www-form-urlencoded, one parameter: deal_id = the Deal Id (Deals module field).",
       "STEP_5": "Save and activate the rule. Use the Test tab here to check a deal before switching automation on.",
-      "STEP_LEADS": "For rules that start when a new lead is created: add a second Workflow Rule on the Leads module — When a record is created — with the same webhook URL and one parameter lead_id = the Lead Id (Leads module field)."
+      "STEP_LEADS": "Optional, only for rules that start when a new lead is created: add a second Workflow Rule on the Leads module — When a record is created — with the same webhook URL and one parameter lead_id = the Lead Id (Leads module field)."
     },
     "TABS": {
       "RULES": "Rules",
@@ -363,6 +363,8 @@
       "TRIGGER_LEAD": "A new lead is created",
       "LEAD_HINT": "Uses the lead's own fields (e.g. Lead_Status, Business_Verticals) for the conditions below.",
       "DELAY_MINUTES": "Plus minutes (0–59)",
+      "MAX_AGE_DAYS": "Skip deals created more than this many days ago (0 = no limit)",
+      "ONCE_PER_PHONE_DAYS": "Send to the same number at most once in this many days (0 = no limit)",
       "FILTERS": "Only for deals where",
       "FILTERS_HINT": "Optional, on top of the product line's own conditions. Use a Zoho field API name, e.g. City contains Mumbai.",
       "ADD_FILTER": "Add condition",

@@ -18,10 +18,8 @@
 # A deal outside every line gets nothing, and each line has its own off switch.
 #
 # A rule can also fire when a Zoho LEAD is created (trigger "lead_created"; the
-# same webhook, with lead_id instead of deal_id) — the furniture number's lead
-# nurture sequence (client sheet "Durian :: CURLs", tab 1): message 1 when the
-# lead arrives, message 2 thirty minutes later, messages 3 and 4 two and three
-# days after the deal reaches Qualified Deal.
+# same webhook, with lead_id instead of deal_id). The furniture number's nurture
+# sequence (client sheet "Durian :: CURLs", tab 1) runs on deals: see _nurture.
 #
 # Consent: the CRM lead form counts as consent; anyone who replied STOP
 # (Chatwoot records OPTED_OUT) is never sent an automated message.
@@ -73,13 +71,14 @@ _NO_FILTER = [{"field": "", "op": "contains", "value": ""}]
 
 def _rule(rid, line, name, stage, template, variables, delay_hours=0, *,
           trigger="deal_stage", delay_minutes=0, language="", match=None,
-          still_in_stage=True):
+          still_in_stage=True, header_media_url="", max_age_days=0, once_per_phone_days=0):
     return {"id": rid, "line": line, "name": name, "enabled": False, "trigger": trigger,
             "stage": stage, "match": [dict(m) for m in (match or _NO_FILTER)],
             "template": template, "language": language,
             "delay_hours": delay_hours, "delay_minutes": delay_minutes,
             "only_if_still_in_stage": still_in_stage,
-            "header_media_url": "", "variables": [dict(v) for v in variables]}
+            "max_age_days": max_age_days, "once_per_phone_days": once_per_phone_days,
+            "header_media_url": header_media_url, "variables": [dict(v) for v in variables]}
 
 
 # Deals by vertical on the Standard layout: Furniture, plus blanks, because the
@@ -101,12 +100,18 @@ DEFAULT_LINES = [
                {"field": "Business_Verticals", "op": "contains", "value": "Franchise"}]},
 ]
 # The furniture number's lead nurture (client sheet "Durian :: CURLs", tab 1),
-# on the templates already approved on that number. 1: when the lead is created
-# (Lead Status Initiation — most new leads have it blank, so blank counts too);
-# 2: thirty minutes later; 3 and 4: two and three days after Qualified Deal,
-# sent even if the deal has moved on, unless it is closed. Every fixed text is
+# on the templates already approved on that number. Every new Standard deal
+# starts at Qualified Deal (a Zoho rule sets it on create), so the whole
+# sequence hangs off that moment: 1 at once, 2 thirty minutes later, 3 and 4
+# two and three days later — reaching website AND Facebook-form enquiries (the
+# sheet's "lead created" would reach only the ~11 website leads a day; Zoho's own
+# old M1–M4 rules also ran on deals). 2–4 still go if the deal moved on, never
+# once it is Closed. Guards: a deal more than 3 days old (an old deal edited into
+# Qualified) gets nothing, and one number gets each message at most once a week
+# (Facebook forms often create several deals per person). Every fixed text is
 # editable in Settings. Franchise gets message 1 only.
-_LEAD_NEW = [{"field": "Lead_Status", "op": "blank_or_contains", "value": "Initiation"}]
+_COMPANY_PROFILE_PDF = ("https://view.publitas.com/29642/999116/pdfs/"
+                        "7db48e0d-244e-4d78-b158-1a4f9b4aa28e.pdf")
 _STILL_OPEN = [{"field": "Stage", "op": "not_contains", "value": "Closed"}]
 _OUR_STORY = ("Watch the film to know more about us "
               "https://www.youtube.com/watch?v=yLOaDbgoZLA&feature=youtu.be")
@@ -117,21 +122,20 @@ _FACTORY = ("Witness our manufacturing capabilities "
 def _nurture(line, label, interest, we_make, designers):
     name = [{"source": "contact_name", "fallback": "there"}]
     text = lambda v: {"source": f"text:{v}", "fallback": v}
+    common = dict(language="en", match=_STILL_OPEN, still_in_stage=False,
+                  max_age_days=3, once_per_phone_days=7)
     return [
-        _rule(f"{line}_msg1", line, f"{label} · Message 1 (lead created)", "",
-              "message_1_new", name + [text(interest)], trigger="lead_created",
-              language="en", match=_LEAD_NEW),
-        _rule(f"{line}_msg2", line, f"{label} · Message 2 (lead + 30 min)", "",
+        _rule(f"{line}_msg1", line, f"{label} · Message 1 (new enquiry)", _WS_STAGE_QUALIFIED,
+              "message_1_new", name + [text(interest)], **common),
+        _rule(f"{line}_msg2", line, f"{label} · Message 2 (after 30 min)", _WS_STAGE_QUALIFIED,
               "message__2", name + [text("crafting experiences"), text(_OUR_STORY)],
-              trigger="lead_created", delay_minutes=30, language="en", match=_LEAD_NEW,
-              still_in_stage=False),
-        _rule(f"{line}_msg3", line, f"{label} · Message 3 (2 days after Qualified)",
-              _WS_STAGE_QUALIFIED, "message_3_updated", name + [text(we_make)],
-              delay_hours=48, language="en", match=_STILL_OPEN, still_in_stage=False),
-        _rule(f"{line}_msg4", line, f"{label} · Message 4 (3 days after Qualified)",
-              _WS_STAGE_QUALIFIED, "message4",
-              name + [text(designers), text(designers), text(_FACTORY)],
-              delay_hours=72, language="en", match=_STILL_OPEN, still_in_stage=False),
+              delay_minutes=30, **common),
+        _rule(f"{line}_msg3", line, f"{label} · Message 3 (after 2 days)", _WS_STAGE_QUALIFIED,
+              "message_3_updated", name + [text(we_make)], delay_hours=48,
+              header_media_url=_COMPANY_PROFILE_PDF, **common),
+        _rule(f"{line}_msg4", line, f"{label} · Message 4 (after 3 days)", _WS_STAGE_QUALIFIED,
+              "message4", name + [text(designers), text(designers), text(_FACTORY)],
+              delay_hours=72, **common),
     ]
 
 
@@ -500,6 +504,11 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
     phone = re.sub(r"\D", "", to_phone) if to_phone else customer_phone(deal)
     if not phone:
         return {"status": "skipped", "detail": "the deal has no valid mobile number", "phone": ""}
+    if not test and _sent_to_phone_recently(rule.get("id"), phone,
+                                            int(rule.get("once_per_phone_days") or 0)):
+        return {"status": "skipped", "phone": phone,
+                "detail": f"this number already got this message in the last "
+                          f"{rule.get('once_per_phone_days')} days (another deal)"}
     try:
         tpl = find_template(await chatwoot.list_whatsapp_templates(inbox_id), rule)
     except Exception as e:
@@ -546,6 +555,37 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
     return {"status": "sent", "phone": phone, "conv_id": conv_id, "detail": ""}
 
 
+NEW_DEAL_STAGE_WAIT_SECONDS = 15
+
+
+def _too_old(rule: dict, record: dict) -> bool:
+    """The record was created more than the rule's max_age_days ago — an old
+    deal edited into the stage, not a new enquiry. 0 = no limit."""
+    days = int(rule.get("max_age_days") or 0)
+    created = str(record.get("Created_Time") or "")
+    if not days or not created:
+        return False
+    try:
+        ts = datetime.fromisoformat(created)
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return _now() - ts > timedelta(days=days)
+
+
+def _sent_to_phone_recently(rule_id: str, phone: str, days: int) -> bool:
+    """This rule already reached this number within `days` (another deal for
+    the same person)."""
+    if not days or not phone:
+        return False
+    since = (_now() - timedelta(days=days)).isoformat()
+    with _lock, _conn() as c:
+        row = c.execute("SELECT 1 FROM runs WHERE rule_id = ? AND phone = ? AND status = 'sent' "
+                        "AND updated_at >= ? LIMIT 1", (rule_id, phone, since)).fetchone()
+    return row is not None
+
+
 def _active_rules(doc: dict, trigger: str = "deal_stage") -> list:
     return [r for r in doc.get("rules") or []
             if r.get("enabled") and r.get("id") and trigger_of(r) == trigger]
@@ -557,6 +597,11 @@ async def handle_deal(deal_id: str) -> list[dict]:
     if not doc.get("enabled"):
         return [{"status": "skipped", "detail": "automation is switched off"}]
     deal = await _fetch_deal(str(deal_id))
+    if not _value(deal, "Stage").strip():
+        # A brand-new deal: Zoho's own "Update Stage to Qualified Deal" rule sets
+        # the stage a moment after the create that called us — read it again.
+        await asyncio.sleep(NEW_DEAL_STAGE_WAIT_SECONDS)
+        deal = await _fetch_deal(str(deal_id))
     return await _run_rules(doc, _active_rules(doc, "deal_stage"), deal, str(deal_id),
                             _value(deal, "Stage"))
 
@@ -578,6 +623,10 @@ async def _run_rules(doc: dict, rules: list, record: dict, key: str, stage: str,
     deal, deal_id = record, key
     for rule in rules:
         if not stage_matches(rule, deal) or not rule_applies(doc, rule, deal)[0]:
+            continue
+        if _too_old(rule, deal):
+            out.append({"rule": rule["id"], "status": "skipped",
+                        "detail": f"created more than {rule.get('max_age_days')} days ago"})
             continue
         delay = delay_of(rule)
         due = (_now() + delay).isoformat()
@@ -705,6 +754,9 @@ def validate(doc) -> dict:
                 errors.append(f"{label}: the delay must be 0–720 hours.")
             if not 0 <= int(r.get("delay_minutes") or 0) <= 59:
                 errors.append(f"{label}: the extra minutes must be 0–59.")
+            if not 0 <= int(r.get("max_age_days") or 0) <= 365 \
+                    or not 0 <= int(r.get("once_per_phone_days") or 0) <= 365:
+                errors.append(f"{label}: day limits must be 0–365.")
         except (TypeError, ValueError):
             errors.append(f"{label}: the delay must be a number of hours.")
         for v in r.get("variables") or []:
