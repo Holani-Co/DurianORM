@@ -165,3 +165,7 @@ An AI reaches ORM through Durian OS's AI front door with `Authorization: Bearer 
 ### One-time operator steps (not code)
 
 Set `ENABLE_ACCOUNT_SIGNUP=false` in the `installation_configs` row and the environment, then `GlobalConfig.clear_cache`; set `ENABLE_GOOGLE_OAUTH_LOGIN` and `ENABLE_SAML_SSO_LOGIN` to false (keep `GOOGLE_OAUTH_CLIENT_ID` for Gmail inboxes); set `LOGOUT_REDIRECT_LINK=https://durianos.in`; set `DISABLE_USER_PROFILE_UPDATE=true`; bind Puma to 127.0.0.1 and fence `/platform/`. The order and the rest (Platform App, service and emergency users, accounts 2 and 3, super admins) are in appendix 10.8, "Deploying".
+
+## Tickets
+
+How to fix, release and check a client ticket in this repo: see `TICKETS.md`.
