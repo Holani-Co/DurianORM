@@ -23,6 +23,10 @@
 #
 # Consent: the CRM lead form counts as consent; anyone who replied STOP
 # (Chatwoot records OPTED_OUT) is never sent an automated message.
+#
+# Delivery: when the customer wrote in the conversation in the last 24 hours, a
+# rule goes as a plain chat message instead of its template — free, and not
+# held back by Meta's per-person marketing limit (error 131049).
 
 import asyncio
 import json
@@ -538,21 +542,57 @@ async def send_rule(rule: dict, deal: dict, doc: dict, *, to_phone: str = "",
         if not test and await chatwoot.latest_whatsapp_consent(_contact_id, inbox_id) == "OPTED_OUT":
             return {"status": "skipped", "phone": phone, "conv_id": conv_id,
                     "detail": "customer opted out (replied STOP)"}
-        await chatwoot.send_template_message(conv_id, _render(info["body"], values), {
-            "name": tpl.get("name"), "language": tpl.get("language"),
-            "category": tpl.get("category"), "processed_params": processed})
+        as_chat = not test and await _chat_window_open(conv_id)
+        if as_chat:
+            await chatwoot.send_outgoing_message(
+                conv_id, chat_text(tpl, _render(info["body"], values),
+                                   (processed.get("header") or {}).get("media_url", "")))
+        else:
+            await chatwoot.send_template_message(conv_id, _render(info["body"], values), {
+                "name": tpl.get("name"), "language": tpl.get("language"),
+                "category": tpl.get("category"), "processed_params": processed})
         if _is_lead(deal):
             where = (f"new lead {deal.get('id')}"
                      + (f" ({_value(deal, 'Lead_Source')})" if _value(deal, "Lead_Source") else ""))
         else:
             where = (f"deal {_value(deal, config.ZOHO_CRM_DEAL_NUMBER_FIELD or 'Deal_No') or deal.get('id')} "
                      f"is at stage “{_value(deal, 'Stage')}”")
+        how = (" as a normal chat message (the customer wrote in the last 24 hours, "
+               "so WhatsApp needs no template)") if as_chat else ""
         await chatwoot.post_private_note(
-            conv_id, f"📲 CRM automation{' TEST' if test else ''}: sent `{tpl.get('name')}` — "
+            conv_id, f"📲 CRM automation{' TEST' if test else ''}: sent `{tpl.get('name')}`{how} — "
                      f"{where} (rule “{rule.get('name') or rule.get('id')}”).")
     except Exception as e:
         return {"status": "failed", "phone": phone, "detail": str(e)[:300]}
-    return {"status": "sent", "phone": phone, "conv_id": conv_id, "detail": ""}
+    return {"status": "sent", "phone": phone, "conv_id": conv_id,
+            "detail": "sent as a chat message (customer's 24-hour window was open)" if as_chat else ""}
+
+
+async def _chat_window_open(conv_id: int) -> bool:
+    """The customer wrote in this conversation in the last 24 hours, so WhatsApp
+    takes a normal message. A marketing template can be held back by Meta's
+    per-person marketing limit (error 131049); a chat message is not, and costs
+    nothing. Unknown = closed (the template still goes)."""
+    try:
+        return bool((await chatwoot.get_conversation(conv_id)).get("can_reply"))
+    except Exception:
+        return False
+
+
+def chat_text(tpl: dict, body: str, header_url: str = "") -> str:
+    """The template as a plain chat message: its filled body, its header file's
+    link and its link / call buttons written out (a chat message has no buttons)."""
+    parts = [body.strip().strip('"').strip()]
+    if header_url:
+        parts.append(header_url)
+    for comp in tpl.get("components") or []:
+        if str(comp.get("type")).upper() != "BUTTONS":
+            continue
+        for b in comp.get("buttons") or []:
+            target = b.get("url") or b.get("phone_number") or ""
+            if target and "{{" not in target:
+                parts.append(f"{b.get('text') or 'Link'}: {target}")
+    return "\n\n".join(p for p in parts if p)
 
 
 NEW_DEAL_STAGE_WAIT_SECONDS = 15

@@ -3963,9 +3963,17 @@ def _ws_deal(stage="Qualified Deal (Please Select This )", **extra):
 
 
 class _AutoCW:
-    def __init__(self, templates=None, consent=""):
+    def __init__(self, templates=None, consent="", can_reply=False):
         self.templates = templates if templates is not None else [_WS_TPL, _WS_FU1]
         self.consent, self.sent, self.notes = consent, [], []
+        self.can_reply, self.chats = can_reply, []
+
+    async def get_conversation(self, conv_id):
+        return {"id": conv_id, "can_reply": self.can_reply}
+
+    async def send_outgoing_message(self, conv_id, content, **_):
+        self.chats.append((conv_id, content))
+        return {"id": 2}
 
     async def list_whatsapp_templates(self, inbox_id):
         return self.templates
@@ -5409,3 +5417,48 @@ def test_new_deal_without_stage_is_read_again(monkeypatch):
     monkeypatch.setattr(ca.asyncio, "sleep", no_wait)
     out = asyncio.run(ca.handle_deal("555"))
     assert len(calls) == 2 and out[0]["status"] == "sent"
+
+
+# --- Nurture delivery: a follow-up inside the customer's 24-hour window goes as
+# a plain chat message (Meta's marketing limit, error 131049, can't hold it back).
+
+_MSG2_BTN = dict(_MSG2, components=_MSG2["components"] + [{"type": "BUTTONS", "buttons": [
+    {"type": "PHONE_NUMBER", "text": "Call Us", "phone_number": "+919920116000"},
+    {"type": "URL", "text": "Company Profile", "url": "https://www.durian.in/catalog/x"},
+    {"type": "URL", "text": "Track", "url": "https://www.durian.in/t/{{1}}"}]}])
+
+
+def test_follow_up_goes_as_chat_message_when_customer_wrote_today(monkeypatch):
+    import asyncio
+    deal = _ws_deal(Layout={"name": "Standard"}, Business_Verticals=["Furniture"],
+                    Created_Time="2099-01-01T00:00:00+05:30")
+    ca, cw, _ = _nurture_setup(monkeypatch, {"furniture_msg1", "furniture_msg2", "furniture_msg3"},
+                               deal=deal, templates=[_MSG1, _MSG2_BTN, _MSG3])
+    out = asyncio.run(ca.handle_deal("555"))
+    assert out[0]["status"] == "sent" and len(cw.sent) == 1 and not cw.chats   # window shut → template
+    cw.can_reply = True                                  # the customer replied to message 1
+    _make_due(ca)
+    asyncio.run(ca.run_due())
+    assert len(cw.sent) == 1 and len(cw.chats) == 2       # msg2 + msg3 as chat, no template
+    msg2 = cw.chats[0][1]
+    assert msg2.startswith("Hi Ravi Kumar,") and "Call Us: +919920116000" in msg2
+    assert "Company Profile: https://www.durian.in/catalog/x" in msg2 and "{{" not in msg2
+    assert "https://example.com/profile.pdf" in cw.chats[1][1]          # msg3's PDF as a link
+    assert any("normal chat message" in n for n in cw.notes)
+    runs = {r["rule_id"]: r for r in ca.recent_runs()}
+    assert runs["furniture_msg2"]["status"] == "sent" and "chat message" in runs["furniture_msg2"]["detail"]
+
+
+def test_chat_window_never_used_for_tests_or_unknown(monkeypatch):
+    import asyncio
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()], cw=_AutoCW(can_reply=True))
+    rule = ca.get_doc()["rules"][0]
+    res = asyncio.run(ca.send_rule(rule, _ws_deal(), ca.get_doc(), to_phone="919999999999", test=True))
+    assert res["status"] == "sent" and len(cw.sent) == 1 and not cw.chats     # a test shows the template
+
+    class _Broken(_AutoCW):
+        async def get_conversation(self, conv_id):
+            raise RuntimeError("chatwoot down")
+    ca, cw, _ = _auto_setup(monkeypatch, [_rule()], cw=_Broken(can_reply=True))
+    assert asyncio.run(ca.handle_deal("555"))[0]["status"] == "sent"
+    assert len(cw.sent) == 1 and not cw.chats                                  # unknown → template
