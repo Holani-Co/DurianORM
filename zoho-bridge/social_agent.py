@@ -362,6 +362,17 @@ def _location_given_this_chat(ctx, city: str) -> bool:
     return any(t in msgs for t in tokens)
 
 
+def _typed_this_chat(ctx, value) -> bool:
+    """The customer typed this pincode/number themselves in the CURRENT
+    engagement (since the conversation was last resolved) — not one we only have
+    from an earlier chat."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if not digits:
+        return False
+    return any(digits in re.sub(r"\D", "", m.get("content") or "")
+               for m in _engagement_incoming(ctx.get("all_messages") or []))
+
+
 def inr(value) -> str:
     """Indian-notation rupees: 109520 → '₹1,09,520' (last 3 digits, then
     2-digit groups). Skills return prices ONLY in this form, so the model's
@@ -727,7 +738,10 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
                          "for our team." + register + " action: send.")}
     if r.get("ambiguous"):
         return {"resolved": True, "options": r["options"],
-                "note": "several showrooms in that city — ask for their PINCODE to pick the nearest"}
+                "note": "several showrooms/studios there — do NOT pick one. List ALL of these "
+                        "options to the customer and ask which one is nearest to them (or "
+                        "their area pincode); then share that one's details, and register "
+                        "the enquiry with showroom=<the option they chose>."}
     out = {"resolved": True, "showroom": r["card_name"], "city": r.get("city") or "",
            "address_message": store_locator.format_card(r),
            "next": ("customer wants the store details → paste the card's facts EXACTLY "
@@ -1075,11 +1089,62 @@ async def _sk_route_to_showroom(ctx, pincode: str = "", city: str = "",
 
 async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
                                city: str = "", confirm: bool = False,
-                               pincode: str = "", **_) -> dict:
+                               pincode: str = "", showroom: str = "", **_) -> dict:
     """The DOORS / FHC half of register_enquiry: mark the category + the
     customer's details on the conversation and create the deal (owner resolved
-    by category + city in the deal core). Reached through register_enquiry."""
+    by category + city in the deal core). Reached through register_enquiry.
+
+    The studio is the customer's choice, never a silent guess (conv 9360:
+    "Mumbai" was booked to Goregaon off a pincode from a month-old chat; she now
+    lives in Thane). Their profile still counts — exactly like a city we know
+    from their records: a remembered pincode is PROPOSED back to them ("last
+    time you shared 400063 — is our Goregaon studio still the nearest?") and
+    used once they confirm (confirm=true). A city with several studios and no
+    pincode returns `options` to ask which one is nearest. The studio they pick
+    (`showroom`) carries its own pincode into the deal, so the deal is created
+    for that studio."""
     conv_id = ctx["conv_id"]
+    chosen = store_locator.match_store(category, showroom) if showroom else None
+    if chosen:
+        pincode = chosen.get("pincode") or pincode
+        city = city or chosen.get("city") or ""
+    several = None
+    if not chosen and city and category in ("fhc", "doors"):
+        try:
+            several = store_locator.resolve(category, city=city, primary_only=True)
+        except Exception:
+            several = None
+        if not (several and several.get("ambiguous")):
+            several = None
+    if not chosen and pincode and not confirm and not _typed_this_chat(ctx, pincode):
+        try:
+            known = store_locator.resolve(category, pincode=pincode, primary_only=True)
+        except Exception:
+            known = None
+        studio = (known or {}).get("card_name") if known and not known.get("ambiguous") else ""
+        others = [o for o in (several or {}).get("options") or [] if o != studio]
+        return {"registered": False, "confirm_location": True,
+                "known_pincode": pincode, "known_studio": studio,
+                **({"options": [studio] + others} if others and studio else {}),
+                "note": f"Pincode {pincode} comes from the customer's profile (an earlier "
+                        "chat), not this one — confirm it before registering. Ask e.g. "
+                        f"\"Last time you shared {pincode}"
+                        + (f" — is our {studio} studio still the nearest for you?" if studio
+                           else " — is that still your area?")
+                        + (" Or is one of these closer: " + ", ".join(others) + "?" if others else "")
+                        + "\" Once they confirm, call register_enquiry again with "
+                        "confirm=true (same pincode); if they name another area or studio, "
+                        "call again with showroom=<it> (or the pincode they give). Do NOT say "
+                        "it's registered yet."}
+    if several and not chosen and not pincode:
+        return {"registered": False, "choose_showroom": True,
+                "options": several["options"],
+                "note": f"{city} has more than one {_LINE_LABEL.get(category, category)} "
+                        "studio — NOT registered yet. List ALL of these options to the "
+                        "customer and ask which one is nearest to them (or their area "
+                        "pincode). Do NOT pick one or say it's registered. When they "
+                        "choose, call register_enquiry again with showroom=<that option, "
+                        "exactly as listed> and confirm=true."}
     if store_locator.upcoming(category, city=city or None) and \
             not store_locator.resolve(category, city=city or None):
         return {"registered": False, "upcoming": True,
@@ -1373,11 +1438,13 @@ def _ask_product_once(res: dict, requirement: str) -> dict:
     "what they want. ONE DEAL PER LINE: calling again for a line already "
     "registered adds the new details to that deal instead of creating another; "
     "a DIFFERENT line is a new enquiry — call again with that line, reusing the "
-    "details we hold (do not ask for them again). Furniture: a city with several "
-    "showrooms returns `options` (ask for their pincode); if they later name a "
-    "different location it asks you to have them choose one — then call again "
-    "with `showroom` and confirm=true. A location we only know from old records "
-    "must be confirmed with the customer first (the result says so), then "
+    "details we hold (do not ask for them again). A city with several "
+    "showrooms/studios returns `options`: list them ALL and ask which one is "
+    "nearest to them (or their pincode), then call again with `showroom` = the "
+    "option they chose and confirm=true. Furniture: if they later name a "
+    "different location it asks you to have them choose one — the same way. "
+    "A pincode or city we only know from their profile (an earlier chat) is "
+    "proposed back to them first (the result says so), then call again with "
     "confirm=true. Never tell the customer an enquiry is registered until the "
     "result says deal_created or registered.",
     {"line": {"type": "string", "enum": list(LINES),
@@ -1389,7 +1456,8 @@ def _ask_product_once(res: dict, requirement: str) -> dict:
      "phone": {"type": "string", "description": "the customer's own contact number"},
      "pincode": {"type": "string"}, "city": {"type": "string"},
      "showroom": {"type": "string",
-                  "description": "furniture only: the showroom they chose between two"},
+                  "description": "the showroom/studio they chose from `options`, "
+                                 "exactly as listed"},
      "requirement": {"type": "string",
                      "description": "a few words on what they want, if they said"},
      "confirm": {"type": "boolean",
@@ -1398,7 +1466,7 @@ def _ask_product_once(res: dict, requirement: str) -> dict:
     {"registered": "bool", "deal_created": "bool",
      "missing": "list — what to ask the customer for, all in ONE message",
      "confirm_name": "str — ask the customer to confirm this name before registering",
-     "options": "list[str] — several showrooms there; ask for their pincode",
+     "options": "list[str] — several showrooms/studios there; list them and ask which is nearest",
      "store_card": "the store handling it — paste its facts exactly",
      "next": "what the customer may be told", "note": "what to do next"},
     ({"line": "furniture", "name": "Rahul Verma", "phone": "9560150835", "pincode": "110054"},
@@ -1482,6 +1550,9 @@ async def _sk_register(ctx, line: str = "", name: str = "", name_confirmed: bool
                         "conversation — it was NOT registered again"
                         + (", and their new details were added to it" if posted else "")
                         + ". Tell them our team has it; never ask again for details we hold."}
+    if not city and showroom:
+        picked = store_locator.match_store(line, showroom)
+        city = (picked or {}).get("city") or ""
     if not city:
         store = None
         try:
@@ -1489,10 +1560,11 @@ async def _sk_register(ctx, line: str = "", name: str = "", name_confirmed: bool
         except Exception:
             pass
         city = ((store or {}).get("city") if store and not store.get("ambiguous") else "") \
-            or f"Pincode {pincode}"
+            or (f"Pincode {pincode}" if pincode else showroom)
     return _ask_product_once(
         await _sk_register_enquiry(ctx, category=line, phone=phone, city=city,
-                                   confirm=bool(confirm), pincode=pincode), requirement)
+                                   confirm=bool(confirm), pincode=pincode,
+                                   showroom=showroom), requirement)
 
 
 @_skill(

@@ -52,6 +52,8 @@ _PLACE_STOPWORDS = {
     "customization", "showroom", "showrooms", "store", "stores", "studio", "outlet",
     "experience", "centre", "center", "any", "a", "an", "the", "in", "near", "at",
     "of", "and", "new", "city",
+    # Directions customers add to a locality ("Thane West", "Andheri East").
+    "east", "west", "north", "south",
 }
 
 
@@ -77,7 +79,27 @@ def _match_place(candidates: list, place: str, vert: str) -> list:
     if not q:
         return []
     hits = [s for s in candidates if q <= _store_words(s)]
+    if not hits:
+        # An extra word no store carries ("Thane West Mumbai": no store is named
+        # "West") must not hide the store the other words name. Fall back to the
+        # most specific word that does name stores: "thane" (one store) beats
+        # "mumbai" (two). Several stores left → the caller asks which one.
+        per_word = [h for h in ([s for s in candidates if w in _store_words(s)] for w in q) if h]
+        hits = min(per_word, key=len) if per_word else []
     return [s for s in hits if s.get("primary_vertical") == vert] or hits
+
+
+def match_store(vertical: str, text: str) -> dict | None:
+    """The one store of `vertical` the customer picked by name — an option we
+    listed ("Full Home Customisation - Thane - Subhash Nagar") or just its area
+    ("Thane"). None when it names no store or still several."""
+    vert = (vertical or "").strip().lower()
+    candidates = [s for s in _stores() if vert in (s.get("verticals") or [])]
+    want = re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+    exact = [s for s in candidates
+             if want and want in ((s.get("card_name") or "").casefold(), s["name"].casefold())]
+    hits = exact or (_match_place(candidates, text, vert) if want else [])
+    return _result(hits[0], None) if len(hits) == 1 else None
 
 # Verticals the locator knows, and the store fields the Settings editor may
 # override (everything the customer can receive, plus coords/owner for routing).
