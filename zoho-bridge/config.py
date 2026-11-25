@@ -702,6 +702,9 @@ RETAIL_SUPPORT_EMAIL = os.environ.get("RETAIL_SUPPORT_EMAIL", "customersupport@d
 # it). The agent gives it whenever a customer asks for a customer care /
 # helpline / toll-free number (ISS-425, conv 13266).
 CUSTOMER_CARE_NUMBER = os.environ.get("CUSTOMER_CARE_NUMBER", "1800 209 3242").strip()
+# When the toll-free line is answered — given with the number every time
+# (ISS-610). Empty = the number is given without timings.
+CUSTOMER_CARE_HOURS = os.environ.get("CUSTOMER_CARE_HOURS", "10:15 AM to 6:30 PM").strip()
 
 # Social store-address enquiries: on IG/FB DMs, a "do you have a store near
 # <city/pincode>?" gets the nearest store's address template (pincode_resolver +

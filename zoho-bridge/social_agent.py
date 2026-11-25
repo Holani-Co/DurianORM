@@ -2678,9 +2678,38 @@ def asks_care_number(text: str) -> bool:
     return bool(config.CUSTOMER_CARE_NUMBER and _CARE_ASK_RE.search(t))
 
 
+def _care_hours_prompt() -> str:
+    if not config.CUSTOMER_CARE_HOURS:
+        return ""
+    return (f" — answered {config.CUSTOMER_CARE_HOURS}; ALWAYS give these timings "
+            "together with the number")
+
+
+def _care_hours_note() -> str:
+    return f", {config.CUSTOMER_CARE_HOURS}" if config.CUSTOMER_CARE_HOURS else ""
+
+
 def care_line() -> str:
     return (f"You can reach Durian customer care on {config.CUSTOMER_CARE_NUMBER} "
-            f"(toll-free) or write to {config.RETAIL_SUPPORT_EMAIL}.")
+            f"(toll-free{_care_hours_note()}) or write to {config.RETAIL_SUPPORT_EMAIL}.")
+
+
+def _mentions_care_hours(text: str) -> bool:
+    """The reply already states when the line is open (its opening time, written
+    10:15 or 10.15)."""
+    m = re.search(r"(\d{1,2})[:.](\d{2})", config.CUSTOMER_CARE_HOURS or "")
+    if not m:
+        return True
+    return bool(re.search(rf"\b{m.group(1)}\s*[:.]\s*{m.group(2)}\b", text or ""))
+
+
+def with_care_hours(text: str) -> str:
+    """A reply that gives the care number always says when it is answered
+    (ISS-610: the agent shared 1800 209 3242 with no timings)."""
+    if config.CUSTOMER_CARE_HOURS and _has_care_number(text) \
+            and not _mentions_care_hours(text):
+        return f"{text.rstrip()}\n\nCustomer care timings: {config.CUSTOMER_CARE_HOURS}."
+    return text
 
 
 def _has_care_number(text: str) -> bool:
@@ -3999,7 +4028,8 @@ has their number and will call. Never escalate_to_human for it.
 (category other) — hand over directly.
   • Unclear intent → ONE clarifying question, then hand over with what you learned.
 - CUSTOMER CARE NUMBER: Durian's toll-free customer care number is \
-{_care_number()} (email {config.RETAIL_SUPPORT_EMAIL}). When a customer asks \
+{_care_number()}{_care_hours_prompt()} \
+(email {config.RETAIL_SUPPORT_EMAIL}). When a customer asks \
 for a customer care / helpline / toll-free / contact number, GIVE it — that is \
 an answer, not a hand-over, and it applies after a hand-over too.
 - BLESSINGS: a message that is ONLY a religious or festival greeting or \
@@ -4991,6 +5021,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
         care_ask = surface != "comment" and asks_care_number(latest_message)
         if care_ask and msg and not _has_care_number(msg):
             msg = f"{msg}\n\n{care_line()}"
+        if msg:
+            msg = with_care_hours(msg)
         sent = False
         if surface != "comment" and _handoff_pending(conv):
             if care_ask and config.SOCIAL_AUTO_SEND_ENABLED and not over_budget:
@@ -5077,6 +5109,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
     if surface != "comment" and asks_care_number(latest_message) \
             and not _has_care_number(reply):
         reply = f"{reply.rstrip()}\n\n{care_line()}"
+    reply = with_care_hours(reply)
     scoped = off_scope_line(reply)
     if scoped:
         trace.append({"type": "policy", "source": "system", "visibility": "internal",
