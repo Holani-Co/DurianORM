@@ -5701,3 +5701,24 @@ def test_staff_reply_on_an_escalation_thread_is_left_to_the_team(monkeypatch):
     for data in (new_thread, old_thread):
         assert asyncio.run(main.handle_message_created(data)) == \
             {"ignored": True, "reason": "review_escalation_thread"}
+
+
+# --- ISS-610: the toll-free number always comes with its timings
+
+def test_care_number_always_comes_with_its_timings(monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(sa.config, "CUSTOMER_CARE_HOURS", "10:15 AM to 6:30 PM")
+    assert "1800 209 3242 (toll-free, 10:15 AM to 6:30 PM)" in sa.care_line()
+    bare = "Please call our customer care on 1800 209 3242."
+    assert sa.with_care_hours(bare).endswith("Customer care timings: 10:15 AM to 6:30 PM.")
+    for already in ("Call 1800 209 3242 (10:15 am – 6:30 pm).", "Call 1800-209-3242, 10.15 to 6.30."):
+        assert sa.with_care_hours(already) == already           # never said twice
+    assert sa.with_care_hours("Our team will call you shortly.") == \
+        "Our team will call you shortly."                       # no number → untouched
+    assert sa.with_care_hours(sa.care_line()) == sa.care_line()
+    prompt = sa._system_prompt("dm", "durian_furniture", "furniture", datetime(2026, 1, 1),
+                               "P", "T", 1, channel="instagram")
+    assert "answered 10:15 AM to 6:30 PM" in prompt and "ALWAYS give these timings" in prompt
+    # timings switched off → the number alone, as before
+    monkeypatch.setattr(sa.config, "CUSTOMER_CARE_HOURS", "")
+    assert "(toll-free)" in sa.care_line() and sa.with_care_hours(bare) == bare
