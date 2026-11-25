@@ -114,10 +114,56 @@ const addUpcoming = () => {
 };
 const removeUpcoming = i => upcomingList.value.splice(i, 1);
 
+// Stores added here (an upcoming store that has opened). Kept as they are on
+// every save; they show up in the store list below like registry stores.
+const newStores = ref([...(props.override.new_stores || [])]);
+const VERTICAL_LABEL = { furniture: 'Furniture', doors: 'Doors', fhc: 'FHC' };
+const NEW_STORE_REQUIRED = ['card_name', 'address', 'city', 'pincode'];
+
+// "Store is open – add details" on an upcoming row: the store form, pre-filled
+// from the row. "Make it live" turns it into a store and saves straight away.
+const goLive = ref(null); // { index, draft }
+const goLiveErrors = ref([]);
+const startGoLive = i => {
+  const u = upcomingList.value[i];
+  const area = (u.area || '').trim();
+  const draft = Object.fromEntries(FORM_FIELDS.map(f => [f, '']));
+  draft.card_name = area
+    ? `${VERTICAL_LABEL[u.vertical] || u.vertical} - ${area}`
+    : '';
+  draft.city = area;
+  draft.pincode = (u.pincodes || '').split(',')[0].trim();
+  draft.crm_owner_id = '';
+  draft.coords = '';
+  goLive.value = { index: i, vertical: u.vertical, draft };
+  goLiveErrors.value = [];
+};
+const slug = text =>
+  (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+const uniqueId = base => {
+  const taken = new Set([
+    ...props.effective.map(s => s.id),
+    ...newStores.value.map(s => s.id),
+  ]);
+  let id = base;
+  let n = 2;
+  while (taken.has(id)) {
+    id = `${base}-${n}`;
+    n += 1;
+  }
+  return id;
+};
+
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   return props.effective.filter(s => {
-    if (verticalFilter.value !== 'all' && !(s.verticals || []).includes(verticalFilter.value)) {
+    if (
+      verticalFilter.value !== 'all' &&
+      !(s.verticals || []).includes(verticalFilter.value)
+    ) {
       return false;
     }
     if (!q) return true;
@@ -177,6 +223,7 @@ const buildDoc = () => {
   if (Object.keys(stores).length) doc.stores = stores;
   if (Object.keys(radiusKm).length) doc.radius_km = radiusKm;
   if (upcoming.length) doc.upcoming = upcoming;
+  if (newStores.value.length) doc.new_stores = newStores.value;
   return doc;
 };
 
@@ -203,6 +250,45 @@ async function save() {
   } finally {
     busy.value = false;
   }
+}
+
+async function confirmGoLive() {
+  const { index, vertical, draft } = goLive.value;
+  const missing = NEW_STORE_REQUIRED.filter(f => !(draft[f] || '').trim());
+  if (missing.length) {
+    goLiveErrors.value = [
+      t('STORES_CONFIG.UPCOMING.REQUIRED', {
+        fields: missing.map(f => t(`STORES_CONFIG.FIELDS.${f}`)).join(', '),
+      }),
+    ];
+    return;
+  }
+  const store = { vertical };
+  Object.entries(draft).forEach(([k, v]) => {
+    if (k !== 'coords' && typeof v === 'string' && v.trim())
+      store[k] = v.trim();
+  });
+  const coords = (draft.coords || '').trim();
+  if (coords) {
+    const [lat, lon] = coords.split(',').map(x => Number(x.trim()));
+    if (
+      coords.split(',').length !== 2 ||
+      Number.isNaN(lat) ||
+      Number.isNaN(lon) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lon) > 180
+    ) {
+      goLiveErrors.value = [t('STORES_CONFIG.UPCOMING.COORDS_INVALID')];
+      return;
+    }
+    store.lat = lat;
+    store.lon = lon;
+  }
+  store.id = uniqueId(`${vertical}-${slug(store.card_name)}`);
+  newStores.value.push(store);
+  upcomingList.value.splice(index, 1);
+  goLive.value = null;
+  await save();
 }
 </script>
 
@@ -257,44 +343,138 @@ async function save() {
       <div
         v-for="(u, i) in upcomingList"
         :key="i"
-        class="grid grid-cols-1 gap-2 py-2 border-t sm:grid-cols-5 border-n-weak"
+        class="py-2 border-t border-n-weak"
       >
-        <select
-          v-model="u.vertical"
-          class="px-2 py-1 text-sm capitalize border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
-        >
-          <option v-for="v in verticals" :key="v" :value="v">{{ v }}</option>
-        </select>
-        <input
-          v-model="u.area"
-          type="text"
-          :placeholder="t('STORES_CONFIG.UPCOMING.AREA_PH')"
-          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
-        />
-        <input
-          v-model="u.pincodes"
-          type="text"
-          :placeholder="t('STORES_CONFIG.UPCOMING.PINCODES_PH')"
-          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
-        />
-        <input
-          v-model="u.note"
-          type="text"
-          :placeholder="t('STORES_CONFIG.UPCOMING.NOTE_PH')"
-          class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
-        />
-        <div class="flex items-center justify-between gap-2">
-          <label class="flex items-center gap-1 text-xs text-n-slate-11">
-            <input v-model="u.enabled" type="checkbox" />
-            {{ t('STORES_CONFIG.UPCOMING.ENABLED') }}
-          </label>
-          <button
-            type="button"
-            class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:opacity-80"
-            @click="removeUpcoming(i)"
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-5">
+          <select
+            v-model="u.vertical"
+            class="px-2 py-1 text-sm capitalize border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
           >
-            {{ t('STORES_CONFIG.UPCOMING.REMOVE') }}
-          </button>
+            <option v-for="v in verticals" :key="v" :value="v">{{ v }}</option>
+          </select>
+          <input
+            v-model="u.area"
+            type="text"
+            :placeholder="t('STORES_CONFIG.UPCOMING.AREA_PH')"
+            class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+          />
+          <input
+            v-model="u.pincodes"
+            type="text"
+            :placeholder="t('STORES_CONFIG.UPCOMING.PINCODES_PH')"
+            class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+          />
+          <input
+            v-model="u.note"
+            type="text"
+            :placeholder="t('STORES_CONFIG.UPCOMING.NOTE_PH')"
+            class="px-2 py-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+          />
+          <div class="flex items-center justify-between gap-2">
+            <label class="flex items-center gap-1 text-xs text-n-slate-11">
+              <input v-model="u.enabled" type="checkbox" />
+              {{ t('STORES_CONFIG.UPCOMING.ENABLED') }}
+            </label>
+            <button
+              type="button"
+              class="px-2 py-1 text-xs rounded-lg text-n-ruby-11 hover:opacity-80"
+              @click="removeUpcoming(i)"
+            >
+              {{ t('STORES_CONFIG.UPCOMING.REMOVE') }}
+            </button>
+          </div>
+        </div>
+        <button
+          v-if="!goLive || goLive.index !== i"
+          type="button"
+          class="px-2 py-1 mt-2 text-xs font-medium border rounded-lg border-n-teal-7 text-n-teal-11 hover:bg-n-alpha-1"
+          @click="startGoLive(i)"
+        >
+          {{ t('STORES_CONFIG.UPCOMING.GO_LIVE') }}
+        </button>
+        <div
+          v-else
+          class="p-3 mt-2 border rounded-lg border-n-teal-7 bg-n-alpha-1"
+        >
+          <div class="text-sm font-medium text-n-slate-12">
+            {{ t('STORES_CONFIG.UPCOMING.GO_LIVE_TITLE') }}
+          </div>
+          <p class="mt-1 text-xs text-n-slate-11">
+            {{ t('STORES_CONFIG.UPCOMING.GO_LIVE_HINT') }}
+          </p>
+          <div class="grid grid-cols-1 gap-3 mt-3 sm:grid-cols-2">
+            <label
+              v-for="f in FORM_FIELDS"
+              :key="f"
+              class="text-xs text-n-slate-11"
+            >
+              {{ t(`STORES_CONFIG.FIELDS.${f}`) }}
+              <input
+                v-model="goLive.draft[f]"
+                type="text"
+                class="w-full px-2 py-1 mt-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              />
+            </label>
+            <label class="text-xs text-n-slate-11 sm:col-span-2">
+              {{ t('STORES_CONFIG.UPCOMING.COORDS') }}
+              <input
+                v-model="goLive.draft.coords"
+                type="text"
+                :placeholder="t('STORES_CONFIG.UPCOMING.COORDS_PH')"
+                class="w-full px-2 py-1 mt-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              />
+              <span class="block mt-1 text-n-slate-10">
+                {{ t('STORES_CONFIG.UPCOMING.COORDS_HINT') }}
+              </span>
+            </label>
+            <label
+              v-if="canEditOwner"
+              class="text-xs text-n-slate-11 sm:col-span-2"
+            >
+              {{ t('STORES_CONFIG.DEAL_ROUTING.TITLE') }}
+              <select
+                v-if="owners.length"
+                v-model="goLive.draft.crm_owner_id"
+                class="w-full px-2 py-1 mt-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              >
+                <option value="">
+                  {{ t('STORES_CONFIG.DEAL_ROUTING.NONE') }}
+                </option>
+                <option v-for="o in owners" :key="o.id" :value="o.id">
+                  {{ ownerLabel(o.id) }}
+                </option>
+              </select>
+              <input
+                v-else
+                v-model="goLive.draft.crm_owner_id"
+                type="text"
+                class="w-full px-2 py-1 mt-1 text-sm border rounded-lg border-n-weak bg-n-alpha-black-2 text-n-slate-12"
+              />
+            </label>
+          </div>
+          <ul
+            v-if="goLiveErrors.length"
+            class="mt-3 text-xs list-disc list-inside text-n-ruby-11"
+          >
+            <li v-for="(e, k) in goLiveErrors" :key="k">{{ e }}</li>
+          </ul>
+          <div class="flex justify-end gap-2 mt-3">
+            <button
+              type="button"
+              class="px-3 py-1 text-sm border rounded-lg border-n-weak text-n-slate-11"
+              @click="goLive = null"
+            >
+              {{ t('STORES_CONFIG.UPCOMING.GO_LIVE_CANCEL') }}
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 text-sm font-medium text-white rounded-lg bg-n-brand hover:opacity-90 disabled:opacity-60"
+              :disabled="busy"
+              @click="confirmGoLive"
+            >
+              {{ t('STORES_CONFIG.UPCOMING.GO_LIVE_SAVE') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -309,7 +489,11 @@ async function save() {
       />
       <button
         class="px-2 py-1 text-xs border rounded-lg"
-        :class="verticalFilter === 'all' ? 'border-n-brand text-n-slate-12' : 'border-n-weak text-n-slate-11'"
+        :class="
+          verticalFilter === 'all'
+            ? 'border-n-brand text-n-slate-12'
+            : 'border-n-weak text-n-slate-11'
+        "
         @click="verticalFilter = 'all'"
       >
         {{ t('STORES_CONFIG.ALL') }}
@@ -318,14 +502,21 @@ async function save() {
         v-for="v in verticals"
         :key="v"
         class="px-2 py-1 text-xs capitalize border rounded-lg"
-        :class="verticalFilter === v ? 'border-n-brand text-n-slate-12' : 'border-n-weak text-n-slate-11'"
+        :class="
+          verticalFilter === v
+            ? 'border-n-brand text-n-slate-12'
+            : 'border-n-weak text-n-slate-11'
+        "
         @click="verticalFilter = v"
       >
         {{ v }}
       </button>
     </div>
 
-    <div v-if="errors.length" class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-ruby-2 text-n-ruby-11">
+    <div
+      v-if="errors.length"
+      class="p-3 mb-3 text-sm border rounded-lg border-n-weak bg-n-ruby-2 text-n-ruby-11"
+    >
       <ul class="list-disc list-inside">
         <li v-for="(e, i) in errors" :key="i">{{ e }}</li>
       </ul>
@@ -347,25 +538,48 @@ async function save() {
           class="flex flex-wrap items-center w-full gap-2 px-4 py-3 text-left"
           @click="expandedId = expandedId === s.id ? null : s.id"
         >
-          <span class="font-medium text-n-slate-12">{{ s.card_name || s.name }}</span>
+          <span class="font-medium text-n-slate-12">{{
+            s.card_name || s.name
+          }}</span>
           <span class="text-xs text-n-slate-10">{{ s.city }}</span>
           <span
             v-for="v in s.verticals"
             :key="v"
             class="px-2 py-0.5 text-xs capitalize rounded-full bg-n-alpha-2 text-n-slate-11"
-          >{{ v }}</span>
+          >
+            {{ v }}
+          </span>
+          <span
+            v-if="s.added_in_settings"
+            class="px-2 py-0.5 text-xs rounded-full bg-n-teal-3 text-n-teal-11"
+          >
+            {{ t('STORES_CONFIG.ADDED_BADGE') }}
+          </span>
           <span
             v-if="isDisabled(s.id)"
             class="px-2 py-0.5 text-xs rounded-full bg-n-amber-3 text-n-amber-11"
-          >{{ t('STORES_CONFIG.DISABLED') }}</span>
+          >
+            {{ t('STORES_CONFIG.DISABLED') }}
+          </span>
           <span class="ml-auto text-xs text-n-slate-10">
-            {{ expandedId === s.id ? t('STORES_CONFIG.HIDE') : t('STORES_CONFIG.EDIT') }}
+            {{
+              expandedId === s.id
+                ? t('STORES_CONFIG.HIDE')
+                : t('STORES_CONFIG.EDIT')
+            }}
           </span>
         </button>
 
-        <div v-if="expandedId === s.id" class="px-4 pb-4 border-t border-n-weak">
+        <div
+          v-if="expandedId === s.id"
+          class="px-4 pb-4 border-t border-n-weak"
+        >
           <div class="grid grid-cols-1 gap-3 mt-3 sm:grid-cols-2">
-            <label v-for="f in FORM_FIELDS" :key="f" class="text-xs text-n-slate-11">
+            <label
+              v-for="f in FORM_FIELDS"
+              :key="f"
+              class="text-xs text-n-slate-11"
+            >
               {{ t(`STORES_CONFIG.FIELDS.${f}`) }}
               <input
                 v-model="editsFor(s.id)[f]"
@@ -422,10 +636,16 @@ async function save() {
           </div>
 
           <label class="flex items-center gap-2 mt-4 text-sm text-n-slate-11">
-            <input type="checkbox" :checked="isDisabled(s.id)" @change="toggleDisabled(s.id)" />
+            <input
+              type="checkbox"
+              :checked="isDisabled(s.id)"
+              @change="toggleDisabled(s.id)"
+            />
             {{ t('STORES_CONFIG.DISABLE_LABEL') }}
           </label>
-          <p class="mt-2 text-xs text-n-slate-10">{{ t('STORES_CONFIG.FIELD_HINT') }}</p>
+          <p class="mt-2 text-xs text-n-slate-10">
+            {{ t('STORES_CONFIG.FIELD_HINT') }}
+          </p>
         </div>
       </div>
     </div>

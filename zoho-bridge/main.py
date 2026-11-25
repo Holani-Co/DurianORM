@@ -7639,6 +7639,46 @@ async def admin_routing_config_preview(request: Request,
 # registry floor.
 # ─────────────────────────────────────────────────────────────────────────
 
+def _validate_new_stores(new_stores) -> tuple[set, list]:
+    """Check `new_stores` (stores added in Settings). Returns (their ids, errors)."""
+    if new_stores is None:
+        return set(), []
+    if not isinstance(new_stores, list):
+        return set(), ["`new_stores` must be a list of stores."]
+    errors, ids = [], set()
+    registry = store_locator.registry_ids()
+    for i, e in enumerate(new_stores):
+        if not isinstance(e, dict):
+            errors.append(f"new_stores[{i}]: must be an object.")
+            continue
+        label = str(e.get("card_name") or e.get("id") or f"#{i + 1}")
+        for k in store_locator.NEW_STORE_REQUIRED:
+            if not str(e.get(k) or "").strip():
+                errors.append(f"New store “{label}”: {k.replace('_', ' ')} is required.")
+        sid = str(e.get("id") or "").strip()
+        if sid and not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,80}", sid):
+            errors.append(f"New store “{label}”: id must be lowercase letters, digits and dashes.")
+        elif sid in registry or sid in ids:
+            errors.append(f"New store “{label}”: id {sid!r} is already used by another store.")
+        ids.add(sid)
+        if e.get("vertical") and str(e["vertical"]).strip().lower() not in store_locator.VERTICALS:
+            errors.append(f"New store “{label}”: vertical must be one of {store_locator.VERTICALS}.")
+        pin = str(e.get("pincode") or "").strip()
+        if pin and not re.fullmatch(r"\d{6}", pin):
+            errors.append(f"New store “{label}”: pincode must be 6 digits.")
+        for field, val in e.items():
+            if field in ("id", "vertical") or val is None:
+                continue
+            if field not in store_locator.EDITABLE_FIELDS:
+                errors.append(f"New store “{label}”: '{field}' is not a store field.")
+            elif field in ("lat", "lon"):
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    errors.append(f"New store “{label}”: {field} must be a number.")
+            elif not isinstance(val, str):
+                errors.append(f"New store “{label}”: {field} must be text.")
+    return ids - {""}, errors
+
+
 def _validate_stores_doc(doc) -> dict:
     """Return {ok, errors, warnings} for a stores override document
     {stores: {id: {<field edits>, disabled}}, radius_km: {vertical: km}}.
@@ -7646,7 +7686,9 @@ def _validate_stores_doc(doc) -> dict:
     errors, warnings = [], []
     if not isinstance(doc, dict):
         return {"ok": False, "errors": ["Config must be a JSON object."], "warnings": []}
-    ids = store_locator.floor_ids()
+    new_ids, errors_new = _validate_new_stores(doc.get("new_stores"))
+    errors += errors_new
+    ids = store_locator.registry_ids() | new_ids
     stores = doc.get("stores")
     if stores is not None:
         if not isinstance(stores, dict):

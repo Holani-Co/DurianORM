@@ -71,8 +71,19 @@
       "PINCODES_PH": "Pincodes (optional, comma-separated)",
       "NOTE_PH": "Note (optional, e.g. opening Dec 2026)",
       "ENABLED": "Live",
-      "REMOVE": "Remove"
+      "REMOVE": "Remove",
+      "GO_LIVE": "Store is open – add details",
+      "GO_LIVE_TITLE": "Add the store's details",
+      "GO_LIVE_HINT": "Once you save, this becomes a real store: the bot gives customers its address card and routes their deals to it, and it leaves the upcoming list. You can edit or disable it later in the store list below.",
+      "COORDS": "Map location (latitude, longitude)",
+      "COORDS_PH": "e.g. 28.0229, 73.3119",
+      "COORDS_HINT": "Optional. In Google Maps, right-click the store and click the numbers to copy them. Left blank, the store is placed at its pincode, which is fine for most cities.",
+      "COORDS_INVALID": "Map location must be two numbers, latitude then longitude, e.g. 28.0229, 73.3119.",
+      "REQUIRED": "Fill in: {fields}.",
+      "GO_LIVE_SAVE": "Make it live",
+      "GO_LIVE_CANCEL": "Cancel"
     },
+    "ADDED_BADGE": "Added in Settings",
     "FIELDS": {
       "card_name": "Display name",
       "address": "Address",
