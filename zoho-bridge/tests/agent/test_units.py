@@ -5518,3 +5518,96 @@ def test_validate_new_stores(monkeypatch):
     assert "lowercase letters" in text and "address is required" in text and "vertical must be" in text
     assert "lat must be a number" in text and "'colour' is not a store field" in text
     assert main._validate_stores_doc({"new_stores": {}})["errors"] == ["`new_stores` must be a list of stores."]
+
+
+# --- Conv 9360: "Mumbai" booked to Goregaon off an old pincode; "Thane West" found no studio
+
+_MUMBAI_FHC = [
+    {"id": "fhc-thane", "name": "Durian Full Home Customisation - Thane - Subhash Nagar",
+     "card_name": "Full Home Customisation - Thane - Subhash Nagar", "verticals": ["fhc"],
+     "primary_vertical": "fhc", "city": "Mumbai", "location": "Subhash Nagar",
+     "pincode": "400601", "lat": 19.19, "lon": 72.99, "address": "Subhash Nagar, Thane West",
+     "crm_owner_id": "T1"},
+    {"id": "fhc-goregaon", "name": "Durian Full Home Customisation - Mumbai - Goregaon",
+     "card_name": "Full Home Customisation - Mumbai - Goregaon", "verticals": ["fhc"],
+     "primary_vertical": "fhc", "city": "Mumbai", "location": "Goregaon",
+     "pincode": "400063", "lat": 19.17, "lon": 72.86, "address": "Goregaon East",
+     "crm_owner_id": "G1"}]
+
+
+def _mumbai_fhc(monkeypatch):
+    import store_locator
+    monkeypatch.setattr(store_locator, "_floor", lambda: [dict(s) for s in _MUMBAI_FHC])
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: {})
+    monkeypatch.setattr(store_locator.store_maps, "link_for", lambda s: "")
+    pins = {"400601": (19.19, 72.99), "400063": (19.17, 72.86), "400101": (19.20, 72.85)}
+    monkeypatch.setattr(store_locator.pincode_resolver, "coords", lambda p: pins.get(str(p)))
+    return store_locator
+
+
+def test_place_with_extra_words_still_finds_the_studio(monkeypatch):
+    sl = _mumbai_fhc(monkeypatch)
+    name = lambda r: r and not r.get("ambiguous") and r["card_name"]   # noqa: E731
+    assert "Thane" in name(sl.resolve("fhc", city="Thane West Mumbai"))
+    assert "Thane" in name(sl.resolve("fhc", city="Thane West"))
+    assert "Goregaon" in name(sl.resolve("fhc", city="Goregaon East"))
+    assert sl.resolve("fhc", city="Mumbai")["ambiguous"]
+    assert sl.resolve("fhc", city="Andheri West Mumbai")["ambiguous"]   # no studio named Andheri → ask
+    assert sl.resolve("fhc", city="Gurgaon") is None                     # never drifts to Goregaon
+    assert sl.match_store("fhc", "Full Home Customisation - Thane - Subhash Nagar")["id"] == "fhc-thane"
+    assert sl.match_store("fhc", "thane")["id"] == "fhc-thane"
+    assert sl.match_store("fhc", "Mumbai") is None and sl.match_store("fhc", "Pune") is None
+
+
+def test_fhc_city_with_several_studios_asks_which_then_books_the_choice(monkeypatch):
+    import asyncio
+    _mumbai_fhc(monkeypatch)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+    created = []
+
+    async def creator(conv_id, agent_name=""):
+        created.append(conv_id)
+        return {"deal_id": "D1", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    old_chat = [{"message_type": 0, "content": "400063"},
+                {"message_type": 2, "content": "Conversation was marked resolved by Neha"}]
+    ctx = {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+           "conv": {"custom_attributes": {}},
+           "profile": {"identity": {"phone": {"value": "7208916569"}}},
+           "incoming_all": ["I want to make wordrobe", "Yes, my location is mumbai"],
+           "all_messages": old_chat + [{"message_type": 0, "content": "I want to make wordrobe"},
+                                       {"message_type": 0, "content": "Yes, my location is mumbai"}]}
+    # "Mumbai" + a pincode from last month's chat → ask, list both studios, no deal
+    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Mumbai",
+                                            pincode="400063", confirm=True))
+    assert r["registered"] is False and r["choose_showroom"] and not created
+    assert len(r["options"]) == 2 and "nearest" in r["note"]
+    # she picks Thane → the deal is created for Thane, carrying Thane's pincode
+    r = asyncio.run(sa._sk_register_enquiry(
+        ctx, category="fhc", city="Mumbai", confirm=True,
+        showroom="Full Home Customisation - Thane - Subhash Nagar"))
+    assert r["deal_created"] and created == [1] and "Thane" in r["store_card"]
+    details = [m["deal_customer_details"] for m in fake.merged if "deal_customer_details" in m][-1]
+    assert details["pincode"] == "400601"
+
+
+def test_fhc_pincode_typed_this_chat_books_without_asking(monkeypatch):
+    import asyncio
+    _mumbai_fhc(monkeypatch)
+    monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
+    fake = _DealFakeChatwoot()
+    monkeypatch.setattr(sa, "chatwoot", fake)
+
+    async def creator(conv_id, agent_name=""):
+        return {"deal_id": "D1", "created": True}
+    monkeypatch.setattr(sa, "_deal_creator", creator)
+    ctx = {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+           "conv": {"custom_attributes": {}},
+           "profile": {"identity": {"phone": {"value": "7208916569"}}},
+           "incoming_all": ["Mumbai 400063"],
+           "all_messages": [{"message_type": 0, "content": "Mumbai 400063"}]}
+    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Mumbai",
+                                            pincode="400063", confirm=True))
+    assert r["deal_created"] and "Goregaon" in r["store_card"]
