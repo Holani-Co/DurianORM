@@ -5644,3 +5644,60 @@ def test_fhc_pincode_typed_this_chat_books_without_asking(monkeypatch):
     r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Mumbai",
                                             pincode="400063", confirm=True))
     assert r["deal_created"] and "Goregaon" in r["store_card"]
+
+
+# --- ISS-613: review escalation threads use escalation@durian.in and stay with the team
+
+def test_review_escalation_uses_the_real_escalation_address(monkeypatch):
+    import asyncio
+    import main
+    calls = {}
+
+    class _FakeCW:
+        async def ensure_email_contact(self, inbox_id, email, name=""):
+            calls["contact"] = (inbox_id, email)
+            return 139, "escalation@durian.in"
+
+        async def create_conversation(self, source_id, inbox_id, contact_id,
+                                      additional_attributes=None, custom_attributes=None):
+            calls["conv"] = (source_id, contact_id, custom_attributes)
+            return 555
+
+        async def send_outgoing_message(self, conv_id, body, to_emails=None, cc_emails=None, **_):
+            calls["send"] = (conv_id, to_emails, cc_emails)
+
+        async def post_private_note(self, conv_id, text):
+            calls["note"] = text
+
+    class _Req:
+        async def json(self):
+            return {"conversation_id": 14740, "to_emails": "marathahallistore.bangalore@durian.in",
+                    "cc_emails": "escalation@durian.in", "subject": "Negative Feedback",
+                    "body": "Dear Team, ..."}
+    monkeypatch.setattr(main, "chatwoot", _FakeCW())
+    monkeypatch.setattr(main.config, "REVIEW_ESCALATION_INBOX_ID", 9)
+    out = asyncio.run(main.reviews_escalate(_Req()))
+    assert out["sent"] and out["escalation_conversation_id"] == 555
+    assert calls["contact"] == (9, "escalation@durian.in")
+    assert calls["conv"] == ("escalation@durian.in", 139, {"review_escalation": True})
+    assert calls["send"][1] == "marathahallistore.bangalore@durian.in"
+    assert "review-escalations" not in repr(calls)
+
+
+def test_staff_reply_on_an_escalation_thread_is_left_to_the_team(monkeypatch):
+    import asyncio
+    import main
+    is_esc = main._is_review_escalation_thread
+    reply = {"message_type": 0, "inbox": {"id": 9, "name": "Hello Durian", "channel_type": "Channel::Email"},
+             "sender": {"email": "nagender.rao@durian.in"}}
+    new_thread = dict(reply, conversation={"id": 1, "custom_attributes": {"review_escalation": True}})
+    old_thread = dict(reply, conversation={"id": 2, "custom_attributes": {}, "meta": {"sender": {
+        "email": "review-escalations@durian.in", "identifier": "durian-review-escalation"}}})
+    customer = dict(reply, sender={"email": "asha@gmail.com"},
+                    conversation={"id": 3, "custom_attributes": {}, "meta": {"sender": {"email": "asha@gmail.com"}}})
+    assert is_esc(new_thread) and is_esc(old_thread) and not is_esc(customer)
+    monkeypatch.setattr(main, "_is_info_routing_inbox", lambda inbox: False)
+    monkeypatch.setattr(main, "_is_silent_inbox", lambda inbox: False)
+    for data in (new_thread, old_thread):
+        assert asyncio.run(main.handle_message_created(data)) == \
+            {"ignored": True, "reason": "review_escalation_thread"}

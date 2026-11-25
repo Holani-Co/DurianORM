@@ -248,6 +248,38 @@ async def create_contact(name: str, identifier: str, inbox_id: int,
         return contact["id"], ci.get("source_id", "")
 
 
+async def ensure_email_contact(inbox_id: int, email: str, name: str = "") -> tuple[int, str]:
+    """(contact_id, source_id) of the contact with exactly this email address on
+    this email inbox — the existing contact when there is one (Chatwoot allows
+    one contact per email), created only when missing."""
+    email = (email or "").strip().lower()
+    async with httpx.AsyncClient(timeout=15) as client:
+        contact = None
+        s = await client.get(_acct_url("/contacts/search"), headers=_headers(),
+                             params={"q": email})
+        if s.status_code < 300:
+            payload = (s.json() or {}).get("payload")
+            if isinstance(payload, dict):
+                payload = payload.get("contacts")
+            contact = next((c for c in payload or [] if isinstance(c, dict)
+                            and (c.get("email") or "").strip().lower() == email), None)
+        if contact is None:
+            r = await client.post(_acct_url("/contacts"), headers=_headers(), json={
+                "inbox_id": inbox_id, "name": name or email, "email": email})
+            if r.status_code >= 300:
+                raise RuntimeError(f"Chatwoot create contact failed [{r.status_code}]: {r.text[:300]}")
+            contact = (r.json().get("payload") or {}).get("contact") or {}
+        for ci in contact.get("contact_inboxes") or []:
+            if str((ci.get("inbox") or {}).get("id") or ci.get("inbox_id")) == str(inbox_id):
+                return contact["id"], ci.get("source_id") or ""
+        r = await client.post(_acct_url(f"/contacts/{contact['id']}/contact_inboxes"),
+                              headers=_headers(), json={"inbox_id": inbox_id, "source_id": email})
+        if r.status_code >= 300 and r.status_code != 422:
+            raise RuntimeError(f"Chatwoot contact_inbox failed [{r.status_code}]: {r.text[:300]}")
+        source_id = ((r.json() or {}).get("source_id") if r.status_code < 300 else "") or email
+        return contact["id"], source_id
+
+
 async def create_conversation(source_id: str, inbox_id: int, contact_id: int,
                               additional_attributes: dict | None = None,
                               custom_attributes: dict | None = None) -> int:

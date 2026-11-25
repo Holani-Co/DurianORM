@@ -356,6 +356,10 @@ REVIEWS_INBOX_ID       = int(os.environ.get("REVIEWS_INBOX_ID", "0") or 0)
 # "Escalate to team" button routes the email through this email inbox. Set to
 # its numeric id; 0 disables the escalate endpoint.
 REVIEW_ESCALATION_INBOX_ID = int(os.environ.get("REVIEW_ESCALATION_INBOX_ID", "0") or 0)
+# The escalation thread's contact — the address the team's replies on it go to
+# (ISS-613: the old placeholder review-escalations@durian.in bounced).
+REVIEW_ESCALATION_CONTACT_EMAIL = (os.environ.get(
+    "REVIEW_ESCALATION_CONTACT_EMAIL", "escalation@durian.in") or "").strip().lower()
 # Team to route handed-off (negative) reviews to. Defaults to the support team.
 REVIEWS_TEAM_ID        = int(os.environ.get("REVIEWS_TEAM_ID", "0") or 0) or TEAM_IDS.get("support", 0)
 
