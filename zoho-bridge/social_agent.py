@@ -111,7 +111,8 @@ _LOCATION_ASK_RE = re.compile(
 _NAME_ASK_RE = re.compile(_ASK_VERBS + r"\byour\b[^.?!]{0,20}?name", re.I)
 _LINK_RE = re.compile(r"https?://([^\s/]+)", re.I)
 _ALLOWED_LINK_HOSTS = ("durian.in", "duriandoors.in", "snapmint.com",
-                       "maps.app.goo.gl", "goo.gl", "maps.google.com", "google.com")
+                       "maps.app.goo.gl", "goo.gl", "maps.google.com", "google.com",
+                       "share.google")
 _EMOJI_RE = re.compile(
     "[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U0001F000-\U0001F0FF"
     "\U00002600-\U000026FF\U0001F900-\U0001F9FF]")
@@ -3172,9 +3173,18 @@ def reasks_known_details(reply: str, prof: dict, location_ask_ok: bool = False) 
     return bool(not location_ask_ok and _LOCATION_ASK_RE.search(reply or ""))
 
 
-def link_violation(reply: str) -> bool:
-    return any(not h.lower().rstrip(".").endswith(_ALLOWED_LINK_HOSTS)
-               for h in _LINK_RE.findall(reply or ""))
+def link_violation(reply: str, sources: str = "") -> bool:
+    """A link that is neither on an allowed host nor one our own data gave this
+    turn (a store card, a catalogue result — ISS-604: the Bikaner studio added
+    in Settings carries a share.google map link, and every reply with its card
+    was held for an agent)."""
+    for url in _URL_RE.findall(reply or ""):
+        url = url.rstrip(".,;:!?)]}'\"")
+        host = (_LINK_RE.match(url).group(1) if _LINK_RE.match(url) else "").lower().rstrip(".")
+        if host.endswith(_ALLOWED_LINK_HOSTS) or (url and url in (sources or "")):
+            continue
+        return True
+    return False
 
 
 _URL_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
@@ -3254,7 +3264,7 @@ def hold_reason(reply: str, *, surface: str, prof: dict, sources: str,
         return comment_violation(reply), confidence
     if reasks_known_details(reply, prof, location_ask_ok):
         return "reply re-asks for details we already hold", confidence
-    if link_violation(reply):
+    if link_violation(reply, sources):
         return "reply contains a non-allowlisted link", confidence
     if not (routed or wrote_this_turn) and unbacked_claim(reply):
         return ("reply says the enquiry was shared / forwarded or that a team "
@@ -3604,6 +3614,64 @@ def _dm_lang_rule() -> str:
             "customer writes fully in Hindi — and never use Hindi words (\"ji\", "
             "\"bilkul\", \"bhaiya\", \"dhanyavaad\"), even when a template or the "
             "customer uses them; your reply always stays in warm, simple English.")
+
+
+# Hindi words customers write in English letters. The understand model labels
+# plain Indian English ("share me bikaner store details, urgent need") and
+# word-less messages ("??") as Hinglish (ISS-604) — the reply language is
+# decided from the customer's own words instead.
+_HINGLISH_WORDS = frozenset("""
+    kya kyu kyun kyon hai hain hu hun hoon tha thi the hoga hogi honge kaha kahan kidhar
+    kitna kitne kitni kab kaise kaisa kaisi kon kaun konsa kaunsa chahiye chahie chaiye
+    mujhe muje mera meri mere hamara hamare humko hume aap aapka aapki aapke apna apni tum
+    tumhara batao bataye bataiye bataiye btao bata dikhao dikhaiye dikhaye bhejo bhejiye
+    karo kariye karna karni karke karwana kar kr nahi nahin nhi haan han ji bhai bhaiya
+    accha acha achha theek thik sahi wala wali wale abhi jaldi kal aaj yaha yahan waha
+    wahan liye ke ki ka ko se pe par pr mein mai main bhi aur ya lekin kuch koi sab bahut
+    bohot zyada jyada kam rate dam paisa paise rupay rupaye milega milegi mil sakta sakti
+    hoti hota raha rahi rahe chalega
+""".split())
+# Short words that are ALSO everyday English — never enough on their own.
+_HINGLISH_WEAK = frozenset({"main", "rate", "kar", "par", "pe", "ki", "ka", "ke", "ko",
+                            "se", "ya", "the", "han", "mil", "kam", "bata", "ji", "dam"})
+_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+# Polite Hindi verb forms ("rakhiyega", "bataiyenge", "dijiye").
+_HINGLISH_ENDINGS = ("iyega", "iyegi", "iyenge", "ijiye", "iyeh")
+
+
+def _text_language(text: str) -> str:
+    """'hindi' (Devanagari), 'hinglish' (Hindi words in English letters),
+    'english', or '' when the text has no words to tell ("??", "ok", emoji)."""
+    t = text or ""
+    words = re.findall(r"[a-z]+", t.lower())
+    # Devanagari decides only when it is most of the text ("Baner (बैनर) phir
+    # bhi aap…" is Hinglish with one word in Hindi script).
+    if len(_DEVANAGARI_RE.findall(t)) >= sum(len(w) for w in words):
+        if _DEVANAGARI_RE.search(t):
+            return "hindi"
+    if not [w for w in words if len(w) > 2 or w in _HINGLISH_WORDS]:
+        return ""
+    strong = [w for w in words if (w in _HINGLISH_WORDS and w not in _HINGLISH_WEAK)
+              or w.endswith(_HINGLISH_ENDINGS)]
+    weak = [w for w in words if w in _HINGLISH_WEAK]
+    if strong and (len(strong) + len(weak)) * 4 >= len(words):
+        return "hinglish"
+    return "english"
+
+
+def _reply_language(new_texts: list[str], earlier: list[str]) -> str:
+    """The language to reply in: the customer's newest message that has words,
+    else their last earlier message that does; English by default."""
+    for text in reversed(new_texts or []):
+        lang = _text_language(text)
+        if lang:
+            return lang
+    for line in reversed(earlier or []):
+        if line.startswith("Customer: "):
+            lang = _text_language(line[len("Customer: "):])
+            if lang:
+                return lang
+    return "english"
 
 
 def _lang_hint(understood: dict | None) -> str:
@@ -4623,6 +4691,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
         if new_texts:
             understood = await _understand(new_texts, earlier)
         if understood:
+            understood["language"] = _reply_language(new_texts, earlier)
             print(f"[agent] conv {conv_id} understood as {understood.get('kind')} "
                   f"({understood.get('language')})")
             why = _out_of_scope_reason(understood, " ".join(new_texts),
