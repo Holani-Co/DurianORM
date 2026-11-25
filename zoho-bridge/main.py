@@ -4633,6 +4633,11 @@ async def handle_message_created(data: dict) -> dict:
         print(f"[msg] ignoring — silent inbox '{inbox.get('name')}' (observation only)")
         return {"ignored": True, "reason": "silent_inbox"}
 
+    # A Google-review escalation thread: internal — left to the team.
+    if _is_review_escalation_thread(data):
+        print(f"[msg] ignoring — review escalation thread (internal, left to the team)")
+        return {"ignored": True, "reason": "review_escalation_thread"}
+
     # WhatsApp / Instagram / Facebook DMs. We still let the categorizer LABEL
     # the intent (the "Auto-classified as …" note + team), but the email action
     # layer — customer acknowledgment + auto-forwarding — must NOT run on
@@ -8470,6 +8475,26 @@ def _escalation_transcript(messages: list) -> str:
     return "\n\n".join(lines)
 
 
+# An escalation thread is internal: the store and the team talk to each other
+# on it. Their replies are not customer email — no AI reply, classification,
+# forward or Zoho ticket (ISS-613: a manager's reply-all was answered by the AI,
+# forwarded as a complaint and ticketed). New threads carry the attribute; the
+# older ones are known by their placeholder contact.
+REVIEW_ESCALATION_ATTR = "review_escalation"
+_LEGACY_ESCALATION_CONTACT = ("durian-review-escalation", "review-escalations@durian.in")
+
+
+def _is_review_escalation_thread(data: dict) -> bool:
+    conv = data.get("conversation") or {}
+    if (conv.get("custom_attributes") or {}).get(REVIEW_ESCALATION_ATTR):
+        return True
+    for who in ((conv.get("meta") or {}).get("sender") or {}, data.get("sender") or {}):
+        if str(who.get("identifier") or "").lower() in _LEGACY_ESCALATION_CONTACT \
+                or str(who.get("email") or "").lower() in _LEGACY_ESCALATION_CONTACT:
+            return True
+    return False
+
+
 @app.post("/reviews/escalate")
 async def reviews_escalate(request: Request):
     """Send a bad Google review to the team by email (the "Escalate to team"
@@ -8510,21 +8535,19 @@ async def reviews_escalate(request: Request):
     # drives the outgoing subject, sent to the agent-entered recipients.
     try:
         # ONE fixed, reusable escalation contact — NOT keyed on the recipient's
-        # email. Keying on the recipient 422s whenever that address already
-        # exists as a contact (Chatwoot enforces unique emails). The real
-        # recipients ride on to_emails below; this contact is just the
-        # conversation's nominal record, created once and reused thereafter.
-        contact_id, source_id = await chatwoot.create_contact(
-            name="Durian Review Escalations",
-            identifier="durian-review-escalation",
-            inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
-            email="review-escalations@durian.in",
-        )
+        # email. The real recipients ride on to_emails below; the contact is the
+        # address the team's replies in this thread go to, so it must be a real
+        # mailbox: escalation@durian.in (ISS-613 — the old placeholder
+        # review-escalations@durian.in bounced every reply).
+        contact_id, source_id = await chatwoot.ensure_email_contact(
+            config.REVIEW_ESCALATION_INBOX_ID, config.REVIEW_ESCALATION_CONTACT_EMAIL,
+            name="Durian Escalation")
         esc_conv = await chatwoot.create_conversation(
-            source_id=source_id or f"esc_{conv_id}",
+            source_id=source_id or config.REVIEW_ESCALATION_CONTACT_EMAIL,
             inbox_id=config.REVIEW_ESCALATION_INBOX_ID,
             contact_id=contact_id,
             additional_attributes={"mail_subject": subject},
+            custom_attributes={REVIEW_ESCALATION_ATTR: True},
         )
         await chatwoot.send_outgoing_message(
             esc_conv, email_body, to_emails=to_emails,
