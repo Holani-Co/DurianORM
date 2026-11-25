@@ -5559,8 +5559,19 @@ def test_place_with_extra_words_still_finds_the_studio(monkeypatch):
     assert sl.match_store("fhc", "Mumbai") is None and sl.match_store("fhc", "Pune") is None
 
 
-def test_fhc_city_with_several_studios_asks_which_then_books_the_choice(monkeypatch):
-    import asyncio
+def _ctx_9360(fake):
+    old_chat = [{"message_type": 0, "content": "400063"},
+                {"message_type": 2, "content": "Conversation was marked resolved by Neha"}]
+    return {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
+            "conv": {"custom_attributes": {}},
+            "profile": {"identity": {"phone": {"value": "7208916569"}},
+                        "location": {"pincode": {"value": "400063"}}},
+            "incoming_all": ["I want to make wordrobe", "Yes, my location is mumbai"],
+            "all_messages": old_chat + [{"message_type": 0, "content": "I want to make wordrobe"},
+                                        {"message_type": 0, "content": "Yes, my location is mumbai"}]}
+
+
+def _deal_setup_9360(monkeypatch):
     _mumbai_fhc(monkeypatch)
     monkeypatch.setattr(sa.config, "SOCIAL_AGENT_AUTO_DEAL", True)
     fake = _DealFakeChatwoot()
@@ -5571,26 +5582,48 @@ def test_fhc_city_with_several_studios_asks_which_then_books_the_choice(monkeypa
         created.append(conv_id)
         return {"deal_id": "D1", "created": True}
     monkeypatch.setattr(sa, "_deal_creator", creator)
-    old_chat = [{"message_type": 0, "content": "400063"},
-                {"message_type": 2, "content": "Conversation was marked resolved by Neha"}]
-    ctx = {"conv_id": 1, "channel": "whatsapp", "vertical": "fhc",
-           "conv": {"custom_attributes": {}},
-           "profile": {"identity": {"phone": {"value": "7208916569"}}},
-           "incoming_all": ["I want to make wordrobe", "Yes, my location is mumbai"],
-           "all_messages": old_chat + [{"message_type": 0, "content": "I want to make wordrobe"},
-                                       {"message_type": 0, "content": "Yes, my location is mumbai"}]}
-    # "Mumbai" + a pincode from last month's chat → ask, list both studios, no deal
-    r = asyncio.run(sa._sk_register_enquiry(ctx, category="fhc", city="Mumbai",
+    return fake, created
+
+
+def _deal_pincode(fake):
+    return [m["deal_customer_details"] for m in fake.merged
+            if "deal_customer_details" in m][-1]["pincode"]
+
+
+def test_profile_pincode_is_proposed_before_booking(monkeypatch):
+    """Conv 9360: the profile remembers 400063 (Goregaon) from a month-old chat.
+    It is proposed back — with the other Mumbai studio — never booked silently."""
+    import asyncio
+    fake, created = _deal_setup_9360(monkeypatch)
+    r = asyncio.run(sa._sk_register_enquiry(_ctx_9360(fake), category="fhc", city="Mumbai",
+                                            pincode="400063"))
+    assert r["registered"] is False and r["confirm_location"] and not created
+    assert r["known_pincode"] == "400063" and "Goregaon" in r["known_studio"]
+    assert r["options"][0] == r["known_studio"] and any("Thane" in o for o in r["options"])
+    assert "Last time you shared 400063" in r["note"] and "Thane" in r["note"]
+    # she says yes → the profile's studio is booked
+    r = asyncio.run(sa._sk_register_enquiry(_ctx_9360(fake), category="fhc", city="Mumbai",
                                             pincode="400063", confirm=True))
-    assert r["registered"] is False and r["choose_showroom"] and not created
-    assert len(r["options"]) == 2 and "nearest" in r["note"]
-    # she picks Thane → the deal is created for Thane, carrying Thane's pincode
+    assert r["deal_created"] and "Goregaon" in r["store_card"] and _deal_pincode(fake) == "400063"
+
+
+def test_customer_picks_another_studio_and_it_is_booked(monkeypatch):
+    import asyncio
+    fake, created = _deal_setup_9360(monkeypatch)
     r = asyncio.run(sa._sk_register_enquiry(
-        ctx, category="fhc", city="Mumbai", confirm=True,
+        _ctx_9360(fake), category="fhc", city="Mumbai", pincode="400063", confirm=True,
         showroom="Full Home Customisation - Thane - Subhash Nagar"))
     assert r["deal_created"] and created == [1] and "Thane" in r["store_card"]
-    details = [m["deal_customer_details"] for m in fake.merged if "deal_customer_details" in m][-1]
-    assert details["pincode"] == "400601"
+    assert _deal_pincode(fake) == "400601"
+
+
+def test_city_with_several_studios_and_no_pincode_lists_them(monkeypatch):
+    import asyncio
+    fake, created = _deal_setup_9360(monkeypatch)
+    r = asyncio.run(sa._sk_register_enquiry(_ctx_9360(fake), category="fhc", city="Mumbai",
+                                            confirm=True))
+    assert r["registered"] is False and r["choose_showroom"] and not created
+    assert len(r["options"]) == 2 and "nearest" in r["note"]
 
 
 def test_fhc_pincode_typed_this_chat_books_without_asking(monkeypatch):

@@ -1094,33 +1094,57 @@ async def _sk_register_enquiry(ctx, category: str = "", phone: str = "",
     customer's details on the conversation and create the deal (owner resolved
     by category + city in the deal core). Reached through register_enquiry.
 
-    The studio is the customer's choice, never a guess (conv 9360: "Mumbai" was
-    booked to Goregaon off a pincode from a month-old chat; she lives in Thane):
-    a pincode they didn't type in THIS chat is not used to pick it, and a city
-    with several studios returns `options` to ask which one is nearest. The one
-    they pick (`showroom`) carries its own pincode into the deal, so the deal is
-    created for that studio."""
+    The studio is the customer's choice, never a silent guess (conv 9360:
+    "Mumbai" was booked to Goregaon off a pincode from a month-old chat; she now
+    lives in Thane). Their profile still counts — exactly like a city we know
+    from their records: a remembered pincode is PROPOSED back to them ("last
+    time you shared 400063 — is our Goregaon studio still the nearest?") and
+    used once they confirm (confirm=true). A city with several studios and no
+    pincode returns `options` to ask which one is nearest. The studio they pick
+    (`showroom`) carries its own pincode into the deal, so the deal is created
+    for that studio."""
     conv_id = ctx["conv_id"]
     chosen = store_locator.match_store(category, showroom) if showroom else None
     if chosen:
         pincode = chosen.get("pincode") or pincode
         city = city or chosen.get("city") or ""
-    elif pincode and not _typed_this_chat(ctx, pincode):
-        pincode = ""          # from an earlier chat / their records — never picks the studio
-    if not chosen and city and not pincode and category in ("fhc", "doors"):
+    several = None
+    if not chosen and city and category in ("fhc", "doors"):
         try:
             several = store_locator.resolve(category, city=city, primary_only=True)
         except Exception:
             several = None
-        if several and several.get("ambiguous"):
-            return {"registered": False, "choose_showroom": True,
-                    "options": several["options"],
-                    "note": f"{city} has more than one {_LINE_LABEL.get(category, category)} "
-                            "studio — NOT registered yet. List ALL of these options to the "
-                            "customer and ask which one is nearest to them (or their area "
-                            "pincode). Do NOT pick one or say it's registered. When they "
-                            "choose, call register_enquiry again with showroom=<that option, "
-                            "exactly as listed> and confirm=true."}
+        if not (several and several.get("ambiguous")):
+            several = None
+    if not chosen and pincode and not confirm and not _typed_this_chat(ctx, pincode):
+        try:
+            known = store_locator.resolve(category, pincode=pincode, primary_only=True)
+        except Exception:
+            known = None
+        studio = (known or {}).get("card_name") if known and not known.get("ambiguous") else ""
+        others = [o for o in (several or {}).get("options") or [] if o != studio]
+        return {"registered": False, "confirm_location": True,
+                "known_pincode": pincode, "known_studio": studio,
+                **({"options": [studio] + others} if others and studio else {}),
+                "note": f"Pincode {pincode} comes from the customer's profile (an earlier "
+                        "chat), not this one — confirm it before registering. Ask e.g. "
+                        f"\"Last time you shared {pincode}"
+                        + (f" — is our {studio} studio still the nearest for you?" if studio
+                           else " — is that still your area?")
+                        + (" Or is one of these closer: " + ", ".join(others) + "?" if others else "")
+                        + "\" Once they confirm, call register_enquiry again with "
+                        "confirm=true (same pincode); if they name another area or studio, "
+                        "call again with showroom=<it> (or the pincode they give). Do NOT say "
+                        "it's registered yet."}
+    if several and not chosen and not pincode:
+        return {"registered": False, "choose_showroom": True,
+                "options": several["options"],
+                "note": f"{city} has more than one {_LINE_LABEL.get(category, category)} "
+                        "studio — NOT registered yet. List ALL of these options to the "
+                        "customer and ask which one is nearest to them (or their area "
+                        "pincode). Do NOT pick one or say it's registered. When they "
+                        "choose, call register_enquiry again with showroom=<that option, "
+                        "exactly as listed> and confirm=true."}
     if store_locator.upcoming(category, city=city or None) and \
             not store_locator.resolve(category, city=city or None):
         return {"registered": False, "upcoming": True,
@@ -1419,8 +1443,8 @@ def _ask_product_once(res: dict, requirement: str) -> dict:
     "nearest to them (or their pincode), then call again with `showroom` = the "
     "option they chose and confirm=true. Furniture: if they later name a "
     "different location it asks you to have them choose one — the same way. "
-    "Pass `pincode` only when the customer typed it in THIS chat. A location we only know from old records "
-    "must be confirmed with the customer first (the result says so), then "
+    "A pincode or city we only know from their profile (an earlier chat) is "
+    "proposed back to them first (the result says so), then call again with "
     "confirm=true. Never tell the customer an enquiry is registered until the "
     "result says deal_created or registered.",
     {"line": {"type": "string", "enum": list(LINES),
