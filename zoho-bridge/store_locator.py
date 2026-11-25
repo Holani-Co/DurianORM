@@ -7,7 +7,10 @@
 #   FLOOR    = data/store_registry.json (built from the client's export by
 #              build_store_registry.py).
 #   OVERRIDE = config_store domain "stores" — what the client edits in Settings;
-#              per-store field edits + a `disabled` flag + optional radius_km.
+#              per-store field edits + a `disabled` flag + optional radius_km,
+#              plus `new_stores`: stores the client added in Settings (an
+#              upcoming store that has opened). They join the floor, so they
+#              resolve, route deals and can be edited/disabled like any other.
 # A missing/broken override falls back to the floor, so a bad edit can't break
 # the store path.
 #
@@ -104,9 +107,40 @@ def reload() -> None:
     _floor_cache = None
 
 
-def floor_ids() -> set:
-    """Store ids in the registry floor — the valid targets for an override."""
+def registry_ids() -> set:
+    """Store ids in the registry file alone (not the ones added in Settings)."""
     return {s["id"] for s in _floor()}
+
+
+def floor_ids() -> set:
+    """Every store id an edit can target: the registry plus stores added in Settings."""
+    return registry_ids() | {s["id"] for s in _added_stores()}
+
+
+# A store added in Settings carries the editable fields plus its id and vertical.
+NEW_STORE_REQUIRED = ("id", "vertical", "card_name", "address", "city", "pincode")
+
+
+def _added_stores(doc: dict | None = None) -> list:
+    """The override's `new_stores` in the registry's own shape. With no
+    coordinates given, a store sits at its pincode's centre — close enough for
+    "nearest store", and its exact pincode and name match it anyway."""
+    out = []
+    raw = (doc if doc is not None else _override_doc()).get("new_stores") or []
+    for e in raw if isinstance(raw, list) else []:
+        if not isinstance(e, dict) or not all(str(e.get(k) or "").strip()
+                                               for k in NEW_STORE_REQUIRED):
+            continue
+        vert = str(e["vertical"]).strip().lower()
+        s = {k: e[k] for k in EDITABLE_FIELDS if e.get(k) not in (None, "")}
+        s.update(id=str(e["id"]).strip(), name=str(e["card_name"]).strip(),
+                 verticals=[vert], primary_vertical=vert, added_in_settings=True)
+        if s.get("lat") is None or s.get("lon") is None:
+            loc = pincode_resolver.coords(s.get("pincode"))
+            if loc:
+                s["lat"], s["lon"] = loc
+        out.append(s)
+    return out
 
 
 def all_stores() -> list:
@@ -168,13 +202,13 @@ def _stores() -> list:
     """Floor merged with the active per-store overrides; disabled stores dropped."""
     edits = _override_doc().get("stores") or {}
     out = []
-    for s in _floor():
+    for s in _floor() + _added_stores():
         o = edits.get(s["id"]) if isinstance(edits, dict) else None
         if isinstance(o, dict) and o.get("disabled"):
             continue
         # The store's own Google listing link beats the sheet's (which reused one
         # link per building); a map_url set in Settings still wins over both.
-        gbp = store_maps.link_for(s)
+        gbp = "" if s.get("added_in_settings") and s.get("map_url") else store_maps.link_for(s)
         if gbp:
             s = {**s, "map_url": gbp}
         if isinstance(o, dict):

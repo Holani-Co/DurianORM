@@ -5462,3 +5462,59 @@ def test_chat_window_never_used_for_tests_or_unknown(monkeypatch):
     ca, cw, _ = _auto_setup(monkeypatch, [_rule()], cw=_Broken(can_reply=True))
     assert asyncio.run(ca.handle_deal("555"))[0]["status"] == "sent"
     assert len(cw.sent) == 1 and not cw.chats                                  # unknown → template
+
+
+# --- Upcoming store goes live: a store added in Settings (stores override `new_stores`)
+
+_NEW_STORE = {"id": "fhc-bikaner", "vertical": "fhc", "card_name": "FHC - Bikaner",
+            "address": "12 Station Road, Bikaner, Rajasthan 334001", "city": "Bikaner",
+            "pincode": "334001", "manager": "Mr. Rao", "phone": "9876500000",
+            "timing": "11 am to 8 pm", "map_url": "https://maps.app.goo.gl/bikaner"}
+
+
+def test_store_added_in_settings_resolves_and_is_editable(monkeypatch):
+    import store_locator
+    registry = [{"id": "furniture-store-x", "name": "Durian Furniture - X", "verticals": ["furniture"],
+                 "primary_vertical": "furniture", "city": "X", "pincode": "110001"}]
+    doc = {"new_stores": [_NEW_STORE], "upcoming": [{"vertical": "fhc", "area": "Bikaner",
+                                                   "pincodes": ["334001"], "enabled": True}]}
+    monkeypatch.setattr(store_locator, "_floor", lambda: registry)
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: doc)
+    monkeypatch.setattr(store_locator.store_maps, "link_for", lambda s: "gbp-link")
+    monkeypatch.setattr(store_locator.pincode_resolver, "coords", lambda p: (28.02, 73.31) if p == "334001" else None)
+    added = [s for s in store_locator.all_stores() if s["id"] == "fhc-bikaner"][0]
+    assert added["verticals"] == ["fhc"] and added["primary_vertical"] == "fhc"
+    assert added["name"] == "FHC - Bikaner" and (added["lat"], added["lon"]) == (28.02, 73.31)
+    assert added["map_url"] == "https://maps.app.goo.gl/bikaner"       # its own link is kept
+    r = store_locator.resolve("fhc", pincode="334001")
+    assert r["id"] == "fhc-bikaner" and r["phone"] == "9876500000"
+    assert store_locator.resolve("furniture", pincode="334001") is None  # never cross-vertical
+    assert "fhc-bikaner" in store_locator.floor_ids() and "fhc-bikaner" not in store_locator.registry_ids()
+    # edited / disabled later like any registry store
+    doc["stores"] = {"fhc-bikaner": {"phone": "9000000000"}}
+    assert store_locator.resolve("fhc", pincode="334001")["phone"] == "9000000000"
+    doc["stores"] = {"fhc-bikaner": {"disabled": True}}
+    assert store_locator.resolve("fhc", pincode="334001") is None
+    # an incomplete entry is ignored, never half a store
+    doc.update(stores={}, new_stores=[{**_NEW_STORE, "address": ""}])
+    assert not [s for s in store_locator.all_stores() if s["id"] == "fhc-bikaner"]
+
+
+def test_validate_new_stores(monkeypatch):
+    import main
+    monkeypatch.setattr(main.store_locator, "_floor", lambda: [{"id": "furniture-store-x"}])
+    ok = main._validate_stores_doc({"new_stores": [_NEW_STORE],
+                                    "stores": {"fhc-bikaner": {"phone": "9000000000"}}})
+    assert ok["ok"] and not ok["warnings"]              # editing a store added in the same save
+    bad = main._validate_stores_doc({"new_stores": [
+        {**_NEW_STORE, "pincode": "33400"},
+        {**_NEW_STORE, "id": "furniture-store-x", "card_name": "Dup"},
+        {**_NEW_STORE, "id": "Bad Id", "card_name": "Spaces"},
+        {**_NEW_STORE, "id": "fhc-two", "card_name": "Two", "address": "", "vertical": "sofas"},
+        {**_NEW_STORE, "id": "fhc-three", "card_name": "Three", "lat": "28.0", "colour": "red"}]})
+    text = " | ".join(bad["errors"])
+    assert not bad["ok"]
+    assert "pincode must be 6 digits" in text and "already used" in text
+    assert "lowercase letters" in text and "address is required" in text and "vertical must be" in text
+    assert "lat must be a number" in text and "'colour' is not a store field" in text
+    assert main._validate_stores_doc({"new_stores": {}})["errors"] == ["`new_stores` must be a list of stores."]
