@@ -5722,3 +5722,37 @@ def test_care_number_always_comes_with_its_timings(monkeypatch):
     # timings switched off → the number alone, as before
     monkeypatch.setattr(sa.config, "CUSTOMER_CARE_HOURS", "")
     assert "(toll-free)" in sa.care_line() and sa.with_care_hours(bare) == bare
+
+
+# --- ISS-604: the Bikaner store card was held for "a non-allowlisted link" and
+# plain English got a Hinglish reply.
+
+def test_store_card_link_from_our_own_data_is_not_held():
+    card = ("*FHC - Bikaner*\n📍 NH 15, Jaisalmer Road\n🗺️ https://share.google/XvyoVadNwk0hw9zHA")
+    reply = f"Here are the details:\n{card}\n\nWhat are you planning for your home?"
+    assert not sa.link_violation(reply)                                   # share.google allowed
+    odd = "Map: https://maps.example.org/store-42."
+    assert sa.link_violation(odd)                                          # made-up link → held
+    assert not sa.link_violation(odd, sources="... https://maps.example.org/store-42 ...")
+    why, _ = sa.hold_reason(reply, surface="dm", prof={}, sources=card)
+    assert why != "reply contains a non-allowlisted link"
+
+
+def test_reply_language_comes_from_the_customers_words():
+    lang = sa._text_language
+    for english in ("Hi share me bikaner store details, urgent need I want to visit this Saturday",
+                    "Yes, my location is mumbai", "I stay in Thane West Mumbai",
+                    "what is the rate of this sofa", "Thank you ji", "Hello"):
+        assert lang(english) == "english", english
+    for hinglish in ("rate kya hai", "3 pcs chahiye haridwar me", "shop kaha pr hai",
+                     "double bed ka price kitna hoga", "price batao", "kitne ka hai"):
+        assert lang(hinglish) == "hinglish", hinglish
+    assert lang("मुझे सोफा चाहिए") == "hindi"
+    assert lang("Width 3-4 feet ka rakhiyega...wall mounted") == "hinglish"
+    assert lang("Maine mention Kiya hai Baner (बैनर) phir bhi aap details share ni kar rhe") == "hinglish"
+    assert lang("??") == "" and lang("ok") == "" and lang("10*9ft") == ""
+    # a word-less message keeps the language of their last real message
+    assert sa._reply_language(["??"], ["Customer: Please share me bikaner store details",
+                                       "Durian: *FHC - Bikaner* ..."]) == "english"
+    assert sa._reply_language(["ok"], ["Customer: price kitna hai"]) == "hinglish"
+    assert sa._reply_language([], []) == "english"
