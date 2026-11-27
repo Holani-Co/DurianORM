@@ -2948,9 +2948,9 @@ _COMMENT_ESCALATE_DESC = (
     "PUBLIC COMMENTS ONLY: hand this comment over ONLY for a complaint about "
     "Durian's products, delivery, quality or service (category complaint) or a "
     "legal threat (category legal). NEVER for a price or product question, a "
-    "store / location ask, praise, a price objection or a harmless off-topic "
-    "comment — those get a public reply via finish — and never for abuse or a "
-    "hostile rant unrelated to Durian (finish with action \"ignore\"). The "
+    "store / location ask, praise or a price objection — those get a public "
+    "reply via finish — and never for abuse, a hostile rant, or an off-topic or "
+    "meaningless comment (finish with action \"ignore\"). The "
     "public reply is written for you. "
     "This ends your turn.")
 
@@ -3443,10 +3443,44 @@ def is_inflammatory_redirect(comment: str, reply: str) -> bool:
                 and not _ISSUE_RE.search(comment or ""))
 
 
+# Short words that ARE a request on their own ("Pp", "Rs?", "DM").
+_SHORT_ASKS = {"pp", "rs", "dm", "mrp", "emi"}
+
+
+def is_meaningless_comment(text: str) -> bool:
+    """A comment with no real word — random letters or a lone number ("D. F d d
+    d d. .cb.hk", "5"; ISS-638). A lone "?" / "??" is kept (usually "price?"),
+    as are short asks like "Pp", "Rs?" and "DM"."""
+    t = _EMOJI_RE.sub("", (text or "")).strip()
+    if not t or is_price_shorthand(t):
+        return False
+    if _SIZE_RE.search(t) or len(re.sub(r"\D", "", t)) >= 10:
+        return False                 # a size ("7*8", "8x3.5") or their phone number
+    if any(len(w) >= 3 or w.lower() in _SHORT_ASKS for w in _comment_words(t)):
+        return False
+    return not re.fullmatch(r"[\s?¿]+", t)
+
+
+_SIZE_RE = re.compile(r"\d\s*(?:[x×*]|by)\s*\d", re.I)
+
+
+def _comment_words(text: str) -> list[str]:
+    """Runs of letters in any script, with their vowel signs (Hindi, Tamil,
+    Bengali… words would otherwise split into single letters)."""
+    words, cur = [], ""
+    for ch in text:
+        if unicodedata.category(ch)[0] in "LM":
+            cur += ch
+        elif cur:
+            words.append(cur)
+            cur = ""
+    return words + ([cur] if cur else [])
+
+
 def is_low_value_comment(text: str) -> bool:
     t = (text or "").strip().lower()
     return (not t) or t in _LOW_VALUE or _EMOJI_RE.sub("", t).strip() == "" \
-        or is_blessing_only(t, plain=True)
+        or is_blessing_only(t, plain=True) or is_meaningless_comment(t)
 
 
 # Religious / festival greetings and blessings — "जय श्री कृष्ण", "Jai Shri Ram",
@@ -3738,12 +3772,10 @@ finish(action=send).
 "overpriced") -> one empathetic line that respects their view, and invite \
 them to DM us so we can suggest options that suit their budget. Never argue, \
 never say the team will "review" it. finish(action=send).
-- OFF-TOPIC / UNRELATED but harmless (personal matters or claims that have \
-nothing to do with Durian, spam, random requests) -> one polite, neutral line saying \
-we're happy to help with anything about Durian's furniture and interiors. \
-Never take its claims at face value: do NOT apologise for it, do NOT mention \
-refunds or money, do NOT say anything was escalated or will be looked into. \
-finish(action=send).
+- OFF-TOPIC, UNRELATED or MEANINGLESS (personal matters or claims that have \
+nothing to do with Durian, spam, random requests, random letters, a lone number) \
+-> NO reply: finish(action="ignore", reply=""). The client does not reply to \
+comments that aren't about Durian.
 - A COMPLAINT about Durian's products, delivery, quality or service ("poor \
 quality", "worst service", "my order is late"), or a legal threat -> \
 escalate_to_human with category complaint (or legal). The public reply is \
@@ -3760,8 +3792,8 @@ apply to a public comment: naming the product from THE POST is allowed, and a \
 comment's intent is always one of the cases above — never "unclear" in a way \
 that should hold back a reply. Reach for escalate_to_human ONLY for the \
 complaint / legal case, NEVER for a price, location, product, praise, \
-price-objection or off-topic comment — those get a public reply. The one \
-comment that gets no reply is the abusive or hostile one above.
+price-objection comment — those get a public reply. The comments that get \
+no reply are the abusive or hostile one and the off-topic / meaningless one above.
 
 CURRENT TIME: {now:%A %d %b %Y, %H:%M} IST.{_guidance_block(vertical, client_guidance)}
 
@@ -4441,10 +4473,15 @@ def _replied_recently(all_messages, replied_before: bool) -> bool:
     return hours is None or hours <= config.GREETING_SILENT_WINDOW_HOURS
 
 
-def _out_of_scope_reason(understood: dict, raw_text: str, replied_before: bool) -> str:
+def _out_of_scope_reason(understood: dict, raw_text: str, replied_before: bool,
+                         surface: str = "") -> str:
     """The note phrase when this message should get no reply, else "". Pure
-    abuse / political remarks that still mention a real issue go to the agent."""
+    abuse / political remarks that still mention a real issue go to the agent.
+    A PUBLIC comment we cannot make sense of gets no reply either (ISS-638) —
+    in a DM the agent asks what they need instead."""
     kind = understood.get("kind")
+    if surface == "comment" and kind == "unclear":
+        return "a comment that isn't about Durian or doesn't say anything we can answer"
     if kind == "greeting_only":
         return _GREETING_MID_CHAT if replied_before else ""
     if kind in ("abuse", "political_or_religious") and (
@@ -4695,7 +4732,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
             print(f"[agent] conv {conv_id} understood as {understood.get('kind')} "
                   f"({understood.get('language')})")
             why = _out_of_scope_reason(understood, " ".join(new_texts),
-                                       _replied_recently(all_messages, replied_before))
+                                       _replied_recently(all_messages, replied_before),
+                                       surface)
             if why:
                 if latest_msg_id is not None:
                     _last_handled_msgid[conv_id] = latest_msg_id

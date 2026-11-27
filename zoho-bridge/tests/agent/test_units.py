@@ -2590,7 +2590,7 @@ def test_comment_prompt_covers_location_objection_offtopic():
     from datetime import datetime
     p = sa._comment_prompt("durianfurniture_official", "furniture", datetime(2026, 10, 19),
                            "P", "T", post_caption="Franceska dining table")
-    for case in ("STORE / LOCATION ask", "PRICE / VALUE OBJECTION", "OFF-TOPIC / UNRELATED"):
+    for case in ("STORE / LOCATION ask", "PRICE / VALUE OBJECTION", "OFF-TOPIC, UNRELATED or MEANINGLESS"):
         assert case in p
     assert "never says a request was escalated, forwarded, reviewed" in p
     assert "NEVER for a price, location, product" in p
@@ -3222,7 +3222,7 @@ def test_comment_prompt_ignores_hostile_rants_but_not_abuse_about_durian():
     assert "FIRST check the tone" in p and "political, religious, caste or communal" in p
     assert "no reply, no redirect, no hand-over" in p
     assert "About Durian -> set the language aside" in p
-    assert "OFF-TOPIC / UNRELATED but harmless" in p
+    assert "OFF-TOPIC, UNRELATED or MEANINGLESS" in p   # ISS-638: no reply now
 
 
 def test_replies_mirror_customer_language(monkeypatch):
@@ -3718,7 +3718,8 @@ def test_campaign_lead_gets_deal_on_first_message(monkeypatch):
     monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_AUTO_DEAL", True)
     monkeypatch.setattr(main.config, "ZOHO_CRM_ENABLED", True)
     monkeypatch.setattr(main.config, "SOCIAL_AGENT_WHATSAPP_INBOXES", {"25": "fhc", "29": "furniture"})
-    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD))
+    assert asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD)) \
+        == {"deal_id": "D1", "city": "Noida"}
     assert calls == [{"agent_name": "the bridge (WhatsApp campaign)", "resolve": False}]
     seeded = fake.merges[0]
     assert seeded["deal_customer_details"]["city"] == "Noida"
@@ -3726,7 +3727,7 @@ def test_campaign_lead_gets_deal_on_first_message(monkeypatch):
     assert seeded["phase2_category"] == "full_home_customization" and seeded["campaign_city"] == "Noida"
     assert fake.ca["crm_deals"] == {"fhc": "D1"}
     # already has a deal → nothing new
-    asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD))
+    assert asyncio.run(main._capture_whatsapp_campaign_lead({"inbox_id": 25}, 7, _NOIDA_AD)) is None
     assert len(calls) == 1
     # furniture inbox / flag off → no deal
     fresh = _CampaignFakeChatwoot({"lead_source": "whatsapp_campaign"})
@@ -5485,7 +5486,7 @@ def test_store_added_in_settings_resolves_and_is_editable(monkeypatch):
     added = [s for s in store_locator.all_stores() if s["id"] == "fhc-bikaner"][0]
     assert added["verticals"] == ["fhc"] and added["primary_vertical"] == "fhc"
     assert added["name"] == "FHC - Bikaner" and (added["lat"], added["lon"]) == (28.02, 73.31)
-    assert added["map_url"] == "https://maps.app.goo.gl/bikaner"       # its own link is kept
+    assert added["map_url"] == "gbp-link"     # its Google listing, like every store (ISS-634)
     r = store_locator.resolve("fhc", pincode="334001")
     assert r["id"] == "fhc-bikaner" and r["phone"] == "9876500000"
     assert store_locator.resolve("furniture", pincode="334001") is None  # never cross-vertical
@@ -5756,3 +5757,107 @@ def test_reply_language_comes_from_the_customers_words():
                                        "Durian: *FHC - Bikaner* ..."]) == "english"
     assert sa._reply_language(["ok"], ["Customer: price kitna hai"]) == "hinglish"
     assert sa._reply_language([], []) == "english"
+
+
+# --- ISS-638: no public reply to gibberish / off-topic comments
+
+def test_meaningless_comments_get_no_reply():
+    for junk in ("D.  F d d d d. .cb.hk", "5", "12", "a b c", "...", "x y z 9"):
+        assert sa.is_meaningless_comment(junk), junk
+        assert sa.is_low_value_comment(junk), junk
+    for real in ("Pp", "Rs?", "DM", "price?", "?", "??", "Wow", "Nice sofa", "2bhk kitchen",
+                 "6 seater", "Kitne ka hai", "बहुत सुंदर", "MRP", "emi?",
+                 "সেই", "சூப்பர்  வாழ்த்துக்கள்", "ముఖవార్చస్సు బాగుంది",      # other scripts
+                 "7*8", "8x3.5", "10p 7.6 ×4", "6 by 4",                       # sizes
+                 "9451988188"):                                                # their phone
+        assert not sa.is_meaningless_comment(real), real
+    import main
+    assert main._is_low_value_comment("D.  F d d d d. .cb.hk") and main._is_low_value_comment("5")
+    assert not main._is_low_value_comment("Price of this sofa?")
+
+
+def test_unclear_comment_is_left_unanswered_but_a_dm_is_not():
+    unclear = {"kind": "unclear", "meaning": "A lone number."}
+    assert sa._out_of_scope_reason(unclear, "5", False, "comment")
+    assert sa._out_of_scope_reason(unclear, "5", False, "dm") == ""
+    assert sa._out_of_scope_reason({"kind": "unrelated"}, "x", False, "comment")
+    prompt = sa._comment_prompt("durianfurniture_official", "furniture", __import__("datetime").datetime(2026, 1, 1), "P", "T")
+    assert 'OFF-TOPIC, UNRELATED or MEANINGLESS' in prompt and 'finish(action="ignore"' in prompt
+    assert "happy to help with anything about Durian's furniture" not in prompt
+
+
+def test_store_added_in_settings_keeps_its_own_link_without_a_listing(monkeypatch):
+    import store_locator
+    monkeypatch.setattr(store_locator, "_floor", lambda: [])
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: {"new_stores": [_NEW_STORE]})
+    monkeypatch.setattr(store_locator.pincode_resolver, "coords", lambda p: None)
+    monkeypatch.setattr(store_locator.store_maps, "link_for", lambda s: "")
+    assert store_locator.all_stores()[0]["map_url"] == "https://maps.app.goo.gl/bikaner"
+
+
+
+# --- ISS-633: a campaign lead's deal → one confirmation + resolve, no agent re-ask
+
+class _AckFakeChatwoot:
+    def __init__(self):
+        self.sent, self.notes, self.status = [], [], []
+
+    async def send_outgoing_message(self, conv_id, content, **_):
+        self.sent.append(content)
+
+    async def post_private_note(self, conv_id, content):
+        self.notes.append(content)
+
+    async def toggle_status(self, conv_id, status, **_):
+        self.status.append(status)
+
+
+def test_campaign_deal_is_confirmed_and_resolved(monkeypatch):
+    import asyncio, main
+    fake = _AckFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake)
+    asyncio.run(main._campaign_ack_and_resolve(7, "Delhi"))
+    assert fake.sent[0].startswith(main._CAMPAIGN_ACK) and "Kirti Nagar" in fake.sent[0]
+    assert fake.status == ["resolved"] and "chat resolved" in fake.notes[0]
+    fake2 = _AckFakeChatwoot()
+    monkeypatch.setattr(main, "chatwoot", fake2)
+    asyncio.run(main._campaign_ack_and_resolve(8, ""))            # no city in the ad
+    assert fake2.sent == [main._CAMPAIGN_ACK] and fake2.status == ["resolved"]
+
+
+def test_campaign_deal_message_never_reaches_the_agent(monkeypatch):
+    import asyncio, main
+    acks = []
+
+    async def tag(*a, **k):
+        return True
+
+    async def capture(conv, conv_id, text):
+        return {"deal_id": "D9", "city": "Delhi"}
+
+    async def nothing(*a, **k):
+        return None
+
+    async def ack(conv_id, city):
+        acks.append((conv_id, city))
+    monkeypatch.setattr(main, "_maybe_tag_whatsapp_campaign", tag)
+    monkeypatch.setattr(main, "_capture_whatsapp_campaign_lead", capture)
+    monkeypatch.setattr(main, "_maybe_post_ad_note", nothing)
+    monkeypatch.setattr(main, "_campaign_ack_and_resolve", ack)
+    monkeypatch.setattr(main, "_social_channel_for", lambda *a: "whatsapp")
+    monkeypatch.setattr(main, "_is_info_routing_inbox", lambda inbox: False)
+    monkeypatch.setattr(main, "_is_silent_inbox", lambda inbox: False)
+    data = {"message_type": 0, "content": "Hi, saw your ad on Meta ... in Delhi.",
+            "inbox": {"id": 25, "channel_type": "Channel::Whatsapp"},
+            "conversation": {"id": 13609, "inbox_id": 25, "custom_attributes": {}}}
+    out = asyncio.run(main.handle_message_created(data))
+    assert out == {"handled": "campaign_deal_ack", "deal_id": "D9"} and acks == [(13609, "Delhi")]
+    monkeypatch.setattr(main.config, "WHATSAPP_CAMPAIGN_ACK_AND_RESOLVE", False)
+    acks.clear()
+    monkeypatch.setattr(main.config, "WHATSAPP_FHC_FLOW_ENABLED", False)
+    monkeypatch.setattr(main.social_agent, "eligible", lambda *a, **k: False)
+    try:
+        asyncio.run(main.handle_message_created(data))
+    except Exception:
+        pass                                   # falls through to the normal flow
+    assert acks == []

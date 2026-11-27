@@ -118,8 +118,11 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   # POST .../integrations/zoho_bridge/forward_recipients
   #   body: { conversation_id }
   # Preset internal addresses the agent can pick in the Forward dialog.
+  # The bridge's preset list plus `used`: the team addresses this account's
+  # emails were already sent or copied to, most used first, for the Forward
+  # dialog to suggest (ISS-631).
   def forward_recipients
-    proxy_to_bridge('/chatwoot/forward-recipients', 15)
+    render json: bridge_forward_presets.merge('used' => used_forward_emails)
   end
 
   # POST .../integrations/zoho_bridge/forward_email
@@ -131,6 +134,48 @@ class Api::V1::Accounts::Integrations::ZohoBridgeController < Api::V1::Accounts:
   end
 
   private
+
+  # Never addresses (made-up contacts of ORM's own threads).
+  FORWARD_PLACEHOLDERS = %w[review-escalations@durian.in orm-forwarding@durian.in].freeze
+
+  def bridge_forward_presets
+    response = HTTParty.post(
+      "#{bridge_url}/chatwoot/forward-recipients",
+      body: bridge_payload.merge('agent_name' => Current.user&.name).to_json,
+      headers: { 'Content-Type' => 'application/json' },
+      timeout: 15
+    )
+    response.parsed_response.is_a?(Hash) ? response.parsed_response : {}
+  rescue StandardError => e
+    Rails.logger.error("[zoho-bridge proxy] /chatwoot/forward-recipients failed: #{e.message}")
+    {}
+  end
+
+  # To / Cc addresses of the last 180 days' outgoing emails, on the team's own
+  # domain only (never a customer's address). content_attributes is sometimes
+  # stored as a JSON string, so it is unwrapped first.
+  def used_forward_emails
+    domain = ENV.fetch('FORWARD_SUGGEST_DOMAIN', 'durian.in').downcase
+    sql = ActiveRecord::Base.sanitize_sql_array([<<~SQL.squish, Current.account.id, 180.days.ago, "%@#{domain}", FORWARD_PLACEHOLDERS])
+      WITH m AS (
+        SELECT created_at, CASE WHEN json_typeof(content_attributes) = 'string'
+                                THEN (content_attributes #>> '{}')::json ELSE content_attributes END AS j
+        FROM messages WHERE account_id = ? AND message_type = 1 AND private = false AND created_at > ?
+      ), e AS (
+        SELECT lower(trim(x)) AS email, created_at FROM m, LATERAL json_array_elements_text(
+          CASE WHEN json_typeof(j->'to_emails') = 'array' THEN j->'to_emails' ELSE '[]'::json END) x
+        UNION ALL
+        SELECT lower(trim(x)), created_at FROM m, LATERAL json_array_elements_text(
+          CASE WHEN json_typeof(j->'cc_emails') = 'array' THEN j->'cc_emails' ELSE '[]'::json END) x
+      )
+      SELECT email FROM e WHERE email LIKE ? AND email NOT IN (?)
+      GROUP BY email ORDER BY count(*) DESC, max(created_at) DESC LIMIT 20
+    SQL
+    ActiveRecord::Base.connection.select_values(sql)
+  rescue StandardError => e
+    Rails.logger.error("[forward] used emails lookup failed: #{e.message}")
+    []
+  end
 
   # Shared proxy helper for the CRM endpoints — injects the acting agent's
   # name for audit ("Created by <agent>") and forwards to the bridge.

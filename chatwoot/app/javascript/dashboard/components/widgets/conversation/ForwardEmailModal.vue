@@ -20,6 +20,17 @@ const toEmails = ref('');
 const ccEmails = ref('');
 const note = ref('');
 const presets = ref([]);
+// Team addresses already sent to, most used first (ISS-631).
+const used = ref([]);
+const toList = computed(() =>
+  toEmails.value
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+const usedSuggestions = computed(() =>
+  used.value.filter(e => !toList.value.includes(e))
+);
 const isSubmitting = ref(false);
 
 const localShow = computed({
@@ -60,8 +71,10 @@ const loadPresets = async () => {
       ...r,
       label: `${r.name} (${r.email})`,
     }));
+    used.value = data?.used || [];
   } catch {
     presets.value = [];
+    used.value = [];
   }
 };
 onMounted(loadPresets);
@@ -125,6 +138,22 @@ const onSubmit = async () => {
             type="text"
             :placeholder="$t('FORWARD_EMAIL.FORM.TO.PLACEHOLDER')"
           />
+          <div v-if="usedSuggestions.length" class="mt-2">
+            <p class="mb-1 text-xs text-n-slate-11">
+              {{ $t('FORWARD_EMAIL.FORM.USED.LABEL') }}
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="email in usedSuggestions"
+                :key="email"
+                type="button"
+                class="px-2 py-0.5 text-xs rounded-full border border-n-weak text-n-slate-12 hover:bg-n-alpha-2"
+                @click="addPreset(email)"
+              >
+                {{ email }}
+              </button>
+            </div>
+          </div>
         </div>
         <div class="w-full mt-2">
           <label class="block mb-1 text-sm font-medium text-n-slate-12">

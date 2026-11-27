@@ -430,6 +430,9 @@
         "LABEL": "To",
         "PLACEHOLDER": "Recipient email(s), comma-separated"
       },
+      "USED": {
+        "LABEL": "Used before — click to add"
+      },
       "CC": {
         "LABEL": "Cc",
         "PLACEHOLDER": "Optional, comma-separated"
