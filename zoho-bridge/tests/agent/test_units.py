@@ -2590,7 +2590,7 @@ def test_comment_prompt_covers_location_objection_offtopic():
     from datetime import datetime
     p = sa._comment_prompt("durianfurniture_official", "furniture", datetime(2026, 10, 19),
                            "P", "T", post_caption="Franceska dining table")
-    for case in ("STORE / LOCATION ask", "PRICE / VALUE OBJECTION", "OFF-TOPIC / UNRELATED"):
+    for case in ("STORE / LOCATION ask", "PRICE / VALUE OBJECTION", "OFF-TOPIC, UNRELATED or MEANINGLESS"):
         assert case in p
     assert "never says a request was escalated, forwarded, reviewed" in p
     assert "NEVER for a price, location, product" in p
@@ -3222,7 +3222,7 @@ def test_comment_prompt_ignores_hostile_rants_but_not_abuse_about_durian():
     assert "FIRST check the tone" in p and "political, religious, caste or communal" in p
     assert "no reply, no redirect, no hand-over" in p
     assert "About Durian -> set the language aside" in p
-    assert "OFF-TOPIC / UNRELATED but harmless" in p
+    assert "OFF-TOPIC, UNRELATED or MEANINGLESS" in p   # ISS-638: no reply now
 
 
 def test_replies_mirror_customer_language(monkeypatch):
@@ -5756,3 +5756,30 @@ def test_reply_language_comes_from_the_customers_words():
                                        "Durian: *FHC - Bikaner* ..."]) == "english"
     assert sa._reply_language(["ok"], ["Customer: price kitna hai"]) == "hinglish"
     assert sa._reply_language([], []) == "english"
+
+
+# --- ISS-638: no public reply to gibberish / off-topic comments
+
+def test_meaningless_comments_get_no_reply():
+    for junk in ("D.  F d d d d. .cb.hk", "5", "12", "a b c", "...", "x y z 9"):
+        assert sa.is_meaningless_comment(junk), junk
+        assert sa.is_low_value_comment(junk), junk
+    for real in ("Pp", "Rs?", "DM", "price?", "?", "??", "Wow", "Nice sofa", "2bhk kitchen",
+                 "6 seater", "Kitne ka hai", "बहुत सुंदर", "MRP", "emi?",
+                 "সেই", "சூப்பர்  வாழ்த்துக்கள்", "ముఖవార్చస్సు బాగుంది",      # other scripts
+                 "7*8", "8x3.5", "10p 7.6 ×4", "6 by 4",                       # sizes
+                 "9451988188"):                                                # their phone
+        assert not sa.is_meaningless_comment(real), real
+    import main
+    assert main._is_low_value_comment("D.  F d d d d. .cb.hk") and main._is_low_value_comment("5")
+    assert not main._is_low_value_comment("Price of this sofa?")
+
+
+def test_unclear_comment_is_left_unanswered_but_a_dm_is_not():
+    unclear = {"kind": "unclear", "meaning": "A lone number."}
+    assert sa._out_of_scope_reason(unclear, "5", False, "comment")
+    assert sa._out_of_scope_reason(unclear, "5", False, "dm") == ""
+    assert sa._out_of_scope_reason({"kind": "unrelated"}, "x", False, "comment")
+    prompt = sa._comment_prompt("durianfurniture_official", "furniture", __import__("datetime").datetime(2026, 1, 1), "P", "T")
+    assert 'OFF-TOPIC, UNRELATED or MEANINGLESS' in prompt and 'finish(action="ignore"' in prompt
+    assert "happy to help with anything about Durian's furniture" not in prompt
