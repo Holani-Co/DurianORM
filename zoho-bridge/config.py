@@ -980,6 +980,10 @@ if not WHATSAPP_CAMPAIGN_PATTERNS:
 # the city named in the ad prefill ("... in Delhi." → the Delhi studio).
 # Dark-launched.
 WHATSAPP_CAMPAIGN_AUTO_DEAL = _bool("WHATSAPP_CAMPAIGN_AUTO_DEAL", "false")
+# Once that deal is created: send a short "registered, our team will call"
+# confirmation (with the studio's card when the ad names a city) and resolve the
+# chat, instead of letting the agent re-ask for details it holds (ISS-633).
+WHATSAPP_CAMPAIGN_ACK_AND_RESOLVE = _bool("WHATSAPP_CAMPAIGN_ACK_AND_RESOLVE", "true")
 
 # Post a one-time agent-only private note showing the Meta click-to-WhatsApp ad
 # a lead came from (headline + embedded creative), so a human agent isn't left

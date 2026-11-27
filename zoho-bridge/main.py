@@ -168,16 +168,17 @@ async def _maybe_tag_whatsapp_campaign(conv: dict, conv_id: int, text: str,
     return True
 
 
-async def _capture_whatsapp_campaign_lead(conv: dict, conv_id: int, text: str) -> None:
+async def _capture_whatsapp_campaign_lead(conv: dict, conv_id: int, text: str) -> dict | None:
     """Every campaign lead on an agent-run FHC WhatsApp inbox becomes a CRM deal
     on its FIRST message — leads that never reply again are still captured. The
     owner is the studio of the city the prefill names ("... in Delhi." → Delhi
     studio), via the usual FHC owner routing; the deal carries the campaign
     marks (Integration Source + campaign columns) because the conversation is
     already tagged. The agent then sees the FHC enquiry as registered and only
-    adds details to it. Best-effort — never blocks message handling."""
+    adds details to it. Best-effort — never blocks message handling. Returns
+    {deal_id, city} when a deal was created now, else None."""
     if not (config.WHATSAPP_CAMPAIGN_AUTO_DEAL and config.ZOHO_CRM_ENABLED):
-        return
+        return None
     inbox_id = str(conv.get("inbox_id") or (conv.get("inbox") or {}).get("id") or "")
     if config.SOCIAL_AGENT_WHATSAPP_INBOXES.get(inbox_id) != "fhc":
         return
@@ -224,6 +225,30 @@ async def _capture_whatsapp_campaign_lead(conv: dict, conv_id: int, text: str) -
             print(f"[campaign] conv {conv_id}: crm_deals merge failed ({e})")
     print(f"[campaign] conv {conv_id}: campaign lead deal {deal_id or '?'}"
           f" (city {city or 'not in prefill'})")
+    return {"deal_id": deal_id, "city": city} if deal_id else None
+
+
+_CAMPAIGN_ACK = ("Hello! 👋 Thank you for your interest in Durian Full Home Customisation. "
+                 "Your enquiry is registered and our team will call you shortly to "
+                 "understand your requirements.")
+
+
+async def _campaign_ack_and_resolve(conv_id: int, city: str) -> None:
+    """ISS-633: a campaign lead whose deal we just created gets one confirmation
+    — with the studio's card when the ad named a city that has one — and the
+    chat is resolved. The agent used to answer instead, asking for details the
+    deal already holds; that reply was held and the chat flagged agent-needed.
+    A later message reopens the chat and the agent carries on."""
+    card = social_agent._deal_store_card("fhc", city) if city else ""
+    text = _CAMPAIGN_ACK + (f"\n\nYour nearest studio:\n{card}" if card else "")
+    await chatwoot.send_outgoing_message(conv_id, text)
+    try:
+        await chatwoot.post_private_note(
+            conv_id, "📣 Campaign lead: deal created and the customer told our team will "
+                     "call — chat resolved. It reopens if they write again.")
+        await chatwoot.toggle_status(conv_id, "resolved")
+    except Exception as e:
+        print(f"[campaign] conv {conv_id}: resolve after ack failed ({e})")
 
 
 def _ad_note_body(ref: dict) -> str:
@@ -4657,11 +4682,19 @@ async def handle_message_created(data: dict) -> dict:
     # matter which flow then handles the message. Best-effort, idempotent.
     if (social_channel == "whatsapp" and conv_id
             and data.get("message_type") in (0, "incoming")):
+        campaign_deal = None
         if await _maybe_tag_whatsapp_campaign(conv, conv_id, data.get("content") or "",
                                               data.get("content_attributes")):
-            await _capture_whatsapp_campaign_lead(conv, conv_id, data.get("content") or "")
+            campaign_deal = await _capture_whatsapp_campaign_lead(
+                conv, conv_id, data.get("content") or "")
         # Agent-only note showing the ad a click-to-WhatsApp lead came from.
         await _maybe_post_ad_note(conv, conv_id, data)
+        if campaign_deal and config.WHATSAPP_CAMPAIGN_ACK_AND_RESOLVE:
+            try:
+                await _campaign_ack_and_resolve(conv_id, campaign_deal.get("city") or "")
+                return {"handled": "campaign_deal_ack", "deal_id": campaign_deal["deal_id"]}
+            except Exception as e:
+                print(f"[campaign] conv {conv_id}: ack failed ({e}) — the agent replies instead")
 
     # WhatsApp Full Home Customisation flow: a deterministic button-menu bot on
     # the FHC WhatsApp inbox (greet → menu → collect details → deal / store card
