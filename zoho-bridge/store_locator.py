@@ -230,7 +230,10 @@ def _stores() -> list:
             continue
         # The store's own Google listing link beats the sheet's (which reused one
         # link per building); a map_url set in Settings still wins over both.
-        gbp = "" if s.get("added_in_settings") and s.get("map_url") else store_maps.link_for(s)
+        # A store added in Settings too (ISS-634: FHC Bikaner was given a
+        # share.google link, which Instagram shows as plain text, not a map
+        # preview); the link typed in its form is the fallback.
+        gbp = store_maps.link_for(s)
         if gbp:
             s = {**s, "map_url": gbp}
         if isinstance(o, dict):

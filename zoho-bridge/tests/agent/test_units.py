@@ -5485,7 +5485,7 @@ def test_store_added_in_settings_resolves_and_is_editable(monkeypatch):
     added = [s for s in store_locator.all_stores() if s["id"] == "fhc-bikaner"][0]
     assert added["verticals"] == ["fhc"] and added["primary_vertical"] == "fhc"
     assert added["name"] == "FHC - Bikaner" and (added["lat"], added["lon"]) == (28.02, 73.31)
-    assert added["map_url"] == "https://maps.app.goo.gl/bikaner"       # its own link is kept
+    assert added["map_url"] == "gbp-link"     # its Google listing, like every store (ISS-634)
     r = store_locator.resolve("fhc", pincode="334001")
     assert r["id"] == "fhc-bikaner" and r["phone"] == "9876500000"
     assert store_locator.resolve("furniture", pincode="334001") is None  # never cross-vertical
@@ -5783,3 +5783,12 @@ def test_unclear_comment_is_left_unanswered_but_a_dm_is_not():
     prompt = sa._comment_prompt("durianfurniture_official", "furniture", __import__("datetime").datetime(2026, 1, 1), "P", "T")
     assert 'OFF-TOPIC, UNRELATED or MEANINGLESS' in prompt and 'finish(action="ignore"' in prompt
     assert "happy to help with anything about Durian's furniture" not in prompt
+
+
+def test_store_added_in_settings_keeps_its_own_link_without_a_listing(monkeypatch):
+    import store_locator
+    monkeypatch.setattr(store_locator, "_floor", lambda: [])
+    monkeypatch.setattr(store_locator, "_override_doc", lambda: {"new_stores": [_NEW_STORE]})
+    monkeypatch.setattr(store_locator.pincode_resolver, "coords", lambda p: None)
+    monkeypatch.setattr(store_locator.store_maps, "link_for", lambda s: "")
+    assert store_locator.all_stores()[0]["map_url"] == "https://maps.app.goo.gl/bikaner"
