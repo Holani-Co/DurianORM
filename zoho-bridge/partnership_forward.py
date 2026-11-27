@@ -27,6 +27,8 @@ JOB_CATEGORY = "career_job_enquiry"
 # `complaint` category's forward_to (customer support) — before, it only landed
 # on an ORM team and nobody in support saw it (ISS-391, conv 11680).
 COMPLAINT_CATEGORY = "complaint"
+# Marks an email thread ORM created to forward a chat to a team (internal).
+FORWARD_THREAD_ATTR = "orm_forward_thread"
 FORWARD_CATEGORIES = PARTNERSHIP_CATEGORIES + (JOB_CATEGORY, COMPLAINT_CATEGORY)
 
 
@@ -270,17 +272,20 @@ async def run(conv_id: int, conv: dict, category: str, channel: str,
 
     # Send through the email inbox (a social inbox can't email) — same pattern as
     # the low-star review escalation.
-    contact_id, _source = await chatwoot.create_contact(
-        name="Durian ORM Forwarding",
-        identifier="durian-orm-partnership-forward",
-        inbox_id=config.PARTNERSHIP_FORWARD_INBOX_ID,
-        email="orm-forwarding@durian.in")
+    # The thread's contact is the team it goes to (customersupport@, hrcoordinator@
+    # …), so a reply in the thread reaches that team — the old shared placeholder
+    # orm-forwarding@durian.in was not a real mailbox. The thread is marked
+    # internal: the team's replies in it never run the customer email pipeline.
+    contact_id, _source = await chatwoot.ensure_email_contact(
+        config.PARTNERSHIP_FORWARD_INBOX_ID, forward_to.split(",")[0].strip().lower(),
+        name=display)
     # A unique source_id per social conversation so each forward is its own email
     # thread (not all threaded onto the shared forwarding contact).
     fwd_conv = await chatwoot.create_conversation(
         source_id=f"pitchfwd_{conv_id}",
         inbox_id=config.PARTNERSHIP_FORWARD_INBOX_ID, contact_id=contact_id,
-        additional_attributes={"mail_subject": subject})
+        additional_attributes={"mail_subject": subject},
+        custom_attributes={FORWARD_THREAD_ATTR: category})
     await chatwoot.send_email_with_attachment(
         fwd_conv, body, to_emails=forward_to,
         filename=f"durian-conversation-{conv_id}.pdf", data=pdf,

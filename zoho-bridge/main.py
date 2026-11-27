@@ -4660,7 +4660,7 @@ async def handle_message_created(data: dict) -> dict:
 
     # A Google-review escalation thread: internal — left to the team.
     if _is_review_escalation_thread(data):
-        print(f"[msg] ignoring — review escalation thread (internal, left to the team)")
+        print(f"[msg] ignoring — internal escalation / forward thread (left to the team)")
         return {"ignored": True, "reason": "review_escalation_thread"}
 
     # WhatsApp / Instagram / Facebook DMs. We still let the categorizer LABEL
@@ -8513,15 +8513,19 @@ def _escalation_transcript(messages: list) -> str:
 # An escalation thread is internal: the store and the team talk to each other
 # on it. Their replies are not customer email — no AI reply, classification,
 # forward or Zoho ticket (ISS-613: a manager's reply-all was answered by the AI,
-# forwarded as a complaint and ticketed). New threads carry the attribute; the
-# older ones are known by their placeholder contact.
+# forwarded as a complaint and ticketed). The same goes for the threads ORM
+# opens to forward a chat to a team (complaint / job / partnership — conv 15142:
+# Customer Support's reply got agent-needed). New threads carry an attribute;
+# the older ones are known by their placeholder contact.
 REVIEW_ESCALATION_ATTR = "review_escalation"
-_LEGACY_ESCALATION_CONTACT = ("durian-review-escalation", "review-escalations@durian.in")
+_LEGACY_ESCALATION_CONTACT = ("durian-review-escalation", "review-escalations@durian.in",
+                              "durian-orm-partnership-forward", "orm-forwarding@durian.in")
 
 
 def _is_review_escalation_thread(data: dict) -> bool:
     conv = data.get("conversation") or {}
-    if (conv.get("custom_attributes") or {}).get(REVIEW_ESCALATION_ATTR):
+    attrs = conv.get("custom_attributes") or {}
+    if attrs.get(REVIEW_ESCALATION_ATTR) or attrs.get(partnership_forward.FORWARD_THREAD_ATTR):
         return True
     for who in ((conv.get("meta") or {}).get("sender") or {}, data.get("sender") or {}):
         if str(who.get("identifier") or "").lower() in _LEGACY_ESCALATION_CONTACT \

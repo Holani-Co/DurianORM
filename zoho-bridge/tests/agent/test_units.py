@@ -2196,11 +2196,13 @@ class _PFFakeChatwoot:
                 {"message_type": 1, "content": "Could you share a bit more?",
                  "created_at": 1_700_000_100}]
 
-    async def create_contact(self, name, identifier, inbox_id, email=None, **_):
+    async def ensure_email_contact(self, inbox_id, email, name=""):
+        self.contacts = getattr(self, "contacts", []) + [email]
         return 11, "src-1"
 
-    async def create_conversation(self, source_id, inbox_id, contact_id, **_):
+    async def create_conversation(self, source_id, inbox_id, contact_id, **kw):
         self.convs.append((inbox_id, source_id))
+        self.conv_attrs = kw.get("custom_attributes")
         return 999
 
     async def send_email_with_attachment(self, conv_id, content, to_emails, filename,
@@ -2275,6 +2277,10 @@ def test_partnership_run_forwards_and_assigns_team(monkeypatch):
     # the ORM link is in the body
     assert "orm.durianos.in/app/accounts/1/conversations/55" in fake.emails[0][4]
     assert fake.teams == [10]                       # Collaboration Request team id
+    # the thread's contact is the team it went to, never the old placeholder;
+    # the thread is marked internal (staff replies stay with the team)
+    assert fake.contacts == ["snehal@durian.in"]
+    assert fake.conv_attrs == {"orm_forward_thread": "collaboration_request"}
     assert fake.merged and fake.merged[0]["partnership_forwarded"] == "collaboration_request"
     assert fake.notes
 
@@ -5699,7 +5705,11 @@ def test_staff_reply_on_an_escalation_thread_is_left_to_the_team(monkeypatch):
     assert is_esc(new_thread) and is_esc(old_thread) and not is_esc(customer)
     monkeypatch.setattr(main, "_is_info_routing_inbox", lambda inbox: False)
     monkeypatch.setattr(main, "_is_silent_inbox", lambda inbox: False)
-    for data in (new_thread, old_thread):
+    fwd_thread = dict(reply, conversation={"id": 4, "custom_attributes": {"orm_forward_thread": "complaint"}})
+    old_fwd = dict(reply, conversation={"id": 5, "custom_attributes": {}, "meta": {"sender": {
+        "email": "orm-forwarding@durian.in", "identifier": "durian-orm-partnership-forward"}}})
+    assert is_esc(fwd_thread) and is_esc(old_fwd)
+    for data in (new_thread, old_thread, fwd_thread, old_fwd):
         assert asyncio.run(main.handle_message_created(data)) == \
             {"ignored": True, "reason": "review_escalation_thread"}
 
