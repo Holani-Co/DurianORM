@@ -705,6 +705,13 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     """find_showrooms over the unified store_locator (STORE_LOCATOR_ENABLED).
     Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
     r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+    if r is None and city and not pincode and not store_locator.knows_place(city):
+        # A locality we cannot place ("Kandivali West") is not "no store nearby".
+        return {"resolved": False, "unknown_place": True,
+                "note": (f"We could not place '{city}' on our map — this does NOT mean there "
+                         "is no store. Call find_showrooms again with the CITY it is in "
+                         f"added (e.g. '{city}, Mumbai' for a Mumbai area), or ask for their "
+                         "area pincode. Never tell them there is no store near them.")}
     if r is None:
         label = {"doors": "Durian Doors",
                  "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
@@ -766,24 +773,25 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     "Nearest Durian store for a PRODUCT LINE and a place. `line` is what the "
     "customer is looking for — furniture (ready-made), doors, or fhc (full home "
     "customisation: anything designed and built to measure) — taken from what "
-    "THEY said in this conversation, never from which account they messaged. "
-    "Not said yet → do NOT guess and do NOT call this: tell them we have stores "
-    "and ask what they are looking for (a likely guess may be CONFIRMED as a "
-    "question). Pass the place the "
+    "THEY said in this conversation; when they have not said, it is THIS "
+    "account's line (the FHC account → fhc). Never hold a store answer back to "
+    "ask which line, or for their name or number. Pass the place the "
     "customer is asking about THIS turn: the city OR area they named as `city` "
-    "(e.g. 'Goregaon', 'Kirti Nagar', 'Mumbai') and/or their pincode. A place they "
+    "(e.g. 'Goregaon', 'Kirti Nagar', 'Mumbai') — an area WITH its city "
+    "('Kandivali West, Mumbai') — and/or their pincode. A place they "
     "name now beats an older pincode from their profile — pass it, don't swap in "
     "the stored one. resolved=true → `address_message` holds the "
     "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
     "paste them verbatim in your own single message, never invent or edit them. "
     "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
-    "offer to note their details. A city matching several returns `options` — ask "
-    "for their pincode.",
+    "offer to note their details. A city matching several returns `options` — list "
+    "them ALL and ask which one is nearest to them. unknown_place → call again "
+    "with the city added, or ask their pincode; never say there is no store.",
     {"line": {"type": "string", "enum": list(LINES),
               "description": "what the customer is looking for, from THEIR words"},
      "pincode": {"type": "string"}, "city": {"type": "string"}},
     {"resolved": "bool", "showroom": "str", "city": "str",
-     "options": "list[str] when a city matches several — ask for pincode",
+     "options": "list[str] when a city matches several — list them, ask which is nearest",
      "address_message": "store facts to paste verbatim; the framing is yours",
      "store_extras": "optional facts (holiday/closed days, parking, store type, "
                      "area, floors, escalator) — mention one ONLY if the customer "
@@ -797,7 +805,10 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", line: str = "", *
     # real strings so a malformed arg reads as "not given" instead of crashing.
     pincode = pincode if isinstance(pincode, str) else ""
     city = city if isinstance(city, str) else ""
-    line = _norm_line(line)
+    # A store question that names no line is answered with THIS account's line
+    # (ISS-665: the FHC account withheld the Goregaon studio until the customer
+    # said "furniture, doors or interiors").
+    line = _norm_line(line) or _norm_line(ctx.get("vertical") or "")
     if not line:
         return {"resolved": False, "need_line": True,
                 "note": "You did not say which product line the customer wants, so "
@@ -1282,7 +1293,7 @@ async def _enquiry_name(ctx, name: str, name_confirmed: bool) -> tuple[str, str]
     # Anything the agent passes that the customer did not type can only be their
     # profile name; an invented one falls back to it.
     candidate = contact if _looks_like_person_name(contact) else ""
-    if not candidate:
+    if not candidate or _declined_profile_name(ctx.get("all_messages")):
         return "ask", ""
     pending = ca.get("pending_enquiry_name") or {}
     latest = ctx.get("latest_msg_id")
@@ -1299,7 +1310,21 @@ async def _enquiry_name(ctx, name: str, name_confirmed: bool) -> tuple[str, str]
     return "confirm", candidate
 
 
-def _enquiry_checklist(prof: dict, conv: dict) -> str:
+# "No not on this name", "it's for my sister" (ISS-665): the profile name is not
+# theirs to register under — never propose it again, ask for the right one.
+_NAME_DECLINED_RE = re.compile(
+    r"\b(?:no|not|nahi|nhi)\b[^.?!\n]{0,25}\bname\b"
+    r"|\b(?:its|it's|it is|this is|enquiry is)?\s*(?:for|fr)\s+(?:my|mere|meri)\s+"
+    r"(?:sister|brother|mother|mom|mum|father|dad|wife|husband|son|daughter|friend|"
+    r"relative|uncle|aunt|bhai|behen|didi|papa|mummy)\b", re.I)
+
+
+def _declined_profile_name(all_messages) -> bool:
+    return any(_NAME_DECLINED_RE.search(m.get("content") or "")
+               for m in _engagement_incoming(all_messages or []))
+
+
+def _enquiry_checklist(prof: dict, conv: dict, name_declined: bool = False) -> str:
     """The state block the agent reads every turn: which of an enquiry's details
     we already hold and which are still missing. Worked out by code, so "ask for
     everything missing at once" no longer depends on the agent having called
@@ -1320,6 +1345,9 @@ def _enquiry_checklist(prof: dict, conv: dict) -> str:
     contact = str(((conv.get("meta") or {}).get("sender") or {}).get("name") or "").strip()
     if held:
         have.append(f"their name ({held})")
+    elif name_declined:
+        need.append(f"the full name of the person the enquiry is for (they said it is not "
+                    f'"{contact}" — never propose that name again)')
     elif _looks_like_person_name(contact):
         need.append(f'their name — the profile shows "{contact}", so ask "Shall we register '
                     f'this under the name {contact}?" instead of asking for it afresh')
@@ -1328,7 +1356,8 @@ def _enquiry_checklist(prof: dict, conv: dict) -> str:
     out = ["ENQUIRY CHECKLIST (worked out by code as of BEFORE this message — whatever "
            "they give in this message counts as held):",
            "- Product line: yours to judge from what THEY said — furniture, doors or "
-           "fhc. Unknown until they say; ask, never assume."]
+           "fhc. Unknown until they say; ask, never assume — except a store / address / "
+           "visit question, which is answered at once with this account's line."]
     deals = _deal_lines(ca)
     if deals:
         out.append("- Already registered in this conversation: "
@@ -2690,7 +2719,15 @@ def _care_hours_note() -> str:
     return f", {config.CUSTOMER_CARE_HOURS}" if config.CUSTOMER_CARE_HOURS else ""
 
 
-def care_line() -> str:
+def care_line(lang: str = "english") -> str:
+    if lang == "hinglish":
+        return (f"Aap Durian customer care se {config.CUSTOMER_CARE_NUMBER} "
+                f"(toll-free{_care_hours_note()}) par ya {config.RETAIL_SUPPORT_EMAIL} par "
+                "sampark kar sakte hain.")
+    if lang == "hindi":
+        return (f"आप ड्यूरियन कस्टमर केयर से {config.CUSTOMER_CARE_NUMBER} "
+                f"(toll-free{_care_hours_note()}) पर या {config.RETAIL_SUPPORT_EMAIL} पर "
+                "संपर्क कर सकते हैं।")
     return (f"You can reach Durian customer care on {config.CUSTOMER_CARE_NUMBER} "
             f"(toll-free{_care_hours_note()}) or write to {config.RETAIL_SUPPORT_EMAIL}.")
 
@@ -3663,11 +3700,13 @@ _HINGLISH_WORDS = frozenset("""
     accha acha achha theek thik sahi wala wali wale abhi jaldi kal aaj yaha yahan waha
     wahan liye ke ki ka ko se pe par pr mein mai main bhi aur ya lekin kuch koi sab bahut
     bohot zyada jyada kam rate dam paisa paise rupay rupaye milega milegi mil sakta sakti
-    hoti hota raha rahi rahe chalega
+    hoti hota raha rahi rahe chalega rupaya rupees jaega jayega jaayega karega karegi
+    karenge denge dena lena chahta chahti keliye batye btaiye btana batana
+    hamesha khush raho sath saath wapas kitna kitni khali
 """.split())
 # Short words that are ALSO everyday English — never enough on their own.
 _HINGLISH_WEAK = frozenset({"main", "rate", "kar", "par", "pe", "ki", "ka", "ke", "ko",
-                            "se", "ya", "the", "han", "mil", "kam", "bata", "ji", "dam"})
+                            "se", "ya", "the", "han", "mil", "kam", "bata", "ji", "dam", "h"})
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 # Polite Hindi verb forms ("rakhiyega", "bataiyenge", "dijiye").
 _HINGLISH_ENDINGS = ("iyega", "iyegi", "iyenge", "ijiye", "iyeh")
@@ -3688,7 +3727,10 @@ def _text_language(text: str) -> str:
     strong = [w for w in words if (w in _HINGLISH_WORDS and w not in _HINGLISH_WEAK)
               or w.endswith(_HINGLISH_ENDINGS)]
     weak = [w for w in words if w in _HINGLISH_WEAK]
-    if strong and (len(strong) + len(weak)) * 4 >= len(words):
+    # Customers mix English nouns into Hindi ("Kitne rupaya squrefoot hai door
+    # deelarship lay to batye") — two Hindi words, or one in a short message, is
+    # enough.
+    if len(strong) >= 2 or (strong and (len(strong) + len(weak)) * 4 >= len(words)):
         return "hinglish"
     return "english"
 
@@ -3962,15 +4004,22 @@ to measure (modular kitchen, a wardrobe made to size, interiors, "full home") \
 in that SAME message ask for the other details the enquiry will need (their \
 city or pincode, their name, and their contact number unless we hold it), so \
 it is one question round, not three; when one line is likely you may CONFIRM \
-it as a question, but never assume it — no store and no enquiry until they \
-answer. One deal per line: a second product \
+it as a question, but never assume it — no enquiry until they answer.
+   STORE FIRST: a question about a store — where it is, its address, \
+visiting it, "do you have a store in X" — is answered in THIS reply: call \
+find_showrooms (no line named yet → THIS account's line) and give the store \
+card. The address is NEVER held back for a product line, their name or their \
+number; you may ask ONCE, in the same reply, whether they'd like us to note \
+their name and number so the store expects them — optional, never a condition, \
+and not asked again if they skip it. A name they declined ("not on this name", \
+"it's for my sister") is never proposed again. One deal per line: a second product \
 in the same line joins the enquiry already registered; a different line is a \
 new enquiry — call register_enquiry again with that line and the details we \
 already hold, without asking for them again.
    An OPENING-SOON location (find_showrooms upcoming) → \
 note_upcoming_store_lead instead, no deal. find_showrooms alone registers \
 nothing.{visit_rule} A pincode alone is a complete location; a city with \
-several showrooms → ask for their pincode (name at most 2 options). A \
+several showrooms → list ALL of them and ask which one is nearest. A \
 project/builder or trade enquiry, or any "we'll connect you with our team" \
 handoff, also asks for EVERY capture detail still missing in ONE message \
 (name, phone number, city or pincode), not one at a time across turns.
@@ -4853,7 +4902,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
                           "decline is a decline. A value given for someone else "
                           "or in an unrelated context is not theirs:\n" + prior_block)
     if surface != "comment":
-        profile_block += "\n\n" + _enquiry_checklist(prof, conv)
+        profile_block += "\n\n" + _enquiry_checklist(
+            prof, conv, _declined_profile_name(all_messages))
     templates = await _templates_block(channel, surface)
     # On a comment, the post's caption is the product context (Chatwoot stores
     # it on the conversation) — feed it so the agent can name the product.
@@ -5113,11 +5163,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
             trace.append({"type": "decision", "source": "rule", "visibility": "internal",
                           "label": "Routed", "detail": f"{category} → team '{team}'"})
         routed = bool(team) or bool(ctx.get("keep_team")) or bool(fwd.get("forwarded"))
+        lang = reply_language(understood) if surface != "comment" else "english"
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
-            _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
-            _handoff_line(category, surface, routed, esc.get("customer_message") or "")
+            _job_hr_line(hr.get("recipient"), lang) if hr.get("forwarded") else \
+            localize_line(_handoff_line(category, surface, routed,
+                                        esc.get("customer_message") or ""), lang)
         if line and tk.get("number"):
-            line = f"{line} Your complaint reference number is #{tk['number']}."
+            line = f"{line}{_complaint_ref(tk['number'], lang)}"
         msg = mask_stored_phone(scrub(line, surface), phone_val or "", typed)
         # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
         # unsafe handoff line becomes the standard DM invite.
@@ -5127,13 +5179,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # not (conv 13266: "Please provide customer care number" got silence).
         care_ask = surface != "comment" and asks_care_number(latest_message)
         if care_ask and msg and not _has_care_number(msg):
-            msg = f"{msg}\n\n{care_line()}"
+            msg = f"{msg}\n\n{care_line(reply_language(understood))}"
         if msg:
             msg = with_care_hours(msg)
         sent = False
         if surface != "comment" and _handoff_pending(conv):
             if care_ask and config.SOCIAL_AUTO_SEND_ENABLED and not over_budget:
-                await _send(conv_id, channel, care_line(), 100, trace,
+                await _send(conv_id, channel, care_line(reply_language(understood)), 100, trace,
                             note="customer care number (hand-over already pending)")
                 sent = True
             # conv 10110: our team already has it — re-announcing the forward on
@@ -5192,10 +5244,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
                         "Agent chose to ignore an abusive message that also "
                         "mentions an issue — please check.", silent=True)
             return {"handled": "agent_ignore_refused"}
+        # The note says WHY in the agent's own words (conv 15570: an anniversary
+        # wish was labelled "abusive or hostile").
+        why = re.sub(r"\s+", " ", str(finish.get("reasoning") or "")).strip()
         await _post_reasoning_note(
-            conv_id, "🤖 No reply sent — abusive or hostile message with no actual issue, "
-                     "ignored on purpose.", trace,
-            finish.get("reasoning") or "abusive / unrelated — ignored")
+            conv_id, f"🤖 No reply sent — ignored on purpose: {why[:300]}" if why else
+            "🤖 No reply sent — ignored on purpose: nothing here for Durian to answer.", trace,
+            why or "nothing to answer — ignored")
         return {"handled": "agent_ignored"}
 
     if not finish or not (finish.get("reply") or "").strip():
@@ -5215,7 +5270,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
     reply = mask_stored_phone(reply, phone_val or "", typed)
     if surface != "comment" and asks_care_number(latest_message) \
             and not _has_care_number(reply):
-        reply = f"{reply.rstrip()}\n\n{care_line()}"
+        reply = f"{reply.rstrip()}\n\n{care_line(reply_language(understood))}"
     reply = with_care_hours(reply)
     scoped = off_scope_line(reply)
     if scoped:
@@ -5523,11 +5578,94 @@ async def _route_handoff(conv_id, category: str, vertical: str) -> str:
     return ""
 
 
-def _job_hr_line(hr_email: str) -> str:
+def _job_hr_line(hr_email: str, lang: str = "english") -> str:
     """The job seeker's line once their details were emailed to HR."""
+    if lang == "hinglish":
+        return ("Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Humne aapki "
+                "details hamari HR team ke saath share kar di hain. Aap apna CV "
+                f"{hr_email} par bhi email kar sakte hain — koi suitable opening hone par woh "
+                "aapse sampark karenge.")
+    if lang == "hindi":
+        return ("ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! हमने आपकी जानकारी हमारी "
+                f"HR टीम के साथ साझा कर दी है। आप अपना CV {hr_email} पर भी ईमेल कर सकते हैं — "
+                "कोई उपयुक्त अवसर होने पर वे आपसे संपर्क करेंगे।")
     return ("Thank you for your interest in working with Durian! We've shared your "
             "details with our HR team. You can also email your CV to "
             f"{hr_email} — they'll contact you if there's a suitable opening.")
+
+
+# The same code-written lines in the customer's language (ISS-604: replies must
+# match the customer's language — conv 15622 "Aapke yahan job mil jaega" got
+# the English HR line). Keyed by the English line; anything not here stays as is.
+_LINE_TRANSLATIONS = {
+    _DM_HANDOFF_LINES["complaint"][0]: (
+        "Humein batane ke liye dhanyavaad. Hamari customer support team jaldi hi aapse sampark karegi.",
+        "हमें बताने के लिए धन्यवाद। हमारी कस्टमर सपोर्ट टीम जल्द ही आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["complaint"][1]: (
+        "Humein batane ke liye dhanyavaad. Humne yeh hamari customer support team ko bhej diya hai, "
+        "aur woh jaldi hi aapse sampark karenge.",
+        "हमें बताने के लिए धन्यवाद। हमने यह हमारी कस्टमर सपोर्ट टीम को भेज दिया है, और वे जल्द ही "
+        "आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["order_status"][0]: (
+        "Dhanyavaad. Hamari orders team jaldi hi aapko update ke saath sampark karegi.",
+        "धन्यवाद। हमारी ऑर्डर्स टीम जल्द ही अपडेट के साथ आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["order_status"][1]: (
+        "Dhanyavaad. Humne yeh hamari orders team ko bhej diya hai, aur woh jaldi hi aapko update "
+        "ke saath sampark karenge.",
+        "धन्यवाद। हमने यह हमारी ऑर्डर्स टीम को भेज दिया है, और वे जल्द ही अपडेट के साथ आपसे "
+        "संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["legal"][0]: (
+        "Dhanyavaad. Sambandhit team is baare mein aapse sampark karegi.",
+        "धन्यवाद। संबंधित टीम इस बारे में आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["legal"][1]: (
+        "Dhanyavaad. Humne yeh sambandhit team ko bhej diya hai, aur woh is baare mein aapse "
+        "sampark karenge.",
+        "धन्यवाद। हमने यह संबंधित टीम को भेज दिया है, और वे इस बारे में आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["job"][0]: (
+        "Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Koi suitable opening hone "
+        "par hamari hiring team aapse sampark karegi.",
+        "ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! कोई उपयुक्त अवसर होने पर हमारी "
+        "हायरिंग टीम आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["job"][1]: (
+        "Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Humne aapki details hamari "
+        "hiring team ko bhej di hain, aur koi suitable opening hone par woh aapse sampark karenge.",
+        "ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! हमने आपकी जानकारी हमारी हायरिंग "
+        "टीम को भेज दी है, और कोई उपयुक्त अवसर होने पर वे आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["bulk"][0]: (
+        "Dhanyavaad — aapki enquiry register ho gayi hai, aur hamari team jaldi hi aapse sampark karegi.",
+        "धन्यवाद — आपकी पूछताछ दर्ज हो गई है, और हमारी टीम जल्द ही आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["bulk"][1]: (
+        "Dhanyavaad — aapki enquiry hamari business team ke paas register ho gayi hai, aur woh "
+        "jaldi hi aapse sampark karenge.",
+        "धन्यवाद — आपकी पूछताछ हमारी बिज़नेस टीम के पास दर्ज हो गई है, और वे जल्द ही आपसे "
+        "संपर्क करेंगे।"),
+    _DM_OTHER_LINE: (
+        "Dhanyavaad — hamari team ka koi member jaldi hi yahin aapko reply karega.",
+        "धन्यवाद — हमारी टीम का कोई सदस्य जल्द ही यहीं आपको जवाब देगा।"),
+}
+
+
+def reply_language(understood: dict | None) -> str:
+    """'english', 'hinglish' or 'hindi' — what code-written lines are sent in."""
+    if not (config.REPLY_IN_CUSTOMER_LANGUAGE and understood):
+        return "english"
+    lang = str(understood.get("language") or "").lower()
+    return lang if lang in ("hinglish", "hindi") else "english"
+
+
+def localize_line(line: str, lang: str) -> str:
+    pair = _LINE_TRANSLATIONS.get(line)
+    if not pair or lang not in ("hinglish", "hindi"):
+        return line
+    return pair[0] if lang == "hinglish" else pair[1]
+
+
+def _complaint_ref(number, lang: str) -> str:
+    if lang == "hinglish":
+        return f" Aapka complaint reference number #{number} hai."
+    if lang == "hindi":
+        return f" आपका शिकायत संदर्भ नंबर #{number} है।"
+    return f" Your complaint reference number is #{number}."
 
 
 def _handoff_line(category: str, surface: str, routed: bool, model_msg: str = "") -> str:
