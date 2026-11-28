@@ -644,6 +644,11 @@ const menuItems = computed(() => {
           to: accountScopedRoute('forwarded_email_reports'),
         },
         {
+          name: 'Report Conversation Export',
+          label: t('SIDEBAR.REPORTS_CONVERSATION_EXPORT'),
+          to: accountScopedRoute('conversation_export_reports'),
+        },
+        {
           name: 'Report Overview',
           label: t('SIDEBAR.REPORTS_OVERVIEW'),
           to: accountScopedRoute('account_overview_reports'),

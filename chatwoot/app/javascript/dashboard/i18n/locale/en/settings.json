@@ -1099,6 +1099,7 @@
     "REPORTS_REVIEWS": "Reviews",
     "REPORTS_FOLLOW_UPS": "Follow-ups",
     "REPORTS_FORWARDED_EMAILS": "Forwarded Emails",
+    "REPORTS_CONVERSATION_EXPORT": "Conversation Export",
     "REAUTHORIZE": "Your inbox connection has expired, please reconnect\n to continue receiving and sending messages",
     "HELP_CENTER": {
       "TITLE": "Help Center",

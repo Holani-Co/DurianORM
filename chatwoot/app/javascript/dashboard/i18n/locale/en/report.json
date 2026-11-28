@@ -115,6 +115,17 @@
       "GATES": "Answered automatically by gate"
     }
   },
+  "CONVERSATION_EXPORT_REPORTS": {
+    "HEADER": "Conversation Export",
+    "DESCRIPTION": "Download every conversation of a period as one Excel file — any channel. The Conversations sheet has one row per conversation with its ID and link; the Messages sheet has the full history, so you never need to scroll back through old chats.",
+    "INBOXES": "Inboxes",
+    "INBOXES_HINT": "Pick the inboxes to include. Leave all unticked to include every inbox.",
+    "INCLUDE_MESSAGES": "Include every message (full history sheet)",
+    "DOWNLOAD": "Download Excel",
+    "DOWNLOADING": "Preparing the file…",
+    "TOO_LONG": "Pick a period of at most 3 months — download longer periods in parts.",
+    "ERROR": "Could not prepare the export. Please try a shorter period."
+  },
   "ORM_OVERVIEW_REPORTS": {
     "HEADER": "ORM Overview",
     "FETCH_ERROR": "Failed to load the ORM overview, please try again.",
