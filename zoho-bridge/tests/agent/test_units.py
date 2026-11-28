@@ -5920,3 +5920,38 @@ def test_dm_prompt_puts_the_store_first():
     assert "STORE FIRST" in p and "NEVER held back" in p
     assert "list ALL of them and ask which one is nearest" in p
     assert "name at most 2 options" not in p
+
+
+# --- ISS-604 follow-up: code-written lines in the customer's language; Hinglish
+# with English nouns is still Hinglish
+
+def test_hinglish_with_english_nouns_is_hinglish():
+    for t in ("Vacancy khali h kya sar ji.. Delivery boy keliy",
+              "Kitne rupaya squrefoot hai door deelarship lay to batye",
+              "Aapke yahan job mil jaega", "Happy happy anniversary hamesha khush raho"):
+        assert sa._text_language(t) == "hinglish", t
+    for t in ("Hi share me bikaner store details, urgent need I want to visit this Saturday",
+              "Please share the price of this sofa", "Thank you ji", "I want a 6 seater dining set"):
+        assert sa._text_language(t) == "english", t
+
+
+def test_code_written_lines_follow_the_customer_language(monkeypatch):
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", True)
+    assert sa.reply_language({"language": "hinglish"}) == "hinglish"
+    assert sa.reply_language({"language": "english"}) == "english"
+    assert sa.reply_language(None) == "english"
+    job = sa._handoff_line("job", "dm", True)
+    assert sa.localize_line(job, "hinglish").startswith("Durian ke saath kaam karne")
+    assert sa.localize_line(job, "hindi").startswith("ड्यूरियन")
+    assert sa.localize_line(job, "english") == job
+    assert sa.localize_line("Some model line", "hinglish") == "Some model line"
+    for cat in ("complaint", "order_status", "legal", "job", "bulk"):
+        for routed in (False, True):
+            assert sa._handoff_line(cat, "dm", routed) in sa._LINE_TRANSLATIONS, (cat, routed)
+    assert "HR team ke saath share" in sa._job_hr_line("hr@durian.in", "hinglish")
+    assert "hr@durian.in" in sa._job_hr_line("hr@durian.in", "hindi")
+    assert sa._complaint_ref(42, "hinglish") == " Aapka complaint reference number #42 hai."
+    hl = sa.care_line("hinglish")
+    assert "1800 209 3242" in hl and "sampark kar sakte hain" in hl and not sa.with_care_hours(hl) != hl
+    monkeypatch.setattr(sa.config, "REPLY_IN_CUSTOMER_LANGUAGE", False)
+    assert sa.reply_language({"language": "hinglish"}) == "english"

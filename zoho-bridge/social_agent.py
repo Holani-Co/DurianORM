@@ -2719,7 +2719,15 @@ def _care_hours_note() -> str:
     return f", {config.CUSTOMER_CARE_HOURS}" if config.CUSTOMER_CARE_HOURS else ""
 
 
-def care_line() -> str:
+def care_line(lang: str = "english") -> str:
+    if lang == "hinglish":
+        return (f"Aap Durian customer care se {config.CUSTOMER_CARE_NUMBER} "
+                f"(toll-free{_care_hours_note()}) par ya {config.RETAIL_SUPPORT_EMAIL} par "
+                "sampark kar sakte hain.")
+    if lang == "hindi":
+        return (f"आप ड्यूरियन कस्टमर केयर से {config.CUSTOMER_CARE_NUMBER} "
+                f"(toll-free{_care_hours_note()}) पर या {config.RETAIL_SUPPORT_EMAIL} पर "
+                "संपर्क कर सकते हैं।")
     return (f"You can reach Durian customer care on {config.CUSTOMER_CARE_NUMBER} "
             f"(toll-free{_care_hours_note()}) or write to {config.RETAIL_SUPPORT_EMAIL}.")
 
@@ -3692,11 +3700,13 @@ _HINGLISH_WORDS = frozenset("""
     accha acha achha theek thik sahi wala wali wale abhi jaldi kal aaj yaha yahan waha
     wahan liye ke ki ka ko se pe par pr mein mai main bhi aur ya lekin kuch koi sab bahut
     bohot zyada jyada kam rate dam paisa paise rupay rupaye milega milegi mil sakta sakti
-    hoti hota raha rahi rahe chalega
+    hoti hota raha rahi rahe chalega rupaya rupees jaega jayega jaayega karega karegi
+    karenge denge dena lena chahta chahti keliye batye btaiye btana batana
+    hamesha khush raho sath saath wapas kitna kitni khali
 """.split())
 # Short words that are ALSO everyday English — never enough on their own.
 _HINGLISH_WEAK = frozenset({"main", "rate", "kar", "par", "pe", "ki", "ka", "ke", "ko",
-                            "se", "ya", "the", "han", "mil", "kam", "bata", "ji", "dam"})
+                            "se", "ya", "the", "han", "mil", "kam", "bata", "ji", "dam", "h"})
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 # Polite Hindi verb forms ("rakhiyega", "bataiyenge", "dijiye").
 _HINGLISH_ENDINGS = ("iyega", "iyegi", "iyenge", "ijiye", "iyeh")
@@ -3717,7 +3727,10 @@ def _text_language(text: str) -> str:
     strong = [w for w in words if (w in _HINGLISH_WORDS and w not in _HINGLISH_WEAK)
               or w.endswith(_HINGLISH_ENDINGS)]
     weak = [w for w in words if w in _HINGLISH_WEAK]
-    if strong and (len(strong) + len(weak)) * 4 >= len(words):
+    # Customers mix English nouns into Hindi ("Kitne rupaya squrefoot hai door
+    # deelarship lay to batye") — two Hindi words, or one in a short message, is
+    # enough.
+    if len(strong) >= 2 or (strong and (len(strong) + len(weak)) * 4 >= len(words)):
         return "hinglish"
     return "english"
 
@@ -5150,11 +5163,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
             trace.append({"type": "decision", "source": "rule", "visibility": "internal",
                           "label": "Routed", "detail": f"{category} → team '{team}'"})
         routed = bool(team) or bool(ctx.get("keep_team")) or bool(fwd.get("forwarded"))
+        lang = reply_language(understood) if surface != "comment" else "english"
         line = (esc.get("customer_message") or "") if ctx.get("keep_team") else \
-            _job_hr_line(hr.get("recipient")) if hr.get("forwarded") else \
-            _handoff_line(category, surface, routed, esc.get("customer_message") or "")
+            _job_hr_line(hr.get("recipient"), lang) if hr.get("forwarded") else \
+            localize_line(_handoff_line(category, surface, routed,
+                                        esc.get("customer_message") or ""), lang)
         if line and tk.get("number"):
-            line = f"{line} Your complaint reference number is #{tk['number']}."
+            line = f"{line}{_complaint_ref(tk['number'], lang)}"
         msg = mask_stored_phone(scrub(line, surface), phone_val or "", typed)
         # A comment never goes silent (convs 9996 / 10009 / 10011): a missing or
         # unsafe handoff line becomes the standard DM invite.
@@ -5164,13 +5179,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
         # not (conv 13266: "Please provide customer care number" got silence).
         care_ask = surface != "comment" and asks_care_number(latest_message)
         if care_ask and msg and not _has_care_number(msg):
-            msg = f"{msg}\n\n{care_line()}"
+            msg = f"{msg}\n\n{care_line(reply_language(understood))}"
         if msg:
             msg = with_care_hours(msg)
         sent = False
         if surface != "comment" and _handoff_pending(conv):
             if care_ask and config.SOCIAL_AUTO_SEND_ENABLED and not over_budget:
-                await _send(conv_id, channel, care_line(), 100, trace,
+                await _send(conv_id, channel, care_line(reply_language(understood)), 100, trace,
                             note="customer care number (hand-over already pending)")
                 sent = True
             # conv 10110: our team already has it — re-announcing the forward on
@@ -5229,10 +5244,13 @@ async def _handle_locked(conv, conv_id, channel, surface,
                         "Agent chose to ignore an abusive message that also "
                         "mentions an issue — please check.", silent=True)
             return {"handled": "agent_ignore_refused"}
+        # The note says WHY in the agent's own words (conv 15570: an anniversary
+        # wish was labelled "abusive or hostile").
+        why = re.sub(r"\s+", " ", str(finish.get("reasoning") or "")).strip()
         await _post_reasoning_note(
-            conv_id, "🤖 No reply sent — abusive or hostile message with no actual issue, "
-                     "ignored on purpose.", trace,
-            finish.get("reasoning") or "abusive / unrelated — ignored")
+            conv_id, f"🤖 No reply sent — ignored on purpose: {why[:300]}" if why else
+            "🤖 No reply sent — ignored on purpose: nothing here for Durian to answer.", trace,
+            why or "nothing to answer — ignored")
         return {"handled": "agent_ignored"}
 
     if not finish or not (finish.get("reply") or "").strip():
@@ -5252,7 +5270,7 @@ async def _handle_locked(conv, conv_id, channel, surface,
     reply = mask_stored_phone(reply, phone_val or "", typed)
     if surface != "comment" and asks_care_number(latest_message) \
             and not _has_care_number(reply):
-        reply = f"{reply.rstrip()}\n\n{care_line()}"
+        reply = f"{reply.rstrip()}\n\n{care_line(reply_language(understood))}"
     reply = with_care_hours(reply)
     scoped = off_scope_line(reply)
     if scoped:
@@ -5560,11 +5578,94 @@ async def _route_handoff(conv_id, category: str, vertical: str) -> str:
     return ""
 
 
-def _job_hr_line(hr_email: str) -> str:
+def _job_hr_line(hr_email: str, lang: str = "english") -> str:
     """The job seeker's line once their details were emailed to HR."""
+    if lang == "hinglish":
+        return ("Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Humne aapki "
+                "details hamari HR team ke saath share kar di hain. Aap apna CV "
+                f"{hr_email} par bhi email kar sakte hain — koi suitable opening hone par woh "
+                "aapse sampark karenge.")
+    if lang == "hindi":
+        return ("ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! हमने आपकी जानकारी हमारी "
+                f"HR टीम के साथ साझा कर दी है। आप अपना CV {hr_email} पर भी ईमेल कर सकते हैं — "
+                "कोई उपयुक्त अवसर होने पर वे आपसे संपर्क करेंगे।")
     return ("Thank you for your interest in working with Durian! We've shared your "
             "details with our HR team. You can also email your CV to "
             f"{hr_email} — they'll contact you if there's a suitable opening.")
+
+
+# The same code-written lines in the customer's language (ISS-604: replies must
+# match the customer's language — conv 15622 "Aapke yahan job mil jaega" got
+# the English HR line). Keyed by the English line; anything not here stays as is.
+_LINE_TRANSLATIONS = {
+    _DM_HANDOFF_LINES["complaint"][0]: (
+        "Humein batane ke liye dhanyavaad. Hamari customer support team jaldi hi aapse sampark karegi.",
+        "हमें बताने के लिए धन्यवाद। हमारी कस्टमर सपोर्ट टीम जल्द ही आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["complaint"][1]: (
+        "Humein batane ke liye dhanyavaad. Humne yeh hamari customer support team ko bhej diya hai, "
+        "aur woh jaldi hi aapse sampark karenge.",
+        "हमें बताने के लिए धन्यवाद। हमने यह हमारी कस्टमर सपोर्ट टीम को भेज दिया है, और वे जल्द ही "
+        "आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["order_status"][0]: (
+        "Dhanyavaad. Hamari orders team jaldi hi aapko update ke saath sampark karegi.",
+        "धन्यवाद। हमारी ऑर्डर्स टीम जल्द ही अपडेट के साथ आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["order_status"][1]: (
+        "Dhanyavaad. Humne yeh hamari orders team ko bhej diya hai, aur woh jaldi hi aapko update "
+        "ke saath sampark karenge.",
+        "धन्यवाद। हमने यह हमारी ऑर्डर्स टीम को भेज दिया है, और वे जल्द ही अपडेट के साथ आपसे "
+        "संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["legal"][0]: (
+        "Dhanyavaad. Sambandhit team is baare mein aapse sampark karegi.",
+        "धन्यवाद। संबंधित टीम इस बारे में आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["legal"][1]: (
+        "Dhanyavaad. Humne yeh sambandhit team ko bhej diya hai, aur woh is baare mein aapse "
+        "sampark karenge.",
+        "धन्यवाद। हमने यह संबंधित टीम को भेज दिया है, और वे इस बारे में आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["job"][0]: (
+        "Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Koi suitable opening hone "
+        "par hamari hiring team aapse sampark karegi.",
+        "ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! कोई उपयुक्त अवसर होने पर हमारी "
+        "हायरिंग टीम आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["job"][1]: (
+        "Durian ke saath kaam karne mein aapki ruchi ke liye dhanyavaad! Humne aapki details hamari "
+        "hiring team ko bhej di hain, aur koi suitable opening hone par woh aapse sampark karenge.",
+        "ड्यूरियन के साथ काम करने में आपकी रुचि के लिए धन्यवाद! हमने आपकी जानकारी हमारी हायरिंग "
+        "टीम को भेज दी है, और कोई उपयुक्त अवसर होने पर वे आपसे संपर्क करेंगे।"),
+    _DM_HANDOFF_LINES["bulk"][0]: (
+        "Dhanyavaad — aapki enquiry register ho gayi hai, aur hamari team jaldi hi aapse sampark karegi.",
+        "धन्यवाद — आपकी पूछताछ दर्ज हो गई है, और हमारी टीम जल्द ही आपसे संपर्क करेगी।"),
+    _DM_HANDOFF_LINES["bulk"][1]: (
+        "Dhanyavaad — aapki enquiry hamari business team ke paas register ho gayi hai, aur woh "
+        "jaldi hi aapse sampark karenge.",
+        "धन्यवाद — आपकी पूछताछ हमारी बिज़नेस टीम के पास दर्ज हो गई है, और वे जल्द ही आपसे "
+        "संपर्क करेंगे।"),
+    _DM_OTHER_LINE: (
+        "Dhanyavaad — hamari team ka koi member jaldi hi yahin aapko reply karega.",
+        "धन्यवाद — हमारी टीम का कोई सदस्य जल्द ही यहीं आपको जवाब देगा।"),
+}
+
+
+def reply_language(understood: dict | None) -> str:
+    """'english', 'hinglish' or 'hindi' — what code-written lines are sent in."""
+    if not (config.REPLY_IN_CUSTOMER_LANGUAGE and understood):
+        return "english"
+    lang = str(understood.get("language") or "").lower()
+    return lang if lang in ("hinglish", "hindi") else "english"
+
+
+def localize_line(line: str, lang: str) -> str:
+    pair = _LINE_TRANSLATIONS.get(line)
+    if not pair or lang not in ("hinglish", "hindi"):
+        return line
+    return pair[0] if lang == "hinglish" else pair[1]
+
+
+def _complaint_ref(number, lang: str) -> str:
+    if lang == "hinglish":
+        return f" Aapka complaint reference number #{number} hai."
+    if lang == "hindi":
+        return f" आपका शिकायत संदर्भ नंबर #{number} है।"
+    return f" Your complaint reference number is #{number}."
 
 
 def _handoff_line(category: str, surface: str, routed: bool, model_msg: str = "") -> str:
