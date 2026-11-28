@@ -115,6 +115,7 @@ Rails.application.routes.draw do
             get :emi
             get :overview
             get :monthly
+            get :conversations
           end
           # Durian — weekly Forwarded Emails report per email category (preview + send).
           resource :forwarded_email_report, controller: 'forwarded_email_reports', only: [:show] do

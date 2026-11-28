@@ -1,4 +1,4 @@
-# Durian — downloadable CSV exports for the ORM reports section.
+# Durian — downloadable CSV / Excel exports for the ORM reports section.
 #
 # Each action streams a CSV for the selected date range. Deals use the client's
 # Zoho CRM "Deals" import column layout so the file drops straight into Zoho;
@@ -72,6 +72,27 @@ class Api::V1::Accounts::OrmExportsController < Api::V1::Accounts::BaseControlle
       send_data Reports::OrmMonthlyPdf.new(data).render, filename: "durian-orm-report-#{month}.pdf",
                                                          type: 'application/pdf'
     end
+  end
+
+  # Conversation export (ISS-672): every conversation started in the range, in
+  # the chosen inboxes (any channel; none chosen = all), with its full history.
+  # GET …/orm_exports/conversations?since=&until=&inbox_ids=1,2&messages=false
+  def conversations
+    # ~10k conversations / 30k messages per 3 months build in ~20 s; longer
+    # periods are downloaded in parts.
+    if range.end - range.begin > 93.days
+      return render json: { error: 'Pick a period of at most 3 months.' }, status: :unprocessable_entity
+    end
+
+    scope = Current.account.conversations.where(created_at: range)
+    inbox_ids = params[:inbox_ids].to_s.split(',').map(&:to_i).reject(&:zero?)
+    scope = scope.where(inbox_id: inbox_ids) if inbox_ids.any?
+    file = Reports::ConversationExportXlsx.new(
+      account: Current.account, conversations: scope.order(:created_at).preload(:contact, :inbox, :assignee, :team),
+      include_messages: params[:messages] != 'false'
+    ).render
+    send_data file, filename: "durian-conversations-#{Date.current}.xlsx",
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   end
 
   private

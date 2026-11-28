@@ -29,6 +29,7 @@ import CrmFunnelReports from './CrmFunnelReports.vue';
 import ReviewsReports from './ReviewsReports.vue';
 import FollowUpReports from './FollowUpReports.vue';
 import ForwardedEmailReports from './ForwardedEmailReports.vue';
+import ConversationExportReports from './ConversationExportReports.vue';
 
 const meta = {
   featureFlag: FEATURE_FLAGS.REPORTS,
@@ -177,6 +178,12 @@ export default {
           name: 'forwarded_email_reports',
           meta,
           component: ForwardedEmailReports,
+        },
+        {
+          path: 'conversation-export',
+          name: 'conversation_export_reports',
+          meta,
+          component: ConversationExportReports,
         },
         {
           path: 'overview',

@@ -1915,6 +1915,7 @@ web_only:
     - "api/v1/accounts/orm_exports#emi"
     - "api/v1/accounts/orm_exports#overview"
     - "api/v1/accounts/orm_exports#monthly"
+    - "api/v1/accounts/orm_exports#conversations"
   none:
     - "api/v1/accounts/contacts/notes#new"
     - "api/v1/accounts/contacts/notes#edit"
