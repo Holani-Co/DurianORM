@@ -705,6 +705,13 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     """find_showrooms over the unified store_locator (STORE_LOCATOR_ENABLED).
     Vertical-scoped, so a doors/FHC enquiry can never surface a furniture store."""
     r = store_locator.resolve(vert, pincode=pincode or None, city=city or None)
+    if r is None and city and not pincode and not store_locator.knows_place(city):
+        # A locality we cannot place ("Kandivali West") is not "no store nearby".
+        return {"resolved": False, "unknown_place": True,
+                "note": (f"We could not place '{city}' on our map — this does NOT mean there "
+                         "is no store. Call find_showrooms again with the CITY it is in "
+                         f"added (e.g. '{city}, Mumbai' for a Mumbai area), or ask for their "
+                         "area pincode. Never tell them there is no store near them.")}
     if r is None:
         label = {"doors": "Durian Doors",
                  "fhc": "Durian Full Home Customisation"}.get(vert, "a Durian")
@@ -766,24 +773,25 @@ def _find_showrooms_locator(vert: str, pincode: str, city: str) -> dict:
     "Nearest Durian store for a PRODUCT LINE and a place. `line` is what the "
     "customer is looking for — furniture (ready-made), doors, or fhc (full home "
     "customisation: anything designed and built to measure) — taken from what "
-    "THEY said in this conversation, never from which account they messaged. "
-    "Not said yet → do NOT guess and do NOT call this: tell them we have stores "
-    "and ask what they are looking for (a likely guess may be CONFIRMED as a "
-    "question). Pass the place the "
+    "THEY said in this conversation; when they have not said, it is THIS "
+    "account's line (the FHC account → fhc). Never hold a store answer back to "
+    "ask which line, or for their name or number. Pass the place the "
     "customer is asking about THIS turn: the city OR area they named as `city` "
-    "(e.g. 'Goregaon', 'Kirti Nagar', 'Mumbai') and/or their pincode. A place they "
+    "(e.g. 'Goregaon', 'Kirti Nagar', 'Mumbai') — an area WITH its city "
+    "('Kandivali West, Mumbai') — and/or their pincode. A place they "
     "name now beats an older pincode from their profile — pass it, don't swap in "
     "the stored one. resolved=true → `address_message` holds the "
     "store's facts (name, 📍 address, 🕒 timing, 👤 manager, 📞 phone, 🗺️ map); "
     "paste them verbatim in your own single message, never invent or edit them. "
     "resolved=false → no store is near them: say so plainly (do NOT escalate) and "
-    "offer to note their details. A city matching several returns `options` — ask "
-    "for their pincode.",
+    "offer to note their details. A city matching several returns `options` — list "
+    "them ALL and ask which one is nearest to them. unknown_place → call again "
+    "with the city added, or ask their pincode; never say there is no store.",
     {"line": {"type": "string", "enum": list(LINES),
               "description": "what the customer is looking for, from THEIR words"},
      "pincode": {"type": "string"}, "city": {"type": "string"}},
     {"resolved": "bool", "showroom": "str", "city": "str",
-     "options": "list[str] when a city matches several — ask for pincode",
+     "options": "list[str] when a city matches several — list them, ask which is nearest",
      "address_message": "store facts to paste verbatim; the framing is yours",
      "store_extras": "optional facts (holiday/closed days, parking, store type, "
                      "area, floors, escalator) — mention one ONLY if the customer "
@@ -797,7 +805,10 @@ def _sk_find_showrooms(ctx, pincode: str = "", city: str = "", line: str = "", *
     # real strings so a malformed arg reads as "not given" instead of crashing.
     pincode = pincode if isinstance(pincode, str) else ""
     city = city if isinstance(city, str) else ""
-    line = _norm_line(line)
+    # A store question that names no line is answered with THIS account's line
+    # (ISS-665: the FHC account withheld the Goregaon studio until the customer
+    # said "furniture, doors or interiors").
+    line = _norm_line(line) or _norm_line(ctx.get("vertical") or "")
     if not line:
         return {"resolved": False, "need_line": True,
                 "note": "You did not say which product line the customer wants, so "
@@ -1282,7 +1293,7 @@ async def _enquiry_name(ctx, name: str, name_confirmed: bool) -> tuple[str, str]
     # Anything the agent passes that the customer did not type can only be their
     # profile name; an invented one falls back to it.
     candidate = contact if _looks_like_person_name(contact) else ""
-    if not candidate:
+    if not candidate or _declined_profile_name(ctx.get("all_messages")):
         return "ask", ""
     pending = ca.get("pending_enquiry_name") or {}
     latest = ctx.get("latest_msg_id")
@@ -1299,7 +1310,21 @@ async def _enquiry_name(ctx, name: str, name_confirmed: bool) -> tuple[str, str]
     return "confirm", candidate
 
 
-def _enquiry_checklist(prof: dict, conv: dict) -> str:
+# "No not on this name", "it's for my sister" (ISS-665): the profile name is not
+# theirs to register under — never propose it again, ask for the right one.
+_NAME_DECLINED_RE = re.compile(
+    r"\b(?:no|not|nahi|nhi)\b[^.?!\n]{0,25}\bname\b"
+    r"|\b(?:its|it's|it is|this is|enquiry is)?\s*(?:for|fr)\s+(?:my|mere|meri)\s+"
+    r"(?:sister|brother|mother|mom|mum|father|dad|wife|husband|son|daughter|friend|"
+    r"relative|uncle|aunt|bhai|behen|didi|papa|mummy)\b", re.I)
+
+
+def _declined_profile_name(all_messages) -> bool:
+    return any(_NAME_DECLINED_RE.search(m.get("content") or "")
+               for m in _engagement_incoming(all_messages or []))
+
+
+def _enquiry_checklist(prof: dict, conv: dict, name_declined: bool = False) -> str:
     """The state block the agent reads every turn: which of an enquiry's details
     we already hold and which are still missing. Worked out by code, so "ask for
     everything missing at once" no longer depends on the agent having called
@@ -1320,6 +1345,9 @@ def _enquiry_checklist(prof: dict, conv: dict) -> str:
     contact = str(((conv.get("meta") or {}).get("sender") or {}).get("name") or "").strip()
     if held:
         have.append(f"their name ({held})")
+    elif name_declined:
+        need.append(f"the full name of the person the enquiry is for (they said it is not "
+                    f'"{contact}" — never propose that name again)')
     elif _looks_like_person_name(contact):
         need.append(f'their name — the profile shows "{contact}", so ask "Shall we register '
                     f'this under the name {contact}?" instead of asking for it afresh')
@@ -1328,7 +1356,8 @@ def _enquiry_checklist(prof: dict, conv: dict) -> str:
     out = ["ENQUIRY CHECKLIST (worked out by code as of BEFORE this message — whatever "
            "they give in this message counts as held):",
            "- Product line: yours to judge from what THEY said — furniture, doors or "
-           "fhc. Unknown until they say; ask, never assume."]
+           "fhc. Unknown until they say; ask, never assume — except a store / address / "
+           "visit question, which is answered at once with this account's line."]
     deals = _deal_lines(ca)
     if deals:
         out.append("- Already registered in this conversation: "
@@ -3962,15 +3991,22 @@ to measure (modular kitchen, a wardrobe made to size, interiors, "full home") \
 in that SAME message ask for the other details the enquiry will need (their \
 city or pincode, their name, and their contact number unless we hold it), so \
 it is one question round, not three; when one line is likely you may CONFIRM \
-it as a question, but never assume it — no store and no enquiry until they \
-answer. One deal per line: a second product \
+it as a question, but never assume it — no enquiry until they answer.
+   STORE FIRST: a question about a store — where it is, its address, \
+visiting it, "do you have a store in X" — is answered in THIS reply: call \
+find_showrooms (no line named yet → THIS account's line) and give the store \
+card. The address is NEVER held back for a product line, their name or their \
+number; you may ask ONCE, in the same reply, whether they'd like us to note \
+their name and number so the store expects them — optional, never a condition, \
+and not asked again if they skip it. A name they declined ("not on this name", \
+"it's for my sister") is never proposed again. One deal per line: a second product \
 in the same line joins the enquiry already registered; a different line is a \
 new enquiry — call register_enquiry again with that line and the details we \
 already hold, without asking for them again.
    An OPENING-SOON location (find_showrooms upcoming) → \
 note_upcoming_store_lead instead, no deal. find_showrooms alone registers \
 nothing.{visit_rule} A pincode alone is a complete location; a city with \
-several showrooms → ask for their pincode (name at most 2 options). A \
+several showrooms → list ALL of them and ask which one is nearest. A \
 project/builder or trade enquiry, or any "we'll connect you with our team" \
 handoff, also asks for EVERY capture detail still missing in ONE message \
 (name, phone number, city or pincode), not one at a time across turns.
@@ -4853,7 +4889,8 @@ async def _handle_locked(conv, conv_id, channel, surface,
                           "decline is a decline. A value given for someone else "
                           "or in an unrelated context is not theirs:\n" + prior_block)
     if surface != "comment":
-        profile_block += "\n\n" + _enquiry_checklist(prof, conv)
+        profile_block += "\n\n" + _enquiry_checklist(
+            prof, conv, _declined_profile_name(all_messages))
     templates = await _templates_block(channel, surface)
     # On a comment, the post's caption is the product context (Chatwoot stores
     # it on the conversation) — feed it so the agent can name the product.

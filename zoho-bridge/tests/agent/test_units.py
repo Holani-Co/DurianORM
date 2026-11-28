@@ -1198,8 +1198,10 @@ def test_no_store_notes_point_to_the_right_next_step(monkeypatch):
     none = find({}, line="doors", city="Patna")           # no store at all → register
     assert none["serviceable"] is False and "register_enquiry (line 'doors'" in none["note"]
     assert "register_enquiry" not in find({}, line="furniture", city="Patna")["note"]
-    # no line → no store is named: the agent must find out what they want first
-    assert find({"vertical": "doors"}, city="Patna")["need_line"] is True
+    # no line named → THIS account's line answers a store question (ISS-665);
+    # only with no account line either does the agent ask first
+    assert "Durian Doors" in find({"vertical": "doors"}, city="Patna")["note"]
+    assert find({}, city="Patna")["need_line"] is True
 
 
 def test_upcoming_store_lead_is_a_note_not_a_deal(monkeypatch):
@@ -5871,3 +5873,50 @@ def test_campaign_deal_message_never_reaches_the_agent(monkeypatch):
     except Exception:
         pass                                   # falls through to the normal flow
     assert acks == []
+
+
+
+# --- ISS-665 (chat 15522): store details first, account line, unknown localities,
+# a declined profile name is never proposed again
+
+def test_store_question_uses_the_account_line_and_unknown_area_is_not_no_store(monkeypatch):
+    import store_locator
+    _mumbai_fhc(monkeypatch)
+    monkeypatch.setattr(sa.config, "STORE_LOCATOR_ENABLED", True)
+    monkeypatch.setattr(store_locator, "upcoming", lambda *a, **k: None)
+    find = sa.SKILLS["find_showrooms"]["handler"]
+    fhc_ctx = {"vertical": "fhc"}
+    r = find(fhc_ctx, city="Mumbai")                         # no line → the FHC account's
+    assert r["resolved"] and len(r["options"]) == 2 and "nearest" in r["note"]
+    r = find(fhc_ctx, city="Kandivali West")                  # can't place it ≠ no store
+    assert r["unknown_place"] and "Kandivali West, Mumbai" in r["note"]
+    assert "Never tell them there is no store" in r["note"]
+    r = find(fhc_ctx, city="Kandivali West, Mumbai")          # with its city → both studios
+    assert len(r["options"]) == 2
+    assert store_locator.knows_place("Goregaon") and not store_locator.knows_place("Kandivali West")
+
+
+def test_declined_profile_name_is_never_proposed_again():
+    import asyncio
+    msgs = [{"message_type": 0, "content": "We wud like to visit th store first"},
+            {"message_type": 1, "content": "Shall we register this under the name Vandana Jolly?"},
+            {"message_type": 0, "content": "No not on this name"},
+            {"message_type": 0, "content": "Its fr my sister"}]
+    assert sa._declined_profile_name(msgs)
+    assert sa._declined_profile_name([{"message_type": 0, "content": "it's for my mother"}])
+    assert not sa._declined_profile_name([{"message_type": 0, "content": "No, I need a sofa"}])
+    conv = {"custom_attributes": {}, "meta": {"sender": {"name": "Vandana Jolly"}}}
+    block = sa._enquiry_checklist({"identity": {}, "location": {}}, conv, name_declined=True)
+    assert "Shall we register" not in block and "never propose that name again" in block
+    ctx = {"conv": conv, "conv_id": 1, "profile": {}, "all_messages": msgs, "incoming_all": []}
+    assert asyncio.run(sa._enquiry_name(ctx, "", False)) == ("ask", "")
+
+
+def test_dm_prompt_puts_the_store_first():
+    from datetime import datetime
+    p = sa._system_prompt(surface="dm", inbox="durian_fullhomecustomisation", vertical="fhc",
+                          now=datetime(2026, 11, 28), profile_block="P", templates="T",
+                          n_customer_msgs=1)
+    assert "STORE FIRST" in p and "NEVER held back" in p
+    assert "list ALL of them and ask which one is nearest" in p
+    assert "name at most 2 options" not in p

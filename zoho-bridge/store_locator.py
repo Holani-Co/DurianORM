@@ -89,6 +89,13 @@ def _match_place(candidates: list, place: str, vert: str) -> list:
     return [s for s in hits if s.get("primary_vertical") == vert] or hits
 
 
+def knows_place(place: str) -> bool:
+    """The place names at least one Durian store's city or area, of ANY line —
+    so "no store of this line there" is a real answer. False for a locality we
+    cannot place at all ("Kandivali West")."""
+    return bool(_match_place(_stores(), place, ""))
+
+
 def match_store(vertical: str, text: str) -> dict | None:
     """The one store of `vertical` the customer picked by name — an option we
     listed ("Full Home Customisation - Thane - Subhash Nagar") or just its area
